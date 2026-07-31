@@ -29,11 +29,6 @@
   min-width: 0;
 }
 
-.fullRow {
-  min-width: 0;
-  grid-column: 1 / -1;
-}
-
 .colorRow {
   display: grid;
   min-width: 0;

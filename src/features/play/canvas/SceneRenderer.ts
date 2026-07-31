@@ -66,7 +66,6 @@ import {
   snapValue,
   snappingActive,
 } from './imageGeometry';
-import { POLYLINE_PEN_CURSOR } from './paintCursors';
 import { softBrushPasses } from './softBrush';
 import styles from './SceneRenderer.module.css';
 
@@ -483,9 +482,6 @@ export class SceneRenderer implements SceneRendererHandle {
   } | null = null;
   private readonly paintPreviewGraphics = new Graphics();
   private readonly remotePaintGraphics = new Graphics();
-  private brushCursor: SVGSVGElement | null = null;
-  private brushCursorPoint: { x: number; y: number } | null = null;
-  private pointerInside = false;
   private readonly remotePaintPreviews = new Map<
     string,
     { lastAt: number; preview: DrawingPreviewEvent }
@@ -638,8 +634,6 @@ export class SceneRenderer implements SceneRendererHandle {
 
     element.addEventListener('wheel', this.handleWheel, { passive: false });
     element.addEventListener('pointerdown', this.handlePointerDown);
-    element.addEventListener('pointerenter', this.handlePointerEnter);
-    element.addEventListener('pointerleave', this.handlePointerLeave);
     element.addEventListener('pointermove', this.handlePointerMove);
     element.addEventListener('pointerup', this.handlePointerUp);
     element.addEventListener('pointercancel', this.handlePointerUp);
@@ -648,32 +642,6 @@ export class SceneRenderer implements SceneRendererHandle {
     element.addEventListener('keydown', this.handleKeyDown);
     element.addEventListener('keyup', this.handleKeyUp);
 
-    const brushCursor = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      'svg',
-    );
-    brushCursor.setAttribute('class', styles.brushCursor);
-    brushCursor.setAttribute('aria-hidden', 'true');
-    brushCursor.setAttribute('viewBox', '0 0 32 32');
-    for (const [color, width] of [
-      ['#000', '2.5'],
-      ['#fff', '1'],
-    ]) {
-      const ring = document.createElementNS(
-        'http://www.w3.org/2000/svg',
-        'circle',
-      );
-      ring.setAttribute('cx', '16');
-      ring.setAttribute('cy', '16');
-      ring.setAttribute('fill', 'none');
-      ring.setAttribute('r', '15');
-      ring.setAttribute('stroke', color);
-      ring.setAttribute('stroke-width', width);
-      ring.setAttribute('vector-effect', 'non-scaling-stroke');
-      brushCursor.appendChild(ring);
-    }
-    element.appendChild(brushCursor);
-    this.brushCursor = brushCursor;
     this.syncPaintCursor();
 
     this.rebuildScene();
@@ -853,8 +821,6 @@ export class SceneRenderer implements SceneRendererHandle {
     if (element) {
       element.removeEventListener('wheel', this.handleWheel);
       element.removeEventListener('pointerdown', this.handlePointerDown);
-      element.removeEventListener('pointerenter', this.handlePointerEnter);
-      element.removeEventListener('pointerleave', this.handlePointerLeave);
       element.removeEventListener('pointermove', this.handlePointerMove);
       element.removeEventListener('pointerup', this.handlePointerUp);
       element.removeEventListener('pointercancel', this.handlePointerUp);
@@ -864,10 +830,6 @@ export class SceneRenderer implements SceneRendererHandle {
       element.removeEventListener('keyup', this.handleKeyUp);
     }
     this.container = null;
-    this.brushCursor?.remove();
-    this.brushCursor = null;
-    this.brushCursorPoint = null;
-    this.pointerInside = false;
     this.measurementLabels?.remove();
     this.measurementLabels = null;
     this.mapTexture?.destroy(true);
@@ -2539,47 +2501,11 @@ export class SceneRenderer implements SceneRendererHandle {
     return diagonal < 90 ? 'nwse-resize' : 'nesw-resize';
   }
 
-  private updateBrushCursor(): void {
-    const style = this.interaction.paintStyle;
-    const point = this.brushCursorPoint;
-    const visible =
-      this.pointerInside &&
-      this.interaction.paintEnabled === true &&
-      this.interaction.paintKind === 'freeform' &&
-      style !== undefined &&
-      point !== null;
-    if (!this.brushCursor || !visible || !point) {
-      if (this.brushCursor) {
-        this.brushCursor.style.display = 'none';
-      }
-      return;
-    }
-    const diameter = Math.max(2, style.strokeWidth * this.camera.zoom);
-    this.brushCursor.style.display = 'block';
-    this.brushCursor.style.width = `${diameter}px`;
-    this.brushCursor.style.height = `${diameter}px`;
-    this.brushCursor.style.left = `${point.x}px`;
-    this.brushCursor.style.top = `${point.y}px`;
-  }
-
   private syncPaintCursor(): void {
     if (!this.container) {
       return;
     }
-    if (
-      this.interaction.paintEnabled &&
-      this.interaction.paintKind === 'freeform'
-    ) {
-      this.container.style.cursor = 'none';
-    } else if (
-      this.interaction.paintEnabled &&
-      this.interaction.paintKind === 'polyline'
-    ) {
-      this.container.style.cursor = POLYLINE_PEN_CURSOR;
-    } else {
-      this.container.style.cursor = '';
-    }
-    this.updateBrushCursor();
+    this.container.style.cursor = '';
   }
 
   private updateHoverCursor(point: { x: number; y: number }): void {
@@ -3183,7 +3109,6 @@ export class SceneRenderer implements SceneRendererHandle {
     this.drawMeasurements();
     this.drawRemotePaintPreviews();
     this.drawPaintPreview();
-    this.updateBrushCursor();
   }
 
   private drawRemotePaintPreviews(): void {
@@ -3734,21 +3659,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.container?.setPointerCapture(event.pointerId);
   };
 
-  private readonly handlePointerEnter = (event: PointerEvent) => {
-    this.pointerInside = true;
-    this.brushCursorPoint = this.localPoint(event);
-    this.updateBrushCursor();
-  };
-
-  private readonly handlePointerLeave = () => {
-    this.pointerInside = false;
-    this.updateBrushCursor();
-  };
-
   private readonly handlePointerMove = (event: PointerEvent) => {
-    this.pointerInside = true;
-    this.brushCursorPoint = this.localPoint(event);
-    this.updateBrushCursor();
     if (
       this.activeFreeform?.pointerId === event.pointerId
     ) {

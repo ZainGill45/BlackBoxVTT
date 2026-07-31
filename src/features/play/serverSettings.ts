@@ -4,6 +4,7 @@ import {
   type ServerSettingsView,
   type HostStatus,
 } from '../../shared/network';
+import { DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS } from '../../shared/chat';
 
 export const OFFLINE_SERVER_STATUS: HostStatus = {
   boundFamilies: [],
@@ -17,6 +18,7 @@ export const OFFLINE_SERVER_STATUS: HostStatus = {
 
 export function createDefaultServerSettings(): ServerSettingsView {
   return {
+    maxChatMessageCharacters: DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
     port: DEFAULT_SERVER_PORT,
     transformPreviewRate: DEFAULT_TRANSFORM_PREVIEW_RATE,
     users: [],

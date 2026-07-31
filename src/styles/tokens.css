@@ -24,11 +24,9 @@
 
 :root {
   color-scheme: dark;
-  font-size: clamp(
-    10.6667px,
-    min(0.833333vw, 1.481481vh),
-    32px
-  );
+  font-size: clamp(10.6667px,
+      min(0.833333vw, 1.481481vh),
+      32px);
 
   --color-canvas: #0d0d0d;
   --color-grid: rgb(255 255 255 / 7%);

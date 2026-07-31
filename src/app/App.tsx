@@ -211,7 +211,15 @@ export function App({
 
   const handleLogout = () => {
     if (playSession?.source === 'local') {
-      void networkApi.stopHost();
+      void networkApi
+        .stopHost()
+        .then(async () => {
+          const result = await campaignApi.list();
+          if (result.ok) {
+            setCampaigns(sortCampaigns(result.value));
+          }
+        })
+        .catch(() => undefined);
     } else if (playSession?.source === 'remote') {
       void networkApi.disconnect();
     }
@@ -267,7 +275,9 @@ export function App({
 
       {playSession ? (
         <PlayScreen
+          applicationApi={applicationApi}
           assetApi={assetApi}
+          networkApi={networkApi}
           sceneApi={sceneApi}
           session={playSession}
           serverSettings={
@@ -321,6 +331,18 @@ export function App({
               ? (port) => {
                   void networkApi
                     .setPort({ campaignId: activeCampaignId, port })
+                    .then(() => refreshServerSettings(activeCampaignId));
+                }
+              : undefined
+          }
+          onMaxChatMessageCharactersChange={
+            activeCampaignId
+              ? (maxMessageCharacters) => {
+                  void networkApi
+                    .setMaxChatMessageCharacters({
+                      campaignId: activeCampaignId,
+                      maxMessageCharacters,
+                    })
                     .then(() => refreshServerSettings(activeCampaignId));
                 }
               : undefined

@@ -3,6 +3,11 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 import {
+  DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
+  MAX_MAX_CHAT_MESSAGE_CHARACTERS,
+  MIN_MAX_CHAT_MESSAGE_CHARACTERS,
+} from '../../shared/chat';
+import {
   DEFAULT_SERVER_PORT,
   DEFAULT_TRANSFORM_PREVIEW_RATE,
   MAX_TRANSFORM_PREVIEW_RATE,
@@ -20,7 +25,7 @@ import {
   type StoredPasswordHash,
 } from './passwords';
 
-const SERVER_CONFIG_SCHEMA_VERSION = 2 as const;
+const SERVER_CONFIG_SCHEMA_VERSION = 3 as const;
 const SERVER_CONFIG_FILENAME = 'server.json';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -42,6 +47,11 @@ const storedUserSchema = z.object({
 });
 
 const storedServerConfigSchema = z.object({
+  maxChatMessageCharacters: z
+    .number()
+    .int()
+    .min(MIN_MAX_CHAT_MESSAGE_CHARACTERS)
+    .max(MAX_MAX_CHAT_MESSAGE_CHARACTERS),
   port: z.number().int().min(1).max(65_535),
   schemaVersion: z.literal(SERVER_CONFIG_SCHEMA_VERSION),
   transformPreviewRate: z
@@ -58,7 +68,13 @@ export interface StoredManagedUser {
   username: string;
 }
 
+export interface ChatConfigurationSnapshot {
+  maxMessageCharacters: number;
+  users: StoredManagedUser[];
+}
+
 interface StoredServerConfig {
+  maxChatMessageCharacters: number;
   port: number;
   schemaVersion: typeof SERVER_CONFIG_SCHEMA_VERSION;
   users: StoredManagedUser[];
@@ -82,6 +98,7 @@ function usernameKey(username: string): string {
 
 function defaultConfig(): StoredServerConfig {
   return {
+    maxChatMessageCharacters: DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
     port: DEFAULT_SERVER_PORT,
     schemaVersion: SERVER_CONFIG_SCHEMA_VERSION,
     transformPreviewRate: DEFAULT_TRANSFORM_PREVIEW_RATE,
@@ -105,11 +122,15 @@ export class ServerConfigRepository {
     try {
       const source = await readFile(this.configPath, 'utf8');
       const raw = JSON.parse(source);
-      if (raw?.schemaVersion === 1) {
+      if (raw?.schemaVersion === 1 || raw?.schemaVersion === 2) {
         const migrated = storedServerConfigSchema.parse({
           ...raw,
+          maxChatMessageCharacters: DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
           schemaVersion: SERVER_CONFIG_SCHEMA_VERSION,
-          transformPreviewRate: DEFAULT_TRANSFORM_PREVIEW_RATE,
+          transformPreviewRate:
+            raw.schemaVersion === 1
+              ? DEFAULT_TRANSFORM_PREVIEW_RATE
+              : raw.transformPreviewRate,
         });
         await this.save(migrated);
         return migrated;
@@ -132,6 +153,7 @@ export class ServerConfigRepository {
       return {
         ok: true,
         value: {
+          maxChatMessageCharacters: config.maxChatMessageCharacters,
           port: config.port,
           transformPreviewRate: config.transformPreviewRate,
           users: config.users.map((user) =>
@@ -342,6 +364,50 @@ export class ServerConfigRepository {
         return { ok: true, value: rate };
       } catch {
         return failure('storage_error', 'Transform preview rate could not be saved.');
+      }
+    });
+  }
+
+  withChatConfiguration<T>(
+    useConfiguration: (
+      snapshot: ChatConfigurationSnapshot,
+    ) => Promise<T>,
+  ): Promise<T> {
+    return this.mutations.run(async () => {
+      const config = await this.load();
+      return useConfiguration({
+        maxMessageCharacters: config.maxChatMessageCharacters,
+        users: structuredClone(config.users),
+      });
+    });
+  }
+
+  setMaxChatMessageCharacters(
+    maxMessageCharacters: number,
+  ): Promise<NetworkResult<number>> {
+    return this.mutations.run(async () => {
+      if (
+        !Number.isInteger(maxMessageCharacters) ||
+        maxMessageCharacters < MIN_MAX_CHAT_MESSAGE_CHARACTERS ||
+        maxMessageCharacters > MAX_MAX_CHAT_MESSAGE_CHARACTERS
+      ) {
+        return failure(
+          'invalid_input',
+          `Maximum chat message length must be between ${MIN_MAX_CHAT_MESSAGE_CHARACTERS} and ${MAX_MAX_CHAT_MESSAGE_CHARACTERS}.`,
+        );
+      }
+      try {
+        const config = await this.load();
+        await this.save({
+          ...config,
+          maxChatMessageCharacters: maxMessageCharacters,
+        });
+        return { ok: true, value: maxMessageCharacters };
+      } catch {
+        return failure(
+          'storage_error',
+          'Chat settings could not be saved.',
+        );
       }
     });
   }

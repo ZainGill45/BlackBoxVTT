@@ -11,6 +11,10 @@ import { Collapsible } from '../../components/ui/Collapsible';
 import { FormField, TextInput } from '../../components/ui/FormField';
 import { IconButton } from '../../components/ui/IconButton';
 import {
+  MAX_MAX_CHAT_MESSAGE_CHARACTERS,
+  MIN_MAX_CHAT_MESSAGE_CHARACTERS,
+} from '../../shared/chat';
+import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_MANAGED_USERS,
   MIN_TRANSFORM_PREVIEW_RATE,
@@ -25,6 +29,7 @@ export const USER_DELETE_CONFIRMATION_TIMEOUT_MS = 5_000;
 interface ServerSettingsPanelProps {
   onCreateUser: (username: string, password: string) => void;
   onDeleteUser: (userId: string) => void;
+  onMaxChatMessageCharactersChange?: (maximum: number) => void;
   onPortChange: (port: number) => void;
   onTransformPreviewRateChange?: (rate: number) => void;
   onResetPassword: (userId: string, password: string) => void;
@@ -182,6 +187,7 @@ function ManagedUserRow({
 export function ServerSettingsPanel({
   onCreateUser,
   onDeleteUser,
+  onMaxChatMessageCharactersChange,
   onPortChange,
   onTransformPreviewRateChange,
   onResetPassword,
@@ -193,6 +199,9 @@ export function ServerSettingsPanel({
   const [previewRateDraft, setPreviewRateDraft] = useState(
     String(settings.transformPreviewRate ?? 60),
   );
+  const [chatLimitDraft, setChatLimitDraft] = useState(
+    String(settings.maxChatMessageCharacters),
+  );
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [showNewUser, setShowNewUser] = useState(false);
@@ -201,6 +210,8 @@ export function ServerSettingsPanel({
   const newUsernameRef = useRef<HTMLInputElement | null>(null);
   const previewRateInputRef = useRef<HTMLInputElement | null>(null);
   const previewRateIsEditing = useRef(false);
+  const chatLimitInputRef = useRef<HTMLInputElement | null>(null);
+  const chatLimitIsEditing = useRef(false);
 
   useEffect(() => {
     if (!pendingDeleteId) {
@@ -221,6 +232,12 @@ export function ServerSettingsPanel({
       setPreviewRateDraft(String(settings.transformPreviewRate ?? 60));
     }
   }, [settings.transformPreviewRate]);
+
+  useEffect(() => {
+    if (!chatLimitIsEditing.current) {
+      setChatLimitDraft(String(settings.maxChatMessageCharacters));
+    }
+  }, [settings.maxChatMessageCharacters]);
 
   const playerLabel =
     status.connectedPlayerCount === 1
@@ -298,6 +315,22 @@ export function ServerSettingsPanel({
       }
     } else {
       setPreviewRateDraft(String(settings.transformPreviewRate ?? 60));
+    }
+  };
+
+  const commitChatLimit = () => {
+    const maximum = Number(chatLimitDraft);
+    if (
+      Number.isInteger(maximum) &&
+      maximum >= MIN_MAX_CHAT_MESSAGE_CHARACTERS &&
+      maximum <= MAX_MAX_CHAT_MESSAGE_CHARACTERS
+    ) {
+      setChatLimitDraft(String(maximum));
+      if (maximum !== settings.maxChatMessageCharacters) {
+        onMaxChatMessageCharactersChange?.(maximum);
+      }
+    } else {
+      setChatLimitDraft(String(settings.maxChatMessageCharacters));
     }
   };
 
@@ -395,6 +428,45 @@ export function ServerSettingsPanel({
                   if (event.key === 'Enter') {
                     event.preventDefault();
                     previewRateInputRef.current?.blur();
+                  }
+                }}
+              />
+            </label>
+          </div>
+          <div className={styles.joinAddress}>
+            <div className={styles.joinAddressCopy}>
+              <strong>Chat message limit</strong>
+              <span>Maximum characters accepted in each new message</span>
+            </div>
+            <label
+              className={styles.updateRateControl}
+              htmlFor="max-chat-message-characters"
+            >
+              <input
+                ref={chatLimitInputRef}
+                aria-label="Maximum chat message characters"
+                className={styles.updateRateInput}
+                id="max-chat-message-characters"
+                inputMode="numeric"
+                max={MAX_MAX_CHAT_MESSAGE_CHARACTERS}
+                min={MIN_MAX_CHAT_MESSAGE_CHARACTERS}
+                step={1}
+                type="number"
+                value={chatLimitDraft}
+                onBlur={() => {
+                  chatLimitIsEditing.current = false;
+                  commitChatLimit();
+                }}
+                onChange={(event) =>
+                  setChatLimitDraft(event.currentTarget.value)
+                }
+                onFocus={() => {
+                  chatLimitIsEditing.current = true;
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    chatLimitInputRef.current?.blur();
                   }
                 }}
               />

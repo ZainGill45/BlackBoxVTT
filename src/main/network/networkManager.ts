@@ -4,6 +4,20 @@ import { isIP } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  type ChatBootstrap,
+  type ChatEvent,
+  type ChatHistoryInput,
+  type ChatHistoryPage,
+  type ChatIdentity,
+  type ChatMessage,
+  type ChatParticipantEvent,
+  type ChatPrincipal,
+  type ChatResult,
+  type ClearChatHistoryResult,
+  type SendChatMessageInput,
+  type SetMaxChatMessageCharactersInput,
+} from '../../shared/chat';
+import {
   type AssetActor,
   type AssetChangedEvent,
   type AssetCapability,
@@ -20,6 +34,7 @@ import type { CampaignRepository } from '../campaignRepository';
 import { authenticatedAssetPolicy, getAssetCapabilities } from '../assetPolicy';
 import { AssetRepository } from '../assetRepository';
 import { SceneRepository } from '../sceneRepository';
+import { ChatRepository } from '../chatRepository';
 import type {
   SceneDrawing,
   SceneHistoryInput,
@@ -65,7 +80,10 @@ import { CampaignHostServer } from './campaignHostServer';
 import { CampaignClient } from './campaignClient';
 import { AssetCacheSyncError, RemoteAssetCache } from './assetCache';
 import type { ConnectionHistoryRepository } from './connectionHistoryRepository';
-import { ServerConfigRepository } from './serverConfigRepository';
+import {
+  ServerConfigRepository,
+  type StoredManagedUser,
+} from './serverConfigRepository';
 import { ServerUserAdministration } from './serverUserAdministration';
 
 const PUBLIC_ADDRESS_REFRESH_MS = 15 * 60_000;
@@ -133,6 +151,8 @@ interface NetworkManagerOptions {
 
 export class NetworkManager extends EventEmitter {
   private readonly campaignRepository: CampaignRepository;
+  private readonly chatRepositories = new Map<string, ChatRepository>();
+  private chatSystemEvents: ChatParticipantEvent[] = [];
   private readonly assetCacheRoot: string;
   private readonly client: CampaignClient;
   private configuredPort = DEFAULT_SERVER_PORT;
@@ -141,6 +161,7 @@ export class NetworkManager extends EventEmitter {
   private readonly getAssetRepositoryOverride?: NetworkManagerOptions['getAssetRepository'];
   private readonly getSceneRepositoryOverride?: NetworkManagerOptions['getSceneRepository'];
   private host: CampaignHostServer | null = null;
+  private localChatCampaignId: string | null = null;
   private remoteActiveScene: SceneRecord | null = null;
   private readonly remoteTransformStarts = new Map<
     string,
@@ -195,6 +216,9 @@ export class NetworkManager extends EventEmitter {
     });
     this.client = new CampaignClient({
       historyRepository,
+      onChatEvent: (event) => {
+        this.recordChatEvent(event);
+      },
       onAssetsChanged: (manifest) => {
         void this.synchronizeRemoteManifest(manifest, true);
       },
@@ -353,6 +377,8 @@ export class NetworkManager extends EventEmitter {
     if (!container) {
       return failure('campaign_not_found', 'Campaign could not be found.');
     }
+    this.localChatCampaignId = campaignId;
+    this.chatSystemEvents = [];
 
     try {
       const configRepository = new ServerConfigRepository(
@@ -372,11 +398,16 @@ export class NetworkManager extends EventEmitter {
       if (!sceneRepository) {
         throw new Error('Campaign scene storage could not be initialized.');
       }
+      const chatRepository = await this.getChatRepository(campaignId);
+      if (!chatRepository) {
+        throw new Error('Campaign chat storage could not be initialized.');
+      }
       this.configuredPort = config.port;
       const host = new CampaignHostServer({
         assetRepository,
         campaignId: container.manifest.id,
         campaignName: container.manifest.name,
+        chatRepository,
         configRepository,
         identity,
         onAssetSyncError: (playerName, assetName, reason) => {
@@ -390,6 +421,9 @@ export class NetworkManager extends EventEmitter {
         },
         onMapPing: (input) => {
           this.emit('map-ping', input);
+        },
+        onChatEvent: (event) => {
+          this.recordChatEvent(event);
         },
         onDrawingPreview: (input) => {
           this.emit('drawing-preview', input);
@@ -432,7 +466,7 @@ export class NetworkManager extends EventEmitter {
     }
   }
 
-  async stopHost(): Promise<void> {
+  async stopHost(clearLocalChatSession = true): Promise<void> {
     if (this.hostRetryTimer) {
       clearTimeout(this.hostRetryTimer);
       this.hostRetryTimer = null;
@@ -445,8 +479,15 @@ export class NetworkManager extends EventEmitter {
     this.host = null;
     this.publicAddresses = [];
     this.hostRetryIndex = 0;
+    if (clearLocalChatSession) {
+      // Revoke local chat authority before waiting for sockets and SQLite so
+      // no late renderer request can reopen a campaign being closed/trashed.
+      this.localChatCampaignId = null;
+      this.chatSystemEvents = [];
+    }
     if (host) {
       await host.stop();
+      await host.chatRepository.close();
     }
     this.emitHostStatus();
   }
@@ -455,6 +496,7 @@ export class NetworkManager extends EventEmitter {
     if (this.host?.campaignId === campaignId) {
       await this.stopHost();
     }
+    await this.closeChatForCampaign(campaignId);
   }
 
   getHostStatus(): HostStatus {
@@ -553,16 +595,61 @@ export class NetworkManager extends EventEmitter {
     return result;
   }
 
-  createUser(
-    input: CreateManagedUserInput,
-  ): Promise<NetworkResult<ManagedUserView>> {
-    return this.users.createUser(input);
+  async setMaxChatMessageCharacters(
+    input: SetMaxChatMessageCharactersInput,
+  ): Promise<NetworkResult<number>> {
+    if (
+      this.client.getSession()?.campaignId === input.campaignId ||
+      this.localChatCampaignId !== input.campaignId
+    ) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'Only Game Master can change chat settings.',
+        },
+        ok: false,
+      };
+    }
+    const repository = await this.getConfigRepository(input.campaignId);
+    if (!repository) {
+      return failure('campaign_not_found', 'Campaign could not be found.');
+    }
+    const result = await repository.setMaxChatMessageCharacters(
+      input.maxMessageCharacters,
+    );
+    if (result.ok && this.host?.campaignId === input.campaignId) {
+      this.host.setMaxChatMessageCharacters(result.value);
+    } else if (
+      result.ok &&
+      this.localChatCampaignId === input.campaignId
+    ) {
+      this.recordChatEvent({
+        campaignId: input.campaignId,
+        maxMessageCharacters: result.value,
+        type: 'limit_changed',
+      });
+    }
+    return result;
   }
 
-  updateUsername(
+  async createUser(
+    input: CreateManagedUserInput,
+  ): Promise<NetworkResult<ManagedUserView>> {
+    const result = await this.users.createUser(input);
+    if (result.ok && this.host?.campaignId === input.campaignId) {
+      await this.host.broadcastChatDirectory();
+    }
+    return result;
+  }
+
+  async updateUsername(
     input: UpdateManagedUsernameInput,
   ): Promise<NetworkResult<ManagedUserView>> {
-    return this.users.updateUsername(input);
+    const result = await this.users.updateUsername(input);
+    if (result.ok && this.host?.campaignId === input.campaignId) {
+      await this.host.broadcastChatDirectory();
+    }
+    return result;
   }
 
   resetPassword(
@@ -571,11 +658,19 @@ export class NetworkManager extends EventEmitter {
     return this.users.resetPassword(input);
   }
 
-  deleteUser(input: DeleteManagedUserInput): Promise<NetworkResult<null>> {
-    return this.users.deleteUser(input);
+  async deleteUser(
+    input: DeleteManagedUserInput,
+  ): Promise<NetworkResult<null>> {
+    const result = await this.users.deleteUser(input);
+    if (result.ok && this.host?.campaignId === input.campaignId) {
+      await this.host.broadcastChatDirectory();
+    }
+    return result;
   }
 
   connect(input: ConnectInput): Promise<NetworkResult<ConnectStep>> {
+    this.localChatCampaignId = null;
+    this.chatSystemEvents = [];
     this.remoteManifest = null;
     this.remoteCampaignCapabilities = null;
     this.remotePermissions.clear();
@@ -603,6 +698,7 @@ export class NetworkManager extends EventEmitter {
     this.remoteCampaignCapabilities = null;
     this.remotePermissions.clear();
     await this.client.disconnect();
+    this.chatSystemEvents = [];
   }
 
   listHistory(): Promise<NetworkResult<SavedConnection[]>> {
@@ -622,6 +718,179 @@ export class NetworkManager extends EventEmitter {
           recursive: true,
         });
       }
+    }
+    return result;
+  }
+
+  async getChatBootstrap(
+    campaignId: string,
+  ): Promise<ChatResult<ChatBootstrap>> {
+    const remoteSession = this.client.getSession();
+    if (remoteSession?.campaignId === campaignId) {
+      const result = await this.client.getChatBootstrap();
+      if (!result.ok) {
+        return result;
+      }
+      return {
+        ok: true,
+        value: {
+          ...result.value,
+          systemEvents: this.chatSystemEvents.filter(
+            (event) => event.generation === result.value.generation,
+          ),
+        },
+      };
+    }
+    if (this.localChatCampaignId !== campaignId) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'Campaign chat is not active.',
+        },
+        ok: false,
+      };
+    }
+    if (this.host?.campaignId === campaignId) {
+      return this.host.getGmChatBootstrap(this.chatSystemEvents);
+    }
+    const repository = await this.getChatRepository(campaignId);
+    const configRepository = await this.getConfigRepository(campaignId);
+    if (!repository || !configRepository) {
+      return this.chatUnavailable();
+    }
+    try {
+      const config = await configRepository.load();
+      return repository.bootstrap(
+        { kind: 'gm' },
+        this.chatDirectory(config.users),
+        config.maxChatMessageCharacters,
+        this.chatSystemEvents,
+      );
+    } catch {
+      return this.chatUnavailable();
+    }
+  }
+
+  async getChatHistory(
+    input: ChatHistoryInput,
+  ): Promise<ChatResult<ChatHistoryPage>> {
+    const remoteSession = this.client.getSession();
+    const request = {
+      direction: input.direction,
+      generation: input.generation,
+      sequence: input.sequence,
+    };
+    if (remoteSession?.campaignId === input.campaignId) {
+      return this.client.getChatHistory(request);
+    }
+    if (this.localChatCampaignId !== input.campaignId) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'Campaign chat is not active.',
+        },
+        ok: false,
+      };
+    }
+    if (this.host?.campaignId === input.campaignId) {
+      return this.host.getGmChatHistory(request);
+    }
+    const repository = await this.getChatRepository(input.campaignId);
+    return repository
+      ? repository.history({ kind: 'gm' }, request)
+      : this.chatUnavailable();
+  }
+
+  async sendChatMessage(
+    input: SendChatMessageInput,
+  ): Promise<ChatResult<ChatMessage>> {
+    const remoteSession = this.client.getSession();
+    const request = {
+      clientMessageId: input.clientMessageId,
+      content: input.content,
+      recipient: input.recipient,
+    };
+    if (remoteSession?.campaignId === input.campaignId) {
+      return this.client.sendChatMessage(request);
+    }
+    if (this.localChatCampaignId !== input.campaignId) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'Campaign chat is not active.',
+        },
+        ok: false,
+      };
+    }
+    if (this.host?.campaignId === input.campaignId) {
+      return this.host.sendGmChat(request);
+    }
+    const repository = await this.getChatRepository(input.campaignId);
+    const configRepository = await this.getConfigRepository(
+      input.campaignId,
+    );
+    if (!repository || !configRepository) {
+      return this.chatUnavailable();
+    }
+    try {
+      return configRepository.withChatConfiguration(
+        async (configuration) => {
+          const recipient = this.resolveChatIdentity(
+            input.recipient,
+            configuration.users,
+          );
+          if (!recipient.ok) {
+            return recipient;
+          }
+          const result = await repository.send({
+            clientMessageId: input.clientMessageId,
+            content: input.content,
+            maxMessageCharacters: configuration.maxMessageCharacters,
+            recipient: recipient.value,
+            sender: {
+              displayName: 'Game Master',
+              kind: 'gm',
+            },
+          });
+          return result.ok
+            ? { ok: true, value: result.value.message }
+            : result;
+        },
+      );
+    } catch {
+      return this.chatUnavailable();
+    }
+  }
+
+  async clearChatHistory(
+    campaignId: string,
+  ): Promise<ChatResult<ClearChatHistoryResult>> {
+    if (
+      this.client.getSession()?.campaignId === campaignId ||
+      this.localChatCampaignId !== campaignId
+    ) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'Only Game Master can clear chat history.',
+        },
+        ok: false,
+      };
+    }
+    if (this.host?.campaignId === campaignId) {
+      return this.host.clearChatHistory();
+    }
+    const repository = await this.getChatRepository(campaignId);
+    if (!repository) {
+      return this.chatUnavailable();
+    }
+    const result = await repository.clear();
+    if (result.ok) {
+      this.recordChatEvent({
+        campaignId,
+        generation: result.value.generation,
+        type: 'history_cleared',
+      });
     }
     return result;
   }
@@ -1094,6 +1363,133 @@ export class NetworkManager extends EventEmitter {
 
   async shutdown(): Promise<void> {
     await Promise.all([this.stopHost(), this.disconnect()]);
+    await Promise.all(
+      [...this.chatRepositories.values()].map((repository) =>
+        repository.close(),
+      ),
+    );
+    this.chatRepositories.clear();
+  }
+
+  async closeChatForCampaign(campaignId: string): Promise<void> {
+    const repository = this.chatRepositories.get(campaignId);
+    this.chatRepositories.delete(campaignId);
+    await repository?.close();
+    if (this.localChatCampaignId === campaignId) {
+      this.localChatCampaignId = null;
+      this.chatSystemEvents = [];
+    }
+  }
+
+  private chatUnavailable<T>(): ChatResult<T> {
+    return {
+      error: {
+        code: 'storage_error',
+        message: 'Campaign chat is unavailable.',
+      },
+      ok: false,
+    };
+  }
+
+  private chatDirectory(users: StoredManagedUser[]): ChatIdentity[] {
+    return [
+      { displayName: 'Game Master', kind: 'gm' },
+      ...[...users]
+        .sort(
+          (left, right) =>
+            left.username.localeCompare(right.username, 'en-US') ||
+            left.id.localeCompare(right.id),
+        )
+        .map(
+          (user): ChatIdentity => ({
+            displayName: user.username,
+            kind: 'player',
+            userId: user.id,
+          }),
+        ),
+    ];
+  }
+
+  private resolveChatIdentity(
+    principal: ChatPrincipal | null,
+    users: StoredManagedUser[],
+  ): ChatResult<ChatIdentity | null> {
+    if (!principal) {
+      return { ok: true, value: null };
+    }
+    if (principal.kind === 'gm') {
+      return { ok: true, value: { displayName: 'Game Master', kind: 'gm' } };
+    }
+    const user = users.find((candidate) => candidate.id === principal.userId);
+    return user
+      ? {
+          ok: true,
+          value: {
+            displayName: user.username,
+            kind: 'player',
+            userId: user.id,
+          },
+        }
+      : {
+          error: {
+            code: 'recipient_not_found',
+            message: 'Whisper recipient could not be found.',
+          },
+          ok: false,
+        };
+  }
+
+  private recordChatEvent(event: ChatEvent): void {
+    const remoteCampaignId = this.client.getSession()?.campaignId;
+    if (
+      event.campaignId !== this.localChatCampaignId &&
+      event.campaignId !== remoteCampaignId
+    ) {
+      return;
+    }
+    if (
+      event.type === 'participant_joined' ||
+      event.type === 'participant_left'
+    ) {
+      if (
+        !this.chatSystemEvents.some(
+          (candidate) => candidate.eventId === event.eventId,
+        )
+      ) {
+        this.chatSystemEvents.push({
+          eventId: event.eventId,
+          generation: event.generation,
+          identity: structuredClone(event.identity),
+          occurredAt: event.occurredAt,
+          type: event.type,
+        });
+      }
+    } else if (event.type === 'history_cleared') {
+      this.chatSystemEvents = [];
+    }
+    this.emit('chat-event', event);
+  }
+
+  private async getChatRepository(
+    campaignId: string,
+  ): Promise<ChatRepository | null> {
+    let repository = this.chatRepositories.get(campaignId);
+    if (repository) {
+      return repository;
+    }
+    const container = await this.campaignRepository.getContainer(campaignId);
+    if (!container) {
+      return null;
+    }
+    repository = new ChatRepository({
+      campaignDirectory: container.directory,
+      touchCampaign: async () => {
+        await this.campaignRepository.touch(campaignId);
+      },
+      warn: this.warn,
+    });
+    this.chatRepositories.set(campaignId, repository);
+    return repository;
   }
 
   private getRemoteCache(campaignId: string): RemoteAssetCache {

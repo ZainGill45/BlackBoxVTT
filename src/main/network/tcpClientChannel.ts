@@ -13,6 +13,11 @@ const MESSAGE_TIMEOUT_MS = 60_000;
 
 const spontaneousServerMessages = new Set<string>([
   'server.assets_changed',
+  'server.chat_directory_changed',
+  'server.chat_history_cleared',
+  'server.chat_limit_changed',
+  'server.chat_message',
+  'server.chat_participant_event',
   'server.map_ping',
   'server.scene_presented',
   'server.scene_transform_started',

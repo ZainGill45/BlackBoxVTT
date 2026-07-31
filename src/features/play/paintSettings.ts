@@ -5,7 +5,6 @@ import {
   DEFAULT_FREEFORM_HARDNESS,
   DEFAULT_FREEFORM_WIDTH,
   DEFAULT_POLYLINE_WIDTH,
-  type SceneDrawingEdge,
   type SceneDrawingStyle,
 } from '../../shared/scenes';
 import type { PlaySession } from './types';
@@ -14,7 +13,6 @@ export type PaintSubtool = 'freeform' | 'polyline';
 
 export interface FreeformPaintSettings {
   color: string;
-  edge: SceneDrawingEdge;
   hardness: number;
   opacity: number;
   width: number;
@@ -38,7 +36,6 @@ export interface PaintSettings {
 export const DEFAULT_PAINT_SETTINGS: PaintSettings = {
   freeform: {
     color: DEFAULT_DRAWING_COLOR,
-    edge: 'hard',
     hardness: DEFAULT_FREEFORM_HARDNESS,
     opacity: DEFAULT_DRAWING_OPACITY,
     width: DEFAULT_FREEFORM_WIDTH,
@@ -75,16 +72,21 @@ export function normalizePaintSettings(value: unknown): PaintSettings {
   const input = value as Partial<PaintSettings>;
   const freeform = input.freeform ?? DEFAULT_PAINT_SETTINGS.freeform;
   const polyline = input.polyline ?? DEFAULT_PAINT_SETTINGS.polyline;
+  const legacyFreeform = freeform as typeof freeform & {
+    edge?: unknown;
+  };
   return {
     freeform: {
       color: color(freeform.color, DEFAULT_DRAWING_COLOR),
-      edge: freeform.edge === 'soft' ? 'soft' : 'hard',
-      hardness: bounded(
-        freeform.hardness,
-        DEFAULT_FREEFORM_HARDNESS,
-        0,
-        1,
-      ),
+      hardness:
+        legacyFreeform.edge === 'hard'
+          ? 1
+          : bounded(
+              freeform.hardness,
+              DEFAULT_FREEFORM_HARDNESS,
+              0,
+              1,
+            ),
       opacity: bounded(freeform.opacity, DEFAULT_DRAWING_OPACITY, 0.01, 1),
       width: bounded(freeform.width, DEFAULT_FREEFORM_WIDTH, 1, 256),
     },
@@ -140,14 +142,11 @@ export function drawingStyle(
 ): SceneDrawingStyle {
   if (subtool === 'freeform') {
     return {
-      edge: settings.freeform.edge,
+      edge: settings.freeform.hardness < 1 ? 'soft' : 'hard',
       fillColor: settings.freeform.color,
       fillEnabled: false,
       fillOpacity: settings.freeform.opacity,
-      hardness:
-        settings.freeform.edge === 'soft'
-          ? settings.freeform.hardness
-          : 1,
+      hardness: settings.freeform.hardness,
       strokeColor: settings.freeform.color,
       strokeOpacity: settings.freeform.opacity,
       strokeWidth: settings.freeform.width,

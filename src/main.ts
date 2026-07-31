@@ -158,7 +158,6 @@ app.whenReady().then(() => {
   if (!isPrimaryInstance) {
     return;
   }
-
   const campaignRepository = new CampaignRepository({
     rootDirectory: path.join(app.getPath('userData'), 'data', 'campaigns'),
     trashItem: (targetPath) => shell.trashItem(targetPath),
@@ -305,6 +304,7 @@ app.whenReady().then(() => {
     () => {
       revealMainWindow();
     },
+    (url) => shell.openExternal(url),
   );
   powerMonitor.on('resume', () => {
     void networkManager?.retryHostNow();

@@ -1,5 +1,17 @@
 import type { Result } from './result';
 import type {
+  ChatBootstrap,
+  ChatEvent,
+  ChatHistoryInput,
+  ChatHistoryPage,
+  ChatMessage,
+  ChatResult,
+  ClearChatHistoryInput,
+  ClearChatHistoryResult,
+  SendChatMessageInput,
+  SetMaxChatMessageCharactersInput,
+} from './chat';
+import type {
   SceneDrawingKind,
   SceneDrawingLayer,
   SceneDrawingPoint,
@@ -9,7 +21,7 @@ import type {
   SceneTransformPreviewStart,
 } from './scenes';
 
-export const NETWORK_PROTOCOL_VERSION = 8 as const;
+export const NETWORK_PROTOCOL_VERSION = 9 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;
@@ -22,6 +34,8 @@ export const networkIpcChannels = {
   acceptTrust: 'network:accept-trust',
   authenticate: 'network:authenticate',
   cancelConnection: 'network:cancel-connection',
+  chatEvent: 'network:chat-event',
+  clearChatHistory: 'network:clear-chat-history',
   clientStateChanged: 'network:client-state-changed',
   connect: 'network:connect',
   createUser: 'network:create-user',
@@ -29,6 +43,8 @@ export const networkIpcChannels = {
   deleteUser: 'network:delete-user',
   disconnect: 'network:disconnect',
   drawingPreview: 'network:drawing-preview',
+  getChatBootstrap: 'network:get-chat-bootstrap',
+  getChatHistory: 'network:get-chat-history',
   getHostStatus: 'network:get-host-status',
   getServerSettings: 'network:get-server-settings',
   hostStatusChanged: 'network:host-status-changed',
@@ -38,9 +54,11 @@ export const networkIpcChannels = {
   openHost: 'network:open-host',
   resetPassword: 'network:reset-password',
   sessionClosed: 'network:session-closed',
+  setMaxChatMessageCharacters: 'network:set-max-chat-message-characters',
   setPort: 'network:set-port',
   setTransformPreviewRate: 'network:set-transform-preview-rate',
   sendMapPing: 'network:send-map-ping',
+  sendChatMessage: 'network:send-chat-message',
   sendDrawingPreview: 'network:send-drawing-preview',
   sendMeasurementUpdate: 'network:send-measurement-update',
   stopHost: 'network:stop-host',
@@ -59,6 +77,7 @@ export type NetworkErrorCode =
   | 'cooldown'
   | 'duplicate_username'
   | 'invalid_input'
+  | 'permission_denied'
   | 'protocol_mismatch'
   | 'server_unavailable'
   | 'storage_error'
@@ -91,6 +110,7 @@ export interface ManagedUserView {
 }
 
 export interface ServerSettingsView {
+  maxChatMessageCharacters: number;
   port: number;
   transformPreviewRate?: number;
   users: ManagedUserView[];
@@ -291,6 +311,9 @@ export interface NetworkApi {
     input: AuthenticateInput,
   ): Promise<NetworkResult<RemotePlaySession>>;
   cancelConnection(input: CancelConnectionInput): Promise<void>;
+  clearChatHistory(
+    input: ClearChatHistoryInput,
+  ): Promise<ChatResult<ClearChatHistoryResult>>;
   connect(input: ConnectInput): Promise<NetworkResult<ConnectStep>>;
   createUser(
     input: CreateManagedUserInput,
@@ -300,11 +323,18 @@ export interface NetworkApi {
     input: DeleteManagedUserInput,
   ): Promise<NetworkResult<null>>;
   disconnect(): Promise<void>;
+  getChatBootstrap(
+    input: CampaignIdInput,
+  ): Promise<ChatResult<ChatBootstrap>>;
+  getChatHistory(
+    input: ChatHistoryInput,
+  ): Promise<ChatResult<ChatHistoryPage>>;
   getHostStatus(): Promise<HostStatus>;
   getServerSettings(
     input: CampaignIdInput,
   ): Promise<NetworkResult<ServerSettingsView>>;
   listHistory(): Promise<NetworkResult<SavedConnection[]>>;
+  onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onClientStateChanged(listener: (event: ClientStateEvent) => void): () => void;
   onDrawingPreview?(
     listener: (preview: DrawingPreviewEvent) => void,
@@ -328,6 +358,12 @@ export interface NetworkApi {
   resetPassword(
     input: ResetManagedPasswordInput,
   ): Promise<NetworkResult<null>>;
+  sendChatMessage(
+    input: SendChatMessageInput,
+  ): Promise<ChatResult<ChatMessage>>;
+  setMaxChatMessageCharacters(
+    input: SetMaxChatMessageCharactersInput,
+  ): Promise<NetworkResult<number>>;
   setPort(input: SetServerPortInput): Promise<NetworkResult<number>>;
   setTransformPreviewRate?(
     input: SetTransformPreviewRateInput,

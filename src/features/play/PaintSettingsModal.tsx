@@ -227,43 +227,17 @@ export function PaintSettingsModal({
                 updateFreeform({ opacity: opacity / 100 })
               }
             />
-            <FormField
-              className={styles.field}
-              htmlFor="freeform-edge"
-              label="Edge"
-              showLabel
-            >
-              <SelectInput
-                id="freeform-edge"
-                value={settings.freeform.edge}
-                onChange={(event) =>
-                  updateFreeform({
-                    edge:
-                      event.currentTarget.value === 'soft'
-                        ? 'soft'
-                        : 'hard',
-                  })
-                }
-              >
-                <option value="hard">Hard</option>
-                <option value="soft">Soft</option>
-              </SelectInput>
-            </FormField>
-            {settings.freeform.edge === 'soft' ? (
-              <div className={styles.fullRow}>
-                <NumberControl
-                  id="freeform-hardness"
-                  label="Hardness"
-                  max={100}
-                  min={0}
-                  suffix="%"
-                  value={Math.round(settings.freeform.hardness * 100)}
-                  onChange={(hardness) =>
-                    updateFreeform({ hardness: hardness / 100 })
-                  }
-                />
-              </div>
-            ) : null}
+            <NumberControl
+              id="freeform-hardness"
+              label="Hardness"
+              max={100}
+              min={0}
+              suffix="%"
+              value={Math.round(settings.freeform.hardness * 100)}
+              onChange={(hardness) =>
+                updateFreeform({ hardness: hardness / 100 })
+              }
+            />
           </div>
         </section>
 

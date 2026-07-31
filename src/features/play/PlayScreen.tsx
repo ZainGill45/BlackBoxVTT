@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconButton } from '../../components/ui/IconButton';
 import { IconTabs } from '../../components/ui/IconTabs';
 import { QuickActionButton } from '../../components/ui/QuickActionButton';
+import { ChatPanel } from './chat/ChatPanel';
 import { MapStage, type MapStageControls } from './MapStage';
 import { ScenePanel } from './scenes/ScenePanel';
 import { useAssetThumbnails } from './scenes/useAssetThumbnails';
@@ -49,12 +50,15 @@ function getSessionTitle(session: PlayScreenProps['session']) {
 }
 
 export function PlayScreen({
+  applicationApi = window.blackBox.application,
   assetApi,
+  networkApi = window.blackBox.network,
   onExit,
   onCreateServerUser,
   onDeleteServerUser,
   onLayerChange,
   onLogout,
+  onMaxChatMessageCharactersChange,
   onQuickAction,
   onServerPasswordReset,
   onServerPortChange,
@@ -101,6 +105,7 @@ export function PlayScreen({
   const showServerSettings =
     activeSidebarTab === 'settings' && session.role === 'gm';
   const showStorage = activeSidebarTab === 'storage' && assetApi !== undefined;
+  const showChat = activeSidebarTab === 'chat';
   // Only the game master manages scenes; players just receive the presented one.
   const showScenes =
     activeSidebarTab === 'scenes' &&
@@ -218,6 +223,11 @@ export function PlayScreen({
                   role="toolbar"
                 >
                   <IconButton
+                    icon={Settings2}
+                    label="Paint settings"
+                    onClick={() => setPaintSettingsOpen(true)}
+                  />
+                  <IconButton
                     active={paintSubtool === 'freeform'}
                     aria-pressed={paintSubtool === 'freeform'}
                     icon={Brush}
@@ -230,11 +240,6 @@ export function PlayScreen({
                     icon={PenTool}
                     label="Polyline pen"
                     onClick={() => setPaintSubtool('polyline')}
-                  />
-                  <IconButton
-                    icon={Settings2}
-                    label="Paint settings"
-                    onClick={() => setPaintSettingsOpen(true)}
                   />
                 </div>
               ) : null}
@@ -303,61 +308,80 @@ export function PlayScreen({
 
         <aside className={styles.sidebarPanel}>
           <section
-            id={activeSidebar.panelId}
+            hidden={!showChat}
+            id="play-sidebar-chat"
             role="tabpanel"
-            aria-labelledby={`${activeSidebar.panelId}-tab`}
-            className={
-              showServerSettings || showStorage || showScenes
-                ? styles.settingsPanelContent
-                : styles.sidebarPanelContent
-            }
+            aria-labelledby="play-sidebar-chat-tab"
+            className={styles.chatPanelContent}
           >
-            {showServerSettings ? (
-              <ServerSettingsPanel
-                key={serverSettings.port}
-                settings={serverSettings}
-                status={serverStatus}
-                onCreateUser={onCreateServerUser ?? (() => undefined)}
-                onDeleteUser={onDeleteServerUser ?? (() => undefined)}
-                onPortChange={onServerPortChange ?? (() => undefined)}
-                onTransformPreviewRateChange={
-                  onTransformPreviewRateChange ?? (() => undefined)
-                }
-                onResetPassword={
-                  onServerPasswordReset ?? (() => undefined)
-                }
-                onUpdateUsername={
-                  onServerUsernameChange ?? (() => undefined)
-                }
-              />
-            ) : showStorage ? (
-              <StoragePanel
-                assetApi={assetApi}
-                campaignId={session.campaignId}
-                canDragImages={session.role === 'gm'}
-                onDetachFromScenes={
-                  sceneApi ? scenes.detachAsset : undefined
-                }
-                onFindSceneDependents={
-                  sceneApi ? scenes.findDependents : undefined
-                }
-              />
-            ) : showScenes ? (
-              <ScenePanel
-                assetApi={assetApi}
-                campaignId={session.campaignId}
-                thumbnails={scenePreviews}
-                store={scenes}
-              />
-            ) : (
-              <div
-                className={styles.sidebarPanelIcon}
-                data-sidebar-icon={activeSidebar.id}
-              >
-                <SidebarIcon aria-hidden size="5rem" strokeWidth={1} />
-              </div>
-            )}
+            <ChatPanel
+              applicationApi={applicationApi}
+              networkApi={networkApi}
+              session={session}
+              visible={showChat}
+            />
           </section>
+          {!showChat ? (
+            <section
+              id={activeSidebar.panelId}
+              role="tabpanel"
+              aria-labelledby={`${activeSidebar.panelId}-tab`}
+              className={
+                showServerSettings || showStorage || showScenes
+                  ? styles.settingsPanelContent
+                  : styles.sidebarPanelContent
+              }
+            >
+              {showServerSettings ? (
+                <ServerSettingsPanel
+                  key={serverSettings.port}
+                  settings={serverSettings}
+                  status={serverStatus}
+                  onCreateUser={onCreateServerUser ?? (() => undefined)}
+                  onDeleteUser={onDeleteServerUser ?? (() => undefined)}
+                  onMaxChatMessageCharactersChange={
+                    onMaxChatMessageCharactersChange ?? (() => undefined)
+                  }
+                  onPortChange={onServerPortChange ?? (() => undefined)}
+                  onTransformPreviewRateChange={
+                    onTransformPreviewRateChange ?? (() => undefined)
+                  }
+                  onResetPassword={
+                    onServerPasswordReset ?? (() => undefined)
+                  }
+                  onUpdateUsername={
+                    onServerUsernameChange ?? (() => undefined)
+                  }
+                />
+              ) : showStorage ? (
+                <StoragePanel
+                  assetApi={assetApi}
+                  campaignId={session.campaignId}
+                  canDragImages={session.role === 'gm'}
+                  onDetachFromScenes={
+                    sceneApi ? scenes.detachAsset : undefined
+                  }
+                  onFindSceneDependents={
+                    sceneApi ? scenes.findDependents : undefined
+                  }
+                />
+              ) : showScenes ? (
+                <ScenePanel
+                  assetApi={assetApi}
+                  campaignId={session.campaignId}
+                  thumbnails={scenePreviews}
+                  store={scenes}
+                />
+              ) : (
+                <div
+                  className={styles.sidebarPanelIcon}
+                  data-sidebar-icon={activeSidebar.id}
+                >
+                  <SidebarIcon aria-hidden size="5rem" strokeWidth={1} />
+                </div>
+              )}
+            </section>
+          ) : null}
         </aside>
       </div>
 

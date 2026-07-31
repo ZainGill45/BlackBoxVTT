@@ -147,6 +147,11 @@
   overflow-y: auto;
 }
 
+.chatPanelContent {
+  height: 100%;
+  min-height: 0;
+}
+
 .sidebarPanelIcon {
   display: grid;
   width: 5rem;

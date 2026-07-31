@@ -1,6 +1,13 @@
 import type { Socket } from 'node:net';
 import { z } from 'zod';
 import {
+  MAX_CHAT_HISTORY_PAGE_MESSAGES,
+  MAX_CHAT_MESSAGE_BYTES,
+  MAX_MAX_CHAT_MESSAGE_CHARACTERS,
+  MIN_MAX_CHAT_MESSAGE_CHARACTERS,
+  chatUtf8ByteLength,
+} from '../../shared/chat';
+import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
   MIN_TRANSFORM_PREVIEW_RATE,
@@ -152,6 +159,87 @@ const drawingPreviewSchema = z
     }
   });
 
+const chatPrincipalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('gm') }).strict(),
+  z
+    .object({
+      kind: z.literal('player'),
+      userId: z.string().uuid(),
+    })
+    .strict(),
+]);
+
+const chatIdentitySchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      displayName: z.literal('Game Master'),
+      kind: z.literal('gm'),
+    })
+    .strict(),
+  z
+    .object({
+      displayName: z.string().min(1).max(64),
+      kind: z.literal('player'),
+      userId: z.string().uuid(),
+    })
+    .strict(),
+]);
+
+const chatContentSchema = z
+  .string()
+  .min(1)
+  .max(MAX_CHAT_MESSAGE_BYTES)
+  .refine(
+    (content) => chatUtf8ByteLength(content) <= MAX_CHAT_MESSAGE_BYTES,
+    'Chat content exceeds the encoded size limit.',
+  );
+
+const chatMessageSchema = z
+  .object({
+    acceptedAt: z.string().datetime(),
+    clientMessageId: z.string().uuid(),
+    content: chatContentSchema,
+    generation: z.string().uuid(),
+    id: z.string().uuid(),
+    recipient: chatIdentitySchema.nullable(),
+    sender: chatIdentitySchema,
+    sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  })
+  .strict();
+
+const chatParticipantEventSchema = z
+  .object({
+    eventId: z.string().uuid(),
+    generation: z.string().uuid(),
+    identity: chatIdentitySchema,
+    occurredAt: z.string().datetime(),
+    type: z.enum(['participant_joined', 'participant_left']),
+  })
+  .strict();
+
+const chatHistoryPageSchema = z
+  .object({
+    generation: z.string().uuid(),
+    hasNewer: z.boolean(),
+    hasOlder: z.boolean(),
+    messages: z
+      .array(chatMessageSchema)
+      .max(MAX_CHAT_HISTORY_PAGE_MESSAGES),
+    newestSequence: z
+      .number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER)
+      .nullable(),
+    oldestSequence: z
+      .number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER)
+      .nullable(),
+  })
+  .strict();
+
 export class ProtocolVersionMismatchError extends Error {
   constructor() {
     super('The peer uses an incompatible protocol version.');
@@ -167,6 +255,21 @@ export interface TcpEnvelope {
 }
 
 export const protocolPayloadSchemas = {
+  'client.chat_bootstrap': z.object({}).strict(),
+  'client.chat_history': z
+    .object({
+      direction: z.enum(['newer', 'older']),
+      generation: z.string().uuid(),
+      sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    })
+    .strict(),
+  'client.chat_send': z
+    .object({
+      clientMessageId: z.string().uuid(),
+      content: chatContentSchema,
+      recipient: chatPrincipalSchema.nullable(),
+    })
+    .strict(),
   'client.asset_chunk_request': z
     .object({
       assetId: z.string().uuid(),
@@ -263,6 +366,50 @@ export const protocolPayloadSchemas = {
       message: z.string().min(1).max(512),
     })
     .strict(),
+  'server.chat_bootstrap': chatHistoryPageSchema.extend({
+    directory: z.array(chatIdentitySchema).max(21),
+    maxMessageCharacters: z
+      .number()
+      .int()
+      .min(MIN_MAX_CHAT_MESSAGE_CHARACTERS)
+      .max(MAX_MAX_CHAT_MESSAGE_CHARACTERS),
+    systemEvents: z.array(chatParticipantEventSchema),
+  }),
+  'server.chat_directory_changed': z
+    .object({
+      directory: z.array(chatIdentitySchema).max(21),
+    })
+    .strict(),
+  'server.chat_error': z
+    .object({
+      code: z.enum([
+        'history_changed',
+        'invalid_input',
+        'permission_denied',
+        'recipient_not_found',
+        'storage_error',
+        'timeout',
+        'unavailable',
+      ]),
+      message: z.string().min(1).max(512),
+    })
+    .strict(),
+  'server.chat_history': chatHistoryPageSchema,
+  'server.chat_history_cleared': z
+    .object({ generation: z.string().uuid() })
+    .strict(),
+  'server.chat_limit_changed': z
+    .object({
+      maxMessageCharacters: z
+        .number()
+        .int()
+        .min(MIN_MAX_CHAT_MESSAGE_CHARACTERS)
+        .max(MAX_MAX_CHAT_MESSAGE_CHARACTERS),
+    })
+    .strict(),
+  'server.chat_message': chatMessageSchema,
+  'server.chat_participant_event': chatParticipantEventSchema,
+  'server.chat_send_result': chatMessageSchema,
   'server.asset_chunk': z
     .object({
       assetId: z.string().uuid(),

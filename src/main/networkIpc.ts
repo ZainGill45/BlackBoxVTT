@@ -5,6 +5,12 @@ import type {
 } from 'electron';
 import { z } from 'zod';
 import {
+  MAX_CHAT_MESSAGE_BYTES,
+  MAX_MAX_CHAT_MESSAGE_CHARACTERS,
+  MIN_MAX_CHAT_MESSAGE_CHARACTERS,
+  chatUtf8ByteLength,
+} from '../shared/chat';
+import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
   MAX_MEASUREMENT_POINTS,
@@ -30,6 +36,39 @@ const setTransformPreviewRateSchema = campaignIdSchema.extend({
     .int()
     .min(MIN_TRANSFORM_PREVIEW_RATE)
     .max(MAX_TRANSFORM_PREVIEW_RATE),
+});
+const setMaxChatMessageCharactersSchema = campaignIdSchema.extend({
+  maxMessageCharacters: z
+    .number()
+    .int()
+    .min(MIN_MAX_CHAT_MESSAGE_CHARACTERS)
+    .max(MAX_MAX_CHAT_MESSAGE_CHARACTERS),
+});
+const chatPrincipalSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('gm') }).strict(),
+  z
+    .object({
+      kind: z.literal('player'),
+      userId: z.string().uuid(),
+    })
+    .strict(),
+]);
+const chatHistorySchema = campaignIdSchema.extend({
+  direction: z.enum(['newer', 'older']),
+  generation: z.string().uuid(),
+  sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+});
+const sendChatMessageSchema = campaignIdSchema.extend({
+  clientMessageId: z.string().uuid(),
+  content: z
+    .string()
+    .min(1)
+    .max(MAX_CHAT_MESSAGE_BYTES)
+    .refine(
+      (content) => chatUtf8ByteLength(content) <= MAX_CHAT_MESSAGE_BYTES,
+      'Chat content exceeds the encoded size limit.',
+    ),
+  recipient: chatPrincipalSchema.nullable(),
 });
 const createUserSchema = campaignIdSchema.extend({
   password: z.string().min(1),
@@ -139,6 +178,7 @@ export function registerNetworkIpcHandlers(
   const channels = Object.values(networkIpcChannels).filter(
     (channel) =>
       channel !== networkIpcChannels.hostStatusChanged &&
+      channel !== networkIpcChannels.chatEvent &&
       channel !== networkIpcChannels.clientStateChanged &&
       channel !== networkIpcChannels.drawingPreview &&
       channel !== networkIpcChannels.mapPing &&
@@ -170,6 +210,18 @@ export function registerNetworkIpcHandlers(
   });
   handle(networkIpcChannels.stopHost, () => manager.stopHost());
   handle(networkIpcChannels.getHostStatus, () => manager.getHostStatus());
+  handle(networkIpcChannels.getChatBootstrap, async (input) => {
+    const parsed = campaignIdSchema.safeParse(input);
+    return parsed.success
+      ? manager.getChatBootstrap(parsed.data.campaignId)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.getChatHistory, async (input) => {
+    const parsed = chatHistorySchema.safeParse(input);
+    return parsed.success
+      ? manager.getChatHistory(parsed.data)
+      : invalidInput();
+  });
   handle(networkIpcChannels.getServerSettings, async (input) => {
     const parsed = campaignIdSchema.safeParse(input);
     return parsed.success
@@ -184,6 +236,12 @@ export function registerNetworkIpcHandlers(
     const parsed = setTransformPreviewRateSchema.safeParse(input);
     return parsed.success
       ? manager.setTransformPreviewRate(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.setMaxChatMessageCharacters, async (input) => {
+    const parsed = setMaxChatMessageCharactersSchema.safeParse(input);
+    return parsed.success
+      ? manager.setMaxChatMessageCharacters(parsed.data)
       : invalidInput();
   });
   handle(networkIpcChannels.createUser, async (input) => {
@@ -242,6 +300,18 @@ export function registerNetworkIpcHandlers(
       await manager.sendMapPing(parsed.data);
     }
   });
+  handle(networkIpcChannels.sendChatMessage, async (input) => {
+    const parsed = sendChatMessageSchema.safeParse(input);
+    return parsed.success
+      ? manager.sendChatMessage(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.clearChatHistory, async (input) => {
+    const parsed = campaignIdSchema.safeParse(input);
+    return parsed.success
+      ? manager.clearChatHistory(parsed.data.campaignId)
+      : invalidInput();
+  });
   handle(networkIpcChannels.sendDrawingPreview, async (input) => {
     const parsed = drawingPreviewSchema.safeParse(input);
     if (parsed.success) {
@@ -263,6 +333,8 @@ export function registerNetworkIpcHandlers(
   };
   const onHostStatus = (status: unknown) =>
     send(networkIpcChannels.hostStatusChanged, status);
+  const onChatEvent = (event: unknown) =>
+    send(networkIpcChannels.chatEvent, event);
   const onClientState = (state: unknown) =>
     send(networkIpcChannels.clientStateChanged, state);
   const onSessionClosed = (event: unknown) =>
@@ -280,6 +352,7 @@ export function registerNetworkIpcHandlers(
   const onTransformStarted = (event: unknown) =>
     send(networkIpcChannels.transformStarted, event);
   manager.on('host-status-changed', onHostStatus);
+  manager.on('chat-event', onChatEvent);
   manager.on('client-state-changed', onClientState);
   manager.on('map-ping', onMapPing);
   manager.on('drawing-preview', onDrawingPreview);
@@ -292,6 +365,7 @@ export function registerNetworkIpcHandlers(
   return () => {
     channels.forEach((channel) => ipc.removeHandler(channel));
     manager.off('host-status-changed', onHostStatus);
+    manager.off('chat-event', onChatEvent);
     manager.off('client-state-changed', onClientState);
     manager.off('map-ping', onMapPing);
     manager.off('drawing-preview', onDrawingPreview);

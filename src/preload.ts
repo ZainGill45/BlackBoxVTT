@@ -6,7 +6,10 @@ import { createNetworkApi } from './preload/networkApi';
 import { createSceneApi } from './preload/sceneApi';
 
 contextBridge.exposeInMainWorld('blackBox', {
-  application: createApplicationApi((channel) => ipcRenderer.send(channel)),
+  application: createApplicationApi(
+    (channel) => ipcRenderer.send(channel),
+    (channel, input) => ipcRenderer.invoke(channel, input),
+  ),
   assets: createAssetApi(ipcRenderer),
   campaigns: createCampaignApi((channel, input) =>
     ipcRenderer.invoke(channel, input),

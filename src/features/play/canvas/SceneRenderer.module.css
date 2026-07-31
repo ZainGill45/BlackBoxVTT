@@ -1,17 +1,3 @@
-.brushCursor {
-  position: absolute;
-  z-index: 4;
-  top: 0;
-  left: 0;
-  display: none;
-  box-sizing: border-box;
-  width: 2px;
-  height: 2px;
-  overflow: visible;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
-
 .contextMenu {
   position: fixed;
   z-index: 1000;

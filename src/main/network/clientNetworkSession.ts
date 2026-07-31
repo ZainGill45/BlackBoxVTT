@@ -1,4 +1,5 @@
 import type { AssetNetworkSnapshot } from '../../shared/assets';
+import type { ChatEvent } from '../../shared/chat';
 import type {
   ClientConnectionState,
   DrawingPreviewEvent,
@@ -59,7 +60,9 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 interface ClientNetworkSessionOptions {
+  campaignId: string;
   channel: TcpClientChannel;
+  onChatEvent?: (event: ChatEvent) => void;
   onAssetsChanged: (snapshot: AssetNetworkSnapshot) => void;
   onClosed: (code: NetworkErrorCode, message: string) => void;
   onDrawingPreview?: (
@@ -80,12 +83,16 @@ interface ClientNetworkSessionOptions {
 }
 
 export class ClientNetworkSession {
+  private readonly campaignId: string;
   private closed = false;
   private readonly channel: TcpClientChannel;
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
   private readonly onClosed: ClientNetworkSessionOptions['onClosed'];
   private readonly onDrawingPreview: NonNullable<
     ClientNetworkSessionOptions['onDrawingPreview']
+  >;
+  private readonly onChatEvent: NonNullable<
+    ClientNetworkSessionOptions['onChatEvent']
   >;
   private readonly onAssetsChanged: ClientNetworkSessionOptions['onAssetsChanged'];
   private readonly onMapPing: NonNullable<ClientNetworkSessionOptions['onMapPing']>;
@@ -115,10 +122,12 @@ export class ClientNetworkSession {
   private updateRate: number;
 
   constructor({
+    campaignId,
     channel,
     onAssetsChanged,
     onClosed,
     onDrawingPreview = () => undefined,
+    onChatEvent = () => undefined,
     onMapPing = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented,
@@ -130,9 +139,11 @@ export class ClientNetworkSession {
     udp,
     updateRate,
   }: ClientNetworkSessionOptions) {
+    this.campaignId = campaignId;
     this.channel = channel;
     this.onAssetsChanged = onAssetsChanged;
     this.onDrawingPreview = onDrawingPreview;
+    this.onChatEvent = onChatEvent;
     this.onMapPing = onMapPing;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
@@ -276,7 +287,48 @@ export class ClientNetworkSession {
   }
 
   private readonly handleTcpMessage = (envelope: TcpEnvelope) => {
-    if (envelope.type === 'server.assets_changed') {
+    if (envelope.type === 'server.chat_message') {
+      this.onChatEvent({
+        campaignId: this.campaignId,
+        message: parsePayload('server.chat_message', envelope.payload),
+        type: 'message',
+      });
+    } else if (envelope.type === 'server.chat_history_cleared') {
+      this.onChatEvent({
+        campaignId: this.campaignId,
+        ...parsePayload(
+          'server.chat_history_cleared',
+          envelope.payload,
+        ),
+        type: 'history_cleared',
+      });
+    } else if (envelope.type === 'server.chat_directory_changed') {
+      this.onChatEvent({
+        campaignId: this.campaignId,
+        ...parsePayload(
+          'server.chat_directory_changed',
+          envelope.payload,
+        ),
+        type: 'directory_changed',
+      });
+    } else if (envelope.type === 'server.chat_limit_changed') {
+      this.onChatEvent({
+        campaignId: this.campaignId,
+        ...parsePayload(
+          'server.chat_limit_changed',
+          envelope.payload,
+        ),
+        type: 'limit_changed',
+      });
+    } else if (envelope.type === 'server.chat_participant_event') {
+      this.onChatEvent({
+        campaignId: this.campaignId,
+        ...parsePayload(
+          'server.chat_participant_event',
+          envelope.payload,
+        ),
+      });
+    } else if (envelope.type === 'server.assets_changed') {
       this.onAssetsChanged(
         parsePayload('server.assets_changed', envelope.payload),
       );

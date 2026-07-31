@@ -39,6 +39,11 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
       >,
     cancelConnection: (input) =>
       ipc.invoke(networkIpcChannels.cancelConnection, input) as Promise<void>,
+    clearChatHistory: (input) =>
+      ipc.invoke(
+        networkIpcChannels.clearChatHistory,
+        input,
+      ) as ReturnType<NetworkApi['clearChatHistory']>,
     connect: (input) =>
       ipc.invoke(networkIpcChannels.connect, input) as ReturnType<
         NetworkApi['connect']
@@ -61,6 +66,16 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
       ipc.invoke(networkIpcChannels.getHostStatus) as ReturnType<
         NetworkApi['getHostStatus']
       >,
+    getChatBootstrap: (input) =>
+      ipc.invoke(
+        networkIpcChannels.getChatBootstrap,
+        input,
+      ) as ReturnType<NetworkApi['getChatBootstrap']>,
+    getChatHistory: (input) =>
+      ipc.invoke(
+        networkIpcChannels.getChatHistory,
+        input,
+      ) as ReturnType<NetworkApi['getChatHistory']>,
     getServerSettings: (input) =>
       ipc.invoke(networkIpcChannels.getServerSettings, input) as ReturnType<
         NetworkApi['getServerSettings']
@@ -71,6 +86,8 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
       >,
     onClientStateChanged: (listener) =>
       subscribe(networkIpcChannels.clientStateChanged, listener),
+    onChatEvent: (listener) =>
+      subscribe(networkIpcChannels.chatEvent, listener),
     onDrawingPreview: (listener) =>
       subscribe(networkIpcChannels.drawingPreview, listener),
     onHostStatusChanged: (listener) =>
@@ -95,6 +112,16 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
       ipc.invoke(networkIpcChannels.resetPassword, input) as ReturnType<
         NetworkApi['resetPassword']
       >,
+    sendChatMessage: (input) =>
+      ipc.invoke(
+        networkIpcChannels.sendChatMessage,
+        input,
+      ) as ReturnType<NetworkApi['sendChatMessage']>,
+    setMaxChatMessageCharacters: (input) =>
+      ipc.invoke(
+        networkIpcChannels.setMaxChatMessageCharacters,
+        input,
+      ) as ReturnType<NetworkApi['setMaxChatMessageCharacters']>,
     setPort: (input) =>
       ipc.invoke(networkIpcChannels.setPort, input) as ReturnType<
         NetworkApi['setPort']

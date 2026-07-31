@@ -4,6 +4,20 @@ import { rm } from 'node:fs/promises';
 import type { AddressInfo, Socket } from 'node:net';
 import tls, { type Server as TlsServer, type TLSSocket } from 'node:tls';
 import type {
+  ChatBootstrap,
+  ChatError,
+  ChatEvent,
+  ChatHistoryInput,
+  ChatHistoryPage,
+  ChatIdentity,
+  ChatMessage,
+  ChatParticipantEvent,
+  ChatPrincipal,
+  ChatResult,
+  ClearChatHistoryResult,
+  SendChatMessageInput,
+} from '../../shared/chat';
+import type {
   HostStatus,
   DrawingPreviewEvent,
   DrawingPreviewUpdate,
@@ -29,6 +43,10 @@ import {
   type SceneResult,
 } from '../../shared/scenes';
 import type { AssetRepository } from '../assetRepository';
+import type {
+  ChatRepository,
+  StoredChatSendResult,
+} from '../chatRepository';
 import type { SceneRepository } from '../sceneRepository';
 import {
   sceneDrawingPointSchema,
@@ -91,9 +109,11 @@ interface CampaignHostServerOptions {
   assetPolicy?: AssetPolicy;
   campaignId: string;
   campaignName: string;
+  chatRepository: ChatRepository;
   configRepository: ServerConfigRepository;
   identity: CampaignIdentity;
   onMapPing?: (input: MapPing) => void;
+  onChatEvent?: (event: ChatEvent) => void;
   onDrawingPreview?: (input: DrawingPreviewEvent) => void;
   onMeasurementUpdate?: (input: MeasurementEvent) => void;
   onSceneChanged?: () => void;
@@ -157,6 +177,19 @@ function closeUdpSocket(socket: UdpSocket): Promise<void> {
   });
 }
 
+const GAME_MASTER_CHAT_IDENTITY = {
+  displayName: 'Game Master',
+  kind: 'gm',
+} as const satisfies ChatIdentity;
+
+function playerChatIdentity(user: StoredManagedUser): ChatIdentity {
+  return {
+    displayName: user.username,
+    kind: 'player',
+    userId: user.id,
+  };
+}
+
 export class CampaignHostServer {
   private readonly activeTransformOperations = new Set<string>();
   private activeScene: SceneRecord | null = null;
@@ -179,6 +212,7 @@ export class CampaignHostServer {
   private readonly assetTransfer: HostAssetTransfer;
   readonly campaignId: string;
   readonly campaignName: string;
+  readonly chatRepository: ChatRepository;
   readonly configRepository: ServerConfigRepository;
   readonly identity: CampaignIdentity;
   private readonly clients = new Set<HostClient>();
@@ -190,6 +224,9 @@ export class CampaignHostServer {
   private readonly lastTransformPreviewAt = new Map<string, number>();
   private readonly onMapPing: NonNullable<
     CampaignHostServerOptions['onMapPing']
+  >;
+  private readonly onChatEvent: NonNullable<
+    CampaignHostServerOptions['onChatEvent']
   >;
   private readonly onDrawingPreview: NonNullable<
     CampaignHostServerOptions['onDrawingPreview']
@@ -224,10 +261,12 @@ export class CampaignHostServer {
     assetPolicy = authenticatedAssetPolicy,
     campaignId,
     campaignName,
+    chatRepository,
     configRepository,
     identity,
     onAssetSyncError = () => undefined,
     onMapPing = () => undefined,
+    onChatEvent = () => undefined,
     onDrawingPreview = () => undefined,
     onMeasurementUpdate = () => undefined,
     onSceneChanged = () => undefined,
@@ -244,10 +283,12 @@ export class CampaignHostServer {
     this.assetPolicy = assetPolicy;
     this.campaignId = campaignId;
     this.campaignName = campaignName;
+    this.chatRepository = chatRepository;
     this.configRepository = configRepository;
     this.identity = identity;
     this.onAssetSyncError = onAssetSyncError;
     this.onMapPing = onMapPing;
+    this.onChatEvent = onChatEvent;
     this.onDrawingPreview = onDrawingPreview;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onSceneChanged = onSceneChanged;
@@ -284,6 +325,116 @@ export class CampaignHostServer {
         );
       }
     }
+  }
+
+  setMaxChatMessageCharacters(maxMessageCharacters: number): void {
+    for (const client of this.clients) {
+      if (client.state === 'ready' && client.user) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.chat_limit_changed',
+          { maxMessageCharacters },
+        );
+      }
+    }
+    this.onChatEvent({
+      campaignId: this.campaignId,
+      maxMessageCharacters,
+      type: 'limit_changed',
+    });
+  }
+
+  async getGmChatBootstrap(
+    systemEvents: ChatParticipantEvent[] = [],
+  ): Promise<ChatResult<ChatBootstrap>> {
+    try {
+      const config = await this.configRepository.load();
+      return this.chatRepository.bootstrap(
+        { kind: 'gm' },
+        this.chatDirectory(config.users),
+        config.maxChatMessageCharacters,
+        systemEvents,
+      );
+    } catch {
+      return {
+        error: {
+          code: 'storage_error',
+          message: 'Campaign chat is unavailable.',
+        },
+        ok: false,
+      };
+    }
+  }
+
+  getGmChatHistory(
+    input: Omit<ChatHistoryInput, 'campaignId'>,
+  ): Promise<ChatResult<ChatHistoryPage>> {
+    return this.chatRepository.history({ kind: 'gm' }, input);
+  }
+
+  async sendGmChat(
+    input: Omit<SendChatMessageInput, 'campaignId'>,
+  ): Promise<ChatResult<ChatMessage>> {
+    const result = await this.acceptChatMessage(
+      GAME_MASTER_CHAT_IDENTITY,
+      input,
+    );
+    if (!result.ok) {
+      return result;
+    }
+    if (result.value.created) {
+      this.broadcastChatMessage(result.value.message);
+    }
+    return { ok: true, value: result.value.message };
+  }
+
+  async clearChatHistory(): Promise<
+    ChatResult<ClearChatHistoryResult>
+  > {
+    const result = await this.chatRepository.clear();
+    if (!result.ok) {
+      return result;
+    }
+    for (const client of this.clients) {
+      if (client.state === 'ready' && client.user) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.chat_history_cleared',
+          result.value,
+        );
+      }
+    }
+    this.onChatEvent({
+      campaignId: this.campaignId,
+      generation: result.value.generation,
+      type: 'history_cleared',
+    });
+    return result;
+  }
+
+  async broadcastChatDirectory(): Promise<void> {
+    let users: StoredManagedUser[];
+    try {
+      users = (await this.configRepository.load()).users;
+    } catch (error) {
+      this.warn('Chat directory could not be loaded.', error);
+      return;
+    }
+    const directory = this.chatDirectory(users);
+    for (const client of this.clients) {
+      if (client.state === 'ready' && client.user) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.chat_directory_changed',
+          { directory },
+        );
+      }
+    }
+    this.onChatEvent({
+      campaignId: this.campaignId,
+      directory,
+      type: 'directory_changed',
+    });
   }
 
   async broadcastMapPing(
@@ -988,6 +1139,154 @@ export class CampaignHostServer {
     };
   }
 
+  private chatDirectory(users: StoredManagedUser[]): ChatIdentity[] {
+    return [
+      GAME_MASTER_CHAT_IDENTITY,
+      ...[...users]
+        .sort(
+          (left, right) =>
+            left.username.localeCompare(right.username, 'en-US') ||
+            left.id.localeCompare(right.id),
+        )
+        .map(playerChatIdentity),
+    ];
+  }
+
+  private resolveChatRecipient(
+    principal: ChatPrincipal | null,
+    users: StoredManagedUser[],
+  ): ChatResult<ChatIdentity | null> {
+    if (!principal) {
+      return { ok: true, value: null };
+    }
+    if (principal.kind === 'gm') {
+      return { ok: true, value: GAME_MASTER_CHAT_IDENTITY };
+    }
+    const user = users.find((candidate) => candidate.id === principal.userId);
+    return user
+      ? { ok: true, value: playerChatIdentity(user) }
+      : {
+        error: {
+          code: 'recipient_not_found',
+          message: 'Whisper recipient could not be found.',
+        },
+        ok: false,
+      };
+  }
+
+  private async acceptChatMessage(
+    sender: ChatIdentity,
+    input: Pick<
+      SendChatMessageInput,
+      'clientMessageId' | 'content' | 'recipient'
+    >,
+  ): Promise<ChatResult<StoredChatSendResult>> {
+    try {
+      return this.configRepository.withChatConfiguration(
+        async (configuration) => {
+          const recipient = this.resolveChatRecipient(
+            input.recipient,
+            configuration.users,
+          );
+          if (!recipient.ok) {
+            return recipient;
+          }
+          return this.chatRepository.send({
+            clientMessageId: input.clientMessageId,
+            content: input.content,
+            maxMessageCharacters: configuration.maxMessageCharacters,
+            recipient: recipient.value,
+            sender,
+          });
+        },
+      );
+    } catch {
+      return {
+        error: {
+          code: 'storage_error',
+          message: 'Message could not be stored.',
+        },
+        ok: false,
+      };
+    }
+  }
+
+  private broadcastChatMessage(
+    message: ChatMessage,
+    source?: HostClient,
+  ): void {
+    for (const client of this.clients) {
+      if (
+        client === source ||
+        client.state !== 'ready' ||
+        !client.user
+      ) {
+        continue;
+      }
+      const visible =
+        message.recipient === null ||
+        (message.recipient.kind === 'player' &&
+          message.recipient.userId === client.user.id) ||
+        (message.sender.kind === 'player' &&
+          message.sender.userId === client.user.id);
+      if (visible) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.chat_message',
+          message,
+        );
+      }
+    }
+  }
+
+  private sendChatError(
+    client: HostClient,
+    error: ChatError,
+    requestId?: string,
+  ): void {
+    writeEnvelope(
+      client.socket as unknown as Socket,
+      'server.chat_error',
+      error,
+      requestId,
+    );
+  }
+
+  private async emitParticipantEvent(
+    user: StoredManagedUser,
+    type: ChatParticipantEvent['type'],
+    excluded?: HostClient,
+  ): Promise<void> {
+    const generation = await this.chatRepository.currentGeneration();
+    if (!generation.ok) {
+      return;
+    }
+    const event: ChatParticipantEvent = {
+      eventId: randomUUID(),
+      generation: generation.value,
+      identity: playerChatIdentity(user),
+      occurredAt: new Date().toISOString(),
+      type,
+    };
+    for (const client of this.clients) {
+      if (
+        client !== excluded &&
+        client.state === 'ready' &&
+        client.user
+      ) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.chat_participant_event',
+          event,
+        );
+      }
+    }
+    this.onChatEvent({
+      campaignId: this.campaignId,
+      ...event,
+    });
+  }
+
   private handleSecureConnection(socket: TLSSocket): void {
     const pendingConnections = [...this.clients].filter(
       (client) => client.state !== 'ready',
@@ -1106,6 +1405,90 @@ export class CampaignHostServer {
     }
 
     if (client.state === 'ready' && client.user) {
+      if (envelope.type === 'client.chat_bootstrap') {
+        parsePayload('client.chat_bootstrap', envelope.payload);
+        try {
+          const config = await this.configRepository.load();
+          const result = await this.chatRepository.bootstrap(
+            { kind: 'player', userId: client.user.id },
+            this.chatDirectory(config.users),
+            config.maxChatMessageCharacters,
+          );
+          if (result.ok) {
+            writeEnvelope(
+              client.socket as unknown as Socket,
+              'server.chat_bootstrap',
+              result.value,
+              envelope.requestId,
+            );
+          } else {
+            this.sendChatError(client, result.error, envelope.requestId);
+          }
+        } catch {
+          this.sendChatError(
+            client,
+            {
+              code: 'storage_error',
+              message: 'Campaign chat is unavailable.',
+            },
+            envelope.requestId,
+          );
+        }
+        return;
+      }
+      if (envelope.type === 'client.chat_history') {
+        const input = parsePayload(
+          'client.chat_history',
+          envelope.payload,
+        );
+        const result = await this.chatRepository.history(
+          { kind: 'player', userId: client.user.id },
+          input,
+        );
+        if (result.ok) {
+          writeEnvelope(
+            client.socket as unknown as Socket,
+            'server.chat_history',
+            result.value,
+            envelope.requestId,
+          );
+        } else {
+          this.sendChatError(client, result.error, envelope.requestId);
+        }
+        return;
+      }
+      if (envelope.type === 'client.chat_send') {
+        const input = parsePayload('client.chat_send', envelope.payload);
+        const result = await this.acceptChatMessage(
+          playerChatIdentity(client.user),
+          input,
+        );
+        if (!result.ok) {
+          this.sendChatError(client, result.error, envelope.requestId);
+          return;
+        }
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.chat_send_result',
+          result.value.message,
+          envelope.requestId,
+        );
+        if (result.value.created) {
+          const message = result.value.message;
+          this.broadcastChatMessage(message, client);
+          if (
+            message.recipient === null ||
+            message.recipient.kind === 'gm'
+          ) {
+            this.onChatEvent({
+              campaignId: this.campaignId,
+              message,
+              type: 'message',
+            });
+          }
+        }
+        return;
+      }
       if (envelope.type === 'client.scene_drawing_preview') {
         const input = parsePayload(
           'client.scene_drawing_preview',
@@ -1587,6 +1970,12 @@ export class CampaignHostServer {
         }
         if (!wasReady) {
           this.onStatusChanged();
+          if (client.user) {
+            void this.emitParticipantEvent(
+              client.user,
+              'participant_joined',
+            );
+          }
         }
       } else if (decoded.type === udpMessageTypes.heartbeat) {
         if (decoded.payload.length !== 0) {
@@ -1853,6 +2242,8 @@ export class CampaignHostServer {
   }
 
   private removeClient(client: HostClient): void {
+    const wasReady = client.state === 'ready';
+    const disconnectedUser = client.user;
     if (!this.clients.delete(client)) {
       return;
     }
@@ -1889,6 +2280,13 @@ export class CampaignHostServer {
     }
     client.uploads.clear();
     this.onStatusChanged();
+    if (wasReady && disconnectedUser) {
+      void this.emitParticipantEvent(
+        disconnectedUser,
+        'participant_left',
+        client,
+      );
+    }
   }
 
   private disconnectAll(message: string): void {

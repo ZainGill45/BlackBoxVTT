@@ -1,0 +1,308 @@
+import { expect, test } from '@playwright/test';
+import { AppFixture, availablePort } from './support/app';
+import type { LaunchedApp } from './support/app';
+import {
+  addPlayer,
+  createAndOpenCampaign,
+  joinCampaign,
+  openTab,
+  reconnectSavedCampaign,
+  setHostPort,
+} from './support/flows';
+import {
+  pixelColorCoverage,
+  pixelDifferenceRatio,
+  pixelDifferenceRatioInRegion,
+} from './support/png';
+import {
+  MAP_FIXTURE_COLORS,
+  createLargeSceneWithMap,
+  dragOnStage,
+  dropAssetOnStage,
+  importFixture,
+  measurementLabels,
+  readScene,
+  stage,
+  stageCentre,
+} from './support/stage';
+
+/**
+ * Two windows, one campaign, both renderers live.
+ *
+ * `networkIntegration.test.ts` proves the protocol carries these payloads and
+ * the SceneRenderer tests prove the stage reacts to them against a stub. This
+ * is the only place both halves run together, which is where a renderer that
+ * ignores an update — or a host that never sends one — actually shows.
+ */
+
+const CAMPAIGN = 'Emberfall';
+const PASSWORD = 'password';
+const VISIBLE_CHANGE = 0.002;
+
+/**
+ * The scene these tests share is deliberately larger than its map image.
+ *
+ * A first-time map sizes the scene to the image, which for the 256x256 fixture
+ * leaves a scene exactly as big as anything dropped onto it — objects then have
+ * nowhere valid to sit and never reach the player, which looks exactly like a
+ * broken broadcast. Widening the bounds is what makes these tests about
+ * synchronization rather than about scene geometry.
+ */
+test.describe('scene synchronization', () => {
+  const apps = new AppFixture();
+  let gm: LaunchedApp;
+  let player: LaunchedApp;
+  let port: number;
+  let centre: { x: number; y: number };
+
+  /** The player's current stage frame. */
+  async function playerFrame(): Promise<Buffer> {
+    return stage(player.window).screenshot();
+  }
+
+  test.beforeEach(async () => {
+    port = await availablePort();
+
+    gm = await apps.launch();
+    await createAndOpenCampaign(gm.window, CAMPAIGN);
+    await addPlayer(gm.window, 'Alice', PASSWORD);
+    await setHostPort(gm.window, port);
+    await importFixture(gm.app, gm.window);
+    await createLargeSceneWithMap(gm.window, CAMPAIGN);
+    centre = await stageCentre(gm.window);
+
+    // Presenting is what pushes the scene to players; viewing it is local.
+    await openTab(gm.window, 'Scenes');
+    await gm.window.getByRole('button', { name: 'Present New Scene' }).click();
+
+    player = await apps.launch();
+    await joinCampaign(player.window, {
+      campaign: CAMPAIGN,
+      password: PASSWORD,
+      port,
+      username: 'Alice',
+    });
+    await stage(player.window).waitFor();
+    await player.window.waitForTimeout(1200);
+  });
+
+  test.afterEach(() => apps.disposeAll());
+
+  test('shows the presented map on the player stage', async () => {
+    const frame = await playerFrame();
+
+    // Match the fixture's real palette rather than a generic colour count;
+    // the empty hatch backdrop also contains many antialiased colours.
+    for (const color of MAP_FIXTURE_COLORS) {
+      expect(pixelColorCoverage(frame, color, 40)).toBeGreaterThan(0.0005);
+    }
+  });
+
+  test('mirrors an image the Game Master places on the token layer', async () => {
+    await gm.window.getByRole('button', { name: 'Token layer' }).click();
+    const before = await playerFrame();
+
+    await dropAssetOnStage(gm.window, 'map.png', centre);
+    await expect
+      .poll(
+        async () =>
+          (await readScene(gm.window, CAMPAIGN)).images.token.length,
+        { message: 'the Game Master did not persist the placed token' },
+      )
+      .toBe(1);
+
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the placed token never reached the player',
+      })
+      .toBeGreaterThan(VISIBLE_CHANGE);
+  });
+
+  test('mirrors a move of that image', async () => {
+    await gm.window.getByRole('button', { name: 'Token layer' }).click();
+    const empty = await playerFrame();
+    await dropAssetOnStage(gm.window, 'map.png', centre);
+    await expect
+      .poll(async () => pixelDifferenceRatio(empty, await playerFrame()))
+      .toBeGreaterThan(VISIBLE_CHANGE);
+    const beforeTransform = (
+      await readScene(gm.window, CAMPAIGN)
+    ).images.token[0];
+    const before = await playerFrame();
+
+    await dragOnStage(
+      gm.window,
+      centre,
+      { x: centre.x + 240, y: centre.y + 140 },
+      { steps: 15 },
+    );
+
+    await expect
+      .poll(async () => {
+        const moved = (await readScene(gm.window, CAMPAIGN)).images.token[0];
+        return Math.hypot(
+          moved.x - beforeTransform.x,
+          moved.y - beforeTransform.y,
+        );
+      }, {
+        message: 'the Game Master drag did not update the saved transform',
+      })
+      .toBeGreaterThan(1);
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the move never reached the player',
+      })
+      .toBeGreaterThan(VISIBLE_CHANGE);
+  });
+
+  test('keeps a Game Master layer image off the player stage', async () => {
+    const before = await playerFrame();
+
+    const gmBefore = await stage(gm.window).screenshot();
+    await gm.window.getByRole('button', { name: 'GM layer' }).click();
+    // Well inside the scene bounds. An image dropped outside them is invisible
+    // to everyone, which would make the assertion below pass for the wrong
+    // reason.
+    await dropAssetOnStage(gm.window, 'map.png', {
+      x: centre.x - 120,
+      y: centre.y - 90,
+    });
+
+    // The Game Master must actually see it before the player's stillness means
+    // exclusion rather than latency — or nothing was placed at all.
+    await expect
+      .poll(async () =>
+        pixelDifferenceRatio(gmBefore, await stage(gm.window).screenshot()),
+      )
+      .toBeGreaterThan(VISIBLE_CHANGE);
+    await gm.window.waitForTimeout(2000);
+    expect((await readScene(gm.window, CAMPAIGN)).images.gm).toHaveLength(1);
+
+    expect(
+      pixelDifferenceRatio(before, await playerFrame()),
+      'a Game Master layer image was visible to the player',
+    ).toBeLessThan(VISIBLE_CHANGE);
+
+    await gm.window.getByRole('button', { name: 'Token layer' }).click();
+  });
+
+  test('shows a Game Master measurement on the player stage', async () => {
+    await gm.window.getByRole('button', { name: 'Measure' }).click();
+    await expect(
+      gm.window.getByRole('button', { name: 'Measure' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The stage has no layout box.');
+    }
+    await gm.window.mouse.move(box.x + centre.x - 120, box.y + centre.y - 90);
+    await gm.window.mouse.down();
+
+    // Distance labels are part of the real renderer's overlay and precisely
+    // identify a measurement; unlike a whole-canvas pixel threshold they
+    // cannot be confused with a selection outline. Keep sending snapshots
+    // while waiting because remote rulers deliberately expire after 1.5s.
+    const remoteLabels = measurementLabels(player.window).locator('span');
+    let remoteDistance: string | null = null;
+    for (let sample = 1; sample <= 16; sample += 1) {
+      await gm.window.mouse.move(
+        box.x + centre.x - 120 + 18 * sample,
+        box.y + centre.y - 90 + 10 * sample,
+      );
+      await player.window.waitForTimeout(100);
+      remoteDistance =
+        (await remoteLabels.allTextContents()).find((text) => text !== '0 ft') ??
+        null;
+      if (remoteDistance) {
+        break;
+      }
+    }
+
+    expect(
+      remoteDistance,
+      'the player never rendered a non-zero remote ruler',
+    ).not.toBeNull();
+    await expect(remoteLabels).toHaveText(remoteDistance!);
+    await gm.window.mouse.up();
+    await gm.window.getByRole('button', { name: 'Select' }).click();
+  });
+
+  test('shows a Game Master ping on the player stage', async () => {
+    const before = await playerFrame();
+
+    // Select mode owns the stationary-hold ping gesture. The "Ping Map" quick
+    // action only dispatches an optional application callback and does not arm
+    // the renderer, so clicking it here used to test a contract that does not
+    // exist.
+    await expect(
+      gm.window.getByRole('button', { name: 'Select' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The stage has no layout box.');
+    }
+    const playerCentre = await stageCentre(player.window);
+    const pingRegion = {
+      height: 128,
+      width: 128,
+      x: playerCentre.x - 64,
+      y: playerCentre.y - 64,
+    };
+    await gm.window.mouse.move(box.x + centre.x, box.y + centre.y);
+    await gm.window.mouse.down();
+
+    // The ring occupies only a few hundred pixels. Restricting the comparison
+    // to its expected screen-space region preserves that signal instead of
+    // diluting it across the entire stage.
+    let peak = 0;
+    for (let sample = 0; sample < 30; sample += 1) {
+      await player.window.waitForTimeout(40);
+      peak = Math.max(
+        peak,
+        pixelDifferenceRatioInRegion(
+          before,
+          await stage(player.window).screenshot(),
+          pingRegion,
+          2,
+        ),
+      );
+      if (peak > 0.005) {
+        break;
+      }
+    }
+    await gm.window.mouse.up();
+
+    expect(peak, 'the ping never reached the player').toBeGreaterThan(0.005);
+  });
+
+  test('restores the presented scene when the player reconnects', async () => {
+    const connected = await playerFrame();
+
+    await player.window.getByRole('button', { name: 'Logout' }).click();
+    await expect(
+      player.window.getByRole('tab', { name: 'Join Campaign' }),
+    ).toBeVisible();
+    await reconnectSavedCampaign(player.window, CAMPAIGN);
+    await stage(player.window).waitFor();
+    await player.window.waitForTimeout(1500);
+
+    // Same scene, same content: the session was rebuilt, not started empty.
+    expect(
+      pixelDifferenceRatio(connected, await playerFrame()),
+      'the scene was not restored after reconnecting',
+    ).toBeLessThan(VISIBLE_CHANGE);
+  });
+
+  test('ends the player session when the Game Master resets that password', async () => {
+    await openTab(gm.window, 'Settings');
+    const users = gm.window.getByRole('region', { name: 'User Management' });
+    await users.getByLabel('New password for Alice').fill('a different secret');
+    await users.getByLabel('New password for Alice').blur();
+
+    // The player is put back on the connection screen rather than left holding
+    // a session the host has already revoked.
+    await expect(
+      player.window.getByRole('tab', { name: 'Join Campaign' }),
+    ).toBeVisible({ timeout: 30_000 });
+  });
+});

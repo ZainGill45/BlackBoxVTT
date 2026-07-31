@@ -3,6 +3,17 @@ import { open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import tls, { type TLSSocket } from 'node:tls';
 import {
+  CHAT_SEND_TIMEOUT_MS,
+  type ChatBootstrap,
+  type ChatErrorCode,
+  type ChatEvent,
+  type ChatHistoryInput,
+  type ChatHistoryPage,
+  type ChatMessage,
+  type ChatResult,
+  type SendChatMessageInput,
+} from '../../shared/chat';
+import {
   ASSET_CHUNK_BYTES,
   type AssetError,
   type AssetNetworkSnapshot,
@@ -56,6 +67,13 @@ function failure<T>(
   return fail({ code, message });
 }
 
+function chatFailure<T>(
+  code: ChatErrorCode,
+  message: string,
+): ChatResult<T> {
+  return fail({ code, message });
+}
+
 interface ClientAttempt {
   campaignId: string;
   campaignName: string;
@@ -71,6 +89,7 @@ interface ClientAttempt {
 
 interface CampaignClientOptions {
   historyRepository: ConnectionHistoryRepository;
+  onChatEvent?: (event: ChatEvent) => void;
   onSessionClosed: (
     code: NetworkErrorCode,
     message: string,
@@ -100,6 +119,9 @@ export class CampaignClient {
   private readonly onDrawingPreview: NonNullable<
     CampaignClientOptions['onDrawingPreview']
   >;
+  private readonly onChatEvent: NonNullable<
+    CampaignClientOptions['onChatEvent']
+  >;
   private readonly onMapPing: NonNullable<CampaignClientOptions['onMapPing']>;
   private readonly onMeasurementUpdate: NonNullable<
     CampaignClientOptions['onMeasurementUpdate']
@@ -116,6 +138,7 @@ export class CampaignClient {
 
   constructor({
     historyRepository,
+    onChatEvent = () => undefined,
     onAssetsChanged = () => undefined,
     onDrawingPreview = () => undefined,
     onMapPing = () => undefined,
@@ -128,6 +151,7 @@ export class CampaignClient {
     onStateChanged,
   }: CampaignClientOptions) {
     this.historyRepository = historyRepository;
+    this.onChatEvent = onChatEvent;
     this.onAssetsChanged = onAssetsChanged;
     this.onDrawingPreview = onDrawingPreview;
     this.onMapPing = onMapPing;
@@ -324,8 +348,10 @@ export class CampaignClient {
         username: ready.username,
       };
       const active = new ClientNetworkSession({
+        campaignId: ready.campaignId,
         channel: attempt.channel,
         onAssetsChanged: this.onAssetsChanged,
+        onChatEvent: this.onChatEvent,
         onDrawingPreview: this.onDrawingPreview,
         onMapPing: this.onMapPing,
         onMeasurementUpdate: this.onMeasurementUpdate,
@@ -410,6 +436,113 @@ export class CampaignClient {
 
   getSession(): RemotePlaySession | null {
     return this.remoteSession;
+  }
+
+  async getChatBootstrap(): Promise<ChatResult<ChatBootstrap>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return chatFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.chat_bootstrap',
+        {},
+        ['server.chat_bootstrap', 'server.chat_error'],
+      );
+      if (envelope.type === 'server.chat_error') {
+        return {
+          error: parsePayload('server.chat_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload(
+          'server.chat_bootstrap',
+          envelope.payload,
+        ),
+      };
+    } catch {
+      return chatFailure(
+        'unavailable',
+        'Campaign chat could not be loaded.',
+      );
+    }
+  }
+
+  async getChatHistory(
+    input: Omit<ChatHistoryInput, 'campaignId'>,
+  ): Promise<ChatResult<ChatHistoryPage>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return chatFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.chat_history',
+        input,
+        ['server.chat_history', 'server.chat_error'],
+      );
+      if (envelope.type === 'server.chat_error') {
+        return {
+          error: parsePayload('server.chat_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload('server.chat_history', envelope.payload),
+      };
+    } catch {
+      return chatFailure(
+        'unavailable',
+        'Campaign chat history could not be loaded.',
+      );
+    }
+  }
+
+  async sendChatMessage(
+    input: Omit<SendChatMessageInput, 'campaignId'>,
+  ): Promise<ChatResult<ChatMessage>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return chatFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.chat_send',
+        input,
+        ['server.chat_send_result', 'server.chat_error'],
+        CHAT_SEND_TIMEOUT_MS,
+      );
+      if (envelope.type === 'server.chat_error') {
+        return {
+          error: parsePayload('server.chat_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload(
+          'server.chat_send_result',
+          envelope.payload,
+        ),
+      };
+    } catch {
+      return chatFailure(
+        'timeout',
+        'The host did not acknowledge this message.',
+      );
+    }
   }
 
   async getAssetManifest(): Promise<AssetResult<AssetNetworkSnapshot>> {

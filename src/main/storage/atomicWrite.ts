@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import type { WriteFileOptions } from 'node:fs';
 
+const TRANSIENT_RENAME_ERRORS = new Set(['EACCES', 'EBUSY', 'EPERM']);
+const RENAME_ATTEMPTS = 6;
+
 interface AtomicWriteOptions {
   /**
    * Created with `recursive: true` before writing. Omit when the directory is
@@ -19,6 +22,30 @@ interface AtomicWriteOptions {
    * owner-only.
    */
   writeOptions?: WriteFileOptions;
+}
+
+async function replaceFile(sourcePath: string, targetPath: string): Promise<void> {
+  for (let attempt = 1; attempt <= RENAME_ATTEMPTS; attempt += 1) {
+    try {
+      await rename(sourcePath, targetPath);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (
+        attempt === RENAME_ATTEMPTS ||
+        !code ||
+        !TRANSIENT_RENAME_ERRORS.has(code)
+      ) {
+        throw error;
+      }
+      // Antivirus, indexing, and a concurrent reader can briefly hold the
+      // destination on Windows. Keep the old file intact and retry the atomic
+      // replacement instead of turning that short-lived lock into data loss.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 10 * 2 ** (attempt - 1));
+      });
+    }
+  }
 }
 
 /**
@@ -42,7 +69,7 @@ export async function writeFileAtomic(
 
   try {
     await writeFile(temporaryPath, contents, writeOptions);
-    await rename(temporaryPath, targetPath);
+    await replaceFile(temporaryPath, targetPath);
   } finally {
     await rm(temporaryPath, { force: true });
   }

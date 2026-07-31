@@ -1,5 +1,10 @@
 import type { ComponentType } from 'react';
-import type { HostStatus, ServerSettingsView } from '../../shared/network';
+import type { ApplicationApi } from '../../shared/application';
+import type {
+  HostStatus,
+  NetworkApi,
+  ServerSettingsView,
+} from '../../shared/network';
 import type { AssetApi } from '../../shared/assets';
 import type { SceneApi } from '../../shared/scenes';
 
@@ -67,7 +72,9 @@ type ServerStatus = HostStatus;
 type CampaignServerSettings = ServerSettingsView;
 
 export interface PlayScreenProps {
+  applicationApi?: ApplicationApi;
   assetApi?: AssetApi;
+  networkApi?: NetworkApi;
   onExit: () => void;
   onLayerChange?: (id: PlayLayerId) => void;
   onLogout: () => void;
@@ -75,6 +82,7 @@ export interface PlayScreenProps {
   onCreateServerUser?: (username: string, password: string) => void;
   onDeleteServerUser?: (userId: string) => void;
   onServerPortChange?: (port: number) => void;
+  onMaxChatMessageCharactersChange?: (maximum: number) => void;
   onTransformPreviewRateChange?: (rate: number) => void;
   onServerPasswordReset?: (userId: string, password: string) => void;
   onServerUsernameChange?: (userId: string, username: string) => void;

@@ -90,3 +90,7 @@ typings/
 
 # Electron-Forge
 out/
+
+# Playwright output, kept beside the specs under src/test/e2e
+src/test/e2e/.results/
+src/test/e2e/.report/
