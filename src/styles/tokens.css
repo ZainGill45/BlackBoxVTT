@@ -1,0 +1,105 @@
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/inter/Inter-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../assets/fonts/inter/Inter-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../assets/fonts/inter/Inter-SemiBold.woff2") format("woff2");
+}
+
+:root {
+  color-scheme: dark;
+  font-size: clamp(
+    10.6667px,
+    min(0.833333vw, 1.481481vh),
+    32px
+  );
+
+  --color-canvas: #0d0d0d;
+  --color-grid: rgb(255 255 255 / 7%);
+  --color-surface: rgb(22 22 22 / 97%);
+  --color-surface-raised: #1d1d1d;
+  --color-surface-muted: #121212;
+  --color-border: #3b3b3b;
+  --color-border-strong: #767676;
+  --color-text: #f0f0f0;
+  --color-text-muted: #aaaaaa;
+  --color-text-subtle: #777777;
+  --color-action: #d6d6d6;
+  --color-action-hover: #e7e7e7;
+  --color-action-soft: #303030;
+  --color-action-contrast: #111111;
+  --color-delete: #020202;
+  --color-delete-hover: #0c0c0c;
+  --color-delete-hatch: #242424;
+  --color-delete-border: #333333;
+  --color-delete-text: #d2d2d2;
+  --color-confirm: #ffffff;
+  --color-confirm-hover: #e5e5e5;
+  --color-confirm-text: #111111;
+  --color-focus: #eeeeee;
+  --color-shadow: rgb(0 0 0 / 42%);
+  --color-selection: rgb(255 255 255 / 20%);
+  --color-play-canvas: #0d0d0d;
+  --color-play-grid: rgb(255 255 255 / 7%);
+  --color-overlay-surface: rgb(18 18 18 / 94%);
+  --color-overlay-hover: rgb(29 29 29 / 96%);
+  --color-overlay-active: rgb(37 37 37 / 98%);
+  --color-status-online: oklch(79.2% 0.209 151.711);
+  --color-status-offline: oklch(70.4% 0.191 22.216);
+
+  --font-sans: "Inter", ui-sans-serif, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --font-size-xs: 0.6875rem;
+  --font-size-sm: 0.75rem;
+  --font-size-md: 0.8125rem;
+  --font-size-lg: 0.875rem;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.2;
+  --line-height-standard: 1.4;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+
+  --control-height: 2rem;
+  --navigation-height: 2.5rem;
+  --sidebar-tab-height: 2.75rem;
+  --border-width: 1px;
+  --focus-outline: 1px solid var(--color-focus);
+  --shadow-panel: 0 0.5rem 1.5rem var(--color-shadow);
+  --shadow-overlay: 0 0.125rem 0.5rem rgb(0 0 0 / 42%);
+  --duration-fast: 120ms;
+  --duration-medium: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-medium: 0ms;
+  }
+}

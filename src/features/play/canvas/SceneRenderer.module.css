@@ -1,0 +1,118 @@
+.brushCursor {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  left: 0;
+  display: none;
+  box-sizing: border-box;
+  width: 2px;
+  height: 2px;
+  overflow: visible;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  min-width: 10rem;
+  color: var(--color-text);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+}
+
+.contextMenuItem {
+  appearance: none;
+  width: 100%;
+  min-height: var(--control-height);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.contextMenuItem:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-overlay-hover);
+}
+
+.contextMenuItem:focus-visible {
+  color: var(--color-text);
+  background: var(--color-overlay-hover);
+  outline: var(--focus-outline);
+  outline-offset: -3px;
+}
+
+.contextMenuItem:disabled {
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.contextMenuDivider {
+  height: var(--border-width);
+  margin: var(--space-1) 0;
+  background: var(--color-border);
+}
+
+.contextMenuDelete {
+  color: var(--color-delete-text);
+  background-color: var(--color-delete);
+  background-image:
+    repeating-linear-gradient(45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem),
+    repeating-linear-gradient(-45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem);
+  border: var(--border-width) solid var(--color-delete-border);
+}
+
+.contextMenuDelete:hover:not(:disabled),
+.contextMenuDelete:focus-visible {
+  color: var(--color-delete-text);
+  background-color: var(--color-delete-hover);
+  background-image:
+    repeating-linear-gradient(45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem),
+    repeating-linear-gradient(-45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem);
+}
+
+.measurementLabels {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.measurementLabel {
+  position: absolute;
+  display: block;
+  padding: 0.125rem 0.25rem;
+  color: var(--color-text);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  white-space: nowrap;
+  transform: translate(0.5rem, calc(-100% - 0.5rem));
+}

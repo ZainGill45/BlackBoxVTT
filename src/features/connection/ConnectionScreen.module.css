@@ -1,0 +1,174 @@
+.panel {
+  display: flex;
+  width: 40rem;
+  max-width: calc(100vw - var(--space-6) - var(--space-6));
+  max-width: calc(100dvw - var(--space-6) - var(--space-6));
+  max-height: calc(100vh - var(--space-10) - var(--space-10));
+  max-height: calc(100dvh - var(--space-10) - var(--space-10));
+  flex-direction: column;
+}
+
+.panelBody {
+  min-height: 0;
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+
+.form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.connectionFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7rem auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.createFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.formAction {
+  min-width: 7rem;
+}
+
+.status {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-standard);
+}
+
+.savedSection {
+  display: block;
+}
+
+.divider {
+  display: grid;
+  grid-template-columns: minmax(var(--space-6), 1fr) auto minmax(var(--space-6), 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  margin-block: var(--space-8);
+}
+
+.divider span {
+  height: 1px;
+  background: var(--color-border);
+}
+
+.divider h2 {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  line-height: var(--line-height-tight);
+  text-transform: uppercase;
+}
+
+.savedList {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.savedEntry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  min-height: 3rem;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border: var(--border-width) solid var(--color-border);
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.savedEntry:hover {
+  background: var(--color-surface-muted);
+  border-color: var(--color-border-strong);
+}
+
+.savedEntryCopy {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.savedEntryCopy strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedEntryCopy span {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savedEntryActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.authenticationStep,
+.trustModalContent {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.authenticationFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.stepCopy {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.modalActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.modalActions button {
+  width: 100%;
+}
+
+.fingerprint {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.fingerprint span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.fingerprint code {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}

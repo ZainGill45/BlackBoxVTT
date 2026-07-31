@@ -1,0 +1,133 @@
+.field {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 0;
+}
+
+.label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.visibleLabel {
+  padding-bottom: var(--space-1);
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control {
+  appearance: none;
+  width: 100%;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  caret-color: var(--color-text);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  border: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
+  outline: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.control::placeholder {
+  color: var(--color-text-subtle);
+  opacity: 1;
+}
+
+.control:hover {
+  border-color: var(--color-border-strong);
+}
+
+.control:focus {
+  border-color: var(--color-focus);
+  box-shadow: none;
+}
+
+.control:focus-visible {
+  outline: none;
+}
+
+.control:disabled {
+  color: var(--color-text-subtle);
+  cursor: not-allowed;
+  background: var(--color-surface-muted);
+  border-color: var(--color-border);
+  opacity: 0.72;
+}
+
+.control[type="number"] {
+  appearance: textfield;
+}
+
+.control[type="number"]::-webkit-inner-spin-button,
+.control[type="number"]::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.control:-webkit-autofill,
+.control:-webkit-autofill:hover {
+  -webkit-text-fill-color: var(--color-text);
+  caret-color: var(--color-text);
+  box-shadow: 0 0 0 1000px var(--color-surface-raised) inset;
+}
+
+.control:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--color-text);
+  caret-color: var(--color-text);
+  box-shadow: 0 0 0 1000px var(--color-surface-raised) inset;
+}
+
+.selectShell {
+  position: relative;
+  display: block;
+}
+
+.select {
+  padding-right: var(--space-8);
+  cursor: pointer;
+}
+
+.selectIndicator {
+  position: absolute;
+  top: 50%;
+  right: var(--space-3);
+  width: 0.4375rem;
+  height: 0.4375rem;
+  pointer-events: none;
+  border-right: 1px solid var(--color-text-muted);
+  border-bottom: 1px solid var(--color-text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.select:focus + .selectIndicator {
+  border-color: var(--color-text);
+}
+
+.select:disabled + .selectIndicator {
+  border-color: var(--color-text-subtle);
+  opacity: 0.72;
+}
+
+.select option {
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+}

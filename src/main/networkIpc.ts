@@ -1,0 +1,304 @@
+import type {
+  IpcMain,
+  IpcMainInvokeEvent,
+  WebContents,
+} from 'electron';
+import { z } from 'zod';
+import {
+  MAX_TRANSFORM_PREVIEW_RATE,
+  MAX_DRAWING_PREVIEW_POINTS,
+  MAX_MEASUREMENT_POINTS,
+  MIN_TRANSFORM_PREVIEW_RATE,
+  networkIpcChannels,
+  type NetworkResult,
+} from '../shared/network';
+import {
+  sceneDrawingPointSchema,
+  sceneDrawingStyleSchema,
+} from './sceneSchema';
+import type { NetworkManager } from './network/networkManager';
+
+const campaignIdSchema = z
+  .object({ campaignId: z.string().uuid() })
+  .strict();
+const setPortSchema = campaignIdSchema.extend({
+  port: z.number().int().min(1).max(65_535),
+});
+const setTransformPreviewRateSchema = campaignIdSchema.extend({
+  transformPreviewRate: z
+    .number()
+    .int()
+    .min(MIN_TRANSFORM_PREVIEW_RATE)
+    .max(MAX_TRANSFORM_PREVIEW_RATE),
+});
+const createUserSchema = campaignIdSchema.extend({
+  password: z.string().min(1),
+  username: z.string().min(1).max(256),
+});
+const userIdSchema = campaignIdSchema.extend({
+  userId: z.string().uuid(),
+});
+const updateUsernameSchema = userIdSchema.extend({
+  username: z.string().min(1).max(256),
+});
+const resetPasswordSchema = userIdSchema.extend({
+  password: z.string().min(1),
+});
+const connectSchema = z
+  .object({
+    expectedCampaignId: z.string().uuid().optional(),
+    host: z.string().trim().min(1).max(253),
+    port: z.number().int().min(1).max(65_535),
+  })
+  .strict();
+const attemptSchema = z.object({ attemptId: z.string().uuid() }).strict();
+const authenticateSchema = attemptSchema.extend({
+  password: z.string().min(1).optional(),
+  useSavedPassword: z.boolean(),
+  userId: z.string().uuid(),
+});
+const mapPingSchema = campaignIdSchema.extend({
+  id: z.string().uuid(),
+  pullPlayers: z.boolean(),
+  sceneId: z.string().uuid(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+const measurementPointSchema = z
+  .object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+  })
+  .strict();
+const measurementUpdateSchema = campaignIdSchema
+  .extend({
+    active: z.boolean(),
+    measurementId: z.string().uuid(),
+    points: z.array(measurementPointSchema).max(MAX_MEASUREMENT_POINTS),
+    sceneId: z.string().uuid(),
+    updateSequence: z.number().int().min(0).max(0xffff_ffff),
+  })
+  .superRefine((input, context) => {
+    if (
+      (input.active && input.points.length === 0) ||
+      (!input.active && input.points.length !== 0)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Active measurements require points and cleared measurements do not.',
+        path: ['points'],
+      });
+    }
+  });
+const drawingPreviewSchema = campaignIdSchema
+  .extend({
+    active: z.boolean(),
+    closed: z.boolean(),
+    kind: z.enum(['freeform', 'polyline']),
+    layer: z.enum(['map', 'token', 'gm']),
+    operationId: z.string().uuid(),
+    points: z.array(sceneDrawingPointSchema).max(MAX_DRAWING_PREVIEW_POINTS),
+    reliable: z.boolean().optional(),
+    sceneId: z.string().uuid(),
+    sequence: z.number().int().min(0).max(0xffff_ffff),
+    style: sceneDrawingStyleSchema,
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.active && input.points.length === 0) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Active drawing previews require at least one point.',
+        path: ['points'],
+      });
+    }
+    if (!input.active && input.points.length !== 0) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Cleared drawing previews cannot contain points.',
+        path: ['points'],
+      });
+    }
+  });
+
+function invalidInput<T>(): NetworkResult<T> {
+  return {
+    error: {
+      code: 'invalid_input',
+      message: 'The request contains invalid input.',
+    },
+    ok: false,
+  };
+}
+
+export function registerNetworkIpcHandlers(
+  ipc: IpcMain,
+  manager: NetworkManager,
+  getAllowedWebContents: () => WebContents | null,
+) {
+  const channels = Object.values(networkIpcChannels).filter(
+    (channel) =>
+      channel !== networkIpcChannels.hostStatusChanged &&
+      channel !== networkIpcChannels.clientStateChanged &&
+      channel !== networkIpcChannels.drawingPreview &&
+      channel !== networkIpcChannels.mapPing &&
+      channel !== networkIpcChannels.measurementUpdate &&
+      channel !== networkIpcChannels.sessionClosed,
+  );
+  channels.forEach((channel) => ipc.removeHandler(channel));
+
+  const isAllowed = (event: IpcMainInvokeEvent) =>
+    event.sender === getAllowedWebContents();
+
+  const handle = <T>(
+    channel: string,
+    listener: (input: unknown) => Promise<T> | T,
+  ) => {
+    ipc.handle(channel, (event, input) => {
+      if (!isAllowed(event)) {
+        return invalidInput();
+      }
+      return listener(input);
+    });
+  };
+
+  handle(networkIpcChannels.openHost, async (input) => {
+    const parsed = campaignIdSchema.safeParse(input);
+    return parsed.success
+      ? manager.openHost(parsed.data.campaignId)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.stopHost, () => manager.stopHost());
+  handle(networkIpcChannels.getHostStatus, () => manager.getHostStatus());
+  handle(networkIpcChannels.getServerSettings, async (input) => {
+    const parsed = campaignIdSchema.safeParse(input);
+    return parsed.success
+      ? manager.getServerSettings(parsed.data.campaignId)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.setPort, async (input) => {
+    const parsed = setPortSchema.safeParse(input);
+    return parsed.success ? manager.setPort(parsed.data) : invalidInput();
+  });
+  handle(networkIpcChannels.setTransformPreviewRate, async (input) => {
+    const parsed = setTransformPreviewRateSchema.safeParse(input);
+    return parsed.success
+      ? manager.setTransformPreviewRate(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.createUser, async (input) => {
+    const parsed = createUserSchema.safeParse(input);
+    return parsed.success ? manager.createUser(parsed.data) : invalidInput();
+  });
+  handle(networkIpcChannels.updateUsername, async (input) => {
+    const parsed = updateUsernameSchema.safeParse(input);
+    return parsed.success
+      ? manager.updateUsername(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.resetPassword, async (input) => {
+    const parsed = resetPasswordSchema.safeParse(input);
+    return parsed.success
+      ? manager.resetPassword(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.deleteUser, async (input) => {
+    const parsed = userIdSchema.safeParse(input);
+    return parsed.success ? manager.deleteUser(parsed.data) : invalidInput();
+  });
+  handle(networkIpcChannels.connect, async (input) => {
+    const parsed = connectSchema.safeParse(input);
+    return parsed.success ? manager.connect(parsed.data) : invalidInput();
+  });
+  handle(networkIpcChannels.acceptTrust, async (input) => {
+    const parsed = attemptSchema.safeParse(input);
+    return parsed.success
+      ? manager.acceptTrust(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.authenticate, async (input) => {
+    const parsed = authenticateSchema.safeParse(input);
+    return parsed.success
+      ? manager.authenticate(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.cancelConnection, async (input) => {
+    const parsed = attemptSchema.safeParse(input);
+    if (parsed.success) {
+      await manager.cancelConnection(parsed.data.attemptId);
+    }
+  });
+  handle(networkIpcChannels.disconnect, () => manager.disconnect());
+  handle(networkIpcChannels.listHistory, () => manager.listHistory());
+  handle(networkIpcChannels.deleteHistory, async (input) => {
+    const parsed = campaignIdSchema.safeParse(input);
+    return parsed.success
+      ? manager.deleteHistory(parsed.data)
+      : invalidInput();
+  });
+  handle(networkIpcChannels.sendMapPing, async (input) => {
+    const parsed = mapPingSchema.safeParse(input);
+    if (parsed.success) {
+      await manager.sendMapPing(parsed.data);
+    }
+  });
+  handle(networkIpcChannels.sendDrawingPreview, async (input) => {
+    const parsed = drawingPreviewSchema.safeParse(input);
+    if (parsed.success) {
+      await manager.sendDrawingPreview(parsed.data);
+    }
+  });
+  handle(networkIpcChannels.sendMeasurementUpdate, async (input) => {
+    const parsed = measurementUpdateSchema.safeParse(input);
+    if (parsed.success) {
+      await manager.sendMeasurementUpdate(parsed.data);
+    }
+  });
+
+  const send = (channel: string, value: unknown) => {
+    const webContents = getAllowedWebContents();
+    if (webContents && !webContents.isDestroyed()) {
+      webContents.send(channel, value);
+    }
+  };
+  const onHostStatus = (status: unknown) =>
+    send(networkIpcChannels.hostStatusChanged, status);
+  const onClientState = (state: unknown) =>
+    send(networkIpcChannels.clientStateChanged, state);
+  const onSessionClosed = (event: unknown) =>
+    send(networkIpcChannels.sessionClosed, event);
+  const onMapPing = (event: unknown) =>
+    send(networkIpcChannels.mapPing, event);
+  const onDrawingPreview = (event: unknown) =>
+    send(networkIpcChannels.drawingPreview, event);
+  const onMeasurementUpdate = (event: unknown) =>
+    send(networkIpcChannels.measurementUpdate, event);
+  const onTransformCancelled = (event: unknown) =>
+    send(networkIpcChannels.transformCancelled, event);
+  const onTransformPreview = (event: unknown) =>
+    send(networkIpcChannels.transformPreview, event);
+  const onTransformStarted = (event: unknown) =>
+    send(networkIpcChannels.transformStarted, event);
+  manager.on('host-status-changed', onHostStatus);
+  manager.on('client-state-changed', onClientState);
+  manager.on('map-ping', onMapPing);
+  manager.on('drawing-preview', onDrawingPreview);
+  manager.on('measurement-update', onMeasurementUpdate);
+  manager.on('session-closed', onSessionClosed);
+  manager.on('transform-cancelled', onTransformCancelled);
+  manager.on('transform-preview', onTransformPreview);
+  manager.on('transform-started', onTransformStarted);
+
+  return () => {
+    channels.forEach((channel) => ipc.removeHandler(channel));
+    manager.off('host-status-changed', onHostStatus);
+    manager.off('client-state-changed', onClientState);
+    manager.off('map-ping', onMapPing);
+    manager.off('drawing-preview', onDrawingPreview);
+    manager.off('measurement-update', onMeasurementUpdate);
+    manager.off('session-closed', onSessionClosed);
+    manager.off('transform-cancelled', onTransformCancelled);
+    manager.off('transform-preview', onTransformPreview);
+    manager.off('transform-started', onTransformStarted);
+  };
+}

@@ -1,0 +1,13 @@
+.content {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.content h2,
+.content p {
+  margin: 0;
+}
+
+.content button {
+  justify-self: end;
+}
