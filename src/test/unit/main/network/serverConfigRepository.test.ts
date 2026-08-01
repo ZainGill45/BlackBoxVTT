@@ -1,20 +1,38 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ServerConfigRepository } from '../../../../main/network/serverConfigRepository';
 import { verifyPassword } from '../../../../main/network/passwords';
+import {
+  CAMPAIGN_DATABASE_FILENAME,
+  CampaignDatabase,
+} from '../../../../main/storage/campaignDatabase';
+import { CAMPAIGN_SCHEMA_VERSION } from '../../../../shared/campaigns';
 
 const temporaryDirectories: string[] = [];
+const databases: CampaignDatabase[] = [];
+const campaignId = '11111111-1111-4111-8111-111111111111';
 
-async function createCampaignDirectory() {
+async function createCampaignDatabase() {
   const directory = await mkdtemp(path.join(tmpdir(), 'blackbox-network-'));
   temporaryDirectories.push(directory);
-  await mkdir(path.join(directory, 'content'));
-  return directory;
+  const timestamp = '2026-07-31T12:00:00.000Z';
+  const database = CampaignDatabase.create(directory, {
+    createdAt: timestamp,
+    id: campaignId,
+    name: 'Iron Meridian',
+    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    updatedAt: timestamp,
+  });
+  databases.push(database);
+  return { database, directory };
 }
 
 afterEach(async () => {
+  for (const database of databases.splice(0)) {
+    database.close();
+  }
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
       rm(directory, { force: true, recursive: true }),
@@ -24,8 +42,8 @@ afterEach(async () => {
 
 describe('ServerConfigRepository', () => {
   it('persists normalized users with scrypt hashes and no plaintext password', async () => {
-    const directory = await createCampaignDirectory();
-    const repository = new ServerConfigRepository(directory);
+    const { database, directory } = await createCampaignDatabase();
+    const repository = new ServerConfigRepository(database);
     const created = await repository.createUser('  \uFF21lice  ', ' secret ');
 
     expect(created.ok && created.value.username).toBe('Alice');
@@ -35,14 +53,16 @@ describe('ServerConfigRepository', () => {
       await verifyPassword(' secret ', config.users[0].password),
     ).toBe(true);
     expect(
-      await readFile(path.join(directory, 'content', 'server.json'), 'utf8'),
+      await readFile(
+        path.join(directory, CAMPAIGN_DATABASE_FILENAME),
+        'utf8',
+      ),
     ).not.toContain(' secret ');
   });
 
-  it('rejects duplicate normalized usernames and enforces port bounds', async () => {
-    const repository = new ServerConfigRepository(
-      await createCampaignDirectory(),
-    );
+  it('rejects duplicate normalized usernames and enforces setting bounds', async () => {
+    const { database } = await createCampaignDatabase();
+    const repository = new ServerConfigRepository(database);
     await repository.createUser('Alice', 'one');
     const duplicate = await repository.createUser(' alice ', 'two');
 
@@ -67,26 +87,16 @@ describe('ServerConfigRepository', () => {
     expect((await repository.load()).maxChatMessageCharacters).toBe(50_000);
   });
 
-  it('persists the default preview rate while migrating version-one configs', async () => {
-    const directory = await createCampaignDirectory();
-    const configPath = path.join(directory, 'content', 'server.json');
-    await writeFile(
-      configPath,
-      JSON.stringify({ port: 31_000, schemaVersion: 1, users: [] }),
-      'utf8',
-    );
-    const repository = new ServerConfigRepository(directory);
+  it('initializes all settings with their current defaults', async () => {
+    const { database } = await createCampaignDatabase();
+    const repository = new ServerConfigRepository(database);
 
-    expect(await repository.load()).toMatchObject({
+    expect(await repository.load()).toEqual({
       maxChatMessageCharacters: 10_000,
-      port: 31_000,
+      port: 30_000,
       schemaVersion: 3,
       transformPreviewRate: 60,
-    });
-    expect(JSON.parse(await readFile(configPath, 'utf8'))).toMatchObject({
-      maxChatMessageCharacters: 10_000,
-      schemaVersion: 3,
-      transformPreviewRate: 60,
+      users: [],
     });
   });
 });

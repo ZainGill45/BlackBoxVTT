@@ -47,7 +47,7 @@ export interface SceneStore {
  * only ever looks at the presented one.
  */
 export function useScenes(
-  sceneApi: SceneApi | undefined,
+  sceneApi: SceneApi,
   campaignId: string,
   canPresent: boolean,
 ): SceneStore {
@@ -58,9 +58,6 @@ export function useScenes(
   const [requestedSceneId, setRequestedSceneId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!sceneApi) {
-      return undefined;
-    }
     let current = true;
     let receivedChange = false;
     const removeChanged = sceneApi.onChanged((event) => {
@@ -116,9 +113,6 @@ export function useScenes(
   );
 
   const createScene = useCallback(async () => {
-    if (!sceneApi) {
-      return null;
-    }
     const scene = await run(() => sceneApi.create({ campaignId }));
     if (scene) {
       setRequestedSceneId(scene.id);
@@ -128,9 +122,6 @@ export function useScenes(
 
   const updateScene = useCallback(
     async (scene: SceneRecord, patch: ScenePatch) => {
-      if (!sceneApi) {
-        return null;
-      }
       return run(() =>
         sceneApi.update({
           campaignId,
@@ -145,12 +136,8 @@ export function useScenes(
 
   const setImages = useCallback(
     async (scene: SceneRecord, state: SceneImageState) => {
-      const setImagesApi = sceneApi?.setImages;
-      if (!setImagesApi) {
-        return null;
-      }
       return run(() =>
-        setImagesApi({
+        sceneApi.setImages({
           campaignId,
           expectedRevision: scene.revision,
           sceneId: scene.id,
@@ -167,12 +154,8 @@ export function useScenes(
       state: SceneImageState,
       operationId: string,
     ) => {
-      const setObjectsApi = sceneApi?.setObjects;
-      if (!setObjectsApi) {
-        return null;
-      }
       return run(() =>
-        setObjectsApi({
+        sceneApi.setObjects({
           campaignId,
           expectedRevision: scene.revision,
           operationId,
@@ -185,30 +168,19 @@ export function useScenes(
   );
 
   const undo = useCallback(
-    async (scene: SceneRecord) => {
-      const undoApi = sceneApi?.undo;
-      return undoApi
-        ? run(() => undoApi({ campaignId, sceneId: scene.id }))
-        : null;
-    },
+    (scene: SceneRecord) =>
+      run(() => sceneApi.undo({ campaignId, sceneId: scene.id })),
     [campaignId, run, sceneApi],
   );
 
   const redo = useCallback(
-    async (scene: SceneRecord) => {
-      const redoApi = sceneApi?.redo;
-      return redoApi
-        ? run(() => redoApi({ campaignId, sceneId: scene.id }))
-        : null;
-    },
+    (scene: SceneRecord) =>
+      run(() => sceneApi.redo({ campaignId, sceneId: scene.id })),
     [campaignId, run, sceneApi],
   );
 
   const trashScene = useCallback(
     async (scene: SceneRecord) => {
-      if (!sceneApi) {
-        return;
-      }
       await run(() =>
         sceneApi.trash({
           campaignId,
@@ -222,9 +194,6 @@ export function useScenes(
 
   const present = useCallback(
     async (sceneId: string | null) => {
-      if (!sceneApi) {
-        return;
-      }
       // Presenting also moves the game master's own view to that scene.
       setRequestedSceneId(sceneId);
       await run(() => sceneApi.present({ campaignId, sceneId }));
@@ -234,9 +203,6 @@ export function useScenes(
 
   const detachAsset = useCallback(
     async (assetId: string) => {
-      if (!sceneApi) {
-        return;
-      }
       await run(() => sceneApi.detachAsset({ assetId, campaignId }));
     },
     [campaignId, run, sceneApi],
@@ -244,9 +210,6 @@ export function useScenes(
 
   const findDependents = useCallback(
     async (assetId: string) => {
-      if (!sceneApi) {
-        return [];
-      }
       const result = await sceneApi.findDependents({ assetId, campaignId });
       return result.ok ? result.value : [];
     },

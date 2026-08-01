@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,13 +16,16 @@ import {
   type SceneDrawing,
 } from '../../../shared/scenes';
 import { SceneRepository } from '../../../main/sceneRepository';
+import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
+import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 
 let directory = '';
+let database: CampaignDatabase;
 
 function createRepository(touchCampaign?: () => Promise<void>) {
   let counter = 0;
   return new SceneRepository({
-    campaignDirectory: directory,
+    database,
     createId: () =>
       `0000000${(counter += 1)}-1111-4111-8111-111111111111`.slice(-36),
     now: () => new Date('2026-07-28T00:00:00.000Z'),
@@ -32,9 +35,7 @@ function createRepository(touchCampaign?: () => Promise<void>) {
 }
 
 async function readSceneFile() {
-  return JSON.parse(
-    await readFile(path.join(directory, 'scenes.json'), 'utf8'),
-  ) as { activeSceneId: string | null; revision: number; scenes: unknown[] };
+  return createRepository().readManifest();
 }
 
 function drawing(
@@ -68,9 +69,18 @@ function drawing(
 
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'blackbox-scenes-'));
+  const timestamp = '2026-07-31T12:00:00.000Z';
+  database = CampaignDatabase.create(directory, {
+    createdAt: timestamp,
+    id: '99999999-9999-4999-8999-999999999999',
+    name: 'Iron Meridian',
+    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    updatedAt: timestamp,
+  });
 });
 
 afterEach(async () => {
+  database.close();
   await rm(directory, { force: true, recursive: true });
 });
 
@@ -111,6 +121,40 @@ describe('SceneRepository', () => {
     await repository.create();
 
     expect(touchCampaign).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps scene commit idempotency across repository restarts', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const state = imageStateOf(created.value);
+    state.drawings.token.push(
+      drawing('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+    );
+    const operationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const committed = await repository.setObjects(
+      created.value.id,
+      state,
+      0,
+      operationId,
+      { kind: 'gm' },
+    );
+    expect(committed).toMatchObject({ ok: true, value: { revision: 1 } });
+    const manifestRevision = (await repository.readManifest()).revision;
+
+    const reopened = createRepository();
+    const retried = await reopened.setObjects(
+      created.value.id,
+      state,
+      0,
+      operationId,
+      { kind: 'gm' },
+    );
+
+    expect(retried).toMatchObject({ ok: true, value: { revision: 1 } });
+    expect((await reopened.readManifest()).revision).toBe(manifestRevision);
   });
 
   it('merges partial grid patches and rejects stale revisions', async () => {
@@ -226,95 +270,6 @@ describe('SceneRepository', () => {
     expect(manifest.scenes.every((scene) => scene.mapImage === null)).toBe(true);
     expect(manifest.scenes[0].revision).toBe(2);
     expect(manifest.scenes[1].revision).toBe(0);
-  });
-
-  it('migrates top-left map transforms to center transforms without moving them', async () => {
-    const repository = createRepository();
-    const created = await repository.create();
-    if (!created.ok) {
-      throw new Error('setup failed');
-    }
-    const stored = JSON.parse(
-      await readFile(path.join(directory, 'scenes.json'), 'utf8'),
-    );
-    stored.schemaVersion = 1;
-    delete stored.scenes[0].images;
-    stored.scenes[0].mapImage = {
-      assetId: '33333333-3333-4333-8333-333333333333',
-      height: 50,
-      rotation: 90,
-      width: 100,
-      x: 10,
-      y: 20,
-    };
-    await writeFile(
-      path.join(directory, 'scenes.json'),
-      JSON.stringify(stored),
-      'utf8',
-    );
-
-    const migrated = await repository.readManifest();
-
-    expect(migrated.schemaVersion).toBe(SCENE_MANIFEST_SCHEMA_VERSION);
-    expect(migrated.scenes[0].images).toEqual(createEmptyImageLayers());
-    expect(migrated.scenes[0].mapImage).toMatchObject({ x: -15, y: 70 });
-  });
-
-  it('migrates version-two scenes with empty drawing layers', async () => {
-    const repository = createRepository();
-    const created = await repository.create();
-    if (!created.ok) {
-      throw new Error('setup failed');
-    }
-    const stored = JSON.parse(
-      await readFile(path.join(directory, 'scenes.json'), 'utf8'),
-    );
-    stored.schemaVersion = 2;
-    delete stored.scenes[0].drawings;
-    await writeFile(
-      path.join(directory, 'scenes.json'),
-      JSON.stringify(stored),
-      'utf8',
-    );
-
-    const migrated = await repository.readManifest();
-
-    expect(migrated.schemaVersion).toBe(SCENE_MANIFEST_SCHEMA_VERSION);
-    expect(migrated.scenes[0].drawings).toEqual(createEmptyDrawingLayers());
-  });
-
-  it('adds default hardness to version-three drawings without changing width', async () => {
-    const repository = createRepository();
-    const created = await repository.create();
-    if (!created.ok) {
-      throw new Error('setup failed');
-    }
-    const stored = JSON.parse(
-      await readFile(path.join(directory, 'scenes.json'), 'utf8'),
-    );
-    const legacy = drawing(
-      '44444444-4444-4444-8444-444444444444',
-      null,
-    );
-    legacy.style.edge = 'soft';
-    const legacyStyle = legacy.style as Partial<typeof legacy.style>;
-    delete legacyStyle.hardness;
-    stored.schemaVersion = 3;
-    stored.scenes[0].drawings.token = [legacy];
-    await writeFile(
-      path.join(directory, 'scenes.json'),
-      JSON.stringify(stored),
-      'utf8',
-    );
-
-    const migrated = await repository.readManifest();
-
-    expect(migrated.schemaVersion).toBe(SCENE_MANIFEST_SCHEMA_VERSION);
-    expect(migrated.scenes[0].drawings.token[0].style).toMatchObject({
-      edge: 'soft',
-      hardness: 1,
-      strokeWidth: 12,
-    });
   });
 
   it('normalizes image state atomically and rejects stale or duplicate state', async () => {
@@ -550,12 +505,16 @@ describe('SceneRepository', () => {
   });
 
   it('recovers from a malformed manifest instead of throwing', async () => {
-    await writeFile(
-      path.join(directory, 'scenes.json'),
-      '{"schemaVersion": 99}',
-      'utf8',
-    );
     const repository = createRepository();
+    database.connection
+      .prepare(
+        `INSERT INTO scenes (id, position, record_json)
+         VALUES (?, 0, ?)`,
+      )
+      .run(
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        '{"invalid":true}',
+      );
 
     expect((await repository.readManifest()).scenes).toEqual([]);
 
@@ -569,15 +528,13 @@ describe('SceneRepository', () => {
     if (!created.ok) {
       throw new Error('setup failed');
     }
-    const manifest = await repository.readManifest();
-    await writeFile(
-      path.join(directory, 'scenes.json'),
-      JSON.stringify({
-        ...manifest,
-        activeSceneId: '44444444-4444-4444-8444-444444444444',
-      }),
-      'utf8',
-    );
+    database.connection
+      .prepare(
+        `UPDATE scene_manifest
+         SET active_scene_id = ?
+         WHERE singleton = 1`,
+      )
+      .run('44444444-4444-4444-8444-444444444444');
 
     expect((await repository.readManifest()).activeSceneId).toBeNull();
   });

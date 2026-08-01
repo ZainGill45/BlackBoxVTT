@@ -336,7 +336,7 @@ export interface NetworkApi {
   listHistory(): Promise<NetworkResult<SavedConnection[]>>;
   onChatEvent(listener: (event: ChatEvent) => void): () => void;
   onClientStateChanged(listener: (event: ClientStateEvent) => void): () => void;
-  onDrawingPreview?(
+  onDrawingPreview(
     listener: (preview: DrawingPreviewEvent) => void,
   ): () => void;
   onHostStatusChanged(listener: (status: HostStatus) => void): () => void;
@@ -345,13 +345,13 @@ export interface NetworkApi {
     listener: (update: MeasurementEvent) => void,
   ): () => void;
   onSessionClosed(listener: (event: SessionClosedEvent) => void): () => void;
-  onTransformCancelled?(
+  onTransformCancelled(
     listener: (input: SceneTransformPreviewCancel) => void,
   ): () => void;
-  onTransformPreview?(
+  onTransformPreview(
     listener: (input: SceneTransformPreviewDelta) => void,
   ): () => void;
-  onTransformStarted?(
+  onTransformStarted(
     listener: (input: SceneTransformPreviewStart) => void,
   ): () => void;
   openHost(input: OpenHostInput): Promise<NetworkResult<HostStatus>>;
@@ -365,11 +365,11 @@ export interface NetworkApi {
     input: SetMaxChatMessageCharactersInput,
   ): Promise<NetworkResult<number>>;
   setPort(input: SetServerPortInput): Promise<NetworkResult<number>>;
-  setTransformPreviewRate?(
+  setTransformPreviewRate(
     input: SetTransformPreviewRateInput,
   ): Promise<NetworkResult<number>>;
   sendMapPing(input: MapPing): Promise<void>;
-  sendDrawingPreview?(input: DrawingPreviewUpdate): Promise<void>;
+  sendDrawingPreview(input: DrawingPreviewUpdate): Promise<void>;
   sendMeasurementUpdate(input: MeasurementUpdate): Promise<void>;
   stopHost(): Promise<void>;
   updateUsername(

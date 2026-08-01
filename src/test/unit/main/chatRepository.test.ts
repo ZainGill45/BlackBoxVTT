@@ -1,10 +1,11 @@
-import { readFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatIdentity, ChatPrincipal } from '../../../shared/chat';
 import { ChatRepository } from '../../../main/chatRepository';
+import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
+import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 
 const gm = { displayName: 'Game Master', kind: 'gm' } as const;
 const alice = {
@@ -23,12 +24,21 @@ const charlie = {
   userId: '33333333-3333-4333-8333-333333333333',
 } as const;
 const temporaryDirectories: string[] = [];
+const databases: CampaignDatabase[] = [];
 
-async function createCampaignDirectory(): Promise<string> {
+async function createCampaignDatabase() {
   const directory = await mkdtemp(path.join(tmpdir(), 'blackbox-chat-'));
   temporaryDirectories.push(directory);
-  await mkdir(path.join(directory, 'content'));
-  return directory;
+  const timestamp = '2026-07-31T12:00:00.000Z';
+  const database = CampaignDatabase.create(directory, {
+    createdAt: timestamp,
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'Iron Meridian',
+    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    updatedAt: timestamp,
+  });
+  databases.push(database);
+  return { database, directory };
 }
 
 function principal(identity: ChatIdentity): ChatPrincipal {
@@ -38,6 +48,9 @@ function principal(identity: ChatIdentity): ChatPrincipal {
 }
 
 afterEach(async () => {
+  for (const database of databases.splice(0)) {
+    database.close();
+  }
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
       rm(directory, { force: true, recursive: true }),
@@ -47,8 +60,8 @@ afterEach(async () => {
 
 describe('ChatRepository', () => {
   it('persists public and participant-only whispers with immutable snapshots', async () => {
-    const directory = await createCampaignDirectory();
-    const repository = new ChatRepository({ campaignDirectory: directory });
+    const { database, directory } = await createCampaignDatabase();
+    const repository = new ChatRepository({ database });
     const publicSend = await repository.send({
       clientMessageId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       content: '  Public\r\nmessage  ',
@@ -103,7 +116,11 @@ describe('ChatRepository', () => {
     });
 
     await repository.close();
-    const reopened = new ChatRepository({ campaignDirectory: directory });
+    database.close();
+    databases.splice(databases.indexOf(database), 1);
+    const reopenedDatabase = CampaignDatabase.open(directory);
+    databases.push(reopenedDatabase);
+    const reopened = new ChatRepository({ database: reopenedDatabase });
     const directorySnapshot = [gm, alice, bob, charlie];
     const read = async (viewer: ChatIdentity) => {
       const result = await reopened.bootstrap(
@@ -130,20 +147,11 @@ describe('ChatRepository', () => {
       'Public\nmessage',
     ]);
     await reopened.close();
-
-    const database = new DatabaseSync(
-      path.join(directory, 'content', 'chat.sqlite'),
-    );
-    expect(
-      database.prepare('PRAGMA user_version').get(),
-    ).toEqual({ user_version: 1 });
-    database.close();
   });
 
   it('counts graphemes, bounds bytes, rejects self-whispers, and pages by bytes', async () => {
-    const repository = new ChatRepository({
-      campaignDirectory: await createCampaignDirectory(),
-    });
+    const { database } = await createCampaignDatabase();
+    const repository = new ChatRepository({ database });
     expect(
       await repository.send({
         clientMessageId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -201,9 +209,8 @@ describe('ChatRepository', () => {
   });
 
   it('returns 100-message pages and rotates the generation atomically on clear', async () => {
-    const repository = new ChatRepository({
-      campaignDirectory: await createCampaignDirectory(),
-    });
+    const { database } = await createCampaignDatabase();
+    const repository = new ChatRepository({ database });
     for (let index = 0; index < 105; index += 1) {
       await repository.send({
         clientMessageId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
@@ -272,26 +279,22 @@ describe('ChatRepository', () => {
     await repository.close();
   });
 
-  it('fails closed on corrupt storage and retries the same path without overwriting it', async () => {
-    const directory = await createCampaignDirectory();
-    const databasePath = path.join(directory, 'content', 'chat.sqlite');
-    await writeFile(databasePath, 'not a sqlite database', 'utf8');
+  it('fails closed when the shared chat schema becomes unavailable', async () => {
+    const { database } = await createCampaignDatabase();
     const warn = vi.fn();
     const repository = new ChatRepository({
-      campaignDirectory: directory,
+      database,
       warn,
     });
+    database.connection.exec('DROP TABLE chat_messages');
 
     expect(
       await repository.bootstrap({ kind: 'gm' }, [gm], 10_000),
     ).toMatchObject({ error: { code: 'storage_error' }, ok: false });
-    expect(await readFile(databasePath, 'utf8')).toBe(
-      'not a sqlite database',
-    );
     await repository.retry();
     expect(
       await repository.bootstrap({ kind: 'gm' }, [gm], 10_000),
     ).toMatchObject({ error: { code: 'storage_error' }, ok: false });
-    expect(warn).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(2);
   });
 });

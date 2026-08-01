@@ -15,6 +15,8 @@ import { AssetManager } from './main/assetManager';
 import { AssetPreviewRegistry } from './main/assetPreviewRegistry';
 import { registerCampaignIpcHandlers } from './main/campaignIpc';
 import { CampaignRepository } from './main/campaignRepository';
+import { CampaignRuntimeRegistry } from './main/campaignRuntime';
+import { CampaignWorkspaceRegistry } from './main/campaignWorkspace';
 import { ConnectionHistoryRepository } from './main/network/connectionHistoryRepository';
 import { NetworkManager } from './main/network/networkManager';
 import { registerNetworkIpcHandlers } from './main/networkIpc';
@@ -164,65 +166,31 @@ app.whenReady().then(() => {
   });
 
   const historyRepository = new ConnectionHistoryRepository(
-    path.join(app.getPath('userData'), 'data', 'connections.json'),
+    path.join(app.getPath('userData'), 'data', 'application.sqlite'),
     {
       decryptStringAsync: (encrypted) =>
         safeStorage.decryptStringAsync(encrypted),
       encryptStringAsync: (value) => safeStorage.encryptStringAsync(value),
     },
   );
-  assetManager = new AssetManager({
+  const workspaces = new CampaignWorkspaceRegistry({
     campaignRepository,
-    getWindow: () => mainWindow,
-    previewRegistry: assetPreviewRegistry,
-    remoteBridge: {
-      getActor: (campaignId) =>
-        networkManager?.getRemoteAssetActor(campaignId) ?? null,
-      getPreviewPath: (campaignId, assetId) =>
-        networkManager?.getRemotePreviewPath(campaignId, assetId) ??
-        Promise.resolve(null),
-      importFiles: (campaignId, sourcePaths, onProgress) =>
-        networkManager!.importRemoteAssets(
-          campaignId,
-          sourcePaths,
-          onProgress,
-        ),
-      list: (campaignId) =>
-        networkManager!.listRemoteAssets(campaignId),
-      prepare: (campaignId, onProgress) =>
-        networkManager!.prepareRemoteAssets(campaignId, onProgress),
-      rename: (input) => networkManager!.renameRemoteAsset(input),
-      trash: (input) => networkManager!.trashRemoteAsset(input),
-    },
     trashItem: (targetPath) => shell.trashItem(targetPath),
   });
-  sceneManager = new SceneManager({
-    campaignRepository,
-    remoteBridge: {
-      getActiveScene: (campaignId) =>
-        networkManager?.getRemoteActiveScene(campaignId) ?? null,
-      isRemote: (campaignId) =>
-        networkManager?.isRemoteCampaign(campaignId) ?? false,
-      redoSceneEdit: (input) => networkManager!.redoSceneEdit(input),
-      setRemoteSceneObjects: (input) =>
-        networkManager!.setRemoteSceneObjects(input),
-      startRemoteTransform: (input) =>
-        networkManager!.startRemoteTransform(input),
-      updateRemoteTransform: (input) =>
-        networkManager!.updateRemoteTransform(input),
-      cancelRemoteTransform: (input) =>
-        networkManager!.cancelRemoteTransform(input),
-      undoSceneEdit: (input) => networkManager!.undoSceneEdit(input),
-    },
-  });
-  networkManager = new NetworkManager({
+  const runtimes = new CampaignRuntimeRegistry(workspaces);
+  const manager = new NetworkManager({
     assetCacheRoot: path.join(app.getPath('userData'), 'data', 'asset-cache'),
-    campaignRepository,
-    getAssetRepository: (campaignId) =>
-      assetManager!.getLocalRepository(campaignId),
-    getSceneRepository: (campaignId) =>
-      sceneManager!.getLocalRepository(campaignId),
     historyRepository,
+    runtimes,
+  });
+  networkManager = manager;
+  assetManager = new AssetManager({
+    getWindow: () => mainWindow,
+    previewRegistry: assetPreviewRegistry,
+    runtimes,
+  });
+  sceneManager = new SceneManager({
+    runtimes,
   });
   assetManager.on('changed', (event: { campaignId?: string }) => {
     if (event.campaignId) {

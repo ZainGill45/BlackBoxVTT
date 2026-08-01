@@ -50,9 +50,9 @@ function getSessionTitle(session: PlayScreenProps['session']) {
 }
 
 export function PlayScreen({
-  applicationApi = window.blackBox.application,
+  applicationApi,
   assetApi,
-  networkApi = window.blackBox.network,
+  networkApi,
   onExit,
   onCreateServerUser,
   onDeleteServerUser,
@@ -104,13 +104,12 @@ export function PlayScreen({
   const SidebarIcon = activeSidebar.icon;
   const showServerSettings =
     activeSidebarTab === 'settings' && session.role === 'gm';
-  const showStorage = activeSidebarTab === 'storage' && assetApi !== undefined;
+  const showStorage = activeSidebarTab === 'storage';
   const showChat = activeSidebarTab === 'chat';
   // Only the game master manages scenes; players just receive the presented one.
   const showScenes =
     activeSidebarTab === 'scenes' &&
-    session.role === 'gm' &&
-    sceneApi !== undefined;
+    session.role === 'gm';
 
   useEffect(() => {
     savePaintSettings(session, paintSettings);
@@ -188,7 +187,9 @@ export function PlayScreen({
         activeTool={activeTool}
         assetApi={assetApi}
         controlsRef={stageControls}
+        networkApi={networkApi}
         scene={scenes.viewedScene}
+        sceneApi={sceneApi}
         session={session}
         onActiveLayerChange={handleLayerChange}
         onCommitImages={scenes.setImages}
@@ -358,12 +359,8 @@ export function PlayScreen({
                   assetApi={assetApi}
                   campaignId={session.campaignId}
                   canDragImages={session.role === 'gm'}
-                  onDetachFromScenes={
-                    sceneApi ? scenes.detachAsset : undefined
-                  }
-                  onFindSceneDependents={
-                    sceneApi ? scenes.findDependents : undefined
-                  }
+                  onDetachFromScenes={scenes.detachAsset}
+                  onFindSceneDependents={scenes.findDependents}
                 />
               ) : showScenes ? (
                 <ScenePanel

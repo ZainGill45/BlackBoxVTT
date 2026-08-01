@@ -7,7 +7,11 @@ import { ASSET_CHUNK_BYTES, MAX_ASSET_BYTES } from '../../shared/assets';
 import type { AssetRepository } from '../assetRepository';
 import { getAssetCapabilities, type AssetPolicy } from '../assetPolicy';
 import { actorFor, type HostClient } from './hostClient';
-import { writeEnvelope } from './tcpProtocol';
+import {
+  parsePayload,
+  writeEnvelope,
+  type TcpEnvelope,
+} from './tcpProtocol';
 
 export interface HostAssetTransferOptions {
   assetPolicy: AssetPolicy;
@@ -77,6 +81,173 @@ export class HostAssetTransfer {
         ),
       })),
     };
+  }
+
+  /** Routes authenticated asset protocol requests away from host transport. */
+  async handleRequest(
+    client: HostClient,
+    envelope: TcpEnvelope,
+  ): Promise<boolean> {
+    if (envelope.type === 'client.asset_manifest') {
+      if (!this.assetPolicy.authorize({
+        action: 'list',
+        subject: actorFor(client),
+      })) {
+        this.sendAssetError(
+          client,
+          'permission_denied',
+          'You cannot view campaign assets.',
+          envelope.requestId,
+        );
+        return true;
+      }
+      parsePayload('client.asset_manifest', envelope.payload);
+      await this.sendAssetManifest(client, envelope.requestId);
+      return true;
+    }
+    if (envelope.type === 'client.asset_chunk_request') {
+      const input = parsePayload(
+        'client.asset_chunk_request',
+        envelope.payload,
+      );
+      const asset = (await this.assetRepository.readManifest()).assets.find(
+        (candidate) => candidate.id === input.assetId,
+      );
+      if (!this.assetPolicy.authorize({
+        action: 'read',
+        asset,
+        subject: actorFor(client),
+      })) {
+        this.sendAssetError(
+          client,
+          'permission_denied',
+          'You cannot read this campaign asset.',
+          envelope.requestId,
+          input.assetId,
+        );
+        return true;
+      }
+      await this.sendAssetChunk(
+        client,
+        input.assetId,
+        input.index,
+        envelope.requestId,
+      );
+      return true;
+    }
+    if (envelope.type === 'client.asset_rename') {
+      const input = parsePayload('client.asset_rename', envelope.payload);
+      const asset = (await this.assetRepository.readManifest()).assets.find(
+        (candidate) => candidate.id === input.assetId,
+      );
+      if (!this.assetPolicy.authorize({
+        action: 'rename',
+        asset,
+        subject: actorFor(client),
+      })) {
+        this.sendAssetError(
+          client,
+          'permission_denied',
+          'You cannot rename this campaign asset.',
+          envelope.requestId,
+          input.assetId,
+        );
+        return true;
+      }
+      const result = await this.assetRepository.renameAsset(
+        input.assetId,
+        input.displayName,
+        input.expectedRevision,
+        actorFor(client),
+      );
+      await this.sendMutationResult(client, result, envelope.requestId);
+      if (result.ok) {
+        await this.broadcastAssetsChanged();
+      }
+      return true;
+    }
+    if (envelope.type === 'client.asset_delete') {
+      const input = parsePayload('client.asset_delete', envelope.payload);
+      const asset = (await this.assetRepository.readManifest()).assets.find(
+        (candidate) => candidate.id === input.assetId,
+      );
+      if (!this.assetPolicy.authorize({
+        action: 'delete',
+        asset,
+        subject: actorFor(client),
+      })) {
+        this.sendAssetError(
+          client,
+          'permission_denied',
+          'You cannot delete this campaign asset.',
+          envelope.requestId,
+          input.assetId,
+        );
+        return true;
+      }
+      const result = await this.assetRepository.trashAsset(
+        input.assetId,
+        input.expectedRevision,
+      );
+      await this.sendMutationResult(client, result, envelope.requestId);
+      if (result.ok) {
+        await this.broadcastAssetsChanged();
+      }
+      return true;
+    }
+    if (envelope.type === 'client.asset_import_start') {
+      const input = parsePayload(
+        'client.asset_import_start',
+        envelope.payload,
+      );
+      if (!this.assetPolicy.authorize({
+        action: 'import',
+        subject: actorFor(client),
+      })) {
+        this.sendAssetError(
+          client,
+          'permission_denied',
+          'You cannot add campaign assets.',
+          envelope.requestId,
+        );
+        return true;
+      }
+      await this.startAssetUpload(client, input, envelope.requestId);
+      return true;
+    }
+    if (envelope.type === 'client.asset_import_chunk') {
+      const input = parsePayload(
+        'client.asset_import_chunk',
+        envelope.payload,
+      );
+      await this.receiveAssetUploadChunk(client, input, envelope.requestId);
+      return true;
+    }
+    if (envelope.type === 'client.asset_import_commit') {
+      const input = parsePayload(
+        'client.asset_import_commit',
+        envelope.payload,
+      );
+      await this.commitAssetUpload(
+        client,
+        input.uploadId,
+        envelope.requestId,
+      );
+      return true;
+    }
+    if (envelope.type === 'client.asset_sync_error') {
+      const input = parsePayload(
+        'client.asset_sync_error',
+        envelope.payload,
+      );
+      this.onAssetSyncError(
+        client.user?.username ?? 'Unknown player',
+        input.assetName,
+        input.reason,
+      );
+      return true;
+    }
+    return false;
   }
 
   async sendAssetChunk(

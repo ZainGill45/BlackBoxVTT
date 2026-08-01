@@ -1,10 +1,7 @@
 /**
- * Serializes writes to one store. Repositories read-modify-write whole JSON
- * manifests, so two mutations running concurrently would let the second
- * overwrite the first's changes with a stale copy.
- *
- * A rejected operation does not poison the queue: the next one runs either
- * way, and the caller still sees the original rejection.
+ * Serializes asynchronous repository operations that span reads, validation,
+ * hashing/encryption, SQLite transactions, or filesystem effects. A rejected
+ * operation does not poison the queue, and the caller sees its rejection.
  */
 export class MutationQueue {
   private tail: Promise<unknown> = Promise.resolve();

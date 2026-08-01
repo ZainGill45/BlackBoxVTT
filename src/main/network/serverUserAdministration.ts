@@ -1,143 +1,91 @@
 import type {
-  CreateManagedUserInput,
-  DeleteManagedUserInput,
   ManagedUserView,
   NetworkResult,
-  ResetManagedPasswordInput,
-  UpdateManagedUsernameInput,
 } from '../../shared/network';
-import { fail } from '../../shared/result';
 import type { CampaignHostServer } from './campaignHostServer';
 import type { ServerConfigRepository } from './serverConfigRepository';
-
-function failure<T>(): NetworkResult<T> {
-  return fail({
-    code: 'campaign_not_found',
-    message: 'Campaign could not be found.',
-  });
-}
 
 export interface ServerUserAdministrationOptions {
   /** Announces a membership change so the host status reflects it. */
   emitHostStatus: () => void;
-  getConfigRepository: (
-    campaignId: string,
-  ) => Promise<ServerConfigRepository | null>;
-  getHost: () => CampaignHostServer | null;
+  host: CampaignHostServer;
+  repository: ServerConfigRepository;
 }
 
 /**
- * The GM's per-campaign account management. Every operation writes through the
- * campaign's config repository, then drops any session belonging to the
- * affected account: a credential that just changed must not keep a connection
- * alive.
+ * Account management for one hosted campaign. Campaign selection happens at
+ * construction, so credential changes can only affect this host's sessions.
  */
 export class ServerUserAdministration {
   private readonly emitHostStatus: () => void;
-  private readonly getConfigRepository: ServerUserAdministrationOptions['getConfigRepository'];
-  private readonly getHost: () => CampaignHostServer | null;
+  private readonly host: CampaignHostServer;
+  private readonly repository: ServerConfigRepository;
 
   constructor({
     emitHostStatus,
-    getConfigRepository,
-    getHost,
+    host,
+    repository,
   }: ServerUserAdministrationOptions) {
     this.emitHostStatus = emitHostStatus;
-    this.getConfigRepository = getConfigRepository;
-    this.getHost = getHost;
+    this.host = host;
+    this.repository = repository;
   }
 
   async createUser(
-    input: CreateManagedUserInput,
+    username: string,
+    password: string,
   ): Promise<NetworkResult<ManagedUserView>> {
-    const repository = await this.getConfigRepository(input.campaignId);
-    if (!repository) {
-      return failure();
-    }
-    const result = await repository.createUser(input.username, input.password);
+    const result = await this.repository.createUser(username, password);
     this.emitHostStatus();
     return result.ok
       ? {
           ok: true,
-          value: repository.toView(result.value, false),
+          value: this.repository.toView(result.value, false),
         }
       : result;
   }
 
   async updateUsername(
-    input: UpdateManagedUsernameInput,
+    userId: string,
+    username: string,
   ): Promise<NetworkResult<ManagedUserView>> {
-    const repository = await this.getConfigRepository(input.campaignId);
-    if (!repository) {
-      return failure();
-    }
-    const result = await repository.updateUsername(
-      input.userId,
-      input.username,
-    );
+    const result = await this.repository.updateUsername(userId, username);
     if (result.ok) {
-      this.disconnect(
-        input.campaignId,
-        input.userId,
+      this.host.disconnectUser(
+        userId,
         'Your campaign account was changed.',
       );
     }
     return result.ok
       ? {
           ok: true,
-          value: repository.toView(result.value, false),
+          value: this.repository.toView(result.value, false),
         }
       : result;
   }
 
   async resetPassword(
-    input: ResetManagedPasswordInput,
+    userId: string,
+    password: string,
   ): Promise<NetworkResult<null>> {
-    const repository = await this.getConfigRepository(input.campaignId);
-    if (!repository) {
-      return failure();
-    }
-    const result = await repository.resetPassword(
-      input.userId,
-      input.password,
-    );
+    const result = await this.repository.resetPassword(userId, password);
     if (result.ok) {
-      this.disconnect(
-        input.campaignId,
-        input.userId,
+      this.host.disconnectUser(
+        userId,
         'Your campaign password was reset.',
       );
     }
     return result;
   }
 
-  async deleteUser(
-    input: DeleteManagedUserInput,
-  ): Promise<NetworkResult<null>> {
-    const repository = await this.getConfigRepository(input.campaignId);
-    if (!repository) {
-      return failure();
-    }
-    const result = await repository.deleteUser(input.userId);
+  async deleteUser(userId: string): Promise<NetworkResult<null>> {
+    const result = await this.repository.deleteUser(userId);
     if (result.ok) {
-      this.disconnect(
-        input.campaignId,
-        input.userId,
+      this.host.disconnectUser(
+        userId,
         'Your campaign account was deleted.',
       );
     }
     return result;
-  }
-
-  /** Only the campaign actually being hosted can have a session to drop. */
-  private disconnect(
-    campaignId: string,
-    userId: string,
-    message: string,
-  ): void {
-    const host = this.getHost();
-    if (host?.campaignId === campaignId) {
-      host.disconnectUser(userId, message);
-    }
   }
 }

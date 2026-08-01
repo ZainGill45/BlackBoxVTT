@@ -467,6 +467,59 @@ describe('App campaign integration', () => {
     expect(networkApi.stopHost).toHaveBeenCalledOnce();
   });
 
+  it('enters local play only after the campaign host is ready', async () => {
+    const user = userEvent.setup();
+    const campaignApi: CampaignApi = {
+      create: vi.fn(),
+      list: vi.fn(async () => ({
+        ok: true as const,
+        value: [createdCampaign],
+      })),
+      trash: vi.fn(),
+    };
+    let resolveHost:
+      | ((value: Awaited<ReturnType<NetworkApi['openHost']>>) => void)
+      | undefined;
+    const openHost = vi.fn(
+      () =>
+        new Promise<Awaited<ReturnType<NetworkApi['openHost']>>>((resolve) => {
+          resolveHost = resolve;
+        }),
+    );
+    const networkApi = createMockNetworkApi({ openHost });
+
+    render(<App campaignApi={campaignApi} networkApi={networkApi} />);
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Open Iron Meridian' }),
+    );
+
+    expect(
+      screen.queryByRole('heading', {
+        name: /Iron Meridian.*Game Master/,
+      }),
+    ).not.toBeInTheDocument();
+
+    resolveHost?.({
+      ok: true,
+      value: {
+        boundFamilies: ['IPv4'],
+        certificateFingerprint: 'fingerprint',
+        connectedPlayerCount: 0,
+        effectivePort: 30_000,
+        localAddresses: ['127.0.0.1'],
+        publicAddresses: [],
+        state: 'online',
+      },
+    });
+
+    expect(
+      await screen.findByRole('heading', {
+        name: /Iron Meridian.*Game Master/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('persists server settings through the main-process API across Logout', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {

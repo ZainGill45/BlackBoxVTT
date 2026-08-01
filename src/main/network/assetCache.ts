@@ -1,13 +1,11 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   mkdir,
   open,
-  readFile,
   readdir,
   rename,
   rm,
   stat,
-  writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -16,6 +14,7 @@ import {
   type AssetProgressEvent,
   type AssetRecord,
 } from '../../shared/assets';
+import type { ApplicationDatabase } from '../storage/applicationDatabase';
 
 interface CachedFileState {
   fileModifiedAtMs: number;
@@ -94,15 +93,19 @@ async function hashFile(filePath: string): Promise<string> {
 
 export class RemoteAssetCache {
   private readonly assetDirectory: string;
+  private readonly database: ApplicationDatabase;
   private readonly campaignDirectory: string;
-  private readonly indexPath: string;
   private readonly partialDirectory: string;
 
-  constructor(rootDirectory: string, readonly campaignId: string) {
+  constructor(
+    database: ApplicationDatabase,
+    rootDirectory: string,
+    readonly campaignId: string,
+  ) {
+    this.database = database;
     this.campaignDirectory = path.resolve(rootDirectory, campaignId);
     this.assetDirectory = path.join(this.campaignDirectory, 'assets');
     this.partialDirectory = path.join(this.campaignDirectory, '.partial');
-    this.indexPath = path.join(this.campaignDirectory, 'cache.json');
   }
 
   async initialize(): Promise<void> {
@@ -170,6 +173,7 @@ export class RemoteAssetCache {
         await rm(path.join(this.partialDirectory, entry), { force: true });
       }
     }
+    this.deleteStalePartials(currentIds);
 
     const missing: AssetRecord[] = [];
     for (const asset of manifest.assets) {
@@ -249,6 +253,23 @@ export class RemoteAssetCache {
     if (!target.startsWith(`${path.dirname(target)}${path.sep}`)) {
       throw new Error('Cache path is invalid.');
     }
+    const database = this.database.connection;
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      database
+        .prepare('DELETE FROM remote_asset_files WHERE campaign_id = ?')
+        .run(this.campaignId);
+      database
+        .prepare('DELETE FROM remote_asset_partials WHERE campaign_id = ?')
+        .run(this.campaignId);
+      database
+        .prepare('DELETE FROM remote_asset_manifests WHERE campaign_id = ?')
+        .run(this.campaignId);
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
     await rm(target, { force: true, recursive: true });
   }
 
@@ -258,7 +279,6 @@ export class RemoteAssetCache {
     onProgress: (completed: number) => void,
   ): Promise<void> {
     const partialPath = path.join(this.partialDirectory, `${asset.id}.part`);
-    const statePath = path.join(this.partialDirectory, `${asset.id}.json`);
     let partial: PartialState = {
       assetId: asset.id,
       chunkHashes: asset.chunkHashes,
@@ -267,8 +287,9 @@ export class RemoteAssetCache {
       sizeBytes: asset.sizeBytes,
     };
     try {
-      const parsed = JSON.parse(await readFile(statePath, 'utf8')) as PartialState;
+      const parsed = this.readPartial(asset.id);
       if (
+        parsed &&
         parsed.assetId === asset.id &&
         parsed.sha256 === asset.sha256 &&
         parsed.sizeBytes === asset.sizeBytes &&
@@ -278,6 +299,7 @@ export class RemoteAssetCache {
       }
     } catch {
       await rm(partialPath, { force: true });
+      this.deletePartial(asset.id);
     }
 
     const handle = await open(partialPath, 'r+').catch(() =>
@@ -340,11 +362,7 @@ export class RemoteAssetCache {
         await handle.write(chunk.data, 0, chunk.data.length, chunkIndex * 512 * 1024);
         completed.add(chunkIndex);
         completedBytes += chunk.data.length;
-        await writeFile(
-          statePath,
-          JSON.stringify({ ...partial, completed: [...completed] }),
-          'utf8',
-        );
+        this.writePartial({ ...partial, completed: [...completed] });
         onProgress(completedBytes);
       }
     } finally {
@@ -353,19 +371,55 @@ export class RemoteAssetCache {
 
     if ((await hashFile(partialPath)) !== asset.sha256) {
       await rm(partialPath, { force: true });
-      await rm(statePath, { force: true });
+      this.deletePartial(asset.id);
       throw new Error(`${asset.displayName} failed integrity verification.`);
     }
     const target = this.resolveAssetPath(asset);
     await rm(target, { force: true });
     await rename(partialPath, target);
-    await rm(statePath, { force: true });
+    this.deletePartial(asset.id);
   }
 
   private async readIndex(): Promise<CacheIndex> {
     await this.initialize();
     try {
-      const parsed = JSON.parse(await readFile(this.indexPath, 'utf8')) as CacheIndex;
+      const manifestRow = this.database.connection
+        .prepare(
+          `SELECT manifest_json
+           FROM remote_asset_manifests
+           WHERE campaign_id = ?`,
+        )
+        .get(this.campaignId) as { manifest_json?: unknown } | undefined;
+      if (typeof manifestRow?.manifest_json !== 'string') {
+        return emptyIndex();
+      }
+      const manifest = JSON.parse(manifestRow.manifest_json) as AssetManifest;
+      const fileRows = this.database.connection
+        .prepare(
+          `SELECT asset_id, file_modified_at_ms, sha256, size_bytes
+           FROM remote_asset_files
+           WHERE campaign_id = ?`,
+        )
+        .all(this.campaignId) as unknown as Array<{
+        asset_id: string;
+        file_modified_at_ms: number;
+        sha256: string;
+        size_bytes: number;
+      }>;
+      const parsed: CacheIndex = {
+        files: Object.fromEntries(
+          fileRows.map((row) => [
+            row.asset_id,
+            {
+              fileModifiedAtMs: row.file_modified_at_ms,
+              sha256: row.sha256,
+              sizeBytes: row.size_bytes,
+            },
+          ]),
+        ),
+        manifest,
+        schemaVersion: 1,
+      };
       if (
         parsed.schemaVersion !== 1 ||
         parsed.manifest.schemaVersion !== ASSET_MANIFEST_SCHEMA_VERSION
@@ -391,12 +445,87 @@ export class RemoteAssetCache {
 
   private async writeIndex(index: CacheIndex): Promise<void> {
     await mkdir(this.campaignDirectory, { recursive: true });
-    const temporary = `${this.indexPath}.${randomUUID()}.tmp`;
+    const database = this.database.connection;
+    database.exec('BEGIN IMMEDIATE');
     try {
-      await writeFile(temporary, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-      await rename(temporary, this.indexPath);
-    } finally {
-      await rm(temporary, { force: true });
+      database
+        .prepare(
+          `INSERT INTO remote_asset_manifests (campaign_id, manifest_json)
+           VALUES (?, ?)
+           ON CONFLICT(campaign_id) DO UPDATE SET
+             manifest_json = excluded.manifest_json`,
+        )
+        .run(this.campaignId, JSON.stringify(index.manifest));
+      database
+        .prepare('DELETE FROM remote_asset_files WHERE campaign_id = ?')
+        .run(this.campaignId);
+      const insert = database.prepare(
+        `INSERT INTO remote_asset_files (
+           campaign_id, asset_id, file_modified_at_ms, sha256, size_bytes
+         ) VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const [assetId, state] of Object.entries(index.files)) {
+        insert.run(
+          this.campaignId,
+          assetId,
+          state.fileModifiedAtMs,
+          state.sha256,
+          state.sizeBytes,
+        );
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private readPartial(assetId: string): PartialState | null {
+    const row = this.database.connection
+      .prepare(
+        `SELECT state_json
+         FROM remote_asset_partials
+         WHERE campaign_id = ? AND asset_id = ?`,
+      )
+      .get(this.campaignId, assetId) as { state_json?: unknown } | undefined;
+    return typeof row?.state_json === 'string'
+      ? (JSON.parse(row.state_json) as PartialState)
+      : null;
+  }
+
+  private writePartial(state: PartialState): void {
+    this.database.connection
+      .prepare(
+        `INSERT INTO remote_asset_partials (
+           campaign_id, asset_id, state_json
+         ) VALUES (?, ?, ?)
+         ON CONFLICT(campaign_id, asset_id) DO UPDATE SET
+           state_json = excluded.state_json`,
+      )
+      .run(this.campaignId, state.assetId, JSON.stringify(state));
+  }
+
+  private deletePartial(assetId: string): void {
+    this.database.connection
+      .prepare(
+        `DELETE FROM remote_asset_partials
+         WHERE campaign_id = ? AND asset_id = ?`,
+      )
+      .run(this.campaignId, assetId);
+  }
+
+  private deleteStalePartials(currentIds: Set<string>): void {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT asset_id
+         FROM remote_asset_partials
+         WHERE campaign_id = ?`,
+      )
+      .all(this.campaignId) as unknown as Array<{ asset_id: string }>;
+    for (const row of rows) {
+      if (!currentIds.has(row.asset_id)) {
+        this.deletePartial(row.asset_id);
+      }
     }
   }
 }

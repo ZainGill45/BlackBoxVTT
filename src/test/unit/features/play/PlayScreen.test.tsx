@@ -9,7 +9,12 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PlayScreen } from '../../../../features/play/PlayScreen';
-import { createFakeSceneApi, makeScene } from '../../../support/scenes';
+import {
+  createFakeAssetApi,
+  createFakeSceneApi,
+  makeScene,
+} from '../../../support/scenes';
+import { createMockNetworkApi } from '../../../support/networkApi';
 import { createDefaultServerSettings } from '../../../../features/play/serverSettings';
 import type { PlayScreenProps } from '../../../../features/play/types';
 
@@ -35,8 +40,12 @@ function renderPlayScreen(
   overrides: Partial<PlayScreenProps> = {},
 ) {
   const props: PlayScreenProps = {
+    applicationApi: window.blackBox.application,
+    assetApi: createFakeAssetApi(),
+    networkApi: createMockNetworkApi(),
     onExit: vi.fn(),
     onLogout: vi.fn(),
+    sceneApi: createFakeSceneApi(),
     session: playerSession,
     ...overrides,
   };
@@ -380,16 +389,14 @@ describe('PlayScreen', () => {
     expect(onSidebarTabChange).toHaveBeenCalledWith('chat');
   });
 
-  it('renders an icon-only empty state for every sidebar tab', async () => {
+  it('renders icon-only placeholders for tabs without a feature', async () => {
     const user = userEvent.setup();
     renderPlayScreen();
 
     const tabs = [
-      ['Chat', 'chat'],
       ['Scenes', 'scenes'],
       ['Journal', 'journal'],
       ['Music', 'music'],
-      ['Storage', 'storage'],
       ['Settings', 'settings'],
     ] as const;
 

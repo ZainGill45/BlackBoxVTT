@@ -179,7 +179,7 @@ export function App({
     return result;
   };
 
-  const handleOpenCampaign = (id: string) => {
+  const handleOpenCampaign = async (id: string): Promise<void> => {
     const campaign = campaigns.find((candidate) => candidate.id === id);
 
     if (!campaign) {
@@ -194,9 +194,13 @@ export function App({
     };
     setConnectionNotice(null);
     setServerSettings(createDefaultServerSettings());
+    const result = await networkApi.openHost({ campaignId: campaign.id });
+    if (!result.ok) {
+      setConnectionNotice(result.error.message);
+      return;
+    }
+    await refreshServerSettings(campaign.id);
     setPlaySession(session);
-    void networkApi.openHost({ campaignId: campaign.id });
-    void refreshServerSettings(campaign.id);
   };
 
   const refreshServerSettings = async (campaignId: string) => {
@@ -208,6 +212,51 @@ export function App({
 
   const activeCampaignId =
     playSession?.source === 'local' ? playSession.campaignId : null;
+  const serverSettingsActions = activeCampaignId
+    ? {
+        createUser: (username: string, password: string) =>
+          networkApi.createUser({
+            campaignId: activeCampaignId,
+            password,
+            username,
+          }),
+        deleteUser: (userId: string) =>
+          networkApi.deleteUser({ campaignId: activeCampaignId, userId }),
+        resetPassword: (userId: string, password: string) =>
+          networkApi.resetPassword({
+            campaignId: activeCampaignId,
+            password,
+            userId,
+          }),
+        setMaxChatMessageCharacters: (maxMessageCharacters: number) =>
+          networkApi.setMaxChatMessageCharacters({
+            campaignId: activeCampaignId,
+            maxMessageCharacters,
+          }),
+        setPort: (port: number) =>
+          networkApi.setPort({ campaignId: activeCampaignId, port }),
+        setTransformPreviewRate: (transformPreviewRate: number) =>
+          networkApi.setTransformPreviewRate({
+            campaignId: activeCampaignId,
+            transformPreviewRate,
+          }),
+        updateUsername: (userId: string, username: string) =>
+          networkApi.updateUsername({
+            campaignId: activeCampaignId,
+            userId,
+            username,
+          }),
+      }
+    : null;
+
+  const runServerSettingsAction = (
+    action: (() => Promise<unknown>) | undefined,
+  ) => {
+    if (!activeCampaignId || !action) {
+      return;
+    }
+    void action().then(() => refreshServerSettings(activeCampaignId));
+  };
 
   const handleLogout = () => {
     if (playSession?.source === 'local') {
@@ -289,87 +338,61 @@ export function App({
               : undefined
           }
           onCreateServerUser={
-            activeCampaignId
-              ? (username, password) => {
-                  void networkApi
-                    .createUser({
-                      campaignId: activeCampaignId,
-                      password,
-                      username,
-                    })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (username, password) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.createUser(username, password),
+                  )
               : undefined
           }
           onDeleteServerUser={
-            activeCampaignId
-              ? (userId) => {
-                  void networkApi
-                    .deleteUser({
-                      campaignId: activeCampaignId,
-                      userId,
-                    })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (userId) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.deleteUser(userId),
+                  )
               : undefined
           }
           onServerPasswordReset={
-            activeCampaignId
-              ? (userId, password) => {
-                  void networkApi
-                    .resetPassword({
-                      campaignId: activeCampaignId,
-                      password,
-                      userId,
-                    })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (userId, password) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.resetPassword(userId, password),
+                  )
               : undefined
           }
           onServerPortChange={
-            activeCampaignId
-              ? (port) => {
-                  void networkApi
-                    .setPort({ campaignId: activeCampaignId, port })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (port) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.setPort(port),
+                  )
               : undefined
           }
           onMaxChatMessageCharactersChange={
-            activeCampaignId
-              ? (maxMessageCharacters) => {
-                  void networkApi
-                    .setMaxChatMessageCharacters({
-                      campaignId: activeCampaignId,
-                      maxMessageCharacters,
-                    })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (maximum) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.setMaxChatMessageCharacters(
+                      maximum,
+                    ),
+                  )
               : undefined
           }
           onTransformPreviewRateChange={
-            activeCampaignId
-              ? (transformPreviewRate) => {
-                  void networkApi
-                    .setTransformPreviewRate?.({
-                      campaignId: activeCampaignId,
-                      transformPreviewRate,
-                    })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (rate) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.setTransformPreviewRate(rate),
+                  )
               : undefined
           }
           onServerUsernameChange={
-            activeCampaignId
-              ? (userId, username) => {
-                  void networkApi
-                    .updateUsername({
-                      campaignId: activeCampaignId,
-                      userId,
-                      username,
-                    })
-                    .then(() => refreshServerSettings(activeCampaignId));
-                }
+            serverSettingsActions
+              ? (userId, username) =>
+                  runServerSettingsAction(() =>
+                    serverSettingsActions.updateUsername(userId, username),
+                  )
               : undefined
           }
           onExit={() => applicationApi.quit()}

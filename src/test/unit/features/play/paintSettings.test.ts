@@ -93,11 +93,6 @@ describe('paint settings', () => {
       normalizePaintSettings({ freeform: { hardness: 2 } }).freeform
         .hardness,
     ).toBe(1);
-    expect(
-      normalizePaintSettings({
-        freeform: { edge: 'hard', hardness: 0.25 },
-      }).freeform.hardness,
-    ).toBe(1);
   });
 
   it('persists separately per campaign identity and produces subtool styles', () => {

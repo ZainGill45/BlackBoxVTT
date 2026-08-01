@@ -72,9 +72,9 @@ type ServerStatus = HostStatus;
 type CampaignServerSettings = ServerSettingsView;
 
 export interface PlayScreenProps {
-  applicationApi?: ApplicationApi;
-  assetApi?: AssetApi;
-  networkApi?: NetworkApi;
+  applicationApi: ApplicationApi;
+  assetApi: AssetApi;
+  networkApi: NetworkApi;
   onExit: () => void;
   onLayerChange?: (id: PlayLayerId) => void;
   onLogout: () => void;
@@ -88,7 +88,7 @@ export interface PlayScreenProps {
   onServerUsernameChange?: (userId: string, username: string) => void;
   onSidebarTabChange?: (id: SidebarTabId) => void;
   onToolChange?: (id: PlayToolId) => void;
-  sceneApi?: SceneApi;
+  sceneApi: SceneApi;
   serverSettings?: CampaignServerSettings;
   serverStatus?: ServerStatus;
   session: PlaySession;

@@ -1,24 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { z } from 'zod';
 import {
-  DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
   MAX_MAX_CHAT_MESSAGE_CHARACTERS,
   MIN_MAX_CHAT_MESSAGE_CHARACTERS,
 } from '../../shared/chat';
 import {
-  DEFAULT_SERVER_PORT,
-  DEFAULT_TRANSFORM_PREVIEW_RATE,
+  MAX_MANAGED_USERS,
   MAX_TRANSFORM_PREVIEW_RATE,
   MIN_TRANSFORM_PREVIEW_RATE,
-  MAX_MANAGED_USERS,
   type ManagedUserView,
   type NetworkResult,
   type ServerSettingsView,
 } from '../../shared/network';
 import { fail } from '../../shared/result';
-import { writeJsonAtomic } from '../storage/atomicWrite';
+import { CampaignDatabase } from '../storage/campaignDatabase';
 import { MutationQueue } from '../storage/mutationQueue';
 import {
   hashPassword,
@@ -26,7 +21,6 @@ import {
 } from './passwords';
 
 const SERVER_CONFIG_SCHEMA_VERSION = 3 as const;
-const SERVER_CONFIG_FILENAME = 'server.json';
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -38,28 +32,6 @@ const passwordHashSchema = z.object({
   keyLength: z.literal(32),
   parallelization: z.literal(1),
   salt: z.string().regex(/^[A-Za-z0-9+/]{22}==$/),
-});
-
-const storedUserSchema = z.object({
-  id: z.string().regex(UUID_PATTERN),
-  password: passwordHashSchema,
-  username: z.string().min(1).max(64),
-});
-
-const storedServerConfigSchema = z.object({
-  maxChatMessageCharacters: z
-    .number()
-    .int()
-    .min(MIN_MAX_CHAT_MESSAGE_CHARACTERS)
-    .max(MAX_MAX_CHAT_MESSAGE_CHARACTERS),
-  port: z.number().int().min(1).max(65_535),
-  schemaVersion: z.literal(SERVER_CONFIG_SCHEMA_VERSION),
-  transformPreviewRate: z
-    .number()
-    .int()
-    .min(MIN_TRANSFORM_PREVIEW_RATE)
-    .max(MAX_TRANSFORM_PREVIEW_RATE),
-  users: z.array(storedUserSchema).max(MAX_MANAGED_USERS),
 });
 
 export interface StoredManagedUser {
@@ -81,6 +53,24 @@ interface StoredServerConfig {
   transformPreviewRate: number;
 }
 
+interface SettingsRow {
+  max_chat_message_characters: number;
+  port: number;
+  transform_preview_rate: number;
+}
+
+interface UserRow {
+  id: string;
+  password_algorithm: string;
+  password_block_size: number;
+  password_cost: number;
+  password_hash: string;
+  password_key_length: number;
+  password_parallelization: number;
+  password_salt: string;
+  username: string;
+}
+
 function failure<T>(
   code: 'duplicate_username' | 'invalid_input' | 'storage_error',
   message: string,
@@ -96,53 +86,51 @@ function usernameKey(username: string): string {
   return normalizeUsername(username).toLocaleLowerCase('en-US');
 }
 
-function defaultConfig(): StoredServerConfig {
-  return {
-    maxChatMessageCharacters: DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
-    port: DEFAULT_SERVER_PORT,
-    schemaVersion: SERVER_CONFIG_SCHEMA_VERSION,
-    transformPreviewRate: DEFAULT_TRANSFORM_PREVIEW_RATE,
-    users: [],
-  };
-}
-
 export class ServerConfigRepository {
-  private readonly configPath: string;
   private readonly mutations = new MutationQueue();
 
-  constructor(private readonly campaignDirectory: string) {
-    this.configPath = path.join(
-      path.resolve(campaignDirectory),
-      'content',
-      SERVER_CONFIG_FILENAME,
-    );
-  }
+  constructor(private readonly database: CampaignDatabase) {}
 
   async load(): Promise<StoredServerConfig> {
-    try {
-      const source = await readFile(this.configPath, 'utf8');
-      const raw = JSON.parse(source);
-      if (raw?.schemaVersion === 1 || raw?.schemaVersion === 2) {
-        const migrated = storedServerConfigSchema.parse({
-          ...raw,
-          maxChatMessageCharacters: DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
-          schemaVersion: SERVER_CONFIG_SCHEMA_VERSION,
-          transformPreviewRate:
-            raw.schemaVersion === 1
-              ? DEFAULT_TRANSFORM_PREVIEW_RATE
-              : raw.transformPreviewRate,
-        });
-        await this.save(migrated);
-        return migrated;
-      }
-      return storedServerConfigSchema.parse(raw);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return defaultConfig();
-      }
-
-      throw error;
+    const settings = this.database.connection
+      .prepare(
+        `SELECT port, transform_preview_rate, max_chat_message_characters
+         FROM campaign_server_settings
+         WHERE singleton = 1`,
+      )
+      .get() as SettingsRow | undefined;
+    if (!settings) {
+      throw new Error('Campaign server settings are missing.');
     }
+    const rows = this.database.connection
+      .prepare(
+        `SELECT id, username, password_algorithm, password_block_size,
+                password_cost, password_hash, password_key_length,
+                password_parallelization, password_salt
+         FROM campaign_users
+         ORDER BY rowid`,
+      )
+      .all() as unknown as UserRow[];
+    const users = rows.map((row) => ({
+      id: row.id,
+      password: passwordHashSchema.parse({
+        algorithm: row.password_algorithm,
+        blockSize: row.password_block_size,
+        cost: row.password_cost,
+        hash: row.password_hash,
+        keyLength: row.password_key_length,
+        parallelization: row.password_parallelization,
+        salt: row.password_salt,
+      }),
+      username: row.username,
+    }));
+    return {
+      maxChatMessageCharacters: settings.max_chat_message_characters,
+      port: settings.port,
+      schemaVersion: SERVER_CONFIG_SCHEMA_VERSION,
+      transformPreviewRate: settings.transform_preview_rate,
+      users,
+    };
   }
 
   async getView(
@@ -172,7 +160,6 @@ export class ServerConfigRepository {
   ): Promise<NetworkResult<StoredManagedUser>> {
     return this.mutations.run(async () => {
       const username = normalizeUsername(usernameInput);
-
       if (
         username.length < 1 ||
         username.length > 64 ||
@@ -183,17 +170,14 @@ export class ServerConfigRepository {
           'Username must be between 1 and 64 characters and password must not be empty.',
         );
       }
-
       try {
         const config = await this.load();
-
         if (config.users.length >= MAX_MANAGED_USERS) {
           return failure(
             'invalid_input',
             `A campaign can have at most ${MAX_MANAGED_USERS} users.`,
           );
         }
-
         if (
           config.users.some(
             (user) => usernameKey(user.username) === usernameKey(username),
@@ -204,13 +188,12 @@ export class ServerConfigRepository {
             `A user named “${username}” already exists.`,
           );
         }
-
         const user: StoredManagedUser = {
           id: randomUUID(),
           password: await hashPassword(password),
           username,
         };
-        await this.save({ ...config, users: [...config.users, user] });
+        this.insertUser(user);
         return { ok: true, value: user };
       } catch {
         return failure('storage_error', 'User could not be created.');
@@ -224,7 +207,6 @@ export class ServerConfigRepository {
   ): Promise<NetworkResult<StoredManagedUser>> {
     return this.mutations.run(async () => {
       const username = normalizeUsername(usernameInput);
-
       if (
         !UUID_PATTERN.test(userId) ||
         username.length < 1 ||
@@ -235,15 +217,12 @@ export class ServerConfigRepository {
           'Username must be between 1 and 64 characters.',
         );
       }
-
       try {
         const config = await this.load();
         const existing = config.users.find((user) => user.id === userId);
-
         if (!existing) {
           return failure('invalid_input', 'User could not be found.');
         }
-
         if (
           config.users.some(
             (user) =>
@@ -256,15 +235,14 @@ export class ServerConfigRepository {
             `A user named “${username}” already exists.`,
           );
         }
-
-        const updated = { ...existing, username };
-        await this.save({
-          ...config,
-          users: config.users.map((user) =>
-            user.id === userId ? updated : user,
-          ),
-        });
-        return { ok: true, value: updated };
+        this.database.connection
+          .prepare(
+            `UPDATE campaign_users
+             SET username = ?, username_key = ?
+             WHERE id = ?`,
+          )
+          .run(username, usernameKey(username), userId);
+        return { ok: true, value: { ...existing, username } };
       } catch {
         return failure('storage_error', 'Username could not be updated.');
       }
@@ -277,28 +255,35 @@ export class ServerConfigRepository {
   ): Promise<NetworkResult<null>> {
     return this.mutations.run(async () => {
       if (!UUID_PATTERN.test(userId) || password.length === 0) {
-        return failure(
-          'invalid_input',
-          'Password must not be empty.',
-        );
+        return failure('invalid_input', 'Password must not be empty.');
       }
-
       try {
-        const config = await this.load();
-
-        if (!config.users.some((user) => user.id === userId)) {
+        const exists = this.database.connection
+          .prepare('SELECT 1 AS found FROM campaign_users WHERE id = ?')
+          .get(userId) as { found?: unknown } | undefined;
+        if (exists?.found !== 1) {
           return failure('invalid_input', 'User could not be found.');
         }
-
-        const passwordHash = await hashPassword(password);
-        await this.save({
-          ...config,
-          users: config.users.map((user) =>
-            user.id === userId
-              ? { ...user, password: passwordHash }
-              : user,
-          ),
-        });
+        const stored = await hashPassword(password);
+        this.database.connection
+          .prepare(
+            `UPDATE campaign_users
+             SET password_algorithm = ?, password_block_size = ?,
+                 password_cost = ?, password_hash = ?,
+                 password_key_length = ?, password_parallelization = ?,
+                 password_salt = ?
+             WHERE id = ?`,
+          )
+          .run(
+            stored.algorithm,
+            stored.blockSize,
+            stored.cost,
+            stored.hash,
+            stored.keyLength,
+            stored.parallelization,
+            stored.salt,
+            userId,
+          );
         return { ok: true, value: null };
       } catch {
         return failure('storage_error', 'Password could not be reset.');
@@ -311,19 +296,13 @@ export class ServerConfigRepository {
       if (!UUID_PATTERN.test(userId)) {
         return failure('invalid_input', 'User could not be found.');
       }
-
       try {
-        const config = await this.load();
-
-        if (!config.users.some((user) => user.id === userId)) {
-          return failure('invalid_input', 'User could not be found.');
-        }
-
-        await this.save({
-          ...config,
-          users: config.users.filter((user) => user.id !== userId),
-        });
-        return { ok: true, value: null };
+        const result = this.database.connection
+          .prepare('DELETE FROM campaign_users WHERE id = ?')
+          .run(userId);
+        return Number(result.changes) === 1
+          ? { ok: true, value: null }
+          : failure('invalid_input', 'User could not be found.');
       } catch {
         return failure('storage_error', 'User could not be deleted.');
       }
@@ -331,41 +310,36 @@ export class ServerConfigRepository {
   }
 
   setPort(port: number): Promise<NetworkResult<number>> {
-    return this.mutations.run(async () => {
-      if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-        return failure('invalid_input', 'Port must be between 1 and 65535.');
-      }
-
-      try {
-        const config = await this.load();
-        await this.save({ ...config, port });
-        return { ok: true, value: port };
-      } catch {
-        return failure('storage_error', 'Server port could not be saved.');
-      }
-    });
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      return Promise.resolve(
+        failure('invalid_input', 'Port must be between 1 and 65535.'),
+      );
+    }
+    return this.updateSetting(
+      'port',
+      port,
+      'Server port could not be saved.',
+    );
   }
 
   setTransformPreviewRate(rate: number): Promise<NetworkResult<number>> {
-    return this.mutations.run(async () => {
-      if (
-        !Number.isInteger(rate) ||
-        rate < MIN_TRANSFORM_PREVIEW_RATE ||
-        rate > MAX_TRANSFORM_PREVIEW_RATE
-      ) {
-        return failure(
+    if (
+      !Number.isInteger(rate) ||
+      rate < MIN_TRANSFORM_PREVIEW_RATE ||
+      rate > MAX_TRANSFORM_PREVIEW_RATE
+    ) {
+      return Promise.resolve(
+        failure(
           'invalid_input',
           `Transform preview rate must be between ${MIN_TRANSFORM_PREVIEW_RATE} and ${MAX_TRANSFORM_PREVIEW_RATE}.`,
-        );
-      }
-      try {
-        const config = await this.load();
-        await this.save({ ...config, transformPreviewRate: rate });
-        return { ok: true, value: rate };
-      } catch {
-        return failure('storage_error', 'Transform preview rate could not be saved.');
-      }
-    });
+        ),
+      );
+    }
+    return this.updateSetting(
+      'transform_preview_rate',
+      rate,
+      'Transform preview rate could not be saved.',
+    );
   }
 
   withChatConfiguration<T>(
@@ -385,31 +359,23 @@ export class ServerConfigRepository {
   setMaxChatMessageCharacters(
     maxMessageCharacters: number,
   ): Promise<NetworkResult<number>> {
-    return this.mutations.run(async () => {
-      if (
-        !Number.isInteger(maxMessageCharacters) ||
-        maxMessageCharacters < MIN_MAX_CHAT_MESSAGE_CHARACTERS ||
-        maxMessageCharacters > MAX_MAX_CHAT_MESSAGE_CHARACTERS
-      ) {
-        return failure(
+    if (
+      !Number.isInteger(maxMessageCharacters) ||
+      maxMessageCharacters < MIN_MAX_CHAT_MESSAGE_CHARACTERS ||
+      maxMessageCharacters > MAX_MAX_CHAT_MESSAGE_CHARACTERS
+    ) {
+      return Promise.resolve(
+        failure(
           'invalid_input',
           `Maximum chat message length must be between ${MIN_MAX_CHAT_MESSAGE_CHARACTERS} and ${MAX_MAX_CHAT_MESSAGE_CHARACTERS}.`,
-        );
-      }
-      try {
-        const config = await this.load();
-        await this.save({
-          ...config,
-          maxChatMessageCharacters: maxMessageCharacters,
-        });
-        return { ok: true, value: maxMessageCharacters };
-      } catch {
-        return failure(
-          'storage_error',
-          'Chat settings could not be saved.',
-        );
-      }
-    });
+        ),
+      );
+    }
+    return this.updateSetting(
+      'max_chat_message_characters',
+      maxMessageCharacters,
+      'Chat settings could not be saved.',
+    );
   }
 
   toView(user: StoredManagedUser, connected: boolean): ManagedUserView {
@@ -421,19 +387,50 @@ export class ServerConfigRepository {
     };
   }
 
-  private async save(config: StoredServerConfig): Promise<void> {
-    const directory = path.dirname(this.configPath);
+  private insertUser(user: StoredManagedUser): void {
+    this.database.connection
+      .prepare(
+        `INSERT INTO campaign_users (
+           id, username, username_key, password_algorithm,
+           password_block_size, password_cost, password_hash,
+           password_key_length, password_parallelization, password_salt
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        user.id,
+        user.username,
+        usernameKey(user.username),
+        user.password.algorithm,
+        user.password.blockSize,
+        user.password.cost,
+        user.password.hash,
+        user.password.keyLength,
+        user.password.parallelization,
+        user.password.salt,
+      );
+  }
 
-    // Password hashes live here, so the file is created exclusively and stays
-    // readable only by its owner.
-    await writeJsonAtomic(
-      this.configPath,
-      storedServerConfigSchema.parse(config),
-      {
-        ensureDirectory: directory,
-        temporaryPath: path.join(directory, `.server-${randomUUID()}.tmp`),
-        writeOptions: { encoding: 'utf8', flag: 'wx', mode: 0o600 },
-      },
-    );
+  private updateSetting(
+    column:
+      | 'max_chat_message_characters'
+      | 'port'
+      | 'transform_preview_rate',
+    value: number,
+    errorMessage: string,
+  ): Promise<NetworkResult<number>> {
+    return this.mutations.run(async () => {
+      try {
+        this.database.connection
+          .prepare(
+            `UPDATE campaign_server_settings
+             SET ${column} = ?
+             WHERE singleton = 1`,
+          )
+          .run(value);
+        return { ok: true, value };
+      } catch {
+        return failure('storage_error', errorMessage);
+      }
+    });
   }
 }

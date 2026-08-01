@@ -17,9 +17,19 @@ import {
   type SceneImageState,
   type SceneRecord,
 } from '../../../../../shared/scenes';
-import { sceneToScreen } from '../../../../../features/play/canvas/camera';
+import {
+  sceneToScreen,
+  type Camera,
+  type Viewport,
+} from '../../../../../features/play/canvas/camera';
 import { CANONICAL_MAP_ID } from '../../../../../features/play/canvas/imageGeometry';
 import { SceneRenderer } from '../../../../../features/play/canvas/SceneRenderer';
+import { strokeDrawingPath } from '../../../../../features/play/canvas/sceneDrawingRenderer';
+import { selectedSceneTargets } from '../../../../../features/play/canvas/sceneSelection';
+import {
+  rotationHandle,
+  selectionScreenCorners,
+} from '../../../../../features/play/canvas/sceneSelectionOverlay';
 
 const MAP_URL = 'blackbox-asset://token/22222222-2222-4222-8222-222222222222';
 
@@ -182,6 +192,25 @@ function shortcutEvent(
 let element: HTMLElement;
 let renderer: SceneRenderer;
 
+function rendererSelectionCorners(): Array<{ x: number; y: number }> {
+  const state = renderer as unknown as {
+    camera: Camera;
+    groupSelectionRotation: number;
+    scene: SceneRecord;
+    selected: Set<string>;
+    viewport: Viewport;
+  };
+  return selectionScreenCorners({
+    camera: state.camera,
+    groupRotation: state.groupSelectionRotation,
+    targets: selectedSceneTargets(state.scene, state.selected, {
+      actorId: null,
+      canEditImages: true,
+    }),
+    viewport: state.viewport,
+  });
+}
+
 beforeEach(async () => {
   requestedUrls.length = 0;
   failNextLoad = false;
@@ -289,11 +318,11 @@ describe('SceneRenderer', () => {
     const appStage = (renderer as unknown as { app: { stage: Container } }).app
       .stage;
     const tokenBand = appStage.children[2];
-    const sprites = (renderer as unknown as {
-      imageSprites: Map<string, Sprite>;
-    }).imageSprites;
+    const additionalImages = (renderer as unknown as {
+      additionalImages: { sprite(id: string): Sprite | undefined };
+    }).additionalImages;
     expect(appStage.children).toHaveLength(11);
-    expect(sprites.get(tokenId)?.parent).toBe(tokenBand);
+    expect(additionalImages.sprite(tokenId)?.parent).toBe(tokenBand);
   });
 
   it('commits one owned Freeform object per drag and emits compact live previews', async () => {
@@ -409,14 +438,6 @@ describe('SceneRenderer', () => {
   });
 
   it('uses all soft passes for both paths and single-click dots', () => {
-    const strokeDrawingPath = (
-      renderer as unknown as {
-        strokeDrawingPath(
-          graphics: Graphics,
-          drawing: Pick<SceneDrawing, 'closed' | 'points' | 'style'>,
-        ): void;
-      }
-    ).strokeDrawingPath.bind(renderer);
     const style: SceneDrawingStyle = {
       edge: 'soft',
       fillColor: '#ffffff',
@@ -806,10 +827,38 @@ describe('SceneRenderer', () => {
       },
       grid: { ...createDefaultGrid(), type: 'gridless' },
     });
+    const undoHistory: SceneRecord[] = [];
+    const redoHistory: SceneRecord[] = [];
     const onCommit = vi.fn(async (state: SceneImageState) => {
+      undoHistory.push(structuredClone(authoritative));
+      redoHistory.length = 0;
       authoritative = {
         ...authoritative,
         ...structuredClone(state),
+        revision: authoritative.revision + 1,
+      };
+      return structuredClone(authoritative);
+    });
+    const onUndo = vi.fn(async () => {
+      const previous = undoHistory.pop();
+      if (!previous) {
+        return null;
+      }
+      redoHistory.push(structuredClone(authoritative));
+      authoritative = {
+        ...structuredClone(previous),
+        revision: authoritative.revision + 1,
+      };
+      return structuredClone(authoritative);
+    });
+    const onRedo = vi.fn(async () => {
+      const next = redoHistory.pop();
+      if (!next) {
+        return null;
+      }
+      undoHistory.push(structuredClone(authoritative));
+      authoritative = {
+        ...structuredClone(next),
         revision: authoritative.revision + 1,
       };
       return structuredClone(authoritative);
@@ -820,19 +869,15 @@ describe('SceneRenderer', () => {
       actorId: null,
       editable: true,
       onCommit,
+      onRedo,
+      onUndo,
     });
     renderer.selectImages([id]);
     const state = renderer as unknown as {
-      rotationHandle(
-        points: Array<{ x: number; y: number }>,
-      ): {
-        handle: { x: number; y: number };
-      };
       selected: Set<string>;
-      selectionCorners(): Array<{ x: number; y: number }>;
     };
 
-    let corners = state.selectionCorners();
+    let corners = rendererSelectionCorners();
     const scaleCorner = corners[2];
     element.dispatchEvent(
       pointerEvent('pointerdown', {
@@ -862,12 +907,12 @@ describe('SceneRenderer', () => {
       3,
     );
 
-    corners = state.selectionCorners();
+    corners = rendererSelectionCorners();
     const centre = {
       x: (corners[0].x + corners[2].x) / 2,
       y: (corners[0].y + corners[2].y) / 2,
     };
-    const rotate = state.rotationHandle(corners).handle;
+    const rotate = rotationHandle(corners).handle;
     const radius = Math.hypot(rotate.x - centre.x, rotate.y - centre.y);
     element.dispatchEvent(
       pointerEvent('pointerdown', {
@@ -928,7 +973,8 @@ describe('SceneRenderer', () => {
     await vi.waitFor(() => expect(state.selected.size).toBe(0));
 
     element.dispatchEvent(shortcutEvent('z'));
-    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(5));
+    await vi.waitFor(() => expect(onUndo).toHaveBeenCalledTimes(1));
+    expect(onCommit).toHaveBeenCalledTimes(4);
     expect(authoritative.drawings.token).toHaveLength(1);
     await vi.waitFor(() =>
       expect(
@@ -937,7 +983,8 @@ describe('SceneRenderer', () => {
     );
 
     element.dispatchEvent(shortcutEvent('y'));
-    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(6));
+    await vi.waitFor(() => expect(onRedo).toHaveBeenCalledTimes(1));
+    expect(onCommit).toHaveBeenCalledTimes(4);
     expect(authoritative.drawings.token).toEqual([]);
   });
 
@@ -1098,14 +1145,14 @@ describe('SceneRenderer', () => {
     renderer.setScene(initial, { [placement.assetId]: MAP_URL });
     await settle();
 
-    const sprites = (renderer as unknown as {
-      imageSprites: Map<string, Sprite>;
-    }).imageSprites;
-    const textures = (renderer as unknown as {
-      imageTextures: Map<string, unknown>;
-    }).imageTextures;
-    const firstSprite = sprites.get(firstId);
-    const firstTexture = textures.get(placement.assetId);
+    const additionalImages = (renderer as unknown as {
+      additionalImages: { sprite(id: string): Sprite | undefined };
+    }).additionalImages;
+    const resources = (renderer as unknown as {
+      imageResources: { texture(assetId: string): unknown };
+    }).imageResources;
+    const firstSprite = additionalImages.sprite(firstId);
+    const firstTexture = resources.texture(placement.assetId);
     const cameraBefore = {
       ...(renderer as unknown as {
         camera: { x: number; y: number; zoom: number };
@@ -1137,8 +1184,8 @@ describe('SceneRenderer', () => {
     );
     await settle();
 
-    expect(sprites.get(firstId)).toBe(firstSprite);
-    expect(textures.get(placement.assetId)).toBe(firstTexture);
+    expect(additionalImages.sprite(firstId)).toBe(firstSprite);
+    expect(resources.texture(placement.assetId)).toBe(firstTexture);
     expect(requestedUrls).toEqual([
       MAP_URL,
       `blackbox-asset://token/${secondAssetId}`,
@@ -1157,9 +1204,9 @@ describe('SceneRenderer', () => {
       { [placement.assetId]: MAP_URL },
     );
 
-    expect(sprites.get(firstId)).toBe(firstSprite);
-    expect(textures.get(placement.assetId)).toBe(firstTexture);
-    expect(sprites.has(secondId)).toBe(false);
+    expect(additionalImages.sprite(firstId)).toBe(firstSprite);
+    expect(resources.texture(placement.assetId)).toBe(firstTexture);
+    expect(additionalImages.sprite(secondId)).toBeUndefined();
   });
 
   it('draws monochrome square resize handles and a circular rotation handle', () => {
@@ -1191,15 +1238,11 @@ describe('SceneRenderer', () => {
     });
     renderer.selectImages([tokenId]);
 
-    const rendererState = renderer as unknown as {
-      rotationHandle(points: Array<{ x: number; y: number }>): {
-        handle: { x: number; y: number };
-        top: { x: number; y: number };
-      };
-      selectionCorners(): Array<{ x: number; y: number }>;
-      selectionGraphics: Graphics;
-    };
-    const selection = rendererState.selectionGraphics;
+    const selection = (
+      renderer as unknown as {
+        selectionOverlay: { selection: Graphics };
+      }
+    ).selectionOverlay.selection;
     expect(
       selection.calls.filter((call) => call.op === 'rect'),
     ).toHaveLength(4);
@@ -1213,9 +1256,7 @@ describe('SceneRenderer', () => {
           (call.args[0] as { color?: number }).color === 0xeeeeee
         ),
     ).toBe(true);
-    const rotate = rendererState.rotationHandle(
-      rendererState.selectionCorners(),
-    );
+    const rotate = rotationHandle(rendererSelectionCorners());
     expect(
       Math.hypot(
         rotate.handle.x - rotate.top.x,
@@ -1252,11 +1293,7 @@ describe('SceneRenderer', () => {
       onCommit: async () => null,
     });
     renderer.selectImages([tokenId]);
-    const points = (
-      renderer as unknown as {
-        selectionCorners(): Array<{ x: number; y: number }>;
-      }
-    ).selectionCorners();
+    const points = rendererSelectionCorners();
 
     // Ten pixels is outside the visible five-pixel half-handle but within the
     // intended twelve-pixel interaction radius.
@@ -1767,10 +1804,9 @@ describe('SceneRenderer', () => {
     renderer.selectImages([tokenId]);
     const rendererState = renderer as unknown as {
       scene: SceneRecord;
-      selectionCorners(): Array<{ x: number; y: number }>;
     };
 
-    let corner = rendererState.selectionCorners()[2];
+    let corner = rendererSelectionCorners()[2];
     element.dispatchEvent(
       pointerEvent('pointerdown', {
         button: 0,
@@ -1795,7 +1831,7 @@ describe('SceneRenderer', () => {
       }),
     );
 
-    corner = rendererState.selectionCorners()[2];
+    corner = rendererSelectionCorners()[2];
     element.dispatchEvent(
       pointerEvent('pointerdown', {
         button: 0,
@@ -1823,11 +1859,7 @@ describe('SceneRenderer', () => {
       onCommit: async () => null,
     });
     const rendererState = renderer as unknown as {
-      rotationHandle(points: Array<{ x: number; y: number }>): {
-        handle: { x: number; y: number };
-      };
       scene: SceneRecord;
-      selectionCorners(): Array<{ x: number; y: number }>;
     };
 
     for (const [startingRotation, dragDegrees, expected] of [
@@ -1856,12 +1888,12 @@ describe('SceneRenderer', () => {
         null,
       );
       renderer.selectImages([tokenId]);
-      const points = rendererState.selectionCorners();
+      const points = rendererSelectionCorners();
       const center = {
         x: (points[0].x + points[2].x) / 2,
         y: (points[0].y + points[2].y) / 2,
       };
-      const handle = rendererState.rotationHandle(points).handle;
+      const handle = rotationHandle(points).handle;
       const radians = (dragDegrees * Math.PI) / 180;
       const dx = handle.x - center.x;
       const dy = handle.y - center.y;
@@ -1931,19 +1963,15 @@ describe('SceneRenderer', () => {
     renderer.selectImages([firstId, secondId]);
     const rendererState = renderer as unknown as {
       groupSelectionRotation: number;
-      rotationHandle(points: Array<{ x: number; y: number }>): {
-        handle: { x: number; y: number };
-      };
       scene: SceneRecord;
-      selectionCorners(): Array<{ x: number; y: number }>;
     };
     rendererState.groupSelectionRotation = 7;
-    const points = rendererState.selectionCorners();
+    const points = rendererSelectionCorners();
     const center = {
       x: (points[0].x + points[2].x) / 2,
       y: (points[0].y + points[2].y) / 2,
     };
-    const handle = rendererState.rotationHandle(points).handle;
+    const handle = rotationHandle(points).handle;
     const radians = (8 * Math.PI) / 180;
     const dx = handle.x - center.x;
     const dy = handle.y - center.y;
@@ -2053,7 +2081,7 @@ describe('SceneRenderer', () => {
     ).toBe(0);
   });
 
-  it('duplicates from the context menu, selects the copy, and records one undo entry', async () => {
+  it('duplicates from the context menu and delegates undo to authoritative history', async () => {
     const tokenId = '44444444-4444-4444-8444-444444444444';
     const current = scene({
       images: {
@@ -2077,11 +2105,16 @@ describe('SceneRenderer', () => {
       ...state,
       revision: current.revision + 1,
     }));
+    const onUndo = vi.fn(async () => ({
+      ...current,
+      revision: current.revision + 2,
+    }));
     renderer.setScene(current, null);
     renderer.setInteraction({
       activeLayer: 'token',
       editable: true,
       onCommit,
+      onUndo,
     });
 
     element.dispatchEvent(
@@ -2102,7 +2135,6 @@ describe('SceneRenderer', () => {
     const rendererState = renderer as unknown as {
       scene: SceneRecord;
       selected: Set<string>;
-      undoStacks: Map<string, unknown[]>;
     };
     const copy = rendererState.scene.images.token[1];
     expect(onCommit).toHaveBeenCalledTimes(1);
@@ -2116,11 +2148,11 @@ describe('SceneRenderer', () => {
       y: 610,
     });
     expect([...rendererState.selected]).toEqual([copy.id]);
-    expect(rendererState.undoStacks.get(current.id)).toHaveLength(1);
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
     element.dispatchEvent(shortcutEvent('z'));
     await settle();
+    expect(onUndo).toHaveBeenCalledTimes(1);
     expect(rendererState.scene.images.token).toHaveLength(1);
   });
 

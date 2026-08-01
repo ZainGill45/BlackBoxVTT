@@ -185,6 +185,9 @@ const networkApi: NetworkApi = {
   onClientStateChanged() {
     return () => undefined;
   },
+  onDrawingPreview() {
+    return () => undefined;
+  },
   onChatEvent() {
     return () => undefined;
   },
@@ -198,6 +201,15 @@ const networkApi: NetworkApi = {
     return () => undefined;
   },
   onSessionClosed() {
+    return () => undefined;
+  },
+  onTransformCancelled() {
+    return () => undefined;
+  },
+  onTransformPreview() {
+    return () => undefined;
+  },
+  onTransformStarted() {
     return () => undefined;
   },
   async openHost() {
@@ -215,6 +227,10 @@ const networkApi: NetworkApi = {
   async setPort() {
     return networkUnavailable();
   },
+  async setTransformPreviewRate() {
+    return networkUnavailable();
+  },
+  async sendDrawingPreview() {},
   async sendMapPing() {},
   async sendMeasurementUpdate() {},
   async stopHost() {},
@@ -242,10 +258,25 @@ const sceneApi: SceneApi = {
   async present() {
     return sceneUnavailable();
   },
+  async previewCancel() {},
+  async previewStart() {},
+  async previewUpdate() {},
+  async redo() {
+    return sceneUnavailable();
+  },
+  async setImages() {
+    return sceneUnavailable();
+  },
+  async setObjects() {
+    return sceneUnavailable();
+  },
   async trash() {
     return sceneUnavailable();
   },
   async update() {
+    return sceneUnavailable();
+  },
+  async undo() {
     return sceneUnavailable();
   },
 };

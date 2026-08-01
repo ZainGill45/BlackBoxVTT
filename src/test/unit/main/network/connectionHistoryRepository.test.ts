@@ -33,7 +33,7 @@ let repository: ConnectionHistoryRepository;
 beforeEach(async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'blackbox-history-'));
   temporaryDirectories.push(directory);
-  historyPath = path.join(directory, 'connections.json');
+  historyPath = path.join(directory, 'application.sqlite');
   repository = new ConnectionHistoryRepository(historyPath, secureStorage);
 
   const common = {
@@ -58,6 +58,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  repository.close();
   await Promise.all(
     temporaryDirectories
       .splice(0)

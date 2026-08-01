@@ -3,7 +3,6 @@ import {
   copyFile,
   mkdir,
   open,
-  readFile,
   readdir,
   rename,
   rm,
@@ -23,10 +22,9 @@ import {
   type AssetResult,
 } from '../shared/assets';
 import { fail } from '../shared/result';
-import { writeJsonAtomic } from './storage/atomicWrite';
+import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 
-const MANIFEST_FILENAME = 'assets.json';
 const ASSET_DIRECTORY = 'assets';
 const STAGING_DIRECTORY = '.asset-staging';
 
@@ -113,7 +111,7 @@ const FORMATS: Record<string, DetectedFormat> = {
 };
 
 interface AssetRepositoryOptions {
-  campaignDirectory: string;
+  database: CampaignDatabase;
   now?: () => Date;
   touchCampaign?: () => Promise<void>;
   trashItem: (targetPath: string) => Promise<void>;
@@ -131,6 +129,17 @@ interface InspectedFile {
   fileModifiedAtMs: number;
   sha256: string;
   sizeBytes: number;
+}
+
+interface PendingAssetFile {
+  finalName: string;
+  stagingName: string;
+}
+
+interface PendingAssetOperation {
+  files: PendingAssetFile[];
+  nextManifest: AssetManifest;
+  previousManifest: AssetManifest;
 }
 
 function failure<T>(
@@ -151,14 +160,6 @@ function displayNameLength(value: string): number {
 
 function displayNameKey(value: string): string {
   return normalizeDisplayName(value).toLocaleLowerCase('en-US');
-}
-
-function emptyManifest(): AssetManifest {
-  return {
-    assets: [],
-    revision: 0,
-    schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
-  };
 }
 
 function isSha256(value: unknown): value is string {
@@ -363,7 +364,7 @@ async function inspectFile(
 export class AssetRepository {
   private readonly assetDirectory: string;
   private readonly contentDirectory: string;
-  private readonly manifestPath: string;
+  private readonly database: CampaignDatabase;
   private readonly mutations = new MutationQueue();
   private readonly now: () => Date;
   private readonly stagingDirectory: string;
@@ -371,16 +372,16 @@ export class AssetRepository {
   private readonly trashItem: (targetPath: string) => Promise<void>;
 
   constructor({
-    campaignDirectory,
+    database,
     now = () => new Date(),
     touchCampaign = async () => undefined,
     trashItem,
   }: AssetRepositoryOptions) {
-    const resolvedCampaign = path.resolve(campaignDirectory);
+    const resolvedCampaign = path.dirname(database.path);
+    this.database = database;
     this.contentDirectory = path.join(resolvedCampaign, 'content');
     this.assetDirectory = path.join(this.contentDirectory, ASSET_DIRECTORY);
     this.stagingDirectory = path.join(this.contentDirectory, STAGING_DIRECTORY);
-    this.manifestPath = path.join(this.contentDirectory, MANIFEST_FILENAME);
     this.now = now;
     this.touchCampaign = touchCampaign;
     this.trashItem = trashItem;
@@ -389,6 +390,7 @@ export class AssetRepository {
   async initialize(): Promise<void> {
     await mkdir(this.assetDirectory, { recursive: true });
     await mkdir(this.stagingDirectory, { recursive: true });
+    await this.recoverPendingOperations();
     const entries = await readdir(this.stagingDirectory, {
       withFileTypes: true,
     });
@@ -404,20 +406,35 @@ export class AssetRepository {
 
   async readManifest(): Promise<AssetManifest> {
     await this.initialize();
-    try {
-      const parsed: unknown = JSON.parse(
-        await readFile(this.manifestPath, 'utf8'),
-      );
-      if (!isAssetManifest(parsed)) {
-        throw new Error('Asset manifest is invalid.');
-      }
-      return parsed;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return emptyManifest();
-      }
-      throw error;
+    const state = this.database.connection
+      .prepare(
+        `SELECT revision
+         FROM asset_manifest
+         WHERE singleton = 1`,
+      )
+      .get() as { revision?: unknown } | undefined;
+    const rows = this.database.connection
+      .prepare(
+        `SELECT id, record_json
+         FROM assets
+         ORDER BY position`,
+      )
+      .all() as unknown as Array<{ id: string; record_json: string }>;
+    const manifest: unknown = {
+      assets: rows.map((row) => {
+        const record = JSON.parse(row.record_json) as AssetRecord;
+        if (record.id !== row.id) {
+          throw new Error('Asset row ID does not match its record.');
+        }
+        return record;
+      }),
+      revision: state?.revision,
+      schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
+    };
+    if (!isAssetManifest(manifest)) {
+      throw new Error('Asset manifest is invalid.');
     }
+    return manifest;
   }
 
   async list(): Promise<Array<{ available: boolean; record: AssetRecord }>> {
@@ -458,6 +475,8 @@ export class AssetRepository {
       const existingHashes = new Set(
         manifest.assets.map((asset) => asset.sha256),
       );
+      let pendingOperationId: string | null = null;
+      let manifestCommitted = false;
 
       try {
         for (const source of sources) {
@@ -539,21 +558,34 @@ export class AssetRepository {
           return { ok: true, value: [] };
         }
 
-        for (const entry of staged) {
-          await rename(entry.stagingPath, entry.finalPath);
-          const fileStat = await stat(entry.finalPath);
-          entry.record.fileModifiedAtMs = fileStat.mtimeMs;
-        }
-
         const nextManifest: AssetManifest = {
           assets: [...manifest.assets, ...staged.map(({ record }) => record)],
           revision: manifest.revision + 1,
           schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
         };
-        await this.writeManifest(nextManifest);
+        pendingOperationId = randomUUID();
+        this.recordPendingOperation(pendingOperationId, 'import', {
+          files: staged.map(({ finalPath, stagingPath }) => ({
+            finalName: path.basename(finalPath),
+            stagingName: path.basename(stagingPath),
+          })),
+          nextManifest,
+          previousManifest: manifest,
+        });
+        for (const entry of staged) {
+          await rename(entry.stagingPath, entry.finalPath);
+        }
+        await this.writeManifest(nextManifest, pendingOperationId);
+        manifestCommitted = true;
         await this.touchCampaign();
         return { ok: true, value: staged.map(({ record }) => record) };
       } catch {
+        if (manifestCommitted) {
+          await this.writeManifest(manifest).catch(() => undefined);
+        }
+        if (pendingOperationId) {
+          this.deletePendingOperation(pendingOperationId);
+        }
         await Promise.all(
           staged.flatMap(({ finalPath, stagingPath }) => [
             rm(finalPath, { force: true }),
@@ -637,19 +669,39 @@ export class AssetRepository {
         revision: manifest.revision + 1,
         schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
       };
+      const pendingOperationId = randomUUID();
+      let manifestCommitted = false;
+      let trashed = false;
 
       try {
+        this.recordPendingOperation(pendingOperationId, 'delete', {
+          files: [
+            {
+              finalName: path.basename(sourcePath),
+              stagingName: path.basename(stagedPath),
+            },
+          ],
+          nextManifest,
+          previousManifest: manifest,
+        });
         await rename(sourcePath, stagedPath);
-        await this.writeManifest(nextManifest);
+        await this.writeManifest(nextManifest, pendingOperationId);
+        manifestCommitted = true;
         await this.trashItem(stagedPath);
+        trashed = true;
         await this.touchCampaign();
         return { ok: true, value: null };
       } catch {
-        try {
-          await rename(stagedPath, sourcePath);
-          await this.writeManifest(manifest);
-        } catch {
-          // The next repository validation reports an unavailable asset.
+        this.deletePendingOperation(pendingOperationId);
+        if (!trashed) {
+          try {
+            await rename(stagedPath, sourcePath);
+            if (manifestCommitted) {
+              await this.writeManifest(manifest);
+            }
+          } catch {
+            // The next repository validation reports an unavailable asset.
+          }
         }
         return failure('storage_error', 'The asset could not be moved to the trash.', assetId);
       }
@@ -668,9 +720,158 @@ export class AssetRepository {
     return target;
   }
 
-  private async writeManifest(manifest: AssetManifest): Promise<void> {
-    await writeJsonAtomic(this.manifestPath, manifest, {
-      ensureDirectory: this.contentDirectory,
-    });
+  private async writeManifest(
+    manifest: AssetManifest,
+    completedOperationId?: string,
+  ): Promise<void> {
+    if (!isAssetManifest(manifest)) {
+      throw new Error('Asset manifest is invalid.');
+    }
+    const database = this.database.connection;
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      database.exec('DELETE FROM assets');
+      const insert = database.prepare(
+        `INSERT INTO assets (id, position, record_json)
+         VALUES (?, ?, ?)`,
+      );
+      manifest.assets.forEach((asset, position) => {
+        insert.run(asset.id, position, JSON.stringify(asset));
+      });
+      database
+        .prepare(
+          `UPDATE asset_manifest
+           SET revision = ?
+           WHERE singleton = 1`,
+        )
+        .run(manifest.revision);
+      if (completedOperationId) {
+        database
+          .prepare(
+            `DELETE FROM asset_file_operations
+             WHERE operation_id = ?`,
+          )
+          .run(completedOperationId);
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private recordPendingOperation(
+    operationId: string,
+    kind: 'delete' | 'import',
+    payload: PendingAssetOperation,
+  ): void {
+    if (
+      !isAssetManifest(payload.previousManifest) ||
+      !isAssetManifest(payload.nextManifest)
+    ) {
+      throw new Error('Pending asset operation contains an invalid manifest.');
+    }
+    this.database.connection
+      .prepare(
+        `INSERT INTO asset_file_operations (
+           operation_id, kind, payload_json
+         ) VALUES (?, ?, ?)`,
+      )
+      .run(operationId, kind, JSON.stringify(payload));
+  }
+
+  private deletePendingOperation(operationId: string): void {
+    this.database.connection
+      .prepare(
+        `DELETE FROM asset_file_operations
+         WHERE operation_id = ?`,
+      )
+      .run(operationId);
+  }
+
+  private async recoverPendingOperations(): Promise<void> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT operation_id, kind, payload_json
+         FROM asset_file_operations
+         ORDER BY rowid`,
+      )
+      .all() as unknown as Array<{
+      kind: 'delete' | 'import';
+      operation_id: string;
+      payload_json: string;
+    }>;
+    for (const row of rows) {
+      const payload = JSON.parse(row.payload_json) as PendingAssetOperation;
+      if (
+        !payload ||
+        !Array.isArray(payload.files) ||
+        !isAssetManifest(payload.previousManifest) ||
+        !isAssetManifest(payload.nextManifest)
+      ) {
+        throw new Error('Pending asset operation is malformed.');
+      }
+      for (const file of payload.files) {
+        const finalPath = this.resolvePendingPath(
+          this.assetDirectory,
+          file.finalName,
+        );
+        const stagingPath = this.resolvePendingPath(
+          this.stagingDirectory,
+          file.stagingName,
+        );
+        if (row.kind === 'import') {
+          const finalExists = await stat(finalPath)
+            .then((entry) => entry.isFile())
+            .catch(() => false);
+          if (finalExists) {
+            await rm(stagingPath, { force: true });
+          } else {
+            await rename(stagingPath, finalPath);
+          }
+        } else {
+          const stagingExists = await stat(stagingPath)
+            .then((entry) => entry.isFile())
+            .catch(() => false);
+          if (!stagingExists) {
+            await rename(finalPath, stagingPath).catch(
+              (error: NodeJS.ErrnoException) => {
+                if (error.code !== 'ENOENT') {
+                  throw error;
+                }
+              },
+            );
+          } else {
+            await rm(finalPath, { force: true });
+          }
+        }
+      }
+      await this.writeManifest(payload.nextManifest, row.operation_id);
+      if (row.kind === 'delete') {
+        await Promise.all(
+          payload.files.map((file) =>
+            this.trashItem(
+              this.resolvePendingPath(
+                this.stagingDirectory,
+                file.stagingName,
+              ),
+            ).catch(() => undefined),
+          ),
+        );
+      }
+      await this.touchCampaign();
+    }
+  }
+
+  private resolvePendingPath(directory: string, filename: string): string {
+    if (path.basename(filename) !== filename) {
+      throw new Error('Pending asset path is invalid.');
+    }
+    const resolvedDirectory = path.resolve(directory);
+    const target = path.resolve(resolvedDirectory, filename);
+    if (!target.startsWith(`${resolvedDirectory}${path.sep}`)) {
+      throw new Error('Pending asset path escaped its directory.');
+    }
+    return target;
   }
 }

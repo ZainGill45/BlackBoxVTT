@@ -1,6 +1,5 @@
 import type { Result } from './result';
 
-export const CHAT_DATABASE_SCHEMA_VERSION = 1 as const;
 export const DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS = 10_000;
 export const MIN_MAX_CHAT_MESSAGE_CHARACTERS = 100;
 export const MAX_MAX_CHAT_MESSAGE_CHARACTERS = 50_000;

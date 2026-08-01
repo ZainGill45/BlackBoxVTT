@@ -1,8 +1,10 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
+import type { NetworkApi } from '../../shared/network';
 import {
   imageStateOf,
   MAX_SCENE_IMAGES,
+  type SceneApi,
   type SceneImageLayer,
   type SceneImageState,
   type SceneRecord,
@@ -37,10 +39,11 @@ function rememberPing(seen: Set<string>, id: string): boolean {
 }
 
 interface MapStageProps {
-  assetApi?: AssetApi;
+  assetApi: AssetApi;
   controlsRef?: Ref<MapStageControls>;
   /** Injected so tests can drive the stage without a WebGL context. */
   createRenderer?: () => SceneRendererHandle;
+  networkApi: NetworkApi;
   activeLayer?: SceneImageLayer;
   activeTool?: PlayToolId;
   onActiveLayerChange?: (layer: SceneImageLayer) => void;
@@ -58,6 +61,7 @@ interface MapStageProps {
   paintSettings?: PaintSettings;
   paintSubtool?: PaintSubtool;
   scene: SceneRecord | null;
+  sceneApi: SceneApi;
   session: PlaySession;
 }
 
@@ -78,7 +82,9 @@ export function MapStage({
   activeTool = 'select',
   controlsRef,
   createRenderer,
+  networkApi,
   scene,
+  sceneApi,
   session,
   onActiveLayerChange,
   onCommitImages,
@@ -148,18 +154,21 @@ export function MapStage({
     renderer?.setScene(scene, imageUrls);
   }, [imageUrls, renderer, scene]);
 
-  useEffect(
-    () =>
-      window.blackBox.network.onMapPing((ping) => {
+  useEffect(() => {
+    if (!renderer) {
+      return undefined;
+    }
+    const matchesScene = (campaignId: string, sceneId: string) =>
+      campaignId === session.campaignId && sceneId === scene?.id;
+    const unsubscribe = [
+      networkApi.onMapPing((ping) => {
         if (
-          !renderer ||
-          ping.campaignId !== session.campaignId ||
-          ping.sceneId !== scene?.id ||
+          !matchesScene(ping.campaignId, ping.sceneId) ||
           !rememberPing(seenPingIds.current, ping.id)
         ) {
           return;
         }
-        renderer.showPing?.(
+        renderer.showPing(
           {
             id: ping.id,
             pullPlayers: ping.pullPlayers,
@@ -170,87 +179,37 @@ export function MapStage({
           ping.pullPlayers,
         );
       }),
-    [renderer, scene?.id, session.campaignId],
-  );
-
-  useEffect(
-    () =>
-      window.blackBox.network.onMeasurementUpdate((update) => {
-        if (
-          !renderer ||
-          update.campaignId !== session.campaignId ||
-          update.sceneId !== scene?.id
-        ) {
-          return;
+      networkApi.onMeasurementUpdate((update) => {
+        if (matchesScene(update.campaignId, update.sceneId)) {
+          renderer.showMeasurement(update);
         }
-        renderer.showMeasurement?.(update);
       }),
-    [renderer, scene?.id, session.campaignId],
-  );
+      networkApi.onDrawingPreview((preview) => {
+        if (matchesScene(preview.campaignId, preview.sceneId)) {
+          renderer.showDrawingPreview(preview);
+        }
+      }),
+      networkApi.onTransformStarted((input) => {
+        if (matchesScene(input.campaignId, input.sceneId)) {
+          renderer.showTransformStarted(input);
+        }
+      }),
+      networkApi.onTransformPreview((input) => {
+        if (input.campaignId === session.campaignId) {
+          renderer.showTransformPreview(input);
+        }
+      }),
+      networkApi.onTransformCancelled((input) => {
+        if (matchesScene(input.campaignId, input.sceneId)) {
+          renderer.showTransformCancelled(input);
+        }
+      }),
+    ];
+    return () => unsubscribe.forEach((remove) => remove());
+  }, [networkApi, renderer, scene?.id, session.campaignId]);
 
   useEffect(() => {
-    const subscribe = window.blackBox.network.onDrawingPreview;
-    if (!subscribe) {
-      return undefined;
-    }
-    return subscribe((preview) => {
-      if (
-        !renderer ||
-        preview.campaignId !== session.campaignId ||
-        preview.sceneId !== scene?.id
-      ) {
-        return;
-      }
-      renderer.showDrawingPreview?.(preview);
-    });
-  }, [renderer, scene?.id, session.campaignId]);
-
-  useEffect(() => {
-    const subscribe = window.blackBox.network.onTransformStarted;
-    if (!subscribe) {
-      return undefined;
-    }
-    return subscribe((input) => {
-      if (
-        renderer &&
-        input.campaignId === session.campaignId &&
-        input.sceneId === scene?.id
-      ) {
-        renderer.showTransformStarted?.(input);
-      }
-    });
-  }, [renderer, scene?.id, session.campaignId]);
-
-  useEffect(() => {
-    const subscribe = window.blackBox.network.onTransformPreview;
-    if (!subscribe) {
-      return undefined;
-    }
-    return subscribe((input) => {
-      if (renderer && input.campaignId === session.campaignId) {
-        renderer.showTransformPreview?.(input);
-      }
-    });
-  }, [renderer, session.campaignId]);
-
-  useEffect(() => {
-    const subscribe = window.blackBox.network.onTransformCancelled;
-    if (!subscribe) {
-      return undefined;
-    }
-    return subscribe((input) => {
-      if (
-        renderer &&
-        input.campaignId === session.campaignId &&
-        input.sceneId === scene?.id
-      ) {
-        renderer.showTransformCancelled?.(input);
-      }
-    });
-  }, [renderer, scene?.id, session.campaignId]);
-
-  useEffect(() => {
-    renderer?.setInteraction?.({
+    renderer?.setInteraction({
       activeLayer,
       actorId: sessionUserId,
       canEditImages: session.role === 'gm',
@@ -297,41 +256,41 @@ export function MapStage({
         if (!scene || !rememberPing(seenPingIds.current, ping.id)) {
           return;
         }
-        renderer.showPing?.(
+        renderer.showPing(
           ping,
           session.role === 'player' && ping.pullPlayers,
         );
-        void window.blackBox.network.sendMapPing({
+        void networkApi.sendMapPing({
           ...ping,
           campaignId: session.campaignId,
         });
       },
       onMeasurementUpdate: (update) => {
-        void window.blackBox.network.sendMeasurementUpdate({
+        void networkApi.sendMeasurementUpdate({
           ...update,
           campaignId: session.campaignId,
         });
       },
       onDrawingPreview: (preview) => {
-        void window.blackBox.network.sendDrawingPreview?.({
+        void networkApi.sendDrawingPreview({
           ...preview,
           campaignId: session.campaignId,
         });
       },
       onPreviewStart: (input) => {
-        void window.blackBox.scenes.previewStart?.({
+        void sceneApi.previewStart({
           ...input,
           campaignId: session.campaignId,
         });
       },
       onPreviewUpdate: (input) => {
-        void window.blackBox.scenes.previewUpdate?.({
+        void sceneApi.previewUpdate({
           ...input,
           campaignId: session.campaignId,
         });
       },
       onPreviewCancel: (operationId, sceneId) => {
-        void window.blackBox.scenes.previewCancel?.({
+        void sceneApi.previewCancel({
           campaignId: session.campaignId,
           operationId,
           sceneId,
@@ -346,10 +305,12 @@ export function MapStage({
     onCommitObjects,
     onRedo,
     onUndo,
+    networkApi,
     paintSettings,
     paintSubtool,
     renderer,
     scene,
+    sceneApi,
     session.campaignId,
     session.role,
     sessionUserId,
@@ -419,7 +380,7 @@ export function MapStage({
               scene.width / Math.max(1, bitmap.width),
               scene.height / Math.max(1, bitmap.height),
             );
-            const point = renderer?.clientToScene?.(clientX, clientY) ?? {
+            const point = renderer?.clientToScene(clientX, clientY) ?? {
               x: scene.width / 2,
               y: scene.height / 2,
             };
@@ -446,7 +407,7 @@ export function MapStage({
             bitmap.close();
             const saved = await onCommitImages(scene, state);
             if (saved) {
-              renderer?.selectImages?.([image.id]);
+              renderer?.selectImages([image.id]);
             }
           } catch {
             // The asset can become unavailable while a drag is in flight.

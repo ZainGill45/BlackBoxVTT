@@ -21,7 +21,7 @@ import {
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
-} from './sceneSchema';
+} from '../shared/sceneSchema';
 import type { NetworkManager } from './network/networkManager';
 
 const campaignIdSchema = z

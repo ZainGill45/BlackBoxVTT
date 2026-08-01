@@ -9,7 +9,6 @@ import type {
   MeasurementUpdate,
   NetworkErrorCode,
 } from '../../shared/network';
-import { MAX_DRAWING_PREVIEW_POINTS } from '../../shared/network';
 import type {
   SceneRecord,
   SceneTransformPreviewCancel,
@@ -26,16 +25,16 @@ import {
 } from './udpProtocol';
 import { associateUdp, type AssociatedUdp } from './udpAssociation';
 import {
-  sceneDrawingPointSchema,
-  sceneDrawingStyleSchema,
-  sceneDrawingTransformSchema,
-  sceneImageTransformSchema,
-} from '../sceneSchema';
-import {
   decodeServerMeasurement,
   encodeClientMeasurement,
 } from './measurementProtocol';
 import { LatestSnapshotRateLimiter } from './latestSnapshotRateLimiter';
+import {
+  decodeServerDrawingPreview,
+  decodeTransformPreview,
+  encodeClientDrawingPreview,
+  encodeTransformPreview,
+} from './sceneRealtimeProtocol';
 
 const UDP_HEARTBEAT_INTERVAL_MS = 5_000;
 const UDP_RECOVERY_THRESHOLD_MS = 15_000;
@@ -169,12 +168,12 @@ export class ClientNetworkSession {
         } else if (preview.kind === 'transform') {
           this.sendUdp(
             udpMessageTypes.clientTransformPreview,
-            Buffer.from(JSON.stringify(preview.input), 'utf8'),
+            encodeTransformPreview(preview.input),
           );
         } else {
           this.sendUdp(
             udpMessageTypes.clientDrawingPreview,
-            Buffer.from(JSON.stringify(preview.input), 'utf8'),
+            encodeClientDrawingPreview(preview.input),
           );
         }
       },
@@ -385,86 +384,21 @@ export class ClientNetworkSession {
           decoded.type === udpMessageTypes.transformPreview &&
           !this.recovering
         ) {
-          const value = JSON.parse(decoded.payload.toString('utf8')) as Record<string, unknown>;
-          const absolute =
-            value.absolute === undefined
-              ? null
-              : sceneImageTransformSchema
-                  .or(sceneDrawingTransformSchema)
-                  .safeParse(value.absolute);
-          if (
-            typeof value.operationId === 'string' &&
-            (absolute === null || absolute.success) &&
-            ['dx', 'dy', 'rotation', 'scaleX', 'scaleY'].every(
-              (key) => typeof value[key] === 'number' && Number.isFinite(value[key]),
-            ) &&
-            (value.scaleX as number) > 0 &&
-            (value.scaleY as number) > 0
-          ) {
-            this.onTransformPreview(
-              {
-                ...(absolute?.success ? { absolute: absolute.data } : {}),
-                dx: value.dx as number,
-                dy: value.dy as number,
-                operationId: value.operationId,
-                rotation: value.rotation as number,
-                scaleX: value.scaleX as number,
-                scaleY: value.scaleY as number,
-              },
-            );
-          }
+          this.onTransformPreview(decodeTransformPreview(decoded.payload));
         } else if (
           decoded.type === udpMessageTypes.serverDrawingPreview &&
           !this.recovering
         ) {
-          const value = JSON.parse(
-            decoded.payload.toString('utf8'),
-          ) as Record<string, unknown>;
-          const points = Array.isArray(value.points)
-            ? value.points
-                .map((point) => sceneDrawingPointSchema.safeParse(point))
-                .filter((result) => result.success)
-                .map((result) => result.data)
-            : [];
-          const style = sceneDrawingStyleSchema.safeParse(value.style);
-          if (
-            typeof value.active === 'boolean' &&
-            typeof value.closed === 'boolean' &&
-            (value.kind === 'freeform' || value.kind === 'polyline') &&
-            (value.layer === 'map' || value.layer === 'token') &&
-            typeof value.operationId === 'string' &&
-            typeof value.sceneId === 'string' &&
-            typeof value.sourceId === 'string' &&
-            typeof value.sequence === 'number' &&
-            Number.isInteger(value.sequence) &&
-            value.sequence >= 0 &&
-            points.length <= MAX_DRAWING_PREVIEW_POINTS &&
-            style.success &&
-            ((value.active && points.length > 0) ||
-              (!value.active && points.length === 0))
-          ) {
-            const key = `${value.sourceId}:${value.operationId}`;
-            const previous = this.remoteDrawingSequences.get(key);
-            if (value.sequence <= (previous?.sequence ?? -1)) {
-              return;
-            }
-            const preview = {
-              active: value.active,
-              closed: value.closed,
-              kind: value.kind,
-              layer: value.layer,
-              operationId: value.operationId,
-              points,
-              sceneId: value.sceneId,
-              sequence: value.sequence,
-              sourceId: value.sourceId,
-              style: style.data,
-            } satisfies Omit<DrawingPreviewEvent, 'campaignId'>;
-            this.remoteDrawingSequences.set(key, preview);
-            this.onDrawingPreview(preview);
-            if (!value.active) {
-              this.remoteDrawingSequences.delete(key);
-            }
+          const preview = decodeServerDrawingPreview(decoded.payload);
+          const key = `${preview.sourceId}:${preview.operationId}`;
+          const previous = this.remoteDrawingSequences.get(key);
+          if (preview.sequence <= (previous?.sequence ?? -1)) {
+            return;
+          }
+          this.remoteDrawingSequences.set(key, preview);
+          this.onDrawingPreview(preview);
+          if (!preview.active) {
+            this.remoteDrawingSequences.delete(key);
           }
         } else if (
           decoded.type === udpMessageTypes.serverMeasurement &&

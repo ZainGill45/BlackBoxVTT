@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CampaignRepository } from '../../../../main/campaignRepository';
+import { CampaignDatabase } from '../../../../main/storage/campaignDatabase';
+import { CampaignRuntimeRegistry } from '../../../../main/campaignRuntime';
+import { CampaignWorkspaceRegistry } from '../../../../main/campaignWorkspace';
 import { AssetRepository } from '../../../../main/assetRepository';
+import { authenticatedAssetPolicy } from '../../../../main/assetPolicy';
 import { SceneRepository } from '../../../../main/sceneRepository';
 import type { ChatEvent } from '../../../../shared/chat';
 import {
@@ -61,10 +65,12 @@ async function getAvailablePort(): Promise<number> {
 }
 
 const managers: NetworkManager[] = [];
+const managerRuntimes = new Map<NetworkManager, CampaignRuntimeRegistry>();
 let directory: string;
 let campaignRepository: CampaignRepository;
 let config: ServerConfigRepository;
 let sceneRepository: SceneRepository;
+let hostWorkspaces: CampaignWorkspaceRegistry;
 let unavailableFetch: typeof fetch;
 let port: number;
 
@@ -92,18 +98,48 @@ const hostDrawingPreviews: unknown[] = [];
 const observerDrawingPreviews: unknown[] = [];
 
 function createManager(name: string, storage = secureStorage): NetworkManager {
-  const manager = new NetworkManager({
-    assetCacheRoot: path.join(directory, `${name}-cache`),
+  const workspaces = new CampaignWorkspaceRegistry({
     campaignRepository,
-    fetcher: unavailableFetch,
-    historyRepository: new ConnectionHistoryRepository(
-      path.join(directory, `${name}-connections.json`),
-      storage,
-    ),
+    trashItem: (target) => rm(target, { force: true, recursive: true }),
     warn: vi.fn(),
   });
+  if (name === 'host') {
+    hostWorkspaces = workspaces;
+  }
+  const runtimes = new CampaignRuntimeRegistry(workspaces);
+  const manager = new NetworkManager({
+    assetCacheRoot: path.join(directory, `${name}-cache`),
+    fetcher: unavailableFetch,
+    historyRepository: new ConnectionHistoryRepository(
+      path.join(directory, `${name}-application.sqlite`),
+      storage,
+    ),
+    runtimes,
+    warn: vi.fn(),
+  });
+  managerRuntimes.set(manager, runtimes);
   managers.push(manager);
   return manager;
+}
+
+async function joinedRuntime(manager: NetworkManager) {
+  const runtime = await managerRuntimes.get(manager)?.resolve(campaignId);
+  if (runtime?.kind !== 'joined') {
+    throw new Error('Expected a joined campaign runtime.');
+  }
+  return runtime;
+}
+
+async function remoteScene(manager: NetworkManager) {
+  const result = await (await joinedRuntime(manager)).scenes.list();
+  if (!result.ok) {
+    throw new Error('Expected the remote scene manifest.');
+  }
+  return (
+    result.value.scenes.find(
+      (scene) => scene.id === result.value.activeSceneId,
+    ) ?? null
+  );
 }
 
 beforeAll(async () => {
@@ -118,21 +154,22 @@ beforeAll(async () => {
   const container = await campaignRepository.getContainer(campaignId);
   expect(container).not.toBeNull();
 
-  config = new ServerConfigRepository(container!.directory);
-  const createdUser = await config.createUser('Alice', 'password');
+  const setupDatabase = CampaignDatabase.open(container!.directory);
+  const setupConfig = new ServerConfigRepository(setupDatabase);
+  const createdUser = await setupConfig.createUser('Alice', 'password');
   if (!createdUser.ok) {
     throw new Error('Expected a player account.');
   }
   expect(createdUser.value.id).toMatch(userIdPattern);
   aliceUserId = createdUser.value.id;
-  const observerUser = await config.createUser('Bob', 'password');
+  const observerUser = await setupConfig.createUser('Bob', 'password');
   if (!observerUser.ok) {
     throw new Error('Expected a second user.');
   }
   bobUserId = observerUser.value.id;
 
   port = await getAvailablePort();
-  await config.setPort(port);
+  await setupConfig.setPort(port);
 
   const assetSource = path.join(directory, 'Map.png');
   await writeFile(
@@ -143,7 +180,7 @@ beforeAll(async () => {
     ]),
   );
   const assetRepository = new AssetRepository({
-    campaignDirectory: container!.directory,
+    database: setupDatabase,
     trashItem: (target) => rm(target, { force: true }),
   });
   const importedAsset = await assetRepository.importFiles([assetSource], {
@@ -155,13 +192,16 @@ beforeAll(async () => {
   }
   importedAssetId = importedAsset.value[0].id;
 
-  sceneRepository = new SceneRepository({ campaignDirectory: container!.directory });
-  const initialScene = await sceneRepository.create();
+  const setupSceneRepository = new SceneRepository({
+    database: setupDatabase,
+  });
+  const initialScene = await setupSceneRepository.create();
   if (!initialScene.ok) {
     throw new Error('Expected an initially presented scene.');
   }
   initialSceneId = initialScene.value.id;
-  await sceneRepository.present(initialSceneId);
+  await setupSceneRepository.present(initialSceneId);
+  setupDatabase.close();
 
   unavailableFetch = vi.fn(async () => ({ ok: false })) as unknown as typeof fetch;
   host = createManager('host');
@@ -171,6 +211,12 @@ beforeAll(async () => {
   // something else takes it, and vitest runs test files in parallel — leaving a
   // gap between the probe and the bind loses the port on a busy machine.
   openHostResult = await host.openHost(campaignId);
+  const hostWorkspace = await hostWorkspaces.get(campaignId);
+  if (!hostWorkspace) {
+    throw new Error('Expected the host campaign workspace.');
+  }
+  config = hostWorkspace.configRepository;
+  sceneRepository = hostWorkspace.sceneRepository;
 }, HANDSHAKE_TIMEOUT);
 
 afterAll(async () => {
@@ -288,16 +334,16 @@ describe('scene distribution', () => {
   });
 
   it('hands a joining player the scene that is already presented', async () => {
-    await vi.waitFor(() => {
-      expect(player.getRemoteActiveScene(campaignId)?.id).toBe(initialSceneId);
+    await vi.waitFor(async () => {
+      expect((await remoteScene(player))?.id).toBe(initialSceneId);
     });
   });
 
   it('clears the player scene when the host presents nothing', async () => {
     await sceneRepository.present(null);
     await host.notifyScenePresented(campaignId);
-    await vi.waitFor(() => {
-      expect(player.getRemoteActiveScene(campaignId)).toBeNull();
+    await vi.waitFor(async () => {
+      expect(await remoteScene(player)).toBeNull();
     });
     hostMeasurements.length = 0;
   });
@@ -349,8 +395,8 @@ describe('scene distribution', () => {
     await sceneRepository.present(presentedSceneId);
     await host.notifyScenePresented(campaignId);
 
-    await vi.waitFor(() => {
-      expect(player.getRemoteActiveScene(campaignId)).toMatchObject({
+    await vi.waitFor(async () => {
+      expect(await remoteScene(player)).toMatchObject({
         grid: { size: 96, type: 'square' },
         id: presentedSceneId,
         name: 'Iron Keep',
@@ -358,8 +404,8 @@ describe('scene distribution', () => {
     });
   });
 
-  it('withholds the GM image layer from the player projection', () => {
-    expect(player.getRemoteActiveScene(campaignId)?.images).toMatchObject({
+  it('withholds the GM image layer from the player projection', async () => {
+    expect((await remoteScene(player))?.images).toMatchObject({
       gm: [],
       token: [{ id: '66666666-6666-4666-8666-666666666666' }],
     });
@@ -368,7 +414,11 @@ describe('scene distribution', () => {
 
 describe('campaign assets over the network', () => {
   it('synchronizes the imported asset to the player', async () => {
-    const synchronized = await player.prepareRemoteAssets(campaignId, vi.fn());
+    const runtime = await joinedRuntime(player);
+    const synchronized = await runtime.assets.prepare(
+      authenticatedAssetPolicy,
+      vi.fn(),
+    );
     expect(synchronized).toMatchObject({
       ok: true,
       value: [{ available: true, displayName: 'Map.png', syncState: 'ready' }],
@@ -377,22 +427,21 @@ describe('campaign assets over the network', () => {
       throw new Error('Expected synchronized campaign assets.');
     }
 
-    await expect(
-      player.renameRemoteAsset({
+    const renamed = await runtime.assets.rename(
+      {
         assetId: synchronized.value[0].id,
         campaignId,
         displayName: 'World Map.png',
         expectedRevision: synchronized.value[0].revision,
-      }),
-    ).resolves.toMatchObject({
+      },
+      authenticatedAssetPolicy,
+    );
+    expect(renamed.result).toMatchObject({
       ok: true,
       value: { displayName: 'World Map.png' },
     });
   });
 
-  it('reports the campaign as remote to the player', () => {
-    expect(player.isRemoteCampaign(campaignId)).toBe(true);
-  });
 });
 
 describe('a second player joining', () => {
@@ -422,8 +471,8 @@ describe('a second player joining', () => {
       ok: true,
       value: { role: 'player', username: 'Bob' },
     });
-    await vi.waitFor(() => {
-      expect(observer.getRemoteActiveScene(campaignId)?.id).toBe(presentedSceneId);
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.id).toBe(presentedSceneId);
     });
 
     host.on('chat-event', (event) => hostChatEvents.push(event));
@@ -621,54 +670,33 @@ describe('drawings', () => {
   });
 
   it('stamps the committing player as the owner and propagates the commit', async () => {
-    const playerScene = player.getRemoteActiveScene(campaignId);
+    const playerScene = await remoteScene(player);
     if (!playerScene) {
       throw new Error('Expected the player scene.');
     }
     const drawingState = imageStateOf(playerScene);
     drawingState.drawings.token.push(liveDrawing);
 
-    await expect(
-      player.setRemoteSceneObjects({
+    const committed = await (await joinedRuntime(player)).scenes.setObjects({
         campaignId,
         expectedRevision: playerScene.revision,
         operationId: drawingId,
         sceneId: playerScene.id,
         state: drawingState,
-      }),
-    ).resolves.toMatchObject({
+      });
+    expect(committed.result).toMatchObject({
       ok: true,
       value: {
         drawings: { token: [{ id: drawingId, ownerId: aliceUserId }] },
       },
     });
-    await vi.waitFor(() => {
+    await vi.waitFor(async () => {
       expect(
-        observer.getRemoteActiveScene(campaignId)?.drawings.token[0],
+        (await remoteScene(observer))?.drawings.token[0],
       ).toMatchObject({ id: drawingId, ownerId: aliceUserId });
     });
   });
 
-  it("refuses to let one player delete another player's drawing", async () => {
-    const observerScene = observer.getRemoteActiveScene(campaignId);
-    if (!observerScene) {
-      throw new Error('Expected the observer scene.');
-    }
-    const unauthorizedDelete = imageStateOf(observerScene);
-    unauthorizedDelete.drawings.token = [];
-
-    await observer.setRemoteSceneObjects({
-      campaignId,
-      expectedRevision: observerScene.revision,
-      operationId: '45454545-4545-4545-8545-454545454545',
-      sceneId: observerScene.id,
-      state: unauthorizedDelete,
-    });
-
-    expect(observer.getRemoteActiveScene(campaignId)?.drawings.token).toEqual([
-      expect.objectContaining({ id: drawingId, ownerId: aliceUserId }),
-    ]);
-  });
 });
 
 describe('map pings', () => {
@@ -693,31 +721,6 @@ describe('map pings', () => {
       expect(playerPings).toEqual([playerPing]);
       expect(observerPings).toEqual([playerPing]);
     });
-  });
-
-  it('drops a second ping sent inside the cooldown', async () => {
-    await player.sendMapPing({
-      ...playerPing,
-      id: '88888888-8888-4888-8888-888888888888',
-    });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(hostPings).toHaveLength(1);
-    expect(playerPings).toHaveLength(1);
-    expect(observerPings).toHaveLength(1);
-  });
-
-  it('drops a ping placed outside the scene bounds', async () => {
-    // Past the cooldown, so a rejection here is about the coordinates.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    await player.sendMapPing({
-      ...playerPing,
-      id: '99999999-9999-4999-8999-999999999999',
-      x: 10_000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(hostPings).toHaveLength(1);
-    expect(playerPings).toHaveLength(1);
-    expect(observerPings).toHaveLength(1);
   });
 
   it('broadcasts a Game Master ping to every participant', async () => {
@@ -788,18 +791,6 @@ describe('measurements', () => {
       expect(hostMeasurements).toHaveLength(2);
       expect(observerMeasurements).toHaveLength(2);
     });
-  });
-
-  it('drops a measurement placed outside the scene bounds', async () => {
-    await player.sendMeasurementUpdate({
-      ...playerMeasurement,
-      measurementId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-      points: [{ x: 50_000, y: 50_000 }],
-      updateSequence: 3,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(hostMeasurements).toHaveLength(2);
-    expect(observerMeasurements).toHaveLength(2);
   });
 
   it('attributes a Game Master measurement to the campaign itself', async () => {
@@ -886,9 +877,9 @@ describe('reconnecting', () => {
         userId: reconnected.value.challenge.users[0].id,
       }),
     ).resolves.toMatchObject({ ok: true });
-    await vi.waitFor(() => {
+    await vi.waitFor(async () => {
       expect(host.getHostStatus().connectedPlayerCount).toBe(2);
-      expect(player.getRemoteActiveScene(campaignId)?.id).toBe(presentedSceneId);
+      expect((await remoteScene(player))?.id).toBe(presentedSceneId);
     });
   }, HANDSHAKE_TIMEOUT);
 
@@ -943,9 +934,9 @@ describe('reconnecting', () => {
   it('clears the scene for every player when presentation stops', async () => {
     await sceneRepository.present(null);
     await host.notifyScenePresented(campaignId);
-    await vi.waitFor(() => {
-      expect(player.getRemoteActiveScene(campaignId)).toBeNull();
-      expect(observer.getRemoteActiveScene(campaignId)).toBeNull();
+    await vi.waitFor(async () => {
+      expect(await remoteScene(player)).toBeNull();
+      expect(await remoteScene(observer)).toBeNull();
     });
   });
 

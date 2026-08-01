@@ -72,21 +72,15 @@ export function normalizePaintSettings(value: unknown): PaintSettings {
   const input = value as Partial<PaintSettings>;
   const freeform = input.freeform ?? DEFAULT_PAINT_SETTINGS.freeform;
   const polyline = input.polyline ?? DEFAULT_PAINT_SETTINGS.polyline;
-  const legacyFreeform = freeform as typeof freeform & {
-    edge?: unknown;
-  };
   return {
     freeform: {
       color: color(freeform.color, DEFAULT_DRAWING_COLOR),
-      hardness:
-        legacyFreeform.edge === 'hard'
-          ? 1
-          : bounded(
-              freeform.hardness,
-              DEFAULT_FREEFORM_HARDNESS,
-              0,
-              1,
-            ),
+      hardness: bounded(
+        freeform.hardness,
+        DEFAULT_FREEFORM_HARDNESS,
+        0,
+        1,
+      ),
       opacity: bounded(freeform.opacity, DEFAULT_DRAWING_OPACITY, 0.01, 1),
       width: bounded(freeform.width, DEFAULT_FREEFORM_WIDTH, 1, 256),
     },

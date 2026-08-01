@@ -1,67 +1,19 @@
 import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
-import { z } from 'zod';
 import { sceneIpcChannels, type SceneResult } from '../shared/scenes';
 import type { SceneManager } from './sceneManager';
 import {
-  sceneImageStateSchema,
-  sceneImageTransformSchema,
-  sceneDrawingTransformSchema,
-  scenePatchSchema,
-} from './sceneSchema';
-
-const campaignSchema = z.object({ campaignId: z.string().uuid() }).strict();
-const assetSchema = campaignSchema.extend({ assetId: z.string().uuid() });
-const presentSchema = campaignSchema.extend({
-  sceneId: z.string().uuid().nullable(),
-});
-const trashSchema = campaignSchema.extend({
-  expectedRevision: z.number().int().nonnegative(),
-  sceneId: z.string().uuid(),
-});
-const updateSchema = trashSchema.extend({ patch: scenePatchSchema });
-const setImagesSchema = trashSchema.extend({ state: sceneImageStateSchema });
-const setObjectsSchema = setImagesSchema.extend({
-  operationId: z.string().uuid(),
-});
-const historySchema = campaignSchema.extend({
-  sceneId: z.string().uuid(),
-});
-const objectTransformSchema = z.union([
-  sceneImageTransformSchema,
-  sceneDrawingTransformSchema,
-]);
-const previewStartSchema = campaignSchema.extend({
-  kind: z.enum(['move', 'nudge', 'resize', 'rotate']),
-  operationId: z.string().uuid(),
-  pivotX: z.number().finite(),
-  pivotY: z.number().finite(),
-  revision: z.number().int().nonnegative(),
-  sceneId: z.string().uuid(),
-  startingTransforms: z
-    .array(
-      z
-        .object({
-          id: z.string().min(1).max(128),
-          transform: objectTransformSchema,
-        })
-        .strict(),
-    )
-    .max(2049),
-  targets: z.array(z.string()).max(2049),
-});
-const previewUpdateSchema = campaignSchema.extend({
-  absolute: objectTransformSchema.optional(),
-  dx: z.number().finite(),
-  dy: z.number().finite(),
-  operationId: z.string().uuid(),
-  rotation: z.number().finite(),
-  scaleX: z.number().finite().positive(),
-  scaleY: z.number().finite().positive(),
-});
-const previewCancelSchema = campaignSchema.extend({
-  operationId: z.string().uuid(),
-  sceneId: z.string().uuid(),
-});
+  presentSceneInputSchema as presentSchema,
+  sceneAssetInputSchema as assetSchema,
+  sceneCampaignInputSchema as campaignSchema,
+  sceneHistoryInputSchema as historySchema,
+  sceneTransformPreviewCancelSchema as previewCancelSchema,
+  sceneTransformPreviewDeltaSchema as previewUpdateSchema,
+  sceneTransformPreviewStartSchema as previewStartSchema,
+  setSceneImagesInputSchema as setImagesSchema,
+  setSceneObjectsInputSchema as setObjectsSchema,
+  trashSceneInputSchema as trashSchema,
+  updateSceneInputSchema as updateSchema,
+} from '../shared/sceneContracts';
 
 function invalid<T>(): SceneResult<T> {
   return {

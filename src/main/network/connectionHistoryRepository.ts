@@ -1,16 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { z } from 'zod';
 import type {
   NetworkResult,
   SavedConnection,
 } from '../../shared/network';
 import { fail } from '../../shared/result';
-import { writeJsonAtomic } from '../storage/atomicWrite';
+import { ApplicationDatabase } from '../storage/applicationDatabase';
 import { MutationQueue } from '../storage/mutationQueue';
-
-const HISTORY_SCHEMA_VERSION = 1 as const;
 
 const storedProfileSchema = z.object({
   encryptedPassword: z.string().min(1),
@@ -27,11 +22,6 @@ const storedConnectionSchema = z.object({
   lastUserId: z.string().uuid(),
   port: z.number().int().min(1).max(65_535),
   profiles: z.array(storedProfileSchema),
-});
-
-const historySchema = z.object({
-  entries: z.array(storedConnectionSchema),
-  schemaVersion: z.literal(HISTORY_SCHEMA_VERSION),
 });
 
 interface StoredProfile {
@@ -51,11 +41,6 @@ export interface StoredConnection {
   profiles: StoredProfile[];
 }
 
-interface StoredHistory {
-  entries: StoredConnection[];
-  schemaVersion: typeof HISTORY_SCHEMA_VERSION;
-}
-
 interface SecureStorageAdapter {
   decryptStringAsync(
     encrypted: Buffer,
@@ -63,42 +48,54 @@ interface SecureStorageAdapter {
   encryptStringAsync(value: string): Promise<Buffer>;
 }
 
+interface ConnectionRow {
+  campaign_id: string;
+  campaign_name: string;
+  certificate_fingerprint: string;
+  host: string;
+  last_connected_at: string;
+  last_user_id: string;
+  port: number;
+}
+
+interface ProfileRow {
+  encrypted_password: Uint8Array;
+  user_id: string;
+  username: string;
+}
+
 function failure<T>(message: string): NetworkResult<T> {
   return fail({ code: 'storage_error', message });
 }
 
 export class ConnectionHistoryRepository {
+  readonly applicationDatabase: ApplicationDatabase;
   private readonly mutations = new MutationQueue();
 
   constructor(
-    private readonly historyPath: string,
+    databasePath: string,
     private readonly secureStorage: SecureStorageAdapter,
-  ) {}
+  ) {
+    this.applicationDatabase = new ApplicationDatabase(databasePath);
+  }
 
   async list(): Promise<NetworkResult<SavedConnection[]>> {
     try {
-      const history = await this.load();
       return {
         ok: true,
-        value: [...history.entries]
-          .sort(
-            (left, right) =>
-              right.lastConnectedAt.localeCompare(left.lastConnectedAt) ||
-              left.campaignId.localeCompare(right.campaignId),
-          )
-          .map((entry) => ({
-            campaignId: entry.campaignId,
-            campaignName: entry.campaignName,
-            host: entry.host,
-            lastConnectedAt: entry.lastConnectedAt,
-            lastUserId: entry.lastUserId,
-            port: entry.port,
-            profiles: entry.profiles.map((profile) => ({
-              hasSavedPassword: true,
-              userId: profile.userId,
-              username: profile.username,
-            })),
+        value: this.readConnections().map((entry) => ({
+          campaignId: entry.campaignId,
+          campaignName: entry.campaignName,
+          host: entry.host,
+          lastConnectedAt: entry.lastConnectedAt,
+          lastUserId: entry.lastUserId,
+          port: entry.port,
+          profiles: entry.profiles.map((profile) => ({
+            hasSavedPassword: true,
+            userId: profile.userId,
+            username: profile.username,
           })),
+        })),
       };
     } catch {
       return failure('Connection history could not be loaded.');
@@ -106,28 +103,38 @@ export class ConnectionHistoryRepository {
   }
 
   async find(campaignId: string): Promise<StoredConnection | null> {
-    const history = await this.load();
-    return (
-      history.entries.find((entry) => entry.campaignId === campaignId) ?? null
-    );
+    const row = this.applicationDatabase.connection
+      .prepare(
+        `SELECT campaign_id, campaign_name, certificate_fingerprint,
+                host, last_connected_at, last_user_id, port
+         FROM saved_connections
+         WHERE campaign_id = ?`,
+      )
+      .get(campaignId) as ConnectionRow | undefined;
+    return row ? this.toStoredConnection(row) : null;
   }
 
   async getPassword(
     campaignId: string,
     userId: string,
   ): Promise<string | null> {
-    const connection = await this.find(campaignId);
-    const profile = connection?.profiles.find(
-      (candidate) => candidate.userId === userId,
-    );
+    const profile = this.applicationDatabase.connection
+      .prepare(
+        `SELECT encrypted_password
+         FROM saved_connection_profiles
+         WHERE campaign_id = ? AND user_id = ?`,
+      )
+      .get(campaignId, userId) as
+      | { encrypted_password: Uint8Array }
+      | undefined;
     if (!profile) {
       return null;
     }
-
-    const decrypted = await this.secureStorage.decryptStringAsync(
-      Buffer.from(profile.encryptedPassword, 'base64'),
-    );
-    return decrypted.result;
+    return (
+      await this.secureStorage.decryptStringAsync(
+        Buffer.from(profile.encrypted_password),
+      )
+    ).result;
   }
 
   commitSuccessfulConnection(input: {
@@ -142,44 +149,71 @@ export class ConnectionHistoryRepository {
   }): Promise<NetworkResult<null>> {
     return this.mutations.run(async () => {
       try {
-        const history = await this.load();
-        const encryptedPassword = (
-          await this.secureStorage.encryptStringAsync(input.password)
-        ).toString('base64');
-        const existing = history.entries.find(
-          (entry) => entry.campaignId === input.campaignId,
-        );
-        const profile: StoredProfile = {
-          encryptedPassword,
-          userId: input.userId,
-          username: input.username,
-        };
-        const entry: StoredConnection = {
+        const encryptedPassword =
+          await this.secureStorage.encryptStringAsync(input.password);
+        const lastConnectedAt = new Date().toISOString();
+        storedConnectionSchema.parse({
           campaignId: input.campaignId,
           campaignName: input.campaignName,
           certificateFingerprint: input.certificateFingerprint,
           host: input.host,
-          lastConnectedAt: new Date().toISOString(),
+          lastConnectedAt,
           lastUserId: input.userId,
           port: input.port,
-          profiles: existing
-            ? [
-                ...existing.profiles.filter(
-                  (candidate) => candidate.userId !== input.userId,
-                ),
-                profile,
-              ]
-            : [profile],
-        };
-        await this.save({
-          ...history,
-          entries: [
-            ...history.entries.filter(
-              (candidate) => candidate.campaignId !== input.campaignId,
-            ),
-            entry,
+          profiles: [
+            {
+              encryptedPassword: encryptedPassword.toString('base64'),
+              userId: input.userId,
+              username: input.username,
+            },
           ],
         });
+        const database = this.applicationDatabase.connection;
+        database.exec('BEGIN IMMEDIATE');
+        try {
+          database
+            .prepare(
+              `INSERT INTO saved_connections (
+                 campaign_id, campaign_name, certificate_fingerprint,
+                 host, last_connected_at, last_user_id, port
+               ) VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(campaign_id) DO UPDATE SET
+                 campaign_name = excluded.campaign_name,
+                 certificate_fingerprint = excluded.certificate_fingerprint,
+                 host = excluded.host,
+                 last_connected_at = excluded.last_connected_at,
+                 last_user_id = excluded.last_user_id,
+                 port = excluded.port`,
+            )
+            .run(
+              input.campaignId,
+              input.campaignName,
+              input.certificateFingerprint,
+              input.host,
+              lastConnectedAt,
+              input.userId,
+              input.port,
+            );
+          database
+            .prepare(
+              `INSERT INTO saved_connection_profiles (
+                 campaign_id, user_id, username, encrypted_password
+               ) VALUES (?, ?, ?, ?)
+               ON CONFLICT(campaign_id, user_id) DO UPDATE SET
+                 username = excluded.username,
+                 encrypted_password = excluded.encrypted_password`,
+            )
+            .run(
+              input.campaignId,
+              input.userId,
+              input.username,
+              encryptedPassword,
+            );
+          database.exec('COMMIT');
+        } catch (error) {
+          database.exec('ROLLBACK');
+          throw error;
+        }
         return { ok: true, value: null };
       } catch {
         return failure('Connection history could not be saved.');
@@ -190,13 +224,9 @@ export class ConnectionHistoryRepository {
   delete(campaignId: string): Promise<NetworkResult<null>> {
     return this.mutations.run(async () => {
       try {
-        const history = await this.load();
-        await this.save({
-          ...history,
-          entries: history.entries.filter(
-            (entry) => entry.campaignId !== campaignId,
-          ),
-        });
+        this.applicationDatabase.connection
+          .prepare('DELETE FROM saved_connections WHERE campaign_id = ?')
+          .run(campaignId);
         return { ok: true, value: null };
       } catch {
         return failure('Connection history could not be deleted.');
@@ -204,27 +234,46 @@ export class ConnectionHistoryRepository {
     });
   }
 
-  private async load(): Promise<StoredHistory> {
-    try {
-      const source = await readFile(this.historyPath, 'utf8');
-      return historySchema.parse(JSON.parse(source));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { entries: [], schemaVersion: HISTORY_SCHEMA_VERSION };
-      }
-      throw error;
-    }
+  close(): void {
+    this.applicationDatabase.close();
   }
 
-  private async save(history: StoredHistory): Promise<void> {
-    const directory = path.dirname(this.historyPath);
+  private readConnections(): StoredConnection[] {
+    const rows = this.applicationDatabase.connection
+      .prepare(
+        `SELECT campaign_id, campaign_name, certificate_fingerprint,
+                host, last_connected_at, last_user_id, port
+         FROM saved_connections
+         ORDER BY last_connected_at DESC, campaign_id`,
+      )
+      .all() as unknown as ConnectionRow[];
+    return rows.map((row) => this.toStoredConnection(row));
+  }
 
-    // Saved passwords live here, so the file is created exclusively and stays
-    // readable only by its owner.
-    await writeJsonAtomic(this.historyPath, historySchema.parse(history), {
-      ensureDirectory: directory,
-      temporaryPath: path.join(directory, `.connections-${randomUUID()}.tmp`),
-      writeOptions: { encoding: 'utf8', flag: 'wx', mode: 0o600 },
+  private toStoredConnection(row: ConnectionRow): StoredConnection {
+    const profiles = this.applicationDatabase.connection
+      .prepare(
+        `SELECT user_id, username, encrypted_password
+         FROM saved_connection_profiles
+         WHERE campaign_id = ?
+         ORDER BY rowid`,
+      )
+      .all(row.campaign_id) as unknown as ProfileRow[];
+    return storedConnectionSchema.parse({
+      campaignId: row.campaign_id,
+      campaignName: row.campaign_name,
+      certificateFingerprint: row.certificate_fingerprint,
+      host: row.host,
+      lastConnectedAt: row.last_connected_at,
+      lastUserId: row.last_user_id,
+      port: row.port,
+      profiles: profiles.map((profile) => ({
+        encryptedPassword: Buffer.from(profile.encrypted_password).toString(
+          'base64',
+        ),
+        userId: profile.user_id,
+        username: profile.username,
+      })),
     });
   }
 }

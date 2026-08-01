@@ -149,7 +149,49 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
       publish();
       return { ok: true as const, value: manifest };
     }),
+    previewCancel: vi.fn(async () => undefined),
+    previewStart: vi.fn(async () => undefined),
+    previewUpdate: vi.fn(async () => undefined),
+    redo: vi.fn(async ({ sceneId }) => {
+      const current = manifest.scenes.find((scene) => scene.id === sceneId);
+      return current
+        ? { ok: true as const, value: current }
+        : {
+            error: { code: 'not_found' as const, message: 'Gone.' },
+            ok: false as const,
+          };
+    }),
     setImages: vi.fn(
+      async ({ expectedRevision, sceneId, state }) => {
+        const current = manifest.scenes.find((scene) => scene.id === sceneId);
+        if (!current) {
+          return {
+            error: { code: 'not_found' as const, message: 'Gone.' },
+            ok: false as const,
+          };
+        }
+        if (current.revision !== expectedRevision) {
+          return {
+            error: { code: 'conflict' as const, message: 'Stale.' },
+            ok: false as const,
+          };
+        }
+        const next = {
+          ...current,
+          ...state,
+          revision: current.revision + 1,
+        };
+        manifest = {
+          ...manifest,
+          scenes: manifest.scenes.map((scene) =>
+            scene.id === sceneId ? next : scene,
+          ),
+        };
+        publish();
+        return { ok: true as const, value: next };
+      },
+    ),
+    setObjects: vi.fn(
       async ({ expectedRevision, sceneId, state }) => {
         const current = manifest.scenes.find((scene) => scene.id === sceneId);
         if (!current) {
@@ -217,6 +259,15 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
       };
       publish();
       return { ok: true as const, value: next };
+    }),
+    undo: vi.fn(async ({ sceneId }) => {
+      const current = manifest.scenes.find((scene) => scene.id === sceneId);
+      return current
+        ? { ok: true as const, value: current }
+        : {
+            error: { code: 'not_found' as const, message: 'Gone.' },
+            ok: false as const,
+          };
     }),
   };
 

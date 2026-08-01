@@ -19,11 +19,10 @@ import {
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
-  sceneDrawingTransformSchema,
   sceneImageStateSchema,
-  sceneImageTransformSchema,
+  sceneObjectTransformSchema,
   sceneRecordSchema,
-} from '../sceneSchema';
+} from '../../shared/sceneSchema';
 
 export const MAX_TCP_MESSAGE_BYTES = 1024 * 1024;
 
@@ -114,11 +113,6 @@ const assetSnapshotSchema = z
     ),
   })
   .strict();
-
-const sceneObjectTransformSchema = z.union([
-  sceneImageTransformSchema,
-  sceneDrawingTransformSchema,
-]);
 
 const sceneTransformStartSchema = z
   .object({

@@ -143,7 +143,7 @@ function paeth(left: number, up: number, upLeft: number): number {
 }
 
 /**
- * The fraction of pixels that differ between two same-sized screenshots.
+ * The fraction of pixels that differ between two screenshots.
  *
  * Distinct-colour counts are a poor way to tell two frames apart — an empty
  * stage and a drawn one can land on similar counts by coincidence. Comparing
@@ -158,21 +158,36 @@ export function pixelDifferenceRatio(
 ): number {
   const left = decodePng(before);
   const right = decodePng(after);
-  if (left.width !== right.width || left.height !== right.height) {
+  if (
+    Math.abs(left.width - right.width) > 1 ||
+    Math.abs(left.height - right.height) > 1
+  ) {
     throw new Error(
       `Screenshots differ in size: ${left.width}x${left.height} vs ${right.width}x${right.height}.`,
     );
   }
 
   let changed = 0;
-  const total = left.width * left.height;
-  for (let index = 0; index < left.pixels.length; index += 4) {
-    if (
-      Math.abs(left.pixels[index] - right.pixels[index]) > tolerance ||
-      Math.abs(left.pixels[index + 1] - right.pixels[index + 1]) > tolerance ||
-      Math.abs(left.pixels[index + 2] - right.pixels[index + 2]) > tolerance
-    ) {
-      changed += 1;
+  // Windows can round an Electron content view by one physical pixel between
+  // captures. Compare the shared area; a larger layout change still fails
+  // above, while the asserted scene pixels remain fully represented.
+  const width = Math.min(left.width, right.width);
+  const height = Math.min(left.height, right.height);
+  const total = width * height;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const leftIndex = (y * left.width + x) * 4;
+      const rightIndex = (y * right.width + x) * 4;
+      if (
+        Math.abs(left.pixels[leftIndex] - right.pixels[rightIndex]) >
+          tolerance ||
+        Math.abs(left.pixels[leftIndex + 1] - right.pixels[rightIndex + 1]) >
+          tolerance ||
+        Math.abs(left.pixels[leftIndex + 2] - right.pixels[rightIndex + 2]) >
+          tolerance
+      ) {
+        changed += 1;
+      }
     }
   }
   return changed / total;

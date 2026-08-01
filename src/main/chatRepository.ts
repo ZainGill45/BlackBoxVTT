@@ -1,9 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
-import path from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import {
-  CHAT_DATABASE_SCHEMA_VERSION,
   MAX_CHAT_HISTORY_PAGE_MESSAGES,
   MAX_CHAT_HISTORY_PAGE_PAYLOAD_BYTES,
   MAX_CHAT_MESSAGE_BYTES,
@@ -24,14 +21,14 @@ import {
   type ClearChatHistoryResult,
 } from '../shared/chat';
 import { fail } from '../shared/result';
+import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 
-const CHAT_DATABASE_FILENAME = 'chat.sqlite';
 const CAMPAIGN_TOUCH_INTERVAL_MS = 30_000;
 
 interface ChatRepositoryOptions {
-  campaignDirectory: string;
   createId?: () => string;
+  database: CampaignDatabase;
   now?: () => Date;
   touchCampaign?: () => Promise<void>;
   warn?: (message: string, error?: unknown) => void;
@@ -138,9 +135,8 @@ function statementRows(statement: StatementSync, ...values: unknown[]) {
 }
 
 export class ChatRepository {
-  private readonly campaignDirectory: string;
   private readonly createId: () => string;
-  private database: DatabaseSync | null = null;
+  private readonly database: CampaignDatabase;
   private readonly mutations = new MutationQueue();
   private readonly now: () => Date;
   private lastTouchAt = 0;
@@ -150,14 +146,14 @@ export class ChatRepository {
   private readonly warn: (message: string, error?: unknown) => void;
 
   constructor({
-    campaignDirectory,
     createId = randomUUID,
+    database,
     now = () => new Date(),
     touchCampaign,
     warn = console.warn,
   }: ChatRepositoryOptions) {
-    this.campaignDirectory = path.resolve(campaignDirectory);
     this.createId = createId;
+    this.database = database;
     this.now = now;
     this.touchCampaign = touchCampaign;
     this.warn = warn;
@@ -171,7 +167,7 @@ export class ChatRepository {
   ): Promise<ChatResult<ChatBootstrap>> {
     return this.mutations.run(async () => {
       try {
-        const database = await this.open();
+        const database = this.database.connection;
         const page = this.readPage(database, viewer);
         return {
           ok: true,
@@ -185,7 +181,6 @@ export class ChatRepository {
           },
         };
       } catch (error) {
-        this.closeDatabase();
         this.warn('Chat bootstrap failed.', error);
         return chatFailure(
           'storage_error',
@@ -201,7 +196,7 @@ export class ChatRepository {
   ): Promise<ChatResult<ChatHistoryPage>> {
     return this.mutations.run(async () => {
       try {
-        const database = await this.open();
+        const database = this.database.connection;
         const generation = this.getGeneration(database);
         if (generation !== input.generation) {
           return chatFailure(
@@ -219,7 +214,6 @@ export class ChatRepository {
           ),
         };
       } catch (error) {
-        this.closeDatabase();
         this.warn('Chat history page failed.', error);
         return chatFailure(
           'storage_error',
@@ -234,10 +228,9 @@ export class ChatRepository {
       try {
         return {
           ok: true,
-          value: this.getGeneration(await this.open()),
+          value: this.getGeneration(this.database.connection),
         };
       } catch (error) {
-        this.closeDatabase();
         this.warn('Chat generation could not be read.', error);
         return chatFailure(
           'storage_error',
@@ -279,13 +272,7 @@ export class ChatRepository {
         );
       }
 
-      let database: DatabaseSync;
-      try {
-        database = await this.open();
-      } catch (error) {
-        this.warn('Chat storage could not be opened for a send.', error);
-        return chatFailure('storage_error', 'Message could not be stored.');
-      }
+      const database = this.database.connection;
 
       const senderPrincipal = identityPrincipal(input.sender);
       const senderKey = chatPrincipalKey(senderPrincipal);
@@ -304,7 +291,7 @@ export class ChatRepository {
                sequence, id, client_message_id, generation, accepted_at,
                sender_kind, sender_user_id, sender_name,
                recipient_kind, recipient_user_id, recipient_name, content
-             FROM messages
+             FROM chat_messages
              WHERE sender_key = ? AND client_message_id = ?`,
           )
           .get(senderKey, input.clientMessageId) as
@@ -339,7 +326,7 @@ export class ChatRepository {
         const acceptedAt = this.now().toISOString();
         const insert = database
           .prepare(
-            `INSERT INTO messages (
+            `INSERT INTO chat_messages (
                id, client_message_id, generation, accepted_at,
                sender_key, sender_kind, sender_user_id, sender_name,
                recipient_key, recipient_kind, recipient_user_id,
@@ -390,7 +377,6 @@ export class ChatRepository {
         } catch {
           // The transaction did not begin or already rolled back.
         }
-        this.closeDatabase();
         this.warn('Chat message could not be committed.', error);
         return chatFailure('storage_error', 'Message could not be stored.');
       }
@@ -399,23 +385,14 @@ export class ChatRepository {
 
   clear(): Promise<ChatResult<ClearChatHistoryResult>> {
     return this.mutations.run(async () => {
-      let database: DatabaseSync;
-      try {
-        database = await this.open();
-      } catch (error) {
-        this.warn('Chat storage could not be opened for clear.', error);
-        return chatFailure(
-          'storage_error',
-          'Chat history could not be cleared.',
-        );
-      }
+      const database = this.database.connection;
       const generation = this.createId();
       try {
         database.exec('BEGIN IMMEDIATE');
-        database.exec('DELETE FROM messages');
+        database.exec('DELETE FROM chat_messages');
         database
           .prepare(
-            `UPDATE metadata
+            `UPDATE chat_metadata
              SET value = ?
              WHERE key = 'history_generation'`,
           )
@@ -427,7 +404,6 @@ export class ChatRepository {
         } catch {
           // The transaction did not begin or already rolled back.
         }
-        this.closeDatabase();
         this.warn('Chat history clear failed.', error);
         return chatFailure(
           'storage_error',
@@ -446,9 +422,7 @@ export class ChatRepository {
   }
 
   retry(): Promise<void> {
-    return this.mutations.run(async () => {
-      this.closeDatabase();
-    });
+    return this.mutations.run(async () => undefined);
   }
 
   close(): Promise<void> {
@@ -458,7 +432,6 @@ export class ChatRepository {
         clearTimeout(this.touchTimer);
         this.touchTimer = null;
       }
-      this.closeDatabase();
       if (flushTouch) {
         this.lastTouchAt = Date.now();
         this.enqueueCampaignTouch();
@@ -467,124 +440,11 @@ export class ChatRepository {
     });
   }
 
-  private async open(): Promise<DatabaseSync> {
-    if (this.database) {
-      return this.database;
-    }
-    const contentDirectory = path.join(this.campaignDirectory, 'content');
-    await mkdir(contentDirectory, { recursive: true });
-    // Another first-use caller may have finished opening the repository while
-    // this call was awaiting the shared content directory.
-    if (this.database) {
-      return this.database;
-    }
-    const databasePath = path.join(
-      contentDirectory,
-      CHAT_DATABASE_FILENAME,
-    );
-    const database = new DatabaseSync(databasePath, {
-      enableForeignKeyConstraints: true,
-      timeout: 5_000,
-    });
-    try {
-      database.exec('PRAGMA journal_mode = WAL');
-      database.exec('PRAGMA synchronous = FULL');
-      database.exec('PRAGMA secure_delete = ON');
-      const versionRow = database
-        .prepare('PRAGMA user_version')
-        .get() as { user_version?: unknown } | undefined;
-      const version = Number(versionRow?.user_version ?? 0);
-      if (version === 0) {
-        const existingSchema = database
-          .prepare(
-            `SELECT COUNT(*) AS count
-             FROM sqlite_schema
-             WHERE name NOT LIKE 'sqlite_%'`,
-          )
-          .get() as { count?: unknown } | undefined;
-        if (Number(existingSchema?.count ?? 0) !== 0) {
-          throw new Error(
-            'Unversioned chat storage contains an unexpected schema.',
-          );
-        }
-        database.exec('PRAGMA auto_vacuum = FULL');
-        database.exec('BEGIN IMMEDIATE');
-        try {
-          database.exec(`
-            CREATE TABLE metadata (
-              key TEXT PRIMARY KEY NOT NULL,
-              value TEXT NOT NULL
-            ) STRICT;
-            CREATE TABLE messages (
-              sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-              id TEXT UNIQUE NOT NULL,
-              client_message_id TEXT NOT NULL,
-              generation TEXT NOT NULL,
-              accepted_at TEXT NOT NULL,
-              sender_key TEXT NOT NULL,
-              sender_kind TEXT NOT NULL CHECK (sender_kind IN ('gm', 'player')),
-              sender_user_id TEXT,
-              sender_name TEXT NOT NULL,
-              recipient_key TEXT,
-              recipient_kind TEXT CHECK (
-                recipient_kind IS NULL OR recipient_kind IN ('gm', 'player')
-              ),
-              recipient_user_id TEXT,
-              recipient_name TEXT,
-              content TEXT NOT NULL,
-              UNIQUE (sender_key, client_message_id),
-              CHECK (
-                (recipient_key IS NULL AND recipient_kind IS NULL
-                  AND recipient_user_id IS NULL AND recipient_name IS NULL)
-                OR
-                (recipient_key IS NOT NULL AND recipient_kind IS NOT NULL
-                  AND recipient_name IS NOT NULL)
-              )
-            ) STRICT;
-            CREATE INDEX messages_sender_sequence
-              ON messages (sender_key, sequence);
-            CREATE INDEX messages_recipient_sequence
-              ON messages (recipient_key, sequence);
-          `);
-          database
-            .prepare(
-              `INSERT INTO metadata (key, value)
-               VALUES ('history_generation', ?)`,
-            )
-            .run(this.createId());
-          database.exec(
-            `PRAGMA user_version = ${CHAT_DATABASE_SCHEMA_VERSION}`,
-          );
-          database.exec('COMMIT');
-        } catch (error) {
-          database.exec('ROLLBACK');
-          throw error;
-        }
-      } else if (version !== CHAT_DATABASE_SCHEMA_VERSION) {
-        throw new Error(`Unsupported chat schema version ${version}.`);
-      }
-
-      const quickCheck = database
-        .prepare('PRAGMA quick_check(1)')
-        .get() as Record<string, unknown> | undefined;
-      if (!quickCheck || !Object.values(quickCheck).includes('ok')) {
-        throw new Error('Chat database integrity check failed.');
-      }
-      this.validateSchema(database);
-      this.getGeneration(database);
-      this.database = database;
-      return database;
-    } catch (error) {
-      database.close();
-      throw error;
-    }
-  }
-
   private getGeneration(database: DatabaseSync): string {
     const row = database
       .prepare(
         `SELECT value
-         FROM metadata
+         FROM chat_metadata
          WHERE key = 'history_generation'`,
       )
       .get() as { value?: unknown } | undefined;
@@ -597,81 +457,6 @@ export class ChatRepository {
       throw new Error('Chat database generation is invalid.');
     }
     return row.value;
-  }
-
-  private validateSchema(database: DatabaseSync): void {
-    const expectedColumns = {
-      messages: [
-        'sequence',
-        'id',
-        'client_message_id',
-        'generation',
-        'accepted_at',
-        'sender_key',
-        'sender_kind',
-        'sender_user_id',
-        'sender_name',
-        'recipient_key',
-        'recipient_kind',
-        'recipient_user_id',
-        'recipient_name',
-        'content',
-      ],
-      metadata: ['key', 'value'],
-    } as const;
-    for (const [table, expected] of Object.entries(expectedColumns)) {
-      const columns = database
-        .prepare(`PRAGMA table_info('${table}')`)
-        .all() as Array<{ name?: unknown }>;
-      if (
-        columns.length !== expected.length ||
-        columns.some((column, index) => column.name !== expected[index])
-      ) {
-        throw new Error(`Chat database table ${table} is malformed.`);
-      }
-    }
-
-    const indexes = database
-      .prepare(
-        `SELECT name
-         FROM sqlite_schema
-         WHERE type = 'index'
-           AND name IN (
-             'messages_sender_sequence',
-             'messages_recipient_sequence'
-           )`,
-      )
-      .all() as Array<{ name?: unknown }>;
-    if (new Set(indexes.map((index) => index.name)).size !== 2) {
-      throw new Error('Chat database paging indexes are missing.');
-    }
-
-    const uniqueIndexes = database
-      .prepare(`PRAGMA index_list('messages')`)
-      .all() as Array<{ name?: unknown; unique?: unknown }>;
-    const hasIdempotencyConstraint = uniqueIndexes.some((index) => {
-      if (index.unique !== 1 || typeof index.name !== 'string') {
-        return false;
-      }
-      const columns = database
-        .prepare(`PRAGMA index_info('${index.name.replaceAll("'", "''")}')`)
-        .all() as Array<{ name?: unknown }>;
-      return (
-        columns.length === 2 &&
-        columns[0]?.name === 'sender_key' &&
-        columns[1]?.name === 'client_message_id'
-      );
-    });
-    if (!hasIdempotencyConstraint) {
-      throw new Error('Chat database idempotency constraint is missing.');
-    }
-
-    const metadataCount = database
-      .prepare('SELECT COUNT(*) AS count FROM metadata')
-      .get() as { count?: unknown } | undefined;
-    if (metadataCount?.count !== 1) {
-      throw new Error('Chat database metadata is malformed.');
-    }
   }
 
   private readPage(
@@ -692,7 +477,7 @@ export class ChatRepository {
           sequence, id, client_message_id, generation, accepted_at,
           sender_kind, sender_user_id, sender_name,
           recipient_kind, recipient_user_id, recipient_name, content
-        FROM messages
+        FROM chat_messages
         WHERE ${visibility} AND sequence < ?
         ORDER BY sequence DESC
         LIMIT ${MAX_CHAT_HISTORY_PAGE_MESSAGES + 1}`;
@@ -702,7 +487,7 @@ export class ChatRepository {
           sequence, id, client_message_id, generation, accepted_at,
           sender_kind, sender_user_id, sender_name,
           recipient_kind, recipient_user_id, recipient_name, content
-        FROM messages
+        FROM chat_messages
         WHERE ${visibility} AND sequence > ?
         ORDER BY sequence ASC
         LIMIT ${MAX_CHAT_HISTORY_PAGE_MESSAGES + 1}`;
@@ -713,7 +498,7 @@ export class ChatRepository {
           sequence, id, client_message_id, generation, accepted_at,
           sender_kind, sender_user_id, sender_name,
           recipient_kind, recipient_user_id, recipient_name, content
-        FROM messages
+        FROM chat_messages
         WHERE ${visibility}
         ORDER BY sequence DESC
         LIMIT ${MAX_CHAT_HISTORY_PAGE_MESSAGES + 1}`;
@@ -785,7 +570,7 @@ export class ChatRepository {
     const row = database
       .prepare(
         `SELECT 1 AS found
-         FROM messages
+         FROM chat_messages
          WHERE
            (recipient_key IS NULL OR sender_key = ? OR recipient_key = ?)
            AND sequence ${operator} ?
@@ -832,11 +617,4 @@ export class ChatRepository {
       });
   }
 
-  private closeDatabase(): void {
-    const database = this.database;
-    this.database = null;
-    if (database) {
-      database.close();
-    }
-  }
 }

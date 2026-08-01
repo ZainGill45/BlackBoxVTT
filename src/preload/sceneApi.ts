@@ -49,15 +49,15 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
       ipc.invoke(sceneIpcChannels.previewUpdate, input) as Promise<void>,
     redo: (input) =>
       ipc.invoke(sceneIpcChannels.redo, input) as ReturnType<
-        NonNullable<SceneApi['redo']>
+        SceneApi['redo']
       >,
     setImages: (input) =>
       ipc.invoke(sceneIpcChannels.setImages, input) as ReturnType<
-        NonNullable<SceneApi['setImages']>
+        SceneApi['setImages']
       >,
     setObjects: (input) =>
       ipc.invoke(sceneIpcChannels.setObjects, input) as ReturnType<
-        NonNullable<SceneApi['setObjects']>
+        SceneApi['setObjects']
       >,
     trash: (input) =>
       ipc.invoke(sceneIpcChannels.trash, input) as ReturnType<
@@ -69,7 +69,7 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
       >,
     undo: (input) =>
       ipc.invoke(sceneIpcChannels.undo, input) as ReturnType<
-        NonNullable<SceneApi['undo']>
+        SceneApi['undo']
       >,
   };
 }

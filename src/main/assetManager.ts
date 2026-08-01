@@ -1,13 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { dialog, type BrowserWindow } from 'electron';
-import {
-  authenticatedAssetPolicy,
-  getAssetCapabilities,
-  type AssetPolicy,
-} from './assetPolicy';
-import { AssetRepository } from './assetRepository';
+import { authenticatedAssetPolicy, type AssetPolicy } from './assetPolicy';
 import type { AssetPreviewRegistry } from './assetPreviewRegistry';
-import type { CampaignRepository } from './campaignRepository';
+import type { CampaignRuntimeRegistry } from './campaignRuntime';
 import { fail } from '../shared/result';
 import type {
   AssetActor,
@@ -15,37 +10,17 @@ import type {
   AssetErrorEvent,
   AssetPreview,
   AssetProgressEvent,
-  AssetRecord,
   AssetResult,
   AssetView,
   RenameAssetInput,
   TrashAssetInput,
 } from '../shared/assets';
 
-interface RemoteAssetBridge {
-  getActor(campaignId: string): AssetActor | null;
-  getPreviewPath(campaignId: string, assetId: string): Promise<string | null>;
-  importFiles(
-    campaignId: string,
-    sourcePaths: string[],
-    onProgress: (event: AssetProgressEvent) => void,
-  ): Promise<AssetResult<AssetView[]>>;
-  list(campaignId: string): Promise<AssetResult<AssetView[]>>;
-  prepare(
-    campaignId: string,
-    onProgress: (event: AssetProgressEvent) => void,
-  ): Promise<AssetResult<AssetView[]>>;
-  rename(input: RenameAssetInput): Promise<AssetResult<AssetView>>;
-  trash(input: TrashAssetInput): Promise<AssetResult<null>>;
-}
-
 interface AssetManagerOptions {
-  campaignRepository: CampaignRepository;
   getWindow: () => BrowserWindow | null;
   policy?: AssetPolicy;
   previewRegistry: AssetPreviewRegistry;
-  remoteBridge: RemoteAssetBridge;
-  trashItem: (targetPath: string) => Promise<void>;
+  runtimes: CampaignRuntimeRegistry;
 }
 
 function failure<T>(
@@ -57,77 +32,60 @@ function failure<T>(
 }
 
 export class AssetManager extends EventEmitter {
-  private readonly campaignRepository: CampaignRepository;
   private readonly getWindow: () => BrowserWindow | null;
   private readonly policy: AssetPolicy;
   private readonly previewRegistry: AssetPreviewRegistry;
   private readonly reportedUnavailable = new Set<string>();
-  private readonly remoteBridge: RemoteAssetBridge;
-  private readonly repositories = new Map<string, AssetRepository>();
-  private readonly trashItem: (targetPath: string) => Promise<void>;
+  private readonly runtimes: CampaignRuntimeRegistry;
 
   constructor({
-    campaignRepository,
     getWindow,
     policy = authenticatedAssetPolicy,
     previewRegistry,
-    remoteBridge,
-    trashItem,
+    runtimes,
   }: AssetManagerOptions) {
     super();
-    this.campaignRepository = campaignRepository;
     this.getWindow = getWindow;
     this.policy = policy;
     this.previewRegistry = previewRegistry;
-    this.remoteBridge = remoteBridge;
-    this.trashItem = trashItem;
+    this.runtimes = runtimes;
   }
 
   async list(campaignId: string): Promise<AssetResult<AssetView[]>> {
-    const remoteActor = this.remoteBridge.getActor(campaignId);
-    if (remoteActor) {
-      return this.remoteBridge.list(campaignId);
-    }
-    const local = await this.getLocalContext(campaignId);
-    if (!local) {
+    const runtime = await this.runtimes.resolve(campaignId);
+    if (!runtime) {
       return failure('not_found', 'Campaign storage is unavailable.');
     }
-    if (!this.policy.authorize({ action: 'list', subject: local.actor })) {
-      return failure('permission_denied', 'You cannot view campaign assets.');
+    const result = await runtime.assets.list(this.policy);
+    if (!result.ok) {
+      return result;
     }
-    try {
-      const entries = await local.repository.list();
-      const assets = entries.map(({ available, record }) =>
-        this.toView(record, local.actor, available),
-      );
-      const broken = assets.find((asset) => !asset.available);
-      if (
-        broken &&
-        !this.reportedUnavailable.has(`${campaignId}:${broken.id}`)
-      ) {
-        this.reportedUnavailable.add(`${campaignId}:${broken.id}`);
-        this.emit('error', {
-          assetId: broken.id,
-          campaignId,
-          code: 'unavailable',
-          message: `${broken.displayName} is missing or has changed on disk. Repair or delete the asset.`,
-          title: 'Campaign asset unavailable',
-        } satisfies AssetErrorEvent);
-      }
-      for (const asset of assets) {
-        if (asset.available) {
-          this.reportedUnavailable.delete(`${campaignId}:${asset.id}`);
-        }
-      }
-      return { ok: true, value: assets };
-    } catch {
-      return failure('storage_error', 'Campaign assets could not be loaded.');
+    const broken = result.value.find((asset) => !asset.available);
+    if (
+      broken &&
+      !this.reportedUnavailable.has(`${campaignId}:${broken.id}`)
+    ) {
+      this.reportedUnavailable.add(`${campaignId}:${broken.id}`);
+      this.emit('error', {
+        assetId: broken.id,
+        campaignId,
+        code: 'unavailable',
+        message: `${broken.displayName} is missing or has changed on disk. Repair or delete the asset.`,
+        title: 'Campaign asset unavailable',
+      } satisfies AssetErrorEvent);
     }
+    for (const asset of result.value) {
+      if (asset.available) {
+        this.reportedUnavailable.delete(`${campaignId}:${asset.id}`);
+      }
+    }
+    return result;
   }
 
   async pickAndImport(campaignId: string): Promise<AssetResult<AssetView[]>> {
+    const runtime = await this.runtimes.resolve(campaignId);
     const actor =
-      this.remoteBridge.getActor(campaignId) ??
+      runtime?.assets.actor ??
       ({ id: `gm:${campaignId}`, role: 'gm' } satisfies AssetActor);
     if (!this.policy.authorize({ action: 'import', subject: actor })) {
       return failure('permission_denied', 'You cannot add campaign assets.');
@@ -170,26 +128,16 @@ export class AssetManager extends EventEmitter {
       scope: 'import',
       totalBytes: null,
     });
-    const remote = this.remoteBridge.getActor(campaignId);
-    if (remote) {
-      return this.remoteBridge.importFiles(
-        campaignId,
-        filePaths,
-        (event) => this.emitProgress(event),
-      );
-    }
-
-    const local = await this.getLocalContext(campaignId);
-    if (!local) {
+    if (!runtime) {
       return failure('not_found', 'Campaign storage is unavailable.');
     }
-    const result = await local.repository.importFiles(filePaths, local.actor);
-    if (!result.ok) {
-      return result;
-    }
-    const listed = await this.list(campaignId);
-    if (listed.ok) {
-      this.emitChanged(campaignId, listed.value);
+    const outcome = await runtime.assets.importFiles(
+      filePaths,
+      this.policy,
+      (event) => this.emitProgress(event),
+    );
+    if (outcome.changed) {
+      this.emitChanged(campaignId, outcome.changed);
       this.emitProgress({
         completedBytes: 1,
         phase: 'importing',
@@ -197,88 +145,44 @@ export class AssetManager extends EventEmitter {
         totalBytes: 1,
       });
     }
-    return listed;
+    return outcome.result;
   }
 
   async rename(input: RenameAssetInput): Promise<AssetResult<AssetView>> {
-    const remote = this.remoteBridge.getActor(input.campaignId);
-    if (remote) {
-      return this.remoteBridge.rename(input);
-    }
-    const local = await this.getLocalContext(input.campaignId);
-    if (!local) {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    if (!runtime) {
       return failure('not_found', 'Campaign storage is unavailable.', input.assetId);
     }
-    const current = (await local.repository.readManifest()).assets.find(
-      (asset) => asset.id === input.assetId,
-    );
-    if (
-      !this.policy.authorize({
-        action: 'rename',
-        asset: current,
-        subject: local.actor,
-      })
-    ) {
-      return failure('permission_denied', 'You cannot rename this asset.', input.assetId);
+    const outcome = await runtime.assets.rename(input, this.policy);
+    if (outcome.changed) {
+      this.emitChanged(input.campaignId, outcome.changed);
     }
-    const result = await local.repository.renameAsset(
-      input.assetId,
-      input.displayName,
-      input.expectedRevision,
-      local.actor,
-    );
-    if (!result.ok) {
-      return result;
-    }
-    const view = this.toView(result.value, local.actor, true);
-    const listed = await this.list(input.campaignId);
-    if (listed.ok) {
-      this.emitChanged(input.campaignId, listed.value);
-    }
-    return { ok: true, value: view };
+    return outcome.result;
   }
 
   async trash(input: TrashAssetInput): Promise<AssetResult<null>> {
-    const remote = this.remoteBridge.getActor(input.campaignId);
-    if (remote) {
-      return this.remoteBridge.trash(input);
-    }
-    const local = await this.getLocalContext(input.campaignId);
-    if (!local) {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    if (!runtime) {
       return failure('not_found', 'Campaign storage is unavailable.', input.assetId);
     }
-    const current = (await local.repository.readManifest()).assets.find(
-      (asset) => asset.id === input.assetId,
-    );
-    if (
-      !this.policy.authorize({
-        action: 'delete',
-        asset: current,
-        subject: local.actor,
-      })
-    ) {
-      return failure('permission_denied', 'You cannot delete this asset.', input.assetId);
-    }
-    const result = await local.repository.trashAsset(
-      input.assetId,
-      input.expectedRevision,
-    );
-    if (result.ok) {
+    const outcome = await runtime.assets.trash(input, this.policy);
+    if (outcome.releasePreviews) {
       this.previewRegistry.releaseCampaign(input.campaignId);
-      const listed = await this.list(input.campaignId);
-      if (listed.ok) {
-        this.emitChanged(input.campaignId, listed.value);
-      }
     }
-    return result;
+    if (outcome.changed) {
+      this.emitChanged(input.campaignId, outcome.changed);
+    }
+    return outcome.result;
   }
 
   async prepareRemote(campaignId: string): Promise<AssetResult<AssetView[]>> {
-    if (!this.remoteBridge.getActor(campaignId)) {
-      return this.list(campaignId);
+    const runtime = await this.runtimes.resolve(campaignId);
+    if (!runtime) {
+      return failure('not_found', 'Campaign storage is unavailable.');
     }
-    return this.remoteBridge.prepare(campaignId, (event) =>
-      this.emitProgress(event),
+    return runtime.assets.prepare(
+      this.policy,
+      (event) => this.emitProgress(event),
     );
   }
 
@@ -286,9 +190,11 @@ export class AssetManager extends EventEmitter {
     campaignId: string,
     assetId: string,
   ): Promise<AssetResult<AssetPreview>> {
-    const actor =
-      this.remoteBridge.getActor(campaignId) ??
-      ({ id: `gm:${campaignId}`, role: 'gm' } satisfies AssetActor);
+    const runtime = await this.runtimes.resolve(campaignId);
+    if (!runtime) {
+      return failure('not_found', 'Campaign storage is unavailable.', assetId);
+    }
+    const actor = runtime.assets.actor;
     const list = await this.list(campaignId);
     if (!list.ok) {
       return list;
@@ -306,10 +212,7 @@ export class AssetManager extends EventEmitter {
     if (!asset.available) {
       return failure('unavailable', 'The asset is not ready to preview.', assetId);
     }
-    const local = await this.getLocalContext(campaignId);
-    const filePath = local
-      ? local.repository.resolveAssetPath(asset)
-      : await this.remoteBridge.getPreviewPath(campaignId, assetId);
+    const filePath = await runtime.assets.getPreviewPath(asset);
     if (!filePath) {
       return failure('unavailable', 'The asset is not ready to preview.', assetId);
     }
@@ -335,50 +238,6 @@ export class AssetManager extends EventEmitter {
 
   releasePreview(token: string): void {
     this.previewRegistry.release(token);
-  }
-
-  async getLocalRepository(
-    campaignId: string,
-  ): Promise<AssetRepository | null> {
-    return (await this.getLocalContext(campaignId))?.repository ?? null;
-  }
-
-  private async getLocalContext(campaignId: string) {
-    const container = await this.campaignRepository.getContainer(campaignId);
-    if (!container) {
-      return null;
-    }
-    let repository = this.repositories.get(campaignId);
-    if (!repository) {
-      repository = new AssetRepository({
-        campaignDirectory: container.directory,
-        touchCampaign: async () => {
-          const result = await this.campaignRepository.touch(campaignId);
-          if (!result.ok) {
-            throw new Error(result.error.message);
-          }
-        },
-        trashItem: this.trashItem,
-      });
-      this.repositories.set(campaignId, repository);
-    }
-    return {
-      actor: { id: `gm:${campaignId}`, role: 'gm' } as AssetActor,
-      repository,
-    };
-  }
-
-  private toView(
-    record: AssetRecord,
-    actor: AssetActor,
-    available: boolean,
-  ): AssetView {
-    return {
-      ...record,
-      available,
-      capabilities: getAssetCapabilities(this.policy, actor, record),
-      syncState: available ? 'ready' : 'unavailable',
-    };
   }
 
   private emitChanged(campaignId: string, assets: AssetView[]): void {

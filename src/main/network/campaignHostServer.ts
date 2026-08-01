@@ -5,14 +5,11 @@ import type { AddressInfo, Socket } from 'node:net';
 import tls, { type Server as TlsServer, type TLSSocket } from 'node:tls';
 import type {
   ChatBootstrap,
-  ChatError,
   ChatEvent,
   ChatHistoryInput,
   ChatHistoryPage,
-  ChatIdentity,
   ChatMessage,
   ChatParticipantEvent,
-  ChatPrincipal,
   ChatResult,
   ClearChatHistoryResult,
   SendChatMessageInput,
@@ -27,33 +24,20 @@ import type {
   MeasurementUpdate,
   NetworkResult,
 } from '../../shared/network';
+import { NETWORK_PROTOCOL_VERSION } from '../../shared/network';
 import {
-  MAX_DRAWING_PREVIEW_POINTS,
-  NETWORK_PROTOCOL_VERSION,
-} from '../../shared/network';
-import {
-  findScene,
-  projectSceneForPlayer,
   type SceneTransformPreviewCancel,
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
-  type SceneDrawing,
-  type SceneMapImage,
-  type SceneRecord,
-  type SceneResult,
 } from '../../shared/scenes';
 import type { AssetRepository } from '../assetRepository';
-import type {
-  ChatRepository,
-  StoredChatSendResult,
-} from '../chatRepository';
-import type { SceneRepository } from '../sceneRepository';
+import type { ChatRepository } from '../chatRepository';
 import {
-  sceneDrawingPointSchema,
-  sceneDrawingStyleSchema,
-  sceneDrawingTransformSchema,
-  sceneImageTransformSchema,
-} from '../sceneSchema';
+  CampaignChatService,
+  GAME_MASTER_CHAT_IDENTITY,
+} from '../campaignTable/chatService';
+import { CampaignSceneService } from '../campaignTable/sceneService';
+import type { SceneRepository } from '../sceneRepository';
 import { authenticatedAssetPolicy, type AssetPolicy } from '../assetPolicy';
 import { verifyPassword } from './passwords';
 import { LoginRateLimiter } from './loginRateLimiter';
@@ -78,12 +62,15 @@ import {
   type StoredManagedUser,
 } from './serverConfigRepository';
 import { HostAssetTransfer } from './hostAssetTransfer';
-import { actorFor, type HostClient } from './hostClient';
+import { HostChatRequestHandler } from './hostChatRequestHandler';
+import { HostSceneRealtime } from './hostSceneRealtime';
+import { HostSceneRequestHandler } from './hostSceneRequestHandler';
+import type { HostClient } from './hostClient';
+import { decodeClientMeasurement } from './measurementProtocol';
 import {
-  decodeClientMeasurement,
-  encodeServerMeasurement,
-} from './measurementProtocol';
-import { LatestSnapshotRateLimiter } from './latestSnapshotRateLimiter';
+  decodeClientDrawingPreview,
+  decodeTransformPreview,
+} from './sceneRealtimeProtocol';
 
 const HANDSHAKE_TIMEOUT_MS = 60_000;
 const TCP_PING_INTERVAL_MS = 10_000;
@@ -92,8 +79,6 @@ const UDP_HEARTBEAT_INTERVAL_MS = 5_000;
 const UDP_RECOVERY_THRESHOLD_MS = 15_000;
 const UDP_DEAD_TIMEOUT_MS = 60_000;
 const MAX_PENDING_CONNECTIONS = 64;
-const MAP_PING_COOLDOWN_MS = 500;
-const MEASUREMENT_EXPIRY_MS = 1_500;
 
 
 interface ListenerGroup {
@@ -138,25 +123,6 @@ function normalizeRemoteAddress(address?: string): string {
   return address.startsWith('::ffff:') ? address.slice(7) : address;
 }
 
-function objectTransform(object: SceneMapImage | SceneDrawing) {
-  if ('points' in object) {
-    return {
-      rotation: object.rotation,
-      scaleX: object.scaleX,
-      scaleY: object.scaleY,
-      x: object.x,
-      y: object.y,
-    };
-  }
-  return {
-    height: object.height,
-    rotation: object.rotation,
-    width: object.width,
-    x: object.x,
-    y: object.y,
-  };
-}
-
 function closeTcpServer(server: TlsServer): Promise<void> {
   return new Promise((resolve) => {
     if (!server.listening) {
@@ -177,42 +143,16 @@ function closeUdpSocket(socket: UdpSocket): Promise<void> {
   });
 }
 
-const GAME_MASTER_CHAT_IDENTITY = {
-  displayName: 'Game Master',
-  kind: 'gm',
-} as const satisfies ChatIdentity;
-
-function playerChatIdentity(user: StoredManagedUser): ChatIdentity {
-  return {
-    displayName: user.username,
-    kind: 'player',
-    userId: user.id,
-  };
-}
-
 export class CampaignHostServer {
-  private readonly activeTransformOperations = new Set<string>();
-  private activeScene: SceneRecord | null = null;
-  private readonly activeMeasurements = new Map<
-    string,
-    { lastAt: number; update: MeasurementEvent }
-  >();
-  private readonly measurementRelaySequences = new Map<string, number>();
-  private readonly measurementRateLimiters = new Map<
-    string,
-    LatestSnapshotRateLimiter<{
-      input: MeasurementEvent;
-      source?: HostClient;
-    }>
-  >();
-  private readonly cancelledTransformOperations = new Set<string>();
-  private lastBroadcastSceneSignature: string | null | undefined;
   readonly assetRepository: AssetRepository;
-  private readonly assetPolicy: AssetPolicy;
   private readonly assetTransfer: HostAssetTransfer;
   readonly campaignId: string;
   readonly campaignName: string;
-  readonly chatRepository: ChatRepository;
+  private readonly chat: CampaignChatService;
+  private readonly chatRequests: HostChatRequestHandler;
+  private readonly sceneRealtime: HostSceneRealtime;
+  private readonly scenes: CampaignSceneService;
+  private readonly sceneRequests: HostSceneRequestHandler;
   readonly configRepository: ServerConfigRepository;
   readonly identity: CampaignIdentity;
   private readonly clients = new Set<HostClient>();
@@ -220,8 +160,6 @@ export class CampaignHostServer {
   private listener: ListenerGroup | null = null;
   private readonly loginRateLimiter = new LoginRateLimiter();
   private maintenanceTimer: ReturnType<typeof setInterval> | null = null;
-  private lastHostMapPingAt = 0;
-  private readonly lastTransformPreviewAt = new Map<string, number>();
   private readonly onMapPing: NonNullable<
     CampaignHostServerOptions['onMapPing']
   >;
@@ -238,9 +176,6 @@ export class CampaignHostServer {
     CampaignHostServerOptions['onSceneChanged']
   >;
   private readonly onStatusChanged: () => void;
-  private readonly onAssetSyncError: NonNullable<
-    CampaignHostServerOptions['onAssetSyncError']
-  >;
   private readonly onTransformCancelled: NonNullable<
     CampaignHostServerOptions['onTransformCancelled']
   >;
@@ -250,10 +185,7 @@ export class CampaignHostServer {
   private readonly onTransformStarted: NonNullable<
     CampaignHostServerOptions['onTransformStarted']
   >;
-  readonly sceneRepository: SceneRepository;
   private readonly sessionsById = new Map<string, HostClient>();
-  private transformPreviewRate: number;
-  private readonly transformSources = new Map<string, HostClient | null>();
   private readonly warn: (message: string, error?: unknown) => void;
 
   constructor({
@@ -279,14 +211,15 @@ export class CampaignHostServer {
     warn = console.warn,
   }: CampaignHostServerOptions) {
     this.assetRepository = assetRepository;
-    this.sceneRepository = sceneRepository;
-    this.assetPolicy = assetPolicy;
     this.campaignId = campaignId;
     this.campaignName = campaignName;
-    this.chatRepository = chatRepository;
     this.configRepository = configRepository;
+    this.chat = new CampaignChatService({
+      chat: chatRepository,
+      config: configRepository,
+    });
+    this.scenes = new CampaignSceneService(sceneRepository);
     this.identity = identity;
-    this.onAssetSyncError = onAssetSyncError;
     this.onMapPing = onMapPing;
     this.onChatEvent = onChatEvent;
     this.onDrawingPreview = onDrawingPreview;
@@ -296,13 +229,59 @@ export class CampaignHostServer {
     this.onTransformCancelled = onTransformCancelled;
     this.onTransformPreview = onTransformPreview;
     this.onTransformStarted = onTransformStarted;
-    this.transformPreviewRate = transformPreviewRate;
     this.warn = warn;
+    this.sceneRealtime = new HostSceneRealtime({
+      campaignId,
+      clients: this.clients,
+      events: {
+        onDrawingPreview,
+        onMapPing,
+        onMeasurementUpdate,
+        onTransformCancelled,
+        onTransformPreview,
+        onTransformStarted,
+      },
+      scenes: this.scenes,
+      sendUdp: (client, type, payload) =>
+        this.sendUdp(client, type, payload),
+      transformPreviewRate,
+      warn,
+    });
     this.assetTransfer = new HostAssetTransfer({
       assetPolicy,
       assetRepository,
       broadcastAssetsChanged: () => this.broadcastAssetsChanged(),
       onAssetSyncError,
+    });
+    this.chatRequests = new HostChatRequestHandler({
+      chat: this.chat,
+      onMessageCreated: (message, source) => {
+        this.broadcastChatMessage(message, source);
+        if (
+          message.recipient === null ||
+          message.recipient.kind === 'gm'
+        ) {
+          this.onChatEvent({
+            campaignId: this.campaignId,
+            message,
+            type: 'message',
+          });
+        }
+      },
+    });
+    this.sceneRequests = new HostSceneRequestHandler({
+      broadcastDrawingPreview: (input, source) =>
+        this.broadcastDrawingPreview(input, source),
+      broadcastTransformCancelled: (input, source) =>
+        this.broadcastTransformCancelled(input, source),
+      broadcastTransformStarted: (input, source) =>
+        this.broadcastTransformStarted(input, source),
+      campaignId: this.campaignId,
+      onSceneMutation: async () => {
+        this.onSceneChanged();
+        await this.broadcastActiveScene();
+      },
+      scenes: this.scenes,
     });
   }
 
@@ -311,20 +290,7 @@ export class CampaignHostServer {
   }
 
   setTransformPreviewRate(rate: number): void {
-    this.transformPreviewRate = rate;
-    for (const limiter of this.measurementRateLimiters.values()) {
-      limiter.rateChanged();
-    }
-    for (const client of this.clients) {
-      client.interactiveRateBucket = new TokenBucket(rate, rate * 2);
-      if (client.state === 'ready' && client.user) {
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.update_rate_changed',
-          { updateRate: rate },
-        );
-      }
-    }
+    this.sceneRealtime.setTransformPreviewRate(rate);
   }
 
   setMaxChatMessageCharacters(maxMessageCharacters: number): void {
@@ -347,38 +313,19 @@ export class CampaignHostServer {
   async getGmChatBootstrap(
     systemEvents: ChatParticipantEvent[] = [],
   ): Promise<ChatResult<ChatBootstrap>> {
-    try {
-      const config = await this.configRepository.load();
-      return this.chatRepository.bootstrap(
-        { kind: 'gm' },
-        this.chatDirectory(config.users),
-        config.maxChatMessageCharacters,
-        systemEvents,
-      );
-    } catch {
-      return {
-        error: {
-          code: 'storage_error',
-          message: 'Campaign chat is unavailable.',
-        },
-        ok: false,
-      };
-    }
+    return this.chat.bootstrap({ kind: 'gm' }, systemEvents);
   }
 
   getGmChatHistory(
     input: Omit<ChatHistoryInput, 'campaignId'>,
   ): Promise<ChatResult<ChatHistoryPage>> {
-    return this.chatRepository.history({ kind: 'gm' }, input);
+    return this.chat.history({ kind: 'gm' }, input);
   }
 
   async sendGmChat(
     input: Omit<SendChatMessageInput, 'campaignId'>,
   ): Promise<ChatResult<ChatMessage>> {
-    const result = await this.acceptChatMessage(
-      GAME_MASTER_CHAT_IDENTITY,
-      input,
-    );
+    const result = await this.chat.send(GAME_MASTER_CHAT_IDENTITY, input);
     if (!result.ok) {
       return result;
     }
@@ -391,7 +338,7 @@ export class CampaignHostServer {
   async clearChatHistory(): Promise<
     ChatResult<ClearChatHistoryResult>
   > {
-    const result = await this.chatRepository.clear();
+    const result = await this.chat.clear();
     if (!result.ok) {
       return result;
     }
@@ -413,14 +360,12 @@ export class CampaignHostServer {
   }
 
   async broadcastChatDirectory(): Promise<void> {
-    let users: StoredManagedUser[];
-    try {
-      users = (await this.configRepository.load()).users;
-    } catch (error) {
-      this.warn('Chat directory could not be loaded.', error);
+    const result = await this.chat.directory();
+    if (!result.ok) {
+      this.warn(result.error.message);
       return;
     }
-    const directory = this.chatDirectory(users);
+    const directory = result.value;
     for (const client of this.clients) {
       if (client.state === 'ready' && client.user) {
         writeEnvelope(
@@ -441,433 +386,41 @@ export class CampaignHostServer {
     input: MapPing,
     source?: HostClient,
   ): Promise<void> {
-    if (input.campaignId !== this.campaignId) {
-      return;
-    }
-    const scene = await this.readActiveScene();
-    if (
-      !scene ||
-      scene.id !== input.sceneId ||
-      input.x < 0 ||
-      input.x > scene.width ||
-      input.y < 0 ||
-      input.y > scene.height
-    ) {
-      return;
-    }
-    const now = Date.now();
-    const lastAt = source ? source.lastMapPingAt : this.lastHostMapPingAt;
-    if (now - lastAt < MAP_PING_COOLDOWN_MS) {
-      return;
-    }
-    if (source) {
-      source.lastMapPingAt = now;
-    } else {
-      this.lastHostMapPingAt = now;
-    }
-
-    this.onMapPing(input);
-    const payload = {
-      id: input.id,
-      pullPlayers: input.pullPlayers,
-      sceneId: input.sceneId,
-      x: input.x,
-      y: input.y,
-    };
-    for (const client of this.clients) {
-      if (client.state === 'ready' && client.user) {
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.map_ping',
-          payload,
-        );
-      }
-    }
+    await this.sceneRealtime.broadcastMapPing(input, source);
   }
 
   async broadcastDrawingPreview(
     input: DrawingPreviewUpdate,
     source: HostClient | null = null,
   ): Promise<void> {
-    if (input.campaignId !== this.campaignId) {
-      return;
-    }
-    const scene = await this.readActiveScene();
-    if (!scene || scene.id !== input.sceneId) {
-      return;
-    }
-    const layer = source?.user ? 'token' : input.layer;
-    if (layer === 'gm') {
-      return;
-    }
-    const sourceId = source?.user?.id ?? 'gm';
-    const preview: DrawingPreviewEvent = {
-      ...input,
-      layer,
-      sourceId,
-    };
-    if (source?.user) {
-      this.onDrawingPreview(preview);
-    }
-    const payload = Buffer.from(
-      JSON.stringify({
-        active: preview.active,
-        closed: preview.closed,
-        kind: preview.kind,
-        layer: preview.layer,
-        operationId: preview.operationId,
-        points: preview.points,
-        sceneId: preview.sceneId,
-        sequence: preview.sequence,
-        sourceId: preview.sourceId,
-        style: preview.style,
-      }),
-      'utf8',
-    );
-    for (const client of this.clients) {
-      if (
-        client !== source &&
-        client.state === 'ready' &&
-        client.user &&
-        (preview.reliable || !client.udpRecoveryStartedAt)
-      ) {
-        if (preview.reliable) {
-          writeEnvelope(
-            client.socket as unknown as Socket,
-            'server.scene_drawing_preview',
-            {
-              active: preview.active,
-              closed: preview.closed,
-              kind: preview.kind,
-              layer: preview.layer,
-              operationId: preview.operationId,
-              points: preview.points,
-              reliable: true,
-              sceneId: preview.sceneId,
-              sequence: preview.sequence,
-              sourceId: preview.sourceId,
-              style: preview.style,
-            },
-          );
-        } else {
-          this.sendUdp(
-            client,
-            udpMessageTypes.serverDrawingPreview,
-            payload,
-          );
-        }
-      }
-    }
+    await this.sceneRealtime.broadcastDrawingPreview(input, source);
   }
 
   async broadcastMeasurementUpdate(
     input: MeasurementUpdate,
   ): Promise<void> {
-    if (input.campaignId !== this.campaignId) {
-      return;
-    }
-    const scene = this.activeScene ?? (await this.readActiveScene());
-    if (!scene) {
-      return;
-    }
-    this.acceptMeasurementUpdate(
-      {
-        ...input,
-        sourceId: this.campaignId,
-      },
-      scene,
-    );
-  }
-
-  private acceptMeasurementUpdate(
-    input: MeasurementEvent,
-    scene: SceneRecord,
-    source?: HostClient,
-  ): void {
-    if (
-      input.sceneId !== scene.id ||
-      input.points.some(
-        ({ x, y }) =>
-          !Number.isFinite(x) ||
-          !Number.isFinite(y) ||
-          x < 0 ||
-          x > scene.width ||
-          y < 0 ||
-          y > scene.height,
-      )
-    ) {
-      return;
-    }
-    if (
-      source &&
-      input.updateSequence <= source.lastMeasurementSequence
-    ) {
-      return;
-    }
-    if (source) {
-      source.lastMeasurementSequence = input.updateSequence;
-    }
-    this.queueMeasurementRelay(input, source);
-  }
-
-  private nextMeasurementRelaySequence(sourceId: string): number {
-    const next =
-      ((this.measurementRelaySequences.get(sourceId) ?? 0) + 1) >>>
-      0;
-    this.measurementRelaySequences.set(sourceId, next);
-    return next;
-  }
-
-  private queueMeasurementRelay(
-    input: MeasurementEvent,
-    source?: HostClient,
-  ): void {
-    const relayed = {
-      ...input,
-      updateSequence: this.nextMeasurementRelaySequence(input.sourceId),
-    };
-    if (relayed.active) {
-      this.activeMeasurements.set(relayed.sourceId, {
-        lastAt: Date.now(),
-        update: relayed,
-      });
-    } else {
-      this.activeMeasurements.delete(relayed.sourceId);
-    }
-    this.measurementRateLimiterFor(relayed.sourceId).push({
-      input: relayed,
-      ...(source ? { source } : {}),
-    });
-  }
-
-  private measurementRateLimiterFor(
-    sourceId: string,
-  ): LatestSnapshotRateLimiter<{
-    input: MeasurementEvent;
-    source?: HostClient;
-  }> {
-    const existing = this.measurementRateLimiters.get(sourceId);
-    if (existing) {
-      return existing;
-    }
-    const limiter = new LatestSnapshotRateLimiter<{
-      input: MeasurementEvent;
-      source?: HostClient;
-    }>(
-      () => this.transformPreviewRate,
-      ({ input, source }) => this.relayMeasurementUpdate(input, source),
-    );
-    this.measurementRateLimiters.set(sourceId, limiter);
-    return limiter;
-  }
-
-  private relayMeasurementUpdate(
-    input: MeasurementEvent,
-    source?: HostClient,
-  ): void {
-    if (source) {
-      this.onMeasurementUpdate(input);
-    }
-    const payload = encodeServerMeasurement(input);
-    for (const client of this.clients) {
-      if (
-        client !== source &&
-        client.state === 'ready' &&
-        client.user &&
-        !client.udpRecoveryStartedAt
-      ) {
-        this.sendUdp(
-          client,
-          udpMessageTypes.serverMeasurement,
-          payload,
-        );
-      }
-    }
-  }
-
-  private clearMeasurementSource(
-    sourceId: string,
-    source?: HostClient,
-  ): void {
-    const active = this.activeMeasurements.get(sourceId);
-    if (!active) {
-      return;
-    }
-    const scene = this.activeScene;
-    if (!scene || scene.id !== active.update.sceneId) {
-      this.activeMeasurements.delete(sourceId);
-      return;
-    }
-    this.queueMeasurementRelay(
-      {
-        ...active.update,
-        active: false,
-        points: [],
-      },
-      source,
-    );
-  }
-
-  private clearAllMeasurements(): void {
-    for (const sourceId of [...this.activeMeasurements.keys()]) {
-      this.clearMeasurementSource(
-        sourceId,
-        [...this.clients].find((client) => client.user?.id === sourceId),
-      );
-    }
-    this.activeMeasurements.clear();
+    await this.sceneRealtime.broadcastMeasurementUpdate(input);
   }
 
   async broadcastTransformStarted(
     input: SceneTransformPreviewStart,
     source: HostClient | null = null,
   ): Promise<void> {
-    const scene = await this.readActiveScene();
-    if (!scene || scene.id !== input.sceneId || scene.revision !== input.revision) {
-      return;
-    }
-    const publicTargets = new Map<string, SceneMapImage | SceneDrawing>(
-      [
-        ...(scene.mapImage
-          ? [['canonical-map', scene.mapImage] as const]
-          : []),
-        ...scene.images.map.map(
-          (image) => [image.id, image] as const,
-        ),
-        ...scene.images.token.map(
-          (image) => [image.id, image] as const,
-        ),
-        ...scene.drawings.map.map(
-          (drawing) => [drawing.id, drawing] as const,
-        ),
-        ...scene.drawings.token.map(
-          (drawing) => [drawing.id, drawing] as const,
-        ),
-      ],
-    );
-    const targets = [...new Set(input.targets)].filter((id) =>
-      publicTargets.has(id),
-    );
-    if (targets.length === 0) {
-      return;
-    }
-    const startingTransforms = targets.map((id) => {
-      const image = publicTargets.get(id)!;
-      return {
-        id,
-        transform: objectTransform(image),
-      };
-    });
-    if (this.cancelledTransformOperations.delete(input.operationId)) {
-      return;
-    }
-    this.activeTransformOperations.add(input.operationId);
-    this.transformSources.set(input.operationId, source);
-    const started = {
-      kind: input.kind,
-      operationId: input.operationId,
-      pivotX: input.pivotX,
-      pivotY: input.pivotY,
-      revision: input.revision,
-      sceneId: input.sceneId,
-      startingTransforms,
-      targets,
-    };
-    if (source?.user) {
-      this.onTransformStarted({ ...started, campaignId: input.campaignId });
-    }
-    for (const client of this.clients) {
-      if (client.state === 'ready' && client.user) {
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.scene_transform_started',
-          started,
-        );
-      }
-    }
+    await this.sceneRealtime.broadcastTransformStarted(input, source);
   }
 
   broadcastTransformCancelled(
     input: SceneTransformPreviewCancel,
     source: HostClient | null = null,
   ): void {
-    const registeredSource = this.transformSources.get(input.operationId);
-    if (source && registeredSource !== source) {
-      return;
-    }
-    if (!this.activeTransformOperations.delete(input.operationId)) {
-      this.cancelledTransformOperations.add(input.operationId);
-      if (this.cancelledTransformOperations.size > 100) {
-        const oldest = this.cancelledTransformOperations.values().next().value;
-        if (oldest) {
-          this.cancelledTransformOperations.delete(oldest);
-        }
-      }
-      return;
-    }
-    this.transformSources.delete(input.operationId);
-    if (registeredSource?.user) {
-      this.onTransformCancelled(input);
-    }
-    for (const client of this.clients) {
-      if (client.state === 'ready' && client.user) {
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.scene_transform_cancelled',
-          { operationId: input.operationId, sceneId: input.sceneId },
-        );
-      }
-    }
+    this.sceneRealtime.broadcastTransformCancelled(input, source);
   }
 
   broadcastTransformPreview(
     input: SceneTransformPreviewDelta,
     source: HostClient | null = null,
   ): void {
-    if (!this.activeTransformOperations.has(input.operationId)) {
-      return;
-    }
-    const registeredSource = this.transformSources.get(input.operationId);
-    if (source && registeredSource !== source) {
-      return;
-    }
-    const now = Date.now();
-    const sourceKey = source?.user?.id ?? 'gm';
-    const lastAt = this.lastTransformPreviewAt.get(sourceKey) ?? 0;
-    if (now - lastAt < 1000 / this.transformPreviewRate) {
-      return;
-    }
-    this.lastTransformPreviewAt.set(sourceKey, now);
-    this.sceneRepository.refreshTransform(
-      input.operationId,
-      source?.user
-        ? { kind: 'player', userId: source.user.id }
-        : { kind: 'gm' },
-    );
-    if (source?.user) {
-      this.onTransformPreview(input);
-    }
-    const payload = Buffer.from(
-      JSON.stringify({
-        ...(input.absolute ? { absolute: input.absolute } : {}),
-        dx: input.dx,
-        dy: input.dy,
-        operationId: input.operationId,
-        rotation: input.rotation,
-        scaleX: input.scaleX,
-        scaleY: input.scaleY,
-      }),
-      'utf8',
-    );
-    for (const client of this.clients) {
-      if (
-        client.state === 'ready' &&
-        client.user &&
-        !client.udpRecoveryStartedAt
-      ) {
-        this.sendUdp(client, udpMessageTypes.transformPreview, payload);
-      }
-    }
+    this.sceneRealtime.broadcastTransformPreview(input, source);
   }
 
   get port(): number | null {
@@ -898,7 +451,7 @@ export class CampaignHostServer {
     }
 
     try {
-      await this.readActiveScene();
+      await this.sceneRealtime.initialize();
       const listener = await this.createListenerGroup(port);
       this.listener = listener;
       listener.activate();
@@ -994,10 +547,7 @@ export class CampaignHostServer {
       this.maintenanceTimer = null;
     }
     this.disconnectAll('Campaign host stopped.');
-    for (const limiter of this.measurementRateLimiters.values()) {
-      limiter.clear();
-    }
-    this.measurementRateLimiters.clear();
+    this.sceneRealtime.reset();
     const listener = this.listener;
     this.listener = null;
     if (listener) {
@@ -1139,78 +689,6 @@ export class CampaignHostServer {
     };
   }
 
-  private chatDirectory(users: StoredManagedUser[]): ChatIdentity[] {
-    return [
-      GAME_MASTER_CHAT_IDENTITY,
-      ...[...users]
-        .sort(
-          (left, right) =>
-            left.username.localeCompare(right.username, 'en-US') ||
-            left.id.localeCompare(right.id),
-        )
-        .map(playerChatIdentity),
-    ];
-  }
-
-  private resolveChatRecipient(
-    principal: ChatPrincipal | null,
-    users: StoredManagedUser[],
-  ): ChatResult<ChatIdentity | null> {
-    if (!principal) {
-      return { ok: true, value: null };
-    }
-    if (principal.kind === 'gm') {
-      return { ok: true, value: GAME_MASTER_CHAT_IDENTITY };
-    }
-    const user = users.find((candidate) => candidate.id === principal.userId);
-    return user
-      ? { ok: true, value: playerChatIdentity(user) }
-      : {
-        error: {
-          code: 'recipient_not_found',
-          message: 'Whisper recipient could not be found.',
-        },
-        ok: false,
-      };
-  }
-
-  private async acceptChatMessage(
-    sender: ChatIdentity,
-    input: Pick<
-      SendChatMessageInput,
-      'clientMessageId' | 'content' | 'recipient'
-    >,
-  ): Promise<ChatResult<StoredChatSendResult>> {
-    try {
-      return this.configRepository.withChatConfiguration(
-        async (configuration) => {
-          const recipient = this.resolveChatRecipient(
-            input.recipient,
-            configuration.users,
-          );
-          if (!recipient.ok) {
-            return recipient;
-          }
-          return this.chatRepository.send({
-            clientMessageId: input.clientMessageId,
-            content: input.content,
-            maxMessageCharacters: configuration.maxMessageCharacters,
-            recipient: recipient.value,
-            sender,
-          });
-        },
-      );
-    } catch {
-      return {
-        error: {
-          code: 'storage_error',
-          message: 'Message could not be stored.',
-        },
-        ok: false,
-      };
-    }
-  }
-
   private broadcastChatMessage(
     message: ChatMessage,
     source?: HostClient,
@@ -1223,13 +701,7 @@ export class CampaignHostServer {
       ) {
         continue;
       }
-      const visible =
-        message.recipient === null ||
-        (message.recipient.kind === 'player' &&
-          message.recipient.userId === client.user.id) ||
-        (message.sender.kind === 'player' &&
-          message.sender.userId === client.user.id);
-      if (visible) {
+      if (this.chat.isVisibleTo(message, client.user.id)) {
         writeEnvelope(
           client.socket as unknown as Socket,
           'server.chat_message',
@@ -1239,35 +711,15 @@ export class CampaignHostServer {
     }
   }
 
-  private sendChatError(
-    client: HostClient,
-    error: ChatError,
-    requestId?: string,
-  ): void {
-    writeEnvelope(
-      client.socket as unknown as Socket,
-      'server.chat_error',
-      error,
-      requestId,
-    );
-  }
-
   private async emitParticipantEvent(
     user: StoredManagedUser,
     type: ChatParticipantEvent['type'],
     excluded?: HostClient,
   ): Promise<void> {
-    const generation = await this.chatRepository.currentGeneration();
-    if (!generation.ok) {
+    const event = await this.chat.createParticipantEvent(user, type);
+    if (!event) {
       return;
     }
-    const event: ChatParticipantEvent = {
-      eventId: randomUUID(),
-      generation: generation.value,
-      identity: playerChatIdentity(user),
-      occurredAt: new Date().toISOString(),
-      type,
-    };
     for (const client of this.clients) {
       if (
         client !== excluded &&
@@ -1316,8 +768,8 @@ export class CampaignHostServer {
       pendingPingNonce: null,
       processing: Promise.resolve(),
       interactiveRateBucket: new TokenBucket(
-        this.transformPreviewRate,
-        this.transformPreviewRate * 2,
+        this.sceneRealtime.updateRate,
+        this.sceneRealtime.updateRate * 2,
       ),
       remoteAddress: normalizeRemoteAddress(socket.remoteAddress),
       replayWindow: new ReplayWindow(),
@@ -1405,185 +857,10 @@ export class CampaignHostServer {
     }
 
     if (client.state === 'ready' && client.user) {
-      if (envelope.type === 'client.chat_bootstrap') {
-        parsePayload('client.chat_bootstrap', envelope.payload);
-        try {
-          const config = await this.configRepository.load();
-          const result = await this.chatRepository.bootstrap(
-            { kind: 'player', userId: client.user.id },
-            this.chatDirectory(config.users),
-            config.maxChatMessageCharacters,
-          );
-          if (result.ok) {
-            writeEnvelope(
-              client.socket as unknown as Socket,
-              'server.chat_bootstrap',
-              result.value,
-              envelope.requestId,
-            );
-          } else {
-            this.sendChatError(client, result.error, envelope.requestId);
-          }
-        } catch {
-          this.sendChatError(
-            client,
-            {
-              code: 'storage_error',
-              message: 'Campaign chat is unavailable.',
-            },
-            envelope.requestId,
-          );
-        }
+      if (await this.chatRequests.handleRequest(client, envelope)) {
         return;
       }
-      if (envelope.type === 'client.chat_history') {
-        const input = parsePayload(
-          'client.chat_history',
-          envelope.payload,
-        );
-        const result = await this.chatRepository.history(
-          { kind: 'player', userId: client.user.id },
-          input,
-        );
-        if (result.ok) {
-          writeEnvelope(
-            client.socket as unknown as Socket,
-            'server.chat_history',
-            result.value,
-            envelope.requestId,
-          );
-        } else {
-          this.sendChatError(client, result.error, envelope.requestId);
-        }
-        return;
-      }
-      if (envelope.type === 'client.chat_send') {
-        const input = parsePayload('client.chat_send', envelope.payload);
-        const result = await this.acceptChatMessage(
-          playerChatIdentity(client.user),
-          input,
-        );
-        if (!result.ok) {
-          this.sendChatError(client, result.error, envelope.requestId);
-          return;
-        }
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.chat_send_result',
-          result.value.message,
-          envelope.requestId,
-        );
-        if (result.value.created) {
-          const message = result.value.message;
-          this.broadcastChatMessage(message, client);
-          if (
-            message.recipient === null ||
-            message.recipient.kind === 'gm'
-          ) {
-            this.onChatEvent({
-              campaignId: this.campaignId,
-              message,
-              type: 'message',
-            });
-          }
-        }
-        return;
-      }
-      if (envelope.type === 'client.scene_drawing_preview') {
-        const input = parsePayload(
-          'client.scene_drawing_preview',
-          envelope.payload,
-        );
-        await this.broadcastDrawingPreview(
-          {
-            ...input,
-            campaignId: this.campaignId,
-            layer: 'token',
-          },
-          client,
-        );
-        return;
-      }
-      if (envelope.type === 'client.scene_objects_set') {
-        const input = parsePayload('client.scene_objects_set', envelope.payload);
-        const result = await this.sceneRepository.setObjects(
-          input.sceneId,
-          input.state,
-          input.expectedRevision,
-          input.operationId,
-          { kind: 'player', userId: client.user.id },
-        );
-        this.sendSceneResult(client, result, envelope.requestId);
-        if (result.ok) {
-          this.onSceneChanged();
-          await this.broadcastActiveScene();
-        }
-        return;
-      }
-      if (
-        envelope.type === 'client.scene_undo' ||
-        envelope.type === 'client.scene_redo'
-      ) {
-        const input =
-          envelope.type === 'client.scene_undo'
-            ? parsePayload('client.scene_undo', envelope.payload)
-            : parsePayload('client.scene_redo', envelope.payload);
-        const actor = { kind: 'player' as const, userId: client.user.id };
-        const result =
-          envelope.type === 'client.scene_undo'
-            ? await this.sceneRepository.undo(input.sceneId, actor)
-            : await this.sceneRepository.redo(input.sceneId, actor);
-        this.sendSceneResult(client, result, envelope.requestId);
-        if (result.ok) {
-          this.onSceneChanged();
-          await this.broadcastActiveScene();
-        }
-        return;
-      }
-      if (envelope.type === 'client.scene_transform_start') {
-        const input = parsePayload(
-          'client.scene_transform_start',
-          envelope.payload,
-        );
-        const result = await this.sceneRepository.beginTransform(
-          input.sceneId,
-          input.operationId,
-          input.targets,
-          { kind: 'player', userId: client.user.id },
-        );
-        if (!result.ok) {
-          this.sendSceneResult(client, result, envelope.requestId);
-          return;
-        }
-        await this.broadcastTransformStarted(
-          {
-            ...input,
-            campaignId: this.campaignId,
-            startingTransforms: [],
-          },
-          client,
-        );
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.scene_transform_granted',
-          { operationId: input.operationId },
-          envelope.requestId,
-        );
-        return;
-      }
-      if (envelope.type === 'client.scene_transform_cancel') {
-        const input = parsePayload(
-          'client.scene_transform_cancel',
-          envelope.payload,
-        );
-        this.sceneRepository.cancelTransform(input.operationId, {
-          kind: 'player',
-          userId: client.user.id,
-        });
-        this.broadcastTransformCancelled(
-          { ...input, campaignId: this.campaignId },
-          client,
-        );
+      if (await this.sceneRequests.handleRequest(client, envelope)) {
         return;
       }
       if (envelope.type === 'client.map_ping') {
@@ -1594,163 +871,7 @@ export class CampaignHostServer {
         );
         return;
       }
-      if (envelope.type === 'client.asset_manifest') {
-        if (!this.assetPolicy.authorize({
-          action: 'list',
-          subject: actorFor(client),
-        })) {
-          this.assetTransfer.sendAssetError(
-            client,
-            'permission_denied',
-            'You cannot view campaign assets.',
-            envelope.requestId,
-          );
-          return;
-        }
-        parsePayload('client.asset_manifest', envelope.payload);
-        await this.assetTransfer.sendAssetManifest(client, envelope.requestId);
-        return;
-      }
-      if (envelope.type === 'client.asset_chunk_request') {
-        const input = parsePayload(
-          'client.asset_chunk_request',
-          envelope.payload,
-        );
-        const asset = (await this.assetRepository.readManifest()).assets.find(
-          (candidate) => candidate.id === input.assetId,
-        );
-        if (!this.assetPolicy.authorize({
-          action: 'read',
-          asset,
-          subject: actorFor(client),
-        })) {
-          this.assetTransfer.sendAssetError(
-            client,
-            'permission_denied',
-            'You cannot read this campaign asset.',
-            envelope.requestId,
-            input.assetId,
-          );
-          return;
-        }
-        await this.assetTransfer.sendAssetChunk(
-          client,
-          input.assetId,
-          input.index,
-          envelope.requestId,
-        );
-        return;
-      }
-      if (envelope.type === 'client.asset_rename') {
-        const input = parsePayload('client.asset_rename', envelope.payload);
-        const asset = (await this.assetRepository.readManifest()).assets.find(
-          (candidate) => candidate.id === input.assetId,
-        );
-        if (!this.assetPolicy.authorize({
-          action: 'rename',
-          asset,
-          subject: actorFor(client),
-        })) {
-          this.assetTransfer.sendAssetError(
-            client,
-            'permission_denied',
-            'You cannot rename this campaign asset.',
-            envelope.requestId,
-            input.assetId,
-          );
-          return;
-        }
-        const result = await this.assetRepository.renameAsset(
-          input.assetId,
-          input.displayName,
-          input.expectedRevision,
-          actorFor(client),
-        );
-        await this.assetTransfer.sendMutationResult(client, result, envelope.requestId);
-        if (result.ok) {
-          await this.broadcastAssetsChanged();
-        }
-        return;
-      }
-      if (envelope.type === 'client.asset_delete') {
-        const input = parsePayload('client.asset_delete', envelope.payload);
-        const asset = (await this.assetRepository.readManifest()).assets.find(
-          (candidate) => candidate.id === input.assetId,
-        );
-        if (!this.assetPolicy.authorize({
-          action: 'delete',
-          asset,
-          subject: actorFor(client),
-        })) {
-          this.assetTransfer.sendAssetError(
-            client,
-            'permission_denied',
-            'You cannot delete this campaign asset.',
-            envelope.requestId,
-            input.assetId,
-          );
-          return;
-        }
-        const result = await this.assetRepository.trashAsset(
-          input.assetId,
-          input.expectedRevision,
-        );
-        await this.assetTransfer.sendMutationResult(client, result, envelope.requestId);
-        if (result.ok) {
-          await this.broadcastAssetsChanged();
-        }
-        return;
-      }
-      if (envelope.type === 'client.asset_import_start') {
-        const input = parsePayload(
-          'client.asset_import_start',
-          envelope.payload,
-        );
-        if (!this.assetPolicy.authorize({
-          action: 'import',
-          subject: actorFor(client),
-        })) {
-          this.assetTransfer.sendAssetError(
-            client,
-            'permission_denied',
-            'You cannot add campaign assets.',
-            envelope.requestId,
-          );
-          return;
-        }
-        await this.assetTransfer.startAssetUpload(client, input, envelope.requestId);
-        return;
-      }
-      if (envelope.type === 'client.asset_import_chunk') {
-        const input = parsePayload(
-          'client.asset_import_chunk',
-          envelope.payload,
-        );
-        await this.assetTransfer.receiveAssetUploadChunk(client, input, envelope.requestId);
-        return;
-      }
-      if (envelope.type === 'client.asset_import_commit') {
-        const input = parsePayload(
-          'client.asset_import_commit',
-          envelope.payload,
-        );
-        await this.assetTransfer.commitAssetUpload(
-          client,
-          input.uploadId,
-          envelope.requestId,
-        );
-        return;
-      }
-      if (envelope.type === 'client.asset_sync_error') {
-        const input = parsePayload(
-          'client.asset_sync_error',
-          envelope.payload,
-        );
-        this.onAssetSyncError(
-          client.user.username,
-          input.assetName,
-          input.reason,
-        );
+      if (await this.assetTransfer.handleRequest(client, envelope)) {
         return;
       }
     }
@@ -1773,58 +894,11 @@ export class CampaignHostServer {
 
   /** Pushes the presented scene to every ready client. */
   async broadcastActiveScene(): Promise<void> {
-    for (const [operationId, source] of this.transformSources) {
-      this.sceneRepository.cancelTransform(
-        operationId,
-        source?.user
-          ? { kind: 'player', userId: source.user.id }
-          : { kind: 'gm' },
-      );
-    }
-    this.activeTransformOperations.clear();
-    this.transformSources.clear();
-    this.cancelledTransformOperations.clear();
-    const previousSceneId = this.activeScene?.id ?? null;
-    const scene = await this.readActiveScene();
-    if (scene?.id !== previousSceneId) {
-      this.clearAllMeasurements();
-      for (const client of this.clients) {
-        client.lastMeasurementSequence = -1;
-      }
-    }
-    const signature = scene ? JSON.stringify(scene) : null;
-    if (signature === this.lastBroadcastSceneSignature) {
-      return;
-    }
-    this.lastBroadcastSceneSignature = signature;
-    for (const client of this.clients) {
-      if (client.state === 'ready' && client.user) {
-        writeEnvelope(
-          client.socket as unknown as Socket,
-          'server.scene_presented',
-          { scene },
-        );
-      }
-    }
+    await this.sceneRealtime.broadcastActiveScene();
   }
 
   private async sendActiveScene(client: HostClient): Promise<void> {
-    try {
-      writeEnvelope(
-        client.socket as unknown as Socket,
-        'server.scene_presented',
-        { scene: await this.readActiveScene() },
-      );
-    } catch (error) {
-      this.warn('Failed to send the presented scene to a player.', error);
-    }
-  }
-
-  private async readActiveScene(): Promise<SceneRecord | null> {
-    const manifest = await this.sceneRepository.readManifest();
-    const scene = findScene(manifest, manifest.activeSceneId);
-    this.activeScene = scene ? projectSceneForPlayer(scene) : null;
-    return this.activeScene;
+    await this.sceneRealtime.sendActiveScene(client);
   }
 
   private async authenticateClient(
@@ -1961,7 +1035,7 @@ export class CampaignHostServer {
             {
               campaignId: this.campaignId,
               campaignName: this.campaignName,
-              updateRate: this.transformPreviewRate,
+              updateRate: this.sceneRealtime.updateRate,
               userId: client.user.id,
               username: client.user.username,
             },
@@ -1996,86 +1070,28 @@ export class CampaignHostServer {
         client.user &&
         !client.udpRecoveryStartedAt
       ) {
-        const value = JSON.parse(
-          decoded.payload.toString('utf8'),
-        ) as Record<string, unknown>;
-        const points = Array.isArray(value.points)
-          ? value.points
-              .map((point) => sceneDrawingPointSchema.safeParse(point))
-              .filter((result) => result.success)
-              .map((result) => result.data)
-          : [];
-        const style = sceneDrawingStyleSchema.safeParse(value.style);
-        if (
-          typeof value.active === 'boolean' &&
-          typeof value.closed === 'boolean' &&
-          (value.kind === 'freeform' || value.kind === 'polyline') &&
-          typeof value.operationId === 'string' &&
-          typeof value.sceneId === 'string' &&
-          typeof value.sequence === 'number' &&
-          Number.isInteger(value.sequence) &&
-          value.sequence >= 0 &&
-          points.length <= MAX_DRAWING_PREVIEW_POINTS &&
-          style.success &&
-          ((value.active && points.length > 0) ||
-            (!value.active && points.length === 0))
-        ) {
-          void this.broadcastDrawingPreview(
-            {
-              active: value.active,
-              campaignId: this.campaignId,
-              closed: value.closed,
-              kind: value.kind,
-              layer: 'token',
-              operationId: value.operationId,
-              points,
-              sceneId: value.sceneId,
-              sequence: value.sequence,
-              style: style.data,
-            },
-            client,
-          );
-        }
+        const value = decodeClientDrawingPreview(decoded.payload);
+        void this.broadcastDrawingPreview(
+          {
+            ...value,
+            campaignId: this.campaignId,
+            layer: 'token',
+          },
+          client,
+        );
       } else if (
         decoded.type === udpMessageTypes.clientTransformPreview &&
         client.state === 'ready' &&
         client.user &&
         !client.udpRecoveryStartedAt
       ) {
-        const value = JSON.parse(
-          decoded.payload.toString('utf8'),
-        ) as Record<string, unknown>;
-        const absolute =
-          value.absolute === undefined
-            ? null
-            : sceneImageTransformSchema
-                .or(sceneDrawingTransformSchema)
-                .safeParse(value.absolute);
-        if (
-          typeof value.operationId === 'string' &&
-          (absolute === null || absolute.success) &&
-          ['dx', 'dy', 'rotation', 'scaleX', 'scaleY'].every(
-            (key) =>
-              typeof value[key] === 'number' &&
-              Number.isFinite(value[key]),
-          ) &&
-          (value.scaleX as number) > 0 &&
-          (value.scaleY as number) > 0
-        ) {
-          this.broadcastTransformPreview(
-            {
-              ...(absolute?.success ? { absolute: absolute.data } : {}),
-              campaignId: this.campaignId,
-              dx: value.dx as number,
-              dy: value.dy as number,
-              operationId: value.operationId,
-              rotation: value.rotation as number,
-              scaleX: value.scaleX as number,
-              scaleY: value.scaleY as number,
-            },
-            client,
-          );
-        }
+        this.broadcastTransformPreview(
+          {
+            ...decodeTransformPreview(decoded.payload),
+            campaignId: this.campaignId,
+          },
+          client,
+        );
       } else if (
         decoded.type === udpMessageTypes.heartbeatAcknowledge ||
         decoded.type === udpMessageTypes.acknowledge
@@ -2090,57 +1106,11 @@ export class CampaignHostServer {
     }
   }
 
-  private sendSceneResult(
-    client: HostClient,
-    result: SceneResult<SceneRecord> | SceneResult<null>,
-    requestId?: string,
-  ): void {
-    if (!result.ok) {
-      writeEnvelope(
-        client.socket as unknown as Socket,
-        'server.scene_error',
-        result.error,
-        requestId,
-      );
-      return;
-    }
-    if (result.value && 'id' in result.value) {
-      writeEnvelope(
-        client.socket as unknown as Socket,
-        'server.scene_mutation',
-        { scene: projectSceneForPlayer(result.value) },
-        requestId,
-      );
-    }
-  }
-
   private async acceptClientMeasurement(
     client: HostClient,
     update: Omit<MeasurementUpdate, 'campaignId'>,
   ): Promise<void> {
-    try {
-      const scene = this.activeScene ?? (await this.readActiveScene());
-      if (
-        !scene ||
-        !this.clients.has(client) ||
-        client.state !== 'ready' ||
-        !client.user ||
-        client.udpRecoveryStartedAt
-      ) {
-        return;
-      }
-      this.acceptMeasurementUpdate(
-        {
-          ...update,
-          campaignId: this.campaignId,
-          sourceId: client.user.id,
-        },
-        scene,
-        client,
-      );
-    } catch (error) {
-      this.warn('Failed to validate a player measurement update.', error);
-    }
+    await this.sceneRealtime.acceptClientMeasurement(client, update);
   }
 
   private sendUdp(
@@ -2181,16 +1151,7 @@ export class CampaignHostServer {
 
     this.maintenanceTimer = setInterval(() => {
       const now = Date.now();
-      for (const [sourceId, measurement] of this.activeMeasurements) {
-        if (now - measurement.lastAt >= MEASUREMENT_EXPIRY_MS) {
-          this.clearMeasurementSource(
-            sourceId,
-            [...this.clients].find(
-              (client) => client.user?.id === sourceId,
-            ),
-          );
-        }
-      }
+      this.sceneRealtime.expireMeasurements(now);
       for (const client of this.clients) {
         if (now - client.lastPongAt > TCP_DEAD_TIMEOUT_MS) {
           client.socket.destroy(new Error('TCP heartbeat timed out.'));
@@ -2247,25 +1208,7 @@ export class CampaignHostServer {
     if (!this.clients.delete(client)) {
       return;
     }
-    if (client.user) {
-      this.clearMeasurementSource(client.user.id, client);
-      for (const [operationId, source] of this.transformSources) {
-        if (source === client) {
-          this.sceneRepository.cancelTransform(operationId, {
-            kind: 'player',
-            userId: client.user.id,
-          });
-          this.broadcastTransformCancelled(
-            {
-              campaignId: this.campaignId,
-              operationId,
-              sceneId: this.activeScene?.id ?? randomUUID(),
-            },
-            client,
-          );
-        }
-      }
-    }
+    this.sceneRealtime.removeClient(client);
     clearTimeout(client.handshakeTimer);
     if (client.user && this.claimedUsers.get(client.user.id) === client) {
       this.claimedUsers.delete(client.user.id);

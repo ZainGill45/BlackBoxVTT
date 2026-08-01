@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import {
   createDefaultGrid,
   createEmptyDrawingLayers,
@@ -16,7 +14,6 @@ import {
   DEFAULT_SCENE_UNIT,
   DEFAULT_SCENE_WIDTH,
   normalizeSceneName,
-  SCENE_MANIFEST_SCHEMA_VERSION,
   sceneBounds,
   type ScenePatch,
   type SceneDrawing,
@@ -33,17 +30,17 @@ import {
   sceneImageStateSchema,
   sceneManifestSchema,
   sceneRecordSchema,
-} from './sceneSchema';
+} from '../shared/sceneSchema';
 import { fail } from '../shared/result';
-import { writeJsonAtomic } from './storage/atomicWrite';
+import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 
-const MANIFEST_FILENAME = 'scenes.json';
 const MAX_SCENES = 1024;
+const MAX_DURABLE_SCENE_OPERATIONS = 2_048;
 
 interface SceneRepositoryOptions {
-  campaignDirectory: string;
   createId?: () => string;
+  database: CampaignDatabase;
   now?: () => Date;
   touchCampaign?: () => Promise<void>;
   warn?: (message: string, error?: unknown) => void;
@@ -112,6 +109,12 @@ interface SceneHistoryCommand {
     id: string;
     target: SceneObjectSnapshot;
   }>;
+  sceneId: string;
+}
+
+interface CompletedSceneOperation {
+  actorKey: string;
+  operationId: string;
   sceneId: string;
 }
 
@@ -274,11 +277,10 @@ function insertSnapshot(
 }
 
 export class SceneRepository {
-  private readonly campaignDirectory: string;
+  private readonly database: CampaignDatabase;
   private readonly createId: () => string;
   private readonly mutations = new MutationQueue();
   private readonly now: () => Date;
-  private readonly operationResults = new Map<string, SceneRecord>();
   private readonly objectLocks = new Map<string, SceneObjectLock>();
   private readonly redoStacks = new Map<string, SceneHistoryCommand[]>();
   private readonly touchCampaign?: () => Promise<void>;
@@ -286,13 +288,13 @@ export class SceneRepository {
   private readonly warn: (message: string, error?: unknown) => void;
 
   constructor({
-    campaignDirectory,
     createId = randomUUID,
+    database,
     now = () => new Date(),
     touchCampaign,
     warn = console.warn,
   }: SceneRepositoryOptions) {
-    this.campaignDirectory = path.resolve(campaignDirectory);
+    this.database = database;
     this.createId = createId;
     this.now = now;
     this.touchCampaign = touchCampaign;
@@ -305,25 +307,40 @@ export class SceneRepository {
    */
   async readManifest(): Promise<SceneManifest> {
     try {
-      const source = await readFile(this.manifestPath(), 'utf8');
-      const parsed = sceneManifestSchema.safeParse(JSON.parse(source));
-      if (!parsed.success) {
-        const migrated = sceneManifestSchema.safeParse(
-          this.migrateManifest(JSON.parse(source)),
-        );
-        if (!migrated.success) {
-          this.warn('Ignoring a malformed scene manifest.', parsed.error);
-          return createEmptySceneManifest();
-        }
-        await this.writeManifest(migrated.data);
-        return this.reconcile(migrated.data);
+      const state = this.database.connection
+        .prepare(
+          `SELECT active_scene_id, revision
+           FROM scene_manifest
+           WHERE singleton = 1`,
+        )
+        .get() as
+        | { active_scene_id: string | null; revision: number }
+        | undefined;
+      if (!state) {
+        throw new Error('Scene manifest state is missing.');
       }
-      return this.reconcile(parsed.data);
+      const records = this.database.connection
+        .prepare(
+          `SELECT id, record_json
+           FROM scenes
+           ORDER BY position`,
+        )
+        .all() as unknown as Array<{ id: string; record_json: string }>;
+      const parsed = sceneManifestSchema.parse({
+        activeSceneId: state.active_scene_id,
+        revision: state.revision,
+        scenes: records.map((row) => {
+          const scene = sceneRecordSchema.parse(JSON.parse(row.record_json));
+          if (scene.id !== row.id) {
+            throw new Error('Scene row ID does not match its record.');
+          }
+          return scene;
+        }),
+        schemaVersion: createEmptySceneManifest().schemaVersion,
+      });
+      return this.reconcile(parsed);
     } catch (error) {
-      const nodeError = error as NodeJS.ErrnoException;
-      if (nodeError.code !== 'ENOENT') {
-        this.warn('Failed to read the scene manifest.', error);
-      }
+      this.warn('Failed to read the scene manifest.', error);
       return createEmptySceneManifest();
     }
   }
@@ -387,9 +404,19 @@ export class SceneRepository {
       if (!current) {
         return failure('not_found', 'The scene no longer exists.', sceneId);
       }
-      const operationKey = `${actorKey(actor)}:${operationId}`;
-      const cached = this.operationResults.get(operationKey);
-      if (cached) {
+      const completedOperation: CompletedSceneOperation = {
+        actorKey: actorKey(actor),
+        operationId,
+        sceneId,
+      };
+      let alreadyCompleted: boolean;
+      try {
+        alreadyCompleted = this.hasCompletedOperation(completedOperation);
+      } catch (error) {
+        this.warn('Failed to read durable scene operation state.', error);
+        return failure('storage_error', 'The scene could not be saved.', sceneId);
+      }
+      if (alreadyCompleted) {
         // A retry may arrive after other participants have committed. Return
         // the current authoritative scene while preserving idempotency rather
         // than handing the retrier an obsolete snapshot.
@@ -458,7 +485,16 @@ export class SceneRepository {
       }
       if (changes.length === 0) {
         this.releaseOperationLocks(actor, operationId);
-        this.rememberOperation(operationKey, current);
+        try {
+          this.rememberOperation(completedOperation);
+        } catch (error) {
+          this.warn('Failed to store durable scene operation state.', error);
+          return failure(
+            'storage_error',
+            'The scene could not be saved.',
+            sceneId,
+          );
+        }
         return { ok: true, value: current };
       }
       const next: SceneRecord = {
@@ -472,8 +508,8 @@ export class SceneRepository {
         sceneId,
       });
       this.releaseOperationLocks(actor, operationId);
-      this.rememberOperation(operationKey, next);
       return {
+        completedOperation,
         manifest: {
           ...manifest,
           scenes: manifest.scenes.map((scene) =>
@@ -1004,13 +1040,29 @@ export class SceneRepository {
     }
   }
 
-  private rememberOperation(key: string, scene: SceneRecord): void {
-    this.operationResults.set(key, structuredClone(scene));
-    if (this.operationResults.size > 2_048) {
-      const oldest = this.operationResults.keys().next().value;
-      if (oldest) {
-        this.operationResults.delete(oldest);
-      }
+  private hasCompletedOperation(operation: CompletedSceneOperation): boolean {
+    const row = this.database.connection
+      .prepare(
+        `SELECT 1 AS found
+         FROM scene_operations
+         WHERE actor_key = ? AND operation_id = ?`,
+      )
+      .get(operation.actorKey, operation.operationId) as
+      | { found?: unknown }
+      | undefined;
+    return row?.found === 1;
+  }
+
+  private rememberOperation(operation: CompletedSceneOperation): void {
+    const database = this.database.connection;
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      this.insertCompletedOperation(operation);
+      this.pruneCompletedOperations();
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
     }
   }
 
@@ -1022,7 +1074,12 @@ export class SceneRepository {
     operation: (
       manifest: SceneManifest,
     ) => Promise<
-      SceneResult<T> | { manifest: SceneManifest; result: SceneResult<T> }
+      | SceneResult<T>
+      | {
+          completedOperation?: CompletedSceneOperation;
+          manifest: SceneManifest;
+          result: SceneResult<T>;
+        }
     >,
   ): Promise<SceneResult<T>> {
     return this.mutations.run(async () => {
@@ -1032,10 +1089,13 @@ export class SceneRepository {
         return outcome;
       }
       try {
-        await this.writeManifest({
-          ...outcome.manifest,
-          revision: manifest.revision + 1,
-        });
+        await this.writeManifest(
+          {
+            ...outcome.manifest,
+            revision: manifest.revision + 1,
+          },
+          outcome.completedOperation,
+        );
       } catch (error) {
         this.warn('Failed to write the scene manifest.', error);
         return failure('storage_error', 'The scene could not be saved.');
@@ -1051,10 +1111,65 @@ export class SceneRepository {
     });
   }
 
-  private async writeManifest(manifest: SceneManifest): Promise<void> {
-    await writeJsonAtomic(this.manifestPath(), manifest, {
-      ensureDirectory: this.campaignDirectory,
-    });
+  private async writeManifest(
+    manifest: SceneManifest,
+    completedOperation?: CompletedSceneOperation,
+  ): Promise<void> {
+    const parsed = sceneManifestSchema.parse(manifest);
+    const database = this.database.connection;
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      database.exec('DELETE FROM scenes');
+      const insert = database.prepare(
+        `INSERT INTO scenes (id, position, record_json)
+         VALUES (?, ?, ?)`,
+      );
+      parsed.scenes.forEach((scene, position) => {
+        insert.run(scene.id, position, JSON.stringify(scene));
+      });
+      database
+        .prepare(
+          `UPDATE scene_manifest
+           SET active_scene_id = ?, revision = ?
+           WHERE singleton = 1`,
+        )
+        .run(parsed.activeSceneId, parsed.revision);
+      if (completedOperation) {
+        this.insertCompletedOperation(completedOperation);
+        this.pruneCompletedOperations();
+      }
+      database.exec('COMMIT');
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private insertCompletedOperation(operation: CompletedSceneOperation): void {
+    this.database.connection
+      .prepare(
+        `INSERT OR IGNORE INTO scene_operations (
+           actor_key, operation_id, scene_id, completed_at
+         ) VALUES (?, ?, ?, ?)`,
+      )
+      .run(
+        operation.actorKey,
+        operation.operationId,
+        operation.sceneId,
+        this.now().toISOString(),
+      );
+  }
+
+  private pruneCompletedOperations(): void {
+    this.database.connection.exec(
+      `DELETE FROM scene_operations
+       WHERE sequence NOT IN (
+         SELECT sequence
+         FROM scene_operations
+         ORDER BY sequence DESC
+         LIMIT ${MAX_DURABLE_SCENE_OPERATIONS}
+       )`,
+    );
   }
 
   /** Drops an active scene id that no longer resolves to a scene. */
@@ -1066,112 +1181,6 @@ export class SceneRepository {
       return { ...manifest, activeSceneId: null };
     }
     return manifest;
-  }
-
-  private manifestPath(): string {
-    return path.join(this.campaignDirectory, MANIFEST_FILENAME);
-  }
-
-  private migrateManifest(input: unknown): unknown {
-    if (!input || typeof input !== 'object') {
-      return input;
-    }
-    const manifest = input as Record<string, unknown>;
-    if (
-      (manifest.schemaVersion !== 1 &&
-        manifest.schemaVersion !== 2 &&
-        manifest.schemaVersion !== 3) ||
-      !Array.isArray(manifest.scenes)
-    ) {
-      return input;
-    }
-    return {
-      ...manifest,
-      schemaVersion: SCENE_MANIFEST_SCHEMA_VERSION,
-      scenes: manifest.scenes.map((candidate) => {
-        if (!candidate || typeof candidate !== 'object') {
-          return candidate;
-        }
-        const scene = candidate as Record<string, unknown>;
-        if (manifest.schemaVersion === 3) {
-          const drawings = scene.drawings as
-            | Record<string, unknown>
-            | undefined;
-          const migrateLayer = (value: unknown) =>
-            Array.isArray(value)
-              ? value.map((candidate) => {
-                  if (!candidate || typeof candidate !== 'object') {
-                    return candidate;
-                  }
-                  const drawing = candidate as Record<string, unknown>;
-                  const style =
-                    drawing.style && typeof drawing.style === 'object'
-                      ? (drawing.style as Record<string, unknown>)
-                      : null;
-                  return style
-                    ? {
-                        ...drawing,
-                        style: {
-                          ...style,
-                          hardness: 1,
-                        },
-                      }
-                    : drawing;
-                })
-              : value;
-          return {
-            ...scene,
-            drawings: drawings
-              ? {
-                  ...drawings,
-                  gm: migrateLayer(drawings.gm),
-                  map: migrateLayer(drawings.map),
-                  token: migrateLayer(drawings.token),
-                }
-              : drawings,
-          };
-        }
-        if (manifest.schemaVersion === 2) {
-          return { ...scene, drawings: createEmptyDrawingLayers() };
-        }
-        const map = scene.mapImage as Record<string, unknown> | null;
-        let mapImage = map;
-        if (
-          map &&
-          [map.x, map.y, map.width, map.height, map.rotation].every(
-            (value) => typeof value === 'number',
-          )
-        ) {
-          const angle = (Number(map.rotation) * Math.PI) / 180;
-          const halfWidth = Number(map.width) / 2;
-          const halfHeight = Number(map.height) / 2;
-          const round = (value: number) =>
-            Math.round(value * 10_000) / 10_000;
-          mapImage = normalizeImageTransform({
-            ...map,
-            height: Number(map.height),
-            rotation: Number(map.rotation),
-            width: Number(map.width),
-            x: round(
-              Number(map.x) +
-              Math.cos(angle) * halfWidth -
-              Math.sin(angle) * halfHeight,
-            ),
-            y: round(
-              Number(map.y) +
-              Math.sin(angle) * halfWidth +
-              Math.cos(angle) * halfHeight,
-            ),
-          });
-        }
-        return {
-          ...scene,
-          drawings: createEmptyDrawingLayers(),
-          images: createEmptyImageLayers(),
-          mapImage,
-        };
-      }),
-    };
   }
 
 }

@@ -74,16 +74,3 @@ export async function writeFileAtomic(
     await rm(temporaryPath, { force: true });
   }
 }
-
-/** {@link writeFileAtomic} for JSON documents, formatted as stored on disk. */
-export function writeJsonAtomic(
-  targetPath: string,
-  value: unknown,
-  options: AtomicWriteOptions = {},
-): Promise<void> {
-  return writeFileAtomic(
-    targetPath,
-    `${JSON.stringify(value, null, 2)}\n`,
-    options,
-  );
-}

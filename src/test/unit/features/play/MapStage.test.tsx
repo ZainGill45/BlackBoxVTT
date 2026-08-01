@@ -1,10 +1,13 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createRef } from 'react';
+import { createRef, type ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SceneRendererHandle } from '../../../../features/play/canvas/SceneRenderer';
-import { MapStage, type MapStageControls } from '../../../../features/play/MapStage';
+import {
+  MapStage as ProductionMapStage,
+  type MapStageControls,
+} from '../../../../features/play/MapStage';
 import {
   createFakeAssetApi,
+  createFakeSceneApi,
   makeImageAsset,
   makeScene,
   testCampaignId,
@@ -12,6 +15,7 @@ import {
 import type { PlaySession } from '../../../../features/play/types';
 import { CANVAS_IMAGE_DRAG_TYPE } from '../../../../shared/assets';
 import { createEmptyImageLayers } from '../../../../shared/scenes';
+import { createFakeSceneRenderer } from '../../../support/sceneRenderer';
 
 const session: PlaySession = {
   campaignId: testCampaignId,
@@ -20,22 +24,39 @@ const session: PlaySession = {
   source: 'local',
 };
 
+const stageApis = {
+  assetApi: createFakeAssetApi(),
+  sceneApi: createFakeSceneApi(),
+};
+
+type TestMapStageProps = Omit<
+  ComponentProps<typeof ProductionMapStage>,
+  'assetApi' | 'networkApi' | 'sceneApi'
+> &
+  Partial<
+    Pick<
+      ComponentProps<typeof ProductionMapStage>,
+      'assetApi' | 'networkApi' | 'sceneApi'
+    >
+  >;
+
+function MapStage(props: TestMapStageProps) {
+  return (
+    <ProductionMapStage
+      {...stageApis}
+      networkApi={props.networkApi ?? window.blackBox.network}
+      {...props}
+    />
+  );
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 function fakeRenderer() {
-  const renderer: SceneRendererHandle = {
-    destroy: vi.fn(),
-    fitToScene: vi.fn(),
-    mount: vi.fn(async () => undefined),
-    resize: vi.fn(),
-    setInteraction: vi.fn(),
-    setScene: vi.fn(),
-    showMeasurement: vi.fn(),
-    showPing: vi.fn(),
-  };
+  const renderer = createFakeSceneRenderer();
   return { createRenderer: () => renderer, renderer };
 }
 
@@ -224,7 +245,7 @@ describe('MapStage', () => {
       />,
     );
     await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
-    const interaction = vi.mocked(renderer.setInteraction!).mock.calls.at(-1)?.[0];
+    const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
     expect(interaction?.pingEnabled).toBe(true);
 
     interaction?.onPing?.({
@@ -259,12 +280,12 @@ describe('MapStage', () => {
     );
     await waitFor(() =>
       expect(
-        vi.mocked(renderer.setInteraction!).mock.calls.at(-1)?.[0]
+        vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0]
           ?.pingEnabled,
       ).toBe(false),
     );
     const measureInteraction =
-      vi.mocked(renderer.setInteraction!).mock.calls.at(-1)?.[0];
+      vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
     expect(measureInteraction?.measureEnabled).toBe(true);
     measureInteraction?.onMeasurementUpdate?.({
       active: true,
@@ -376,7 +397,7 @@ describe('MapStage', () => {
       true,
     );
 
-    const interaction = vi.mocked(renderer.setInteraction!).mock.calls.at(-1)?.[0];
+    const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
     interaction?.onPing?.({
       id: '77777777-7777-4777-8777-777777777777',
       pullPlayers: true,

@@ -10,8 +10,18 @@ import {
   type AssetRecord,
 } from '../../../../shared/assets';
 import { RemoteAssetCache } from '../../../../main/network/assetCache';
+import { ApplicationDatabase } from '../../../../main/storage/applicationDatabase';
 
 const roots: string[] = [];
+const databases: ApplicationDatabase[] = [];
+
+function createCache(root: string, campaignId: string): RemoteAssetCache {
+  const database = new ApplicationDatabase(
+    path.join(root, 'application.sqlite'),
+  );
+  databases.push(database);
+  return new RemoteAssetCache(database, path.join(root, 'cache'), campaignId);
+}
 
 function createRecord(bytes: Buffer): AssetRecord {
   const chunks: Buffer[] = [];
@@ -41,6 +51,9 @@ function createRecord(bytes: Buffer): AssetRecord {
 }
 
 afterEach(async () => {
+  for (const database of databases.splice(0)) {
+    database.close();
+  }
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { force: true, recursive: true })),
   );
@@ -57,7 +70,7 @@ describe('RemoteAssetCache', () => {
       revision: 1,
       schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     };
-    const cache = new RemoteAssetCache(
+    const cache = createCache(
       root,
       '22222222-2222-4222-8222-222222222222',
     );
@@ -88,7 +101,7 @@ describe('RemoteAssetCache', () => {
       revision: 1,
       schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     };
-    const cache = new RemoteAssetCache(
+    const cache = createCache(
       root,
       '33333333-3333-4333-8333-333333333333',
     );

@@ -7,7 +7,7 @@ import {
   SCENE_MANIFEST_SCHEMA_VERSION,
   MAX_SCENE_IMAGES,
   sceneBounds,
-} from '../shared/scenes';
+} from './sceneConstants';
 
 const bounded = (bound: { max: number; min: number }) =>
   z.number().finite().min(bound.min).max(bound.max);
@@ -247,3 +247,29 @@ export const scenePatchSchema = z
     width: boundedInteger(sceneBounds.width).optional(),
   })
   .strict();
+
+export const sceneObjectTransformSchema = z.union([
+  sceneImageTransformSchema,
+  sceneDrawingTransformSchema,
+]);
+
+export type SceneGrid = z.infer<typeof sceneGridSchema>;
+export type SceneGridType = SceneGrid['type'];
+export type SceneImageTransform = z.infer<typeof sceneImageTransformSchema>;
+export type SceneMapImage = z.infer<typeof sceneMapImageSchema>;
+export type SceneImage = z.infer<typeof sceneImageSchema>;
+export type SceneImageLayers = z.infer<typeof sceneImageLayersSchema>;
+export type SceneImageLayer = keyof SceneImageLayers;
+export type SceneDrawingPoint = z.infer<typeof sceneDrawingPointSchema>;
+export type SceneDrawingTransform = z.infer<typeof sceneDrawingTransformSchema>;
+export type SceneObjectTransform = z.infer<typeof sceneObjectTransformSchema>;
+export type SceneDrawingStyle = z.infer<typeof sceneDrawingStyleSchema>;
+export type SceneDrawingEdge = SceneDrawingStyle['edge'];
+export type SceneDrawing = z.infer<typeof sceneDrawingSchema>;
+export type SceneDrawingKind = SceneDrawing['kind'];
+export type SceneDrawingLayers = z.infer<typeof sceneDrawingLayersSchema>;
+export type SceneDrawingLayer = keyof SceneDrawingLayers;
+export type SceneImageState = z.infer<typeof sceneImageStateSchema>;
+export type SceneRecord = z.infer<typeof sceneRecordSchema>;
+export type SceneManifest = z.infer<typeof sceneManifestSchema>;
+export type ScenePatch = z.infer<typeof scenePatchSchema>;

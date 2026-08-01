@@ -2,7 +2,6 @@ import {
   access,
   mkdir,
   mkdtemp,
-  readFile,
   readdir,
   rm,
   writeFile,
@@ -12,6 +11,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { CampaignRepository } from '../../../main/campaignRepository';
+import {
+  CAMPAIGN_DATABASE_FILENAME,
+  CampaignDatabase,
+} from '../../../main/storage/campaignDatabase';
 
 const firstId = '11111111-1111-4111-8111-111111111111';
 const secondId = '22222222-2222-4222-8222-222222222222';
@@ -35,7 +38,7 @@ afterEach(async () => {
 });
 
 describe('CampaignRepository', () => {
-  it('creates a durable manifest and content container', async () => {
+  it('creates durable campaign metadata and a content container', async () => {
     const rootDirectory = await createTemporaryRoot();
     const repository = new CampaignRepository({
       createId: () => firstId,
@@ -60,12 +63,11 @@ describe('CampaignRepository', () => {
       readdir(path.join(rootDirectory, firstId, 'content')),
     ).resolves.toEqual([]);
 
-    const manifest = JSON.parse(
-      await readFile(
-        path.join(rootDirectory, firstId, 'campaign.json'),
-        'utf8',
-      ),
+    const database = CampaignDatabase.open(
+      path.join(rootDirectory, firstId),
     );
+    const manifest = database.readManifest();
+    database.close();
     expect(manifest).toEqual(result.ok ? result.value : undefined);
 
     const restartedRepository = new CampaignRepository({
@@ -137,9 +139,8 @@ describe('CampaignRepository', () => {
     await repository.create({ name: 'Valid campaign' });
     await mkdir(path.join(rootDirectory, secondId));
     await writeFile(
-      path.join(rootDirectory, secondId, 'campaign.json'),
-      '{"invalid":true}',
-      'utf8',
+      path.join(rootDirectory, secondId, CAMPAIGN_DATABASE_FILENAME),
+      'not a database',
     );
 
     const result = await repository.list();
@@ -173,9 +174,8 @@ describe('CampaignRepository', () => {
     const trashItem = vi.fn();
     await mkdir(path.join(rootDirectory, firstId), { recursive: true });
     await writeFile(
-      path.join(rootDirectory, firstId, 'campaign.json'),
-      '{"schemaVersion":1}',
-      'utf8',
+      path.join(rootDirectory, firstId, CAMPAIGN_DATABASE_FILENAME),
+      'not a database',
     );
     const repository = new CampaignRepository({
       rootDirectory,

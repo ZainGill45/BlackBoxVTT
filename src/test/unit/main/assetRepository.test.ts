@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rename, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -7,8 +7,11 @@ import {
   type AssetActor,
 } from '../../../shared/assets';
 import { AssetRepository } from '../../../main/assetRepository';
+import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
+import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 
 const temporaryDirectories: string[] = [];
+const databases: CampaignDatabase[] = [];
 const actor: AssetActor = {
   id: '11111111-1111-4111-8111-111111111111',
   role: 'player',
@@ -19,16 +22,31 @@ async function createFixture() {
   temporaryDirectories.push(root);
   const campaignDirectory = path.join(root, 'campaign');
   await mkdir(path.join(campaignDirectory, 'content'), { recursive: true });
+  const timestamp = '2026-07-31T12:00:00.000Z';
+  const database = CampaignDatabase.create(campaignDirectory, {
+    createdAt: timestamp,
+    id: '99999999-9999-4999-8999-999999999999',
+    name: 'Iron Meridian',
+    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    updatedAt: timestamp,
+  });
+  databases.push(database);
   const trashed: string[] = [];
   const touchCampaign = vi.fn(async () => undefined);
   const repository = new AssetRepository({
-    campaignDirectory,
+    database,
     touchCampaign,
     trashItem: async (target) => {
       trashed.push(target);
     },
   });
-  return { campaignDirectory, repository, touchCampaign, trashed };
+  return {
+    campaignDirectory,
+    database,
+    repository,
+    touchCampaign,
+    trashed,
+  };
 }
 
 async function writePng(directory: string, name: string, suffix = '') {
@@ -44,6 +62,9 @@ async function writePng(directory: string, name: string, suffix = '') {
 }
 
 afterEach(async () => {
+  for (const database of databases.splice(0)) {
+    database.close();
+  }
   const { rm } = await import('node:fs/promises');
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
@@ -53,7 +74,7 @@ afterEach(async () => {
 });
 
 describe('AssetRepository', () => {
-  it('treats a missing manifest as empty and creates it lazily', async () => {
+  it('starts with an empty database-backed manifest', async () => {
     const { campaignDirectory, repository } = await createFixture();
 
     expect(await repository.readManifest()).toEqual({
@@ -196,12 +217,63 @@ describe('AssetRepository', () => {
     expect(await repository.list()).toEqual([
       { available: false, record: imported.value[0] },
     ]);
-    const stored = JSON.parse(
-      await readFile(
-        path.join(campaignDirectory, 'content', 'assets.json'),
-        'utf8',
-      ),
+    expect((await repository.readManifest()).assets).toHaveLength(1);
+  });
+
+  it('finishes a database-recorded deletion after an interrupted file operation', async () => {
+    const { campaignDirectory, database, repository, trashed } =
+      await createFixture();
+    const source = await writePng(campaignDirectory, 'Old Map.png');
+    const imported = await repository.importFiles([source], actor);
+    if (!imported.ok || imported.value.length !== 1) {
+      throw new Error('Fixture import failed.');
+    }
+    const previousManifest = await repository.readManifest();
+    const record = imported.value[0];
+    const stagingName = `${record.id}.deleted`;
+    const stagingPath = path.join(
+      campaignDirectory,
+      'content',
+      '.asset-staging',
+      stagingName,
     );
-    expect(stored.assets).toHaveLength(1);
+    await rename(repository.resolveAssetPath(record), stagingPath);
+    database.connection
+      .prepare(
+        `INSERT INTO asset_file_operations (
+           operation_id, kind, payload_json
+         ) VALUES (?, 'delete', ?)`,
+      )
+      .run(
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        JSON.stringify({
+          files: [
+            {
+              finalName: `${record.id}.${record.extension}`,
+              stagingName,
+            },
+          ],
+          nextManifest: {
+            assets: [],
+            revision: previousManifest.revision + 1,
+            schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
+          },
+          previousManifest,
+        }),
+      );
+    const reopened = new AssetRepository({
+      database,
+      trashItem: async (target) => {
+        trashed.push(target);
+      },
+    });
+
+    expect((await reopened.readManifest()).assets).toEqual([]);
+    expect(trashed).toContain(stagingPath);
+    expect(
+      database.connection
+        .prepare('SELECT COUNT(*) AS count FROM asset_file_operations')
+        .get(),
+    ).toEqual({ count: 0 });
   });
 });
