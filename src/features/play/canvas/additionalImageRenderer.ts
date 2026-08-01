@@ -1,6 +1,7 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
 import {
   createEmptyImageLayers,
+  SCENE_LAYERS,
   type SceneImage,
   type SceneMapImage,
   type SceneRecord,
@@ -90,7 +91,7 @@ export class AdditionalImageRenderer {
     this.setSceneState(scene, imageUrls);
     const layers = scene?.images ?? createEmptyImageLayers();
     const wanted = new Set<string>();
-    for (const layer of ['map', 'token', 'gm'] as const) {
+    for (const layer of SCENE_LAYERS) {
       const container = containers[layer];
       for (
         let imageIndex = 0;

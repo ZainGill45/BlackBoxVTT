@@ -21,6 +21,7 @@ import {
   dropAssetOnStage,
   importFixture,
   measurementLabels,
+  placeTextOnStage,
   readScene,
   stage,
   stageCentre,
@@ -155,6 +156,140 @@ test.describe('scene synchronization', () => {
       .toBeGreaterThan(VISIBLE_CHANGE);
   });
 
+  test('mirrors committed text and its live move preview', async () => {
+    const empty = await playerFrame();
+    await placeTextOnStage(gm.window, centre, 'Synchronized label');
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token.length)
+      .toBe(1);
+    await expect
+      .poll(async () => pixelDifferenceRatio(empty, await playerFrame()), {
+        message: 'committed host text never reached the player',
+      })
+      .toBeGreaterThan(0.0005);
+
+    await gm.window.getByRole('button', { name: 'Select' }).click();
+    const before = await playerFrame();
+    const storedBefore = (await readScene(gm.window, CAMPAIGN)).texts.token[0];
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The Game Master stage has no layout box.');
+    }
+    await gm.window.mouse.move(box.x + centre.x, box.y + centre.y);
+    await gm.window.mouse.down();
+    for (let step = 1; step <= 12; step += 1) {
+      await gm.window.mouse.move(
+        box.x + centre.x + step * 10,
+        box.y + centre.y + step * 6,
+      );
+    }
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the player never rendered the in-progress text move',
+      })
+      .toBeGreaterThan(0.0005);
+    expect((await readScene(gm.window, CAMPAIGN)).texts.token[0].x).toBe(
+      storedBefore.x,
+    );
+    await gm.window.mouse.up();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token[0].x)
+      .toBeGreaterThan(storedBefore.x);
+  });
+
+  test('propagates player-authored text back to the host', async () => {
+    const hostBefore = await stage(gm.window).screenshot();
+    const playerCentre = await stageCentre(player.window);
+    await placeTextOnStage(player.window, playerCentre, 'Player-authored label');
+
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token.length)
+      .toBe(1);
+    expect((await readScene(gm.window, CAMPAIGN)).texts.token[0]).toMatchObject({
+      content: 'Player-authored label',
+      ownerId: expect.any(String),
+    });
+    await expect
+      .poll(
+        async () =>
+          pixelDifferenceRatio(hostBefore, await stage(gm.window).screenshot()),
+        { message: 'player-authored text never appeared for the host' },
+      )
+      .toBeGreaterThan(0.0005);
+  });
+
+  test('mirrors text scaling during preview and after commit', async () => {
+    const size = await placeTextOnStage(gm.window, centre, 'Scale label');
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token.length)
+      .toBe(1);
+    await gm.window.getByRole('button', { name: 'Select' }).click();
+    await stage(gm.window).click({ position: centre });
+    const before = await playerFrame();
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The Game Master stage has no layout box.');
+    }
+    const corner = {
+      x: box.x + centre.x + size.width / 2,
+      y: box.y + centre.y + size.height / 2,
+    };
+    await gm.window.mouse.move(corner.x, corner.y);
+    await gm.window.mouse.down();
+    await gm.window.mouse.move(corner.x + 90, corner.y + 45, { steps: 12 });
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the player never rendered the in-progress text scale',
+      })
+      .toBeGreaterThan(0.0005);
+    expect((await readScene(gm.window, CAMPAIGN)).texts.token[0].scaleX).toBe(1);
+    await gm.window.mouse.up();
+    await expect
+      .poll(
+        async () =>
+          (await readScene(gm.window, CAMPAIGN)).texts.token[0].scaleX,
+      )
+      .toBeGreaterThan(1.1);
+  });
+
+  test('mirrors text rotation during preview and after commit', async () => {
+    const size = await placeTextOnStage(gm.window, centre, 'Rotate label');
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token.length)
+      .toBe(1);
+    await gm.window.getByRole('button', { name: 'Select' }).click();
+    await stage(gm.window).click({ position: centre });
+    const before = await playerFrame();
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The Game Master stage has no layout box.');
+    }
+    const rotateHandle = {
+      x: box.x + centre.x,
+      y: box.y + centre.y - size.height / 2 - 44,
+    };
+    await gm.window.mouse.move(rotateHandle.x, rotateHandle.y);
+    await gm.window.mouse.down();
+    await gm.window.mouse.move(
+      box.x + centre.x + 70,
+      box.y + centre.y,
+      { steps: 12 },
+    );
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the player never rendered the in-progress text rotation',
+      })
+      .toBeGreaterThan(0.0005);
+    expect((await readScene(gm.window, CAMPAIGN)).texts.token[0].rotation).toBe(0);
+    await gm.window.mouse.up();
+    await expect
+      .poll(
+        async () =>
+          Math.abs((await readScene(gm.window, CAMPAIGN)).texts.token[0].rotation),
+      )
+      .toBeGreaterThan(15);
+  });
+
   test('keeps a Game Master layer image off the player stage', async () => {
     const before = await playerFrame();
 
@@ -184,6 +319,21 @@ test.describe('scene synchronization', () => {
     ).toBeLessThan(VISIBLE_CHANGE);
 
     await gm.window.getByRole('button', { name: 'Token layer' }).click();
+  });
+
+  test('keeps Game Master layer text off the player stage', async () => {
+    const playerBefore = await playerFrame();
+    await gm.window.getByRole('button', { name: 'GM layer' }).click();
+    await placeTextOnStage(gm.window, centre, 'Secret GM label');
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.gm.length)
+      .toBe(1);
+    await gm.window.waitForTimeout(1500);
+
+    expect(
+      pixelDifferenceRatio(playerBefore, await playerFrame()),
+      'Game Master text leaked onto the player stage',
+    ).toBeLessThan(0.0005);
   });
 
   test('shows a Game Master measurement on the player stage', async () => {

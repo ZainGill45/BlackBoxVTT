@@ -2,15 +2,16 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'reac
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
 import type { NetworkApi } from '../../shared/network';
 import {
-  imageStateOf,
+  sceneObjectStateOf,
   MAX_SCENE_IMAGES,
   type SceneApi,
   type SceneImageLayer,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneRecord,
 } from '../../shared/scenes';
 import type { SceneRendererHandle } from './canvas/SceneRenderer';
 import type { PlaySession, PlayToolId } from './types';
+import type { TextSettings } from './textSettings';
 import {
   drawingStyle,
   type PaintSettings,
@@ -49,17 +50,18 @@ interface MapStageProps {
   onActiveLayerChange?: (layer: SceneImageLayer) => void;
   onCommitImages?: (
     scene: SceneRecord,
-    state: SceneImageState,
+    state: SceneObjectState,
   ) => Promise<SceneRecord | null>;
   onCommitObjects?: (
     scene: SceneRecord,
-    state: SceneImageState,
+    state: SceneObjectState,
     operationId: string,
   ) => Promise<SceneRecord | null>;
   onRedo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   onUndo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   paintSettings?: PaintSettings;
   paintSubtool?: PaintSubtool;
+  textSettings?: TextSettings;
   scene: SceneRecord | null;
   sceneApi: SceneApi;
   session: PlaySession;
@@ -93,6 +95,7 @@ export function MapStage({
   onUndo,
   paintSettings,
   paintSubtool = 'freeform',
+  textSettings,
 }: MapStageProps) {
   const elementRef = useRef<HTMLElement | null>(null);
   const sceneRef = useRef(scene);
@@ -220,6 +223,8 @@ export function MapStage({
       paintStyle: paintSettings
         ? drawingStyle(paintSettings, paintSubtool)
         : undefined,
+      textEnabled: activeTool === 'text',
+      textStyle: textSettings,
       pingEnabled: activeTool === 'select',
       onActiveLayerChange,
       onCommit: async (state, operationId) => {
@@ -314,6 +319,7 @@ export function MapStage({
     session.campaignId,
     session.role,
     sessionUserId,
+    textSettings,
   ]);
 
   useImperativeHandle(
@@ -384,7 +390,7 @@ export function MapStage({
               x: scene.width / 2,
               y: scene.height / 2,
             };
-            const state = imageStateOf(scene);
+            const state = sceneObjectStateOf(scene);
             if (
               Object.values(state.images).flat().length >= MAX_SCENE_IMAGES
             ) {

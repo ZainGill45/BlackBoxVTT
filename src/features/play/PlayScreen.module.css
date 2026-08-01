@@ -36,11 +36,11 @@
   gap: var(--space-1);
 }
 
-.paintTool {
+.toolWithRail {
   position: relative;
 }
 
-.paintSubtools {
+.toolRail {
   position: absolute;
   top: 0;
   left: calc(100% + var(--space-1));

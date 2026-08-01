@@ -4,25 +4,28 @@ import type {
   Container,
   Graphics,
   Sprite,
+  Text,
   TilingSprite,
 } from '../../../../support/pixiStub';
 import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyTextLayers,
   MAX_SCENE_IMAGES,
   type SceneDrawing,
   type SceneDrawingStyle,
   type SceneImage,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneRecord,
+  type SceneText,
 } from '../../../../../shared/scenes';
 import {
   sceneToScreen,
   type Camera,
   type Viewport,
 } from '../../../../../features/play/canvas/camera';
-import { CANONICAL_MAP_ID } from '../../../../../features/play/canvas/imageGeometry';
+import { CANONICAL_MAP_ID } from '../../../../../shared/scenes';
 import { SceneRenderer } from '../../../../../features/play/canvas/SceneRenderer';
 import { strokeDrawingPath } from '../../../../../features/play/canvas/sceneDrawingRenderer';
 import { selectedSceneTargets } from '../../../../../features/play/canvas/sceneSelection';
@@ -83,6 +86,7 @@ function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     ...overrides,
     drawings: overrides.drawings ?? createEmptyDrawingLayers(),
     images: overrides.images ?? createEmptyImageLayers(),
+    texts: overrides.texts ?? createEmptyTextLayers(),
   };
 }
 
@@ -126,6 +130,29 @@ function drawing(
   };
 }
 
+function sceneText(overrides: Partial<SceneText> = {}): SceneText {
+  return {
+    content: 'Old label',
+    id: '77777777-7777-4777-8777-777777777777',
+    ownerId: null,
+    revision: 0,
+    rotation: 25,
+    scaleX: 1.5,
+    scaleY: 0.75,
+    style: {
+      fontFamily: 'inter',
+      fontSize: 32,
+      fontWeight: 600,
+      primaryColor: '#ffffff',
+      strokeColor: '#000000',
+      strokeWidth: 2,
+    },
+    x: 960,
+    y: 540,
+    ...overrides,
+  };
+}
+
 function spriteOf(renderer: SceneRenderer): Sprite | undefined {
   return (renderer as unknown as { mapSprite: Sprite | null }).mapSprite ??
     undefined;
@@ -137,6 +164,14 @@ function gridOf(renderer: SceneRenderer): Graphics {
 
 function hatchOf(renderer: SceneRenderer): TilingSprite | null {
   return (renderer as unknown as { hatch: TilingSprite | null }).hatch;
+}
+
+function textPreviewOf(renderer: SceneRenderer): Text | null {
+  return (
+    renderer as unknown as {
+      textRenderer: { previewInstance: Text | null };
+    }
+  ).textRenderer.previewInstance;
 }
 
 /** Lets the image load microtask and the texture swap settle. */
@@ -329,7 +364,7 @@ describe('SceneRenderer', () => {
     const current = scene();
     const actorId = '22222222-2222-4222-8222-222222222222';
     const onCommit = vi.fn(
-      async (state: SceneImageState, operationId: string) => {
+      async (state: SceneObjectState, operationId: string) => {
         void operationId;
         return {
           ...current,
@@ -469,7 +504,7 @@ describe('SceneRenderer', () => {
 
   it('finishes open Polylines with Enter and cancels unfinished work on tool change', async () => {
     const current = scene();
-    const onCommit = vi.fn(async (state: SceneImageState) => ({
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
       ...current,
       ...state,
       revision: current.revision + 1,
@@ -590,7 +625,7 @@ describe('SceneRenderer', () => {
     const actorId = '22222222-2222-4222-8222-222222222222';
     let authoritative = scene();
     const onCommit = vi.fn(
-      async (state: SceneImageState, _operationId: string) => {
+      async (state: SceneObjectState, _operationId: string) => {
         void _operationId;
         authoritative = {
           ...authoritative,
@@ -829,7 +864,7 @@ describe('SceneRenderer', () => {
     });
     const undoHistory: SceneRecord[] = [];
     const redoHistory: SceneRecord[] = [];
-    const onCommit = vi.fn(async (state: SceneImageState) => {
+    const onCommit = vi.fn(async (state: SceneObjectState) => {
       undoHistory.push(structuredClone(authoritative));
       redoHistory.length = 0;
       authoritative = {
@@ -2100,7 +2135,7 @@ describe('SceneRenderer', () => {
         ],
       },
     });
-    const onCommit = vi.fn(async (state: SceneImageState) => ({
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
       ...current,
       ...state,
       revision: current.revision + 1,
@@ -2193,7 +2228,7 @@ describe('SceneRenderer', () => {
         ],
       },
     });
-    const onCommit = vi.fn(async (state: SceneImageState) => ({
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
       ...current,
       ...state,
       revision: current.revision + 1,
@@ -2293,7 +2328,7 @@ describe('SceneRenderer', () => {
         ],
       },
     });
-    const onCommit = vi.fn(async (state: SceneImageState) => ({
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
       ...current,
       ...state,
       revision: current.revision + 1,
@@ -2411,7 +2446,7 @@ describe('SceneRenderer', () => {
       id: '77777777-7777-4777-8777-777777777777',
       width: 1000,
     });
-    const onCommit = vi.fn(async (state: SceneImageState) => ({
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
       ...target,
       ...state,
       revision: target.revision + 1,
@@ -2474,7 +2509,7 @@ describe('SceneRenderer', () => {
         y: 540,
       },
     });
-    const onCommit = vi.fn(async (state: SceneImageState) => ({
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
       ...current,
       ...state,
       revision: current.revision + 1,
@@ -2611,7 +2646,7 @@ describe('SceneRenderer', () => {
       },
     });
     let attempt = 0;
-    const onCommit = vi.fn(async (state: SceneImageState) => {
+    const onCommit = vi.fn(async (state: SceneObjectState) => {
       attempt += 1;
       return attempt === 1
         ? null
@@ -2923,6 +2958,271 @@ describe('SceneRenderer', () => {
     expect(coordinates.every((value) => Math.abs(value % 1) === 0.5)).toBe(
       true,
     );
+  });
+
+  it('authors multiline text locally and commits it with the captured style', async () => {
+    const onCommit = vi.fn(async (state: SceneObjectState) =>
+      scene({ ...state, revision: 1 }),
+    );
+    const textStyle = sceneText().style;
+    renderer.setScene(scene(), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      editable: false,
+      onCommit,
+      textEnabled: true,
+      textStyle,
+    });
+
+    element.dispatchEvent(
+      pointerEvent('pointerdown', { button: 0, clientX: 400, clientY: 300 }),
+    );
+    const editor = element.querySelector('textarea');
+    expect(editor).not.toBeNull();
+    if (!editor) {
+      return;
+    }
+    editor.value = '  First\nSecond 😀  ';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    expect(textPreviewOf(renderer)?.text).toBe(editor.value);
+    expect(textPreviewOf(renderer)?.style.stroke).toEqual({
+      color: '#000000',
+      width: 2,
+    });
+    expect(editor.style.webkitTextStroke).toBe('');
+    editor.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: 'Enter',
+      }),
+    );
+
+    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    const committed = onCommit.mock.calls[0][0];
+    expect(committed.texts.token[0]).toMatchObject({
+      content: '  First\nSecond 😀  ',
+      ownerId: null,
+      rotation: 0,
+      scaleX: 1,
+      scaleY: 1,
+      style: textStyle,
+      x: 960,
+      y: 540,
+    });
+    await vi.waitFor(() =>
+      expect(element.querySelector('textarea')).toBeNull(),
+    );
+    expect(textPreviewOf(renderer)).toBeNull();
+  });
+
+  it('keeps invalid and conflicted text drafts open with an error', async () => {
+    const onCommit = vi.fn(async () => null);
+    renderer.setScene(scene(), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      editable: false,
+      onCommit,
+      textEnabled: true,
+      textStyle: sceneText().style,
+    });
+    element.dispatchEvent(
+      pointerEvent('pointerdown', { button: 0, clientX: 400, clientY: 300 }),
+    );
+    const editor = element.querySelector('textarea')!;
+    const invalidContent = Array.from(
+      { length: 33 },
+      (_, index) => `Line ${index + 1}`,
+    ).join('\n');
+    editor.value = invalidContent;
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    editor.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: 'Enter',
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')).toHaveTextContent(
+        'Text can contain at most 32 lines.',
+      ),
+    );
+    expect(element.querySelector('textarea')).toHaveValue(invalidContent);
+    expect(onCommit).not.toHaveBeenCalled();
+
+    editor.value = 'A valid but conflicted draft';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    editor.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: 'Enter',
+      }),
+    );
+
+    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')).toHaveTextContent(
+        'Text could not be saved because the scene changed. Try again.',
+      ),
+    );
+    expect(element.querySelector('textarea')).toHaveValue(
+      'A valid but conflicted draft',
+    );
+  });
+
+  it('retries a conflicted draft on top of the latest authoritative scene', async () => {
+    let resolveFirst!: (value: SceneRecord | null) => void;
+    const firstCommit = new Promise<SceneRecord | null>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const onCommit = vi
+      .fn<(state: SceneObjectState) => Promise<SceneRecord | null>>()
+      .mockImplementationOnce(async () => firstCommit)
+      .mockImplementationOnce(async (state) =>
+        scene({ ...state, revision: 2 }),
+      );
+    renderer.setScene(scene(), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      editable: false,
+      onCommit,
+      textEnabled: true,
+      textStyle: sceneText().style,
+    });
+    element.dispatchEvent(
+      pointerEvent('pointerdown', { button: 0, clientX: 400, clientY: 300 }),
+    );
+    const editor = element.querySelector('textarea')!;
+    editor.value = 'Keep this draft';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    editor.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: 'Enter',
+      }),
+    );
+    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
+
+    const concurrentTexts = createEmptyTextLayers();
+    concurrentTexts.token.push(
+      sceneText({ id: '88888888-8888-4888-8888-888888888888' }),
+    );
+    renderer.setScene(scene({ revision: 1, texts: concurrentTexts }), null);
+    resolveFirst(null);
+    await vi.waitFor(() =>
+      expect(element.querySelector('[role="alert"]')).toBeVisible(),
+    );
+    editor.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: 'Enter',
+      }),
+    );
+
+    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
+    expect(onCommit.mock.calls[1][0].texts.token).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: '88888888-8888-4888-8888-888888888888',
+        }),
+        expect.objectContaining({ content: 'Keep this draft' }),
+      ]),
+    );
+    await vi.waitFor(() =>
+      expect(element.querySelector('textarea')).toBeNull(),
+    );
+  });
+
+  it('cancels blank drafts and remains ready for repeated text placement', async () => {
+    const onCommit = vi.fn(async (state: SceneObjectState) => scene(state));
+    renderer.setScene(scene(), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      editable: false,
+      onCommit,
+      textEnabled: true,
+      textStyle: sceneText().style,
+    });
+
+    element.dispatchEvent(
+      pointerEvent('pointerdown', { button: 0, clientX: 400, clientY: 300 }),
+    );
+    const first = element.querySelector('textarea')!;
+    first.value = ' \n\t ';
+    first.dispatchEvent(new FocusEvent('blur'));
+    await settle();
+    expect(onCommit).not.toHaveBeenCalled();
+
+    element.dispatchEvent(
+      pointerEvent('pointerdown', { button: 0, clientX: 420, clientY: 320 }),
+    );
+    expect(element.querySelector('textarea')).not.toBeNull();
+    element.querySelector('textarea')!.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Escape',
+      }),
+    );
+    expect(element.querySelector('textarea')).toBeNull();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it('edits text content inline without changing its center, transform, or style', async () => {
+    const original = sceneText();
+    const onCommit = vi.fn(async (state: SceneObjectState) =>
+      scene({ ...state, revision: 1 }),
+    );
+    renderer.setScene(
+      scene({ texts: { ...createEmptyTextLayers(), token: [original] } }),
+      null,
+    );
+    renderer.setInteraction({
+      activeLayer: 'token',
+      canEditImages: true,
+      editable: true,
+      onCommit,
+    });
+
+    element.dispatchEvent(
+      new MouseEvent('dblclick', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 400,
+        clientY: 300,
+      }),
+    );
+    const editor = element.querySelector('textarea');
+    expect(editor?.value).toBe('Old label');
+    if (!editor) {
+      return;
+    }
+    editor.value = 'New\nlabel';
+    editor.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    editor.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        metaKey: true,
+        key: 'Enter',
+      }),
+    );
+
+    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    expect(onCommit.mock.calls[0][0].texts.token[0]).toEqual({
+      ...original,
+      content: 'New\nlabel',
+    });
   });
 
   describe('camera input', () => {

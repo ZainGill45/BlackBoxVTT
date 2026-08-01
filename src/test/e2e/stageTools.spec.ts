@@ -159,6 +159,78 @@ test.describe('stage camera and tools', () => {
       .toBeGreaterThan(THIN_LINE_CHANGE);
   });
 
+  test('renders and persists styled multiline text with packaged fonts', async () => {
+    await gm.window.getByRole('button', { name: 'Text' }).click();
+    const rail = gm.window.getByRole('toolbar', { name: 'Text tools' });
+    await rail.getByRole('button', { name: 'Text settings' }).click();
+    const settings = gm.window.getByRole('dialog', { name: 'Text settings' });
+    await expect(settings).toBeVisible();
+    await settings.getByLabel('Font family').selectOption('roboto-mono');
+    await settings.getByLabel('Font weight').selectOption('700');
+    await settings.getByLabel('Font size').fill('48');
+    await settings.getByLabel('Font size').press('Enter');
+    await settings.getByLabel('Primary color', { exact: true }).fill('#e02b2b');
+    await settings.getByLabel('Primary color', { exact: true }).press('Enter');
+    await settings.getByLabel('Stroke width').fill('4');
+    await settings.getByLabel('Stroke width').press('Enter');
+    await gm.window.keyboard.press('Escape');
+    await expect(settings).toBeHidden();
+
+    await canvas.click({ position: centre });
+    const editor = gm.window.getByLabel('New map text');
+    await expect(editor).toBeVisible();
+    await editor.fill('Iron Keep\n門楼 Привет');
+    const editorPaint = await editor.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        fill: style.getPropertyValue('-webkit-text-fill-color'),
+        strokeWidth: style.getPropertyValue('-webkit-text-stroke-width'),
+      };
+    });
+    expect(editorPaint.fill).toBe('rgba(0, 0, 0, 0)');
+    expect(editorPaint.strokeWidth).toBe('0px');
+    await expect
+      .poll(async () => pixelDifferenceRatio(settled, await canvas.screenshot()), {
+        message: 'the local Pixi text preview never appeared while editing',
+      })
+      .toBeGreaterThan(THIN_LINE_CHANGE);
+    await editor.press('Control+Enter');
+    await expect(editor).toBeHidden();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token.length)
+      .toBe(1);
+    expect((await readScene(gm.window, CAMPAIGN)).texts.token[0]).toMatchObject({
+      content: 'Iron Keep\n門楼 Привет',
+      style: {
+        fontFamily: 'roboto-mono',
+        fontSize: 48,
+        fontWeight: 700,
+        primaryColor: '#e02b2b',
+        strokeWidth: 4,
+      },
+    });
+    await expect
+      .poll(async () => pixelDifferenceRatio(settled, await canvas.screenshot()), {
+        message: 'committed text never appeared on the WebGL stage',
+      })
+      .toBeGreaterThan(THIN_LINE_CHANGE);
+
+    const fontsReady = await gm.window.evaluate(() =>
+      [
+        ['Inter Variable', 700],
+        ['Lora Variable', 700],
+        ['Roboto Mono Variable', 700],
+        ['Cinzel Variable', 700],
+        ['Noto Sans Variable', 400],
+        ['Noto Sans SC Variable', 400],
+        ['Unifont', 400],
+      ].every(([family, weight]) =>
+        document.fonts.check(`${weight} 16px "${family}"`),
+      ),
+    );
+    expect(fontsReady, 'a packaged scene-text font was unavailable').toBe(true);
+  });
+
   test('shows a ruler while measuring', async () => {
     await gm.window.getByRole('button', { name: 'Measure' }).click();
 

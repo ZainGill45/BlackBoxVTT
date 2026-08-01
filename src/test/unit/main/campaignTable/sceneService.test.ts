@@ -6,7 +6,8 @@ import {
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptySceneManifest,
-  imageStateOf,
+  createEmptyTextLayers,
+  sceneObjectStateOf,
   type SceneRecord,
 } from '../../../../shared/scenes';
 
@@ -43,6 +44,7 @@ function scene(): SceneRecord {
     pixelScale: 1,
     revision: 1,
     unit: 'ft',
+    texts: createEmptyTextLayers(),
     updatedAt: '2026-07-31T12:00:00.000Z',
     width: 100,
   };
@@ -106,7 +108,7 @@ describe('CampaignSceneService', () => {
 
   it('applies player identity to commits and projects mutation results', async () => {
     const { activeScene, service, setObjects } = createHarness();
-    const state = imageStateOf(activeScene);
+    const state = sceneObjectStateOf(activeScene);
 
     const result = await service.setPlayerObjects(
       sceneId,

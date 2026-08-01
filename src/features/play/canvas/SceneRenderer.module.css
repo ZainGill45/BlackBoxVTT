@@ -102,3 +102,42 @@
   white-space: nowrap;
   transform: translate(0.5rem, calc(-100% - 0.5rem));
 }
+
+.textEditor {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  min-width: 2rem;
+  min-height: 1.5rem;
+  padding: 2px;
+  overflow: hidden;
+  color: transparent;
+  background: transparent;
+  border: 1px dashed rgb(255 255 255 / 70%);
+  border-radius: 0;
+  caret-color: var(--color-focus);
+  outline: none;
+  resize: none;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0 transparent;
+  white-space: pre;
+  transform-origin: center;
+}
+
+.textEditor:focus {
+  border-color: #fff;
+}
+
+.textEditorError {
+  position: absolute;
+  z-index: 4;
+  max-width: min(24rem, calc(100% - 2rem));
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-delete-text);
+  background: var(--color-delete);
+  border: var(--border-width) solid var(--color-delete-border);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  pointer-events: none;
+}

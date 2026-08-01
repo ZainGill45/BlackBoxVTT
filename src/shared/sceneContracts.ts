@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { MAX_SCENE_OBJECTS } from './sceneConstants';
 import {
-  sceneImageStateSchema,
+  sceneObjectStateSchema,
   sceneManifestSchema,
   sceneObjectTransformSchema,
   scenePatchSchema,
@@ -23,7 +24,7 @@ export const updateSceneInputSchema = trashSceneInputSchema.extend({
   patch: scenePatchSchema,
 });
 export const setSceneImagesInputSchema = trashSceneInputSchema.extend({
-  state: sceneImageStateSchema,
+  state: sceneObjectStateSchema,
 });
 export const setSceneObjectsInputSchema = setSceneImagesInputSchema.extend({
   operationId: z.string().uuid(),
@@ -53,8 +54,8 @@ export const sceneTransformPreviewStartSchema = sceneCampaignInputSchema.extend(
         })
         .strict(),
     )
-    .max(2_049),
-  targets: z.array(z.string()).max(2_049),
+    .max(MAX_SCENE_OBJECTS),
+  targets: z.array(z.string()).max(MAX_SCENE_OBJECTS),
 });
 export const sceneTransformPreviewDeltaSchema = sceneCampaignInputSchema.extend({
   absolute: sceneObjectTransformSchema.optional(),

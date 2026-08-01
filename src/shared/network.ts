@@ -21,7 +21,7 @@ import type {
   SceneTransformPreviewStart,
 } from './scenes';
 
-export const NETWORK_PROTOCOL_VERSION = 9 as const;
+export const NETWORK_PROTOCOL_VERSION = 10 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;

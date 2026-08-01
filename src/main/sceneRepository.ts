@@ -4,9 +4,11 @@ import {
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptySceneManifest,
-  DRAWING_LOCK_TIMEOUT_MS,
-  imageStateOf,
-  MAX_DRAWING_HISTORY,
+  createEmptyTextLayers,
+  SCENE_OBJECT_LOCK_TIMEOUT_MS,
+  sceneObjectStateOf,
+  MAX_SCENE_EDIT_HISTORY,
+  SCENE_LAYERS,
   DEFAULT_SCENE_DISTANCE,
   DEFAULT_SCENE_HEIGHT,
   DEFAULT_SCENE_NAME,
@@ -17,17 +19,19 @@ import {
   sceneBounds,
   type ScenePatch,
   type SceneDrawing,
-  type SceneDrawingLayer,
+  type SceneLayer,
   type SceneEditActor,
   type SceneErrorCode,
   type SceneManifest,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneImage,
   type SceneRecord,
   type SceneResult,
+  type SceneText,
 } from '../shared/scenes';
 import {
-  sceneImageStateSchema,
+  persistedSceneRecordSchema,
+  sceneObjectStateSchema,
   sceneManifestSchema,
   sceneRecordSchema,
 } from '../shared/sceneSchema';
@@ -88,18 +92,24 @@ type SceneObjectSnapshot =
   | {
       index: number;
       kind: 'drawing';
-      layer: SceneDrawingLayer;
+      layer: SceneLayer;
       value: SceneDrawing;
     }
   | {
       index: number;
       kind: 'image';
-      layer: SceneDrawingLayer;
+      layer: SceneLayer;
       value: SceneImage;
     }
   | {
+      index: number;
+      kind: 'text';
+      layer: SceneLayer;
+      value: SceneText;
+    }
+  | {
       kind: 'map-image';
-      value: NonNullable<SceneImageState['mapImage']>;
+      value: NonNullable<SceneObjectState['mapImage']>;
     }
   | null;
 
@@ -128,7 +138,7 @@ function actorKey(actor: SceneEditActor): string {
   return actor.kind === 'gm' ? 'gm' : `player:${actor.userId}`;
 }
 
-function drawingOwner(actor: SceneEditActor): string | null {
+function objectOwner(actor: SceneEditActor): string | null {
   return actor.kind === 'gm' ? null : actor.userId;
 }
 
@@ -185,7 +195,7 @@ function sameSnapshot(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function snapshotMap(state: SceneImageState): Map<string, SceneObjectSnapshot> {
+function snapshotMap(state: SceneObjectState): Map<string, SceneObjectSnapshot> {
   const snapshots = new Map<string, SceneObjectSnapshot>();
   if (state.mapImage) {
     snapshots.set('canonical-map', {
@@ -193,7 +203,7 @@ function snapshotMap(state: SceneImageState): Map<string, SceneObjectSnapshot> {
       value: structuredClone(state.mapImage),
     });
   }
-  for (const layer of ['map', 'token', 'gm'] as SceneDrawingLayer[]) {
+  for (const layer of SCENE_LAYERS) {
     state.images[layer].forEach((image, index) => {
       snapshots.set(image.id, {
         index,
@@ -210,13 +220,21 @@ function snapshotMap(state: SceneImageState): Map<string, SceneObjectSnapshot> {
         value: structuredClone(drawing),
       });
     });
+    state.texts[layer].forEach((text, index) => {
+      snapshots.set(text.id, {
+        index,
+        kind: 'text',
+        layer,
+        value: structuredClone(text),
+      });
+    });
   }
   return snapshots;
 }
 
 function snapshotChanges(
-  before: SceneImageState,
-  after: SceneImageState,
+  before: SceneObjectState,
+  after: SceneObjectState,
 ): SceneHistoryCommand['changes'] {
   const beforeMap = snapshotMap(before);
   const afterMap = snapshotMap(after);
@@ -234,22 +252,23 @@ function snapshotChanges(
     }));
 }
 
-function removeObject(state: SceneImageState, id: string): void {
+function removeObject(state: SceneObjectState, id: string): void {
   if (id === 'canonical-map') {
     state.mapImage = null;
   }
-  for (const layer of ['map', 'token', 'gm'] as SceneDrawingLayer[]) {
+  for (const layer of SCENE_LAYERS) {
     state.images[layer] = state.images[layer].filter((image) => image.id !== id);
     state.drawings[layer] = state.drawings[layer].filter(
       (drawing) => drawing.id !== id,
     );
+    state.texts[layer] = state.texts[layer].filter((text) => text.id !== id);
   }
 }
 
 function insertSnapshot(
-  state: SceneImageState,
+  state: SceneObjectState,
   snapshot: SceneObjectSnapshot,
-  nextDrawingRevision: number,
+  nextObjectRevision: number,
 ): void {
   if (!snapshot) {
     return;
@@ -260,16 +279,24 @@ function insertSnapshot(
   }
   if (snapshot.kind === 'drawing') {
     const value = structuredClone(snapshot.value);
-    value.revision = nextDrawingRevision;
+    value.revision = nextObjectRevision;
     state.drawings[snapshot.layer].splice(
       Math.min(snapshot.index, state.drawings[snapshot.layer].length),
       0,
       value,
     );
-  } else {
+  } else if (snapshot.kind === 'image') {
     const value = structuredClone(snapshot.value);
     state.images[snapshot.layer].splice(
       Math.min(snapshot.index, state.images[snapshot.layer].length),
+      0,
+      value,
+    );
+  } else {
+    const value = structuredClone(snapshot.value);
+    value.revision = nextObjectRevision;
+    state.texts[snapshot.layer].splice(
+      Math.min(snapshot.index, state.texts[snapshot.layer].length),
       0,
       value,
     );
@@ -330,7 +357,9 @@ export class SceneRepository {
         activeSceneId: state.active_scene_id,
         revision: state.revision,
         scenes: records.map((row) => {
-          const scene = sceneRecordSchema.parse(JSON.parse(row.record_json));
+          const scene = persistedSceneRecordSchema.parse(
+            JSON.parse(row.record_json),
+          );
           if (scene.id !== row.id) {
             throw new Error('Scene row ID does not match its record.');
           }
@@ -370,6 +399,7 @@ export class SceneRepository {
         unit: DEFAULT_SCENE_UNIT,
         updatedAt: timestamp,
         width: DEFAULT_SCENE_WIDTH,
+        texts: createEmptyTextLayers(),
       };
       return {
         manifest: { ...manifest, scenes: [...manifest.scenes, scene] },
@@ -380,7 +410,7 @@ export class SceneRepository {
 
   setImages(
     sceneId: string,
-    state: SceneImageState,
+    state: SceneObjectState,
     expectedRevision: number,
   ): Promise<SceneResult<SceneRecord>> {
     return this.setObjects(
@@ -394,7 +424,7 @@ export class SceneRepository {
 
   setObjects(
     sceneId: string,
-    state: SceneImageState,
+    state: SceneObjectState,
     expectedRevision: number,
     operationId: string,
     actor: SceneEditActor,
@@ -439,16 +469,19 @@ export class SceneRepository {
         current.revision !== expectedRevision
       ) {
         const requestedIds = new Set(
-          Object.values(state.drawings)
-            .flat()
-            .map((drawing) => drawing.id),
+          [
+            ...Object.values(state.drawings).flat(),
+            ...Object.values(state.texts).flat(),
+          ].map((object) => object.id),
         );
-        const deletesExisting = Object.values(current.drawings)
-          .flat()
+        const deletesExisting = [
+          ...Object.values(current.drawings).flat(),
+          ...Object.values(current.texts).flat(),
+        ]
           .some(
-            (drawing) =>
-              drawing.ownerId === actor.userId &&
-              !requestedIds.has(drawing.id),
+            (object) =>
+              object.ownerId === actor.userId &&
+              !requestedIds.has(object.id),
           );
         if (deletesExisting) {
           return failure(
@@ -463,7 +496,7 @@ export class SceneRepository {
         return prepared;
       }
       const normalizedState = prepared.value;
-      const parsed = sceneImageStateSchema.safeParse(normalizedState);
+      const parsed = sceneObjectStateSchema.safeParse(normalizedState);
       if (!parsed.success) {
         return failure(
           'invalid_input',
@@ -471,7 +504,7 @@ export class SceneRepository {
           sceneId,
         );
       }
-      const before = imageStateOf(current);
+      const before = sceneObjectStateOf(current);
       const changes = snapshotChanges(before, parsed.data);
       const lockConflict = changes.some(({ id }) =>
         this.isLockedByAnother(sceneId, id, actor, operationId),
@@ -534,7 +567,7 @@ export class SceneRepository {
         return failure('not_found', 'The scene no longer exists.', sceneId);
       }
       this.expireLocks();
-      const stateTargets = snapshotMap(imageStateOf(scene));
+      const stateTargets = snapshotMap(sceneObjectStateOf(scene));
       const uniqueTargets = [...new Set(targets)];
       if (
         uniqueTargets.length === 0 ||
@@ -547,14 +580,14 @@ export class SceneRepository {
         uniqueTargets.some((id) => {
           const snapshot = stateTargets.get(id);
           return (
-            snapshot?.kind !== 'drawing' ||
+            (snapshot?.kind !== 'drawing' && snapshot?.kind !== 'text') ||
             snapshot.value.ownerId !== actor.userId
           );
         })
       ) {
         return failure(
           'permission_denied',
-          'Players can transform only their own drawings.',
+          'Players can transform only their own drawings and text.',
           sceneId,
         );
       }
@@ -569,7 +602,7 @@ export class SceneRepository {
           sceneId,
         );
       }
-      const expiresAt = Date.now() + DRAWING_LOCK_TIMEOUT_MS;
+      const expiresAt = Date.now() + SCENE_OBJECT_LOCK_TIMEOUT_MS;
       for (const id of uniqueTargets) {
         this.objectLocks.set(`${sceneId}:${id}`, {
           actor: actorKey(actor),
@@ -585,7 +618,7 @@ export class SceneRepository {
     operationId: string,
     actor: SceneEditActor,
   ): void {
-    const expiresAt = Date.now() + DRAWING_LOCK_TIMEOUT_MS;
+    const expiresAt = Date.now() + SCENE_OBJECT_LOCK_TIMEOUT_MS;
     const key = actorKey(actor);
     for (const lock of this.objectLocks.values()) {
       if (lock.actor === key && lock.operationId === operationId) {
@@ -779,28 +812,50 @@ export class SceneRepository {
 
   private prepareObjectState(
     current: SceneRecord,
-    requested: SceneImageState,
+    requested: SceneObjectState,
     actor: SceneEditActor,
-  ): SceneResult<SceneImageState> {
-    const currentState = imageStateOf(current);
+  ): SceneResult<SceneObjectState> {
+    const currentState = sceneObjectStateOf(current);
     const currentDrawings = new Map(
       Object.values(current.drawings)
         .flat()
         .map((drawing) => [drawing.id, drawing]),
     );
+    const currentTexts = new Map(
+      Object.values(current.texts)
+        .flat()
+        .map((text) => [text.id, text]),
+    );
     if (actor.kind === 'gm') {
       const drawings = createEmptyDrawingLayers();
-      for (const layer of ['map', 'token', 'gm'] as SceneDrawingLayer[]) {
+      const texts = createEmptyTextLayers();
+      for (const layer of SCENE_LAYERS) {
         drawings[layer] = requested.drawings[layer].map((candidate) => {
           const existing = currentDrawings.get(candidate.id);
           const normalized = normalizeDrawing({
             ...candidate,
-            ownerId: existing?.ownerId ?? drawingOwner(actor),
+            ownerId: existing?.ownerId ?? objectOwner(actor),
           });
           return {
             ...normalized,
             revision: existing
               ? sameDrawing(existing, normalized)
+                ? existing.revision
+                : existing.revision + 1
+              : 0,
+          };
+        });
+        texts[layer] = requested.texts[layer].map((candidate) => {
+          const existing = currentTexts.get(candidate.id);
+          const normalized = normalizeText({
+            ...candidate,
+            ownerId: existing?.ownerId ?? objectOwner(actor),
+            ...(existing ? { style: existing.style } : {}),
+          });
+          return {
+            ...normalized,
+            revision: existing
+              ? sameText(existing, normalized)
                 ? existing.revision
                 : existing.revision + 1
               : 0,
@@ -819,25 +874,30 @@ export class SceneRepository {
           mapImage: requested.mapImage
             ? normalizeImageTransform(requested.mapImage)
             : null,
+          texts,
         },
       };
     }
 
     const requestedDrawings = new Map<
       string,
-      { drawing: SceneDrawing; layer: SceneDrawingLayer }
+      { drawing: SceneDrawing; layer: SceneLayer }
     >();
-    for (const layer of ['map', 'token', 'gm'] as SceneDrawingLayer[]) {
+    const requestedTexts = new Map<
+      string,
+      { layer: SceneLayer; text: SceneText }
+    >();
+    for (const layer of SCENE_LAYERS) {
       for (const drawing of requested.drawings[layer]) {
         requestedDrawings.set(drawing.id, { drawing, layer });
       }
+      for (const text of requested.texts[layer]) {
+        requestedTexts.set(text.id, { layer, text });
+      }
     }
     const merged = structuredClone(currentState);
-    for (const layer of ['map', 'token', 'gm'] as SceneDrawingLayer[]) {
-      merged.drawings[layer] = merged.drawings[layer].filter(
-        (drawing) => drawing.ownerId !== actor.userId,
-      );
-    }
+    const preparedDrawings = new Map<string, SceneDrawing>();
+    const preparedTexts = new Map<string, SceneText>();
     for (const [id, candidate] of requestedDrawings) {
       const existing = currentDrawings.get(id);
       if (existing && existing.ownerId !== actor.userId) {
@@ -865,7 +925,7 @@ export class SceneRepository {
         ...candidate.drawing,
         ownerId: actor.userId,
       });
-      merged.drawings.token.push({
+      preparedDrawings.set(id, {
         ...normalized,
         revision: existing
           ? sameDrawing(existing, normalized)
@@ -874,6 +934,81 @@ export class SceneRepository {
           : 0,
       });
     }
+    for (const [id, candidate] of requestedTexts) {
+      const existing = currentTexts.get(id);
+      if (existing && existing.ownerId !== actor.userId) {
+        continue;
+      }
+      if (candidate.layer !== 'token') {
+        return failure(
+          'permission_denied',
+          'Players can place text only on the public token layer.',
+          current.id,
+        );
+      }
+      if (
+        existing &&
+        candidate.text.revision !== existing.revision &&
+        !sameText(existing, candidate.text)
+      ) {
+        return failure(
+          'conflict',
+          'The text changed somewhere else. Try again.',
+          current.id,
+        );
+      }
+      const normalized = normalizeText({
+        ...candidate.text,
+        ownerId: actor.userId,
+        ...(existing ? { style: existing.style } : {}),
+      });
+      preparedTexts.set(id, {
+        ...normalized,
+        revision: existing
+          ? sameText(existing, normalized)
+            ? existing.revision
+            : existing.revision + 1
+          : 0,
+      });
+    }
+    for (const layer of ['map', 'gm'] as const) {
+      merged.drawings[layer] = merged.drawings[layer].filter(
+        (drawing) => drawing.ownerId !== actor.userId,
+      );
+      merged.texts[layer] = merged.texts[layer].filter(
+        (text) => text.ownerId !== actor.userId,
+      );
+    }
+    const currentTokenDrawingIds = new Set(
+      current.drawings.token.map((drawing) => drawing.id),
+    );
+    merged.drawings.token = [
+      ...current.drawings.token.flatMap((drawing) => {
+        if (drawing.ownerId !== actor.userId) {
+          return [drawing];
+        }
+        const replacement = preparedDrawings.get(drawing.id);
+        return replacement ? [replacement] : [];
+      }),
+      ...[...preparedDrawings].flatMap(([id, drawing]) =>
+        currentTokenDrawingIds.has(id) ? [] : [drawing],
+      ),
+    ];
+    const currentTokenTextIds = new Set(
+      current.texts.token.map((text) => text.id),
+    );
+    merged.texts.token = [
+      ...current.texts.token.flatMap((text) => {
+        if (text.ownerId !== actor.userId) {
+          return [text];
+        }
+        const replacement = preparedTexts.get(text.id);
+        return replacement ? [replacement] : [];
+      }),
+      ...[...preparedTexts].flatMap(([id, text]) =>
+        currentTokenTextIds.has(id) ? [] : [text],
+      ),
+    ];
     return { ok: true, value: merged };
   }
 
@@ -888,7 +1023,7 @@ export class SceneRepository {
     const key = this.historyKey(actor, command.sceneId);
     const undo = this.undoStacks.get(key) ?? [];
     undo.push(command);
-    this.undoStacks.set(key, undo.slice(-MAX_DRAWING_HISTORY));
+    this.undoStacks.set(key, undo.slice(-MAX_SCENE_EDIT_HISTORY));
     this.redoStacks.set(key, []);
   }
 
@@ -906,7 +1041,7 @@ export class SceneRepository {
       const source = redo ? this.redoStacks : this.undoStacks;
       const destination = redo ? this.undoStacks : this.redoStacks;
       const stack = source.get(key) ?? [];
-      const currentState = imageStateOf(current);
+      const currentState = sceneObjectStateOf(current);
       const currentSnapshots = snapshotMap(currentState);
       let command: SceneHistoryCommand | undefined;
       while ((command = stack.pop())) {
@@ -955,16 +1090,20 @@ export class SceneRepository {
           (candidate) => candidate.id === change.id,
         )?.expected;
         const currentRevision =
-          previous?.kind === 'drawing' ? previous.value.revision : -1;
+          previous?.kind === 'drawing' || previous?.kind === 'text'
+            ? previous.value.revision
+            : -1;
         const targetRevision =
-          change.target.kind === 'drawing' ? change.target.value.revision : -1;
+          change.target.kind === 'drawing' || change.target.kind === 'text'
+            ? change.target.value.revision
+            : -1;
         insertSnapshot(
           nextState,
           change.target,
           Math.max(currentRevision, targetRevision) + 1,
         );
       }
-      const parsed = sceneImageStateSchema.safeParse(nextState);
+      const parsed = sceneObjectStateSchema.safeParse(nextState);
       if (!parsed.success) {
         return failure(
           'conflict',
@@ -991,7 +1130,7 @@ export class SceneRepository {
       destinationStack.push(inverse);
       destination.set(
         key,
-        destinationStack.slice(-MAX_DRAWING_HISTORY),
+        destinationStack.slice(-MAX_SCENE_EDIT_HISTORY),
       );
       return {
         manifest: {
@@ -1183,4 +1322,35 @@ export class SceneRepository {
     return manifest;
   }
 
+}
+
+function normalizeText(text: SceneText): SceneText {
+  const rotation = round(((text.rotation % 360) + 360) % 360);
+  return {
+    ...structuredClone(text),
+    content: text.content.replaceAll('\r\n', '\n'),
+    rotation: rotation >= 360 ? 0 : rotation,
+    scaleX: Math.max(0.001, round(text.scaleX)),
+    scaleY: Math.max(0.001, round(text.scaleY)),
+    style: {
+      ...text.style,
+      fontSize: round(text.style.fontSize),
+      primaryColor: text.style.primaryColor.toLowerCase(),
+      strokeColor: text.style.strokeColor.toLowerCase(),
+      strokeWidth: round(text.style.strokeWidth),
+    },
+    x: round(text.x),
+    y: round(text.y),
+  };
+}
+
+function withoutTextRevision(text: SceneText): Omit<SceneText, 'revision'> {
+  return Object.fromEntries(
+    Object.entries(text).filter(([key]) => key !== 'revision'),
+  ) as Omit<SceneText, 'revision'>;
+}
+
+function sameText(left: SceneText, right: SceneText): boolean {
+  return JSON.stringify(withoutTextRevision(left)) ===
+    JSON.stringify(withoutTextRevision(right));
 }

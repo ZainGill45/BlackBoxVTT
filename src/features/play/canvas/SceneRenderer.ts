@@ -19,21 +19,29 @@ import {
   type MeasurementUpdate,
 } from '../../../shared/network';
 import {
+  applySceneTransformPreview,
+  CANONICAL_MAP_ID,
   createEmptyImageLayers,
-  imageStateOf,
+  sceneObjectStateOf,
   MAX_SCENE_IMAGES,
   type SceneDrawing,
   type SceneDrawingPoint,
   type SceneDrawingStyle,
   type SceneImage,
   type SceneImageLayer,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneMapImage,
   type SceneRecord,
+  type SceneText,
+  type SceneTextStyle,
   type SceneTransformPreviewCancel,
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
 } from '../../../shared/scenes';
+import {
+  sceneTextLayersSchema,
+  sceneTextSchema,
+} from '../../../shared/sceneSchema';
 import {
   createCamera,
   fitToScene,
@@ -51,7 +59,6 @@ import {
   formatMeasurementDistance,
 } from './measurement';
 import {
-  CANONICAL_MAP_ID,
   containsPoint,
   rectangleCoverage,
   snapValue,
@@ -79,6 +86,7 @@ import {
   activeSceneTargets,
   canCreateSceneImages,
   canEditDrawing,
+  canEditText,
   deleteSelectedObjects,
   drawingAsImage,
   drawingTransformOf,
@@ -89,6 +97,8 @@ import {
   selectedPlacedImages,
   selectedSceneTargets,
   selectionFrame,
+  textAsImage,
+  textTransformOf,
   type EditTarget,
 } from './sceneSelection';
 import {
@@ -119,10 +129,18 @@ import {
 } from './sceneNavigationInteraction';
 import { SceneSelectionOverlay } from './sceneSelectionOverlay';
 import {
+  ensureSceneTextFontsLoaded,
+  sceneTextFontStack,
+  SceneTextRenderer,
+} from './sceneTextRenderer';
+import {
+  SceneTextEditorController,
+  type SceneTextEditorDraft,
+} from './sceneTextEditor';
+import {
   SceneDrawingRenderer,
   strokeDrawingPath,
 } from './sceneDrawingRenderer';
-import { applySceneTransformPreview } from './sceneTransformPreview';
 import {
   AdditionalImageRenderer,
   drawImagePlaceholder,
@@ -152,6 +170,7 @@ const ANIMATION_FRAME_MS = 16;
 const MEASUREMENT_UPDATE_INTERVAL_MS = 1_000 / MAX_TRANSFORM_PREVIEW_RATE;
 const MEASUREMENT_KEEPALIVE_MS = 500;
 const MEASUREMENT_EXPIRY_MS = 1_500;
+const LOCAL_TEXT_PREVIEW_ID = '00000000-0000-4000-8000-000000000000';
 
 type RendererMapPing = Omit<MapPing, 'campaignId'>;
 type RendererMeasurementUpdate = Omit<MeasurementUpdate, 'campaignId'>;
@@ -185,10 +204,12 @@ export interface SceneRendererInteraction {
   paintEnabled?: boolean;
   paintKind?: 'freeform' | 'polyline';
   paintStyle?: SceneDrawingStyle;
+  textEnabled?: boolean;
+  textStyle?: SceneTextStyle;
   pingEnabled?: boolean;
   onActiveLayerChange?: (layer: SceneImageLayer) => void;
   onCommit?: (
-    state: SceneImageState,
+    state: SceneObjectState,
     operationId: string,
   ) => Promise<SceneRecord | null>;
   onMeasurementUpdate?: (update: RendererMeasurementUpdate) => void;
@@ -385,6 +406,9 @@ export class SceneRenderer implements SceneRendererHandle {
   private imageUrl: string | null = null;
   private imageUrls: Record<string, string> = {};
   private readonly drawingRenderer: SceneDrawingRenderer;
+  private readonly textRenderer = new SceneTextRenderer();
+  private activeTextEditor: SceneTextEditorController | null = null;
+  private textDraftFontTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly imageResources = new SceneImageResourceCache();
   private readonly additionalImages = new AdditionalImageRenderer(
     this.imageResources,
@@ -647,6 +671,7 @@ export class SceneRenderer implements SceneRendererHandle {
   async mount(element: HTMLElement): Promise<void> {
     const width = Math.max(1, element.clientWidth);
     const height = Math.max(1, element.clientHeight);
+    await ensureSceneTextFontsLoaded();
     await this.app.init({
       antialias: true,
       autoDensity: true,
@@ -708,6 +733,7 @@ export class SceneRenderer implements SceneRendererHandle {
     element.addEventListener('pointermove', this.handlePointerMove);
     element.addEventListener('pointerup', this.handlePointerUp);
     element.addEventListener('pointercancel', this.handlePointerUp);
+    element.addEventListener('dblclick', this.handleDoubleClick);
     element.addEventListener('contextmenu', this.handleContextMenu);
     element.addEventListener('blur', this.handleBlur);
     element.addEventListener('keydown', this.handleKeyDown);
@@ -727,6 +753,10 @@ export class SceneRenderer implements SceneRendererHandle {
       this.interaction.paintKind !== options.paintKind;
     const measurementDisabled =
       this.interaction.measureEnabled && !options.measureEnabled;
+    const textEditingDisabled =
+      Boolean(this.activeTextEditor) &&
+      (layerChanged || !options.editable ||
+        (!options.textEnabled && !this.activeTextEditor?.draft.originalId));
     if (measurementDisabled) {
       this.cancelMeasurement();
     }
@@ -736,6 +766,9 @@ export class SceneRenderer implements SceneRendererHandle {
     if (editingDisabled || layerChanged) {
       this.cancelEditGesture();
       void this.finishNudge(true);
+    }
+    if (textEditingDisabled) {
+      void this.finishTextEditor(true);
     }
     this.interaction = options;
     this.gmWorld.alpha = options.activeLayer === 'gm' ? 1 : 0.5;
@@ -772,6 +805,7 @@ export class SceneRenderer implements SceneRendererHandle {
       this.remoteTransformStarts.clear();
     }
     if (sceneChanged) {
+      void this.finishTextEditor(false);
       this.cancelPaintGesture();
       this.cancelMeasurement();
       this.clearRemoteMeasurements();
@@ -793,6 +827,25 @@ export class SceneRenderer implements SceneRendererHandle {
       void this.finishNudge(true);
     }
     this.scene = scene;
+    const textFontContent = scene
+      ? Object.values(scene.texts)
+          .flat()
+          .map((text) => text.content)
+          .join('\n')
+      : '';
+    if (scene && textFontContent) {
+      const expectedSceneId = scene.id;
+      const expectedRevision = scene.revision;
+      void ensureSceneTextFontsLoaded(textFontContent).then(() => {
+        if (
+          this.scene?.id === expectedSceneId &&
+          this.scene.revision === expectedRevision
+        ) {
+          this.rebuildScene();
+          this.drawSelection();
+        }
+      });
+    }
     this.selected = new Set(
       [...this.selected].filter((id) => this.target(id) !== null),
     );
@@ -892,12 +945,14 @@ export class SceneRenderer implements SceneRendererHandle {
       element.removeEventListener('pointermove', this.handlePointerMove);
       element.removeEventListener('pointerup', this.handlePointerUp);
       element.removeEventListener('pointercancel', this.handlePointerUp);
+      element.removeEventListener('dblclick', this.handleDoubleClick);
       element.removeEventListener('contextmenu', this.handleContextMenu);
       element.removeEventListener('blur', this.handleBlur);
       element.removeEventListener('keydown', this.handleKeyDown);
       element.removeEventListener('keyup', this.handleKeyUp);
     }
     this.container = null;
+    this.finishTextEditor(false);
     this.measurementLabels?.remove();
     this.measurementLabels = null;
     this.mapTexture?.destroy(true);
@@ -906,6 +961,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.hatchTexture?.destroy(true);
     this.hatchTexture = null;
     this.drawingRenderer.clear();
+    this.textRenderer.clear();
     this.additionalImages.destroy();
     this.mapPlaceholder?.destroy();
     this.mapPlaceholder = null;
@@ -1038,6 +1094,11 @@ export class SceneRenderer implements SceneRendererHandle {
       },
     );
     this.drawingRenderer.render(this.scene?.drawings ?? null);
+    this.textRenderer.render(this.scene?.texts ?? null, {
+      gm: this.gmWorld,
+      map: this.world,
+      token: this.tokenWorld,
+    });
     this.applyCamera();
   }
 
@@ -1599,6 +1660,8 @@ export class SceneRenderer implements SceneRendererHandle {
         id: target.id,
         transform: target.drawing
           ? drawingTransformOf(target.drawing)
+          : target.text
+            ? textTransformOf(target.text)
           : imageTransformOf(target.image),
       })),
       targets: selected.map((target) => target.id),
@@ -1628,18 +1691,34 @@ export class SceneRenderer implements SceneRendererHandle {
         return drawingAsImage(drawing);
       }
     }
+    for (const layer of Object.values(this.scene.texts)) {
+      const text = layer.find((candidate) => candidate.id === id);
+      const bounds = this.textRenderer.bounds(id);
+      if (text && bounds && canEditText(text, this.interaction.actorId)) {
+        return textAsImage(text, bounds);
+      }
+    }
     return null;
   }
 
   private activeTargets(): EditTarget[] {
     return this.scene
-      ? activeSceneTargets(this.scene, this.interaction)
+      ? activeSceneTargets(
+          this.scene,
+          this.interaction,
+          (id) => this.textRenderer.bounds(id),
+        )
       : [];
   }
 
   private selectedTargets(): EditTarget[] {
     return this.scene
-      ? selectedSceneTargets(this.scene, this.selected, this.interaction)
+      ? selectedSceneTargets(
+          this.scene,
+          this.selected,
+          this.interaction,
+          (id) => this.textRenderer.bounds(id),
+        )
       : [];
   }
 
@@ -1656,7 +1735,7 @@ export class SceneRenderer implements SceneRendererHandle {
     return selectionFrame(targets, groupAngle);
   }
 
-  private applyState(state: SceneImageState): void {
+  private applyState(state: SceneObjectState): void {
     if (!this.scene) {
       return;
     }
@@ -1665,8 +1744,8 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private async commitState(
-    before: SceneImageState,
-    after: SceneImageState,
+    before: SceneObjectState,
+    after: SceneObjectState,
     beforeRotation = this.groupSelectionRotation,
     operationId: string = crypto.randomUUID(),
   ): Promise<boolean> {
@@ -1716,6 +1795,212 @@ export class SceneRenderer implements SceneRendererHandle {
       point.y <= this.scene.height
       ? point
       : null;
+  }
+
+  private editableTextAt(
+    screenPoint: { x: number; y: number },
+  ): SceneText | null {
+    const point = screenToScene(this.camera, this.viewport, screenPoint);
+    const targets = this.activeTargets();
+    for (let index = targets.length - 1; index >= 0; index -= 1) {
+      const target = targets[index];
+      if (target.text && containsPoint(target.image, point)) {
+        return target.text;
+      }
+    }
+    return null;
+  }
+
+  private beginTextEditor(
+    point: { x: number; y: number },
+    existing: SceneText | null = null,
+  ): void {
+    if (
+      !this.container ||
+      !this.scene ||
+      (!this.interaction.editable && !this.interaction.textEnabled)
+    ) {
+      return;
+    }
+    if (this.activeTextEditor) {
+      void this.finishTextEditor(true);
+      return;
+    }
+    const style = structuredClone(existing?.style ?? this.interaction.textStyle);
+    if (!style) {
+      return;
+    }
+    const draft: SceneTextEditorDraft = {
+      layer: this.interaction.activeLayer,
+      originalId: existing?.id ?? null,
+      point: existing ? { x: existing.x, y: existing.y } : point,
+      rotation: existing?.rotation ?? 0,
+      scaleX: existing?.scaleX ?? 1,
+      scaleY: existing?.scaleY ?? 1,
+      style,
+    };
+    const editor: SceneTextEditorController = new SceneTextEditorController({
+      container: this.container,
+      draft,
+      editorClassName: styles.textEditor,
+      errorClassName: styles.textEditorError,
+      initialContent: existing?.content ?? '',
+      label: existing ? 'Edit map text' : 'New map text',
+      onChange: () => this.syncTextEditor(),
+      onClose: () => this.closeTextEditor(editor),
+      onCommit: (): Promise<string | null> => this.commitTextEditor(editor),
+    });
+    this.activeTextEditor = editor;
+    this.syncTextEditor();
+  }
+
+  private syncTextEditor(loadFonts = true): void {
+    const editor = this.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    const { draft } = editor;
+    const content = editor.content;
+    const screen = sceneToScreen(this.camera, this.viewport, draft.point);
+    const fontSize = draft.style.fontSize * this.camera.zoom;
+    const strokeWidth = draft.style.strokeWidth * this.camera.zoom;
+    const previewCandidate: SceneText = {
+      content,
+      id: draft.originalId ?? LOCAL_TEXT_PREVIEW_ID,
+      ownerId: null,
+      revision: 0,
+      rotation: draft.rotation,
+      scaleX: draft.scaleX,
+      scaleY: draft.scaleY,
+      style: draft.style,
+      x: draft.point.x,
+      y: draft.point.y,
+    };
+    const parsedPreview = sceneTextSchema.safeParse(previewCandidate);
+    const previewBounds = this.textRenderer.renderPreview(
+      {
+        hiddenTextId: draft.originalId,
+        layer: draft.layer,
+        text: parsedPreview.success ? parsedPreview.data : null,
+      },
+      { gm: this.gmWorld, map: this.world, token: this.tokenWorld },
+    );
+    editor.layout({
+      fontFamily: sceneTextFontStack(draft.style.fontFamily)
+        .map((family) => `"${family}"`)
+        .join(', '),
+      fontSize,
+      left: screen.x,
+      minimumHeight: fontSize * 1.25,
+      minimumWidth: fontSize * 2,
+      padding: strokeWidth + 2,
+      previewHeight: (previewBounds?.height ?? 0) * this.camera.zoom,
+      previewWidth: (previewBounds?.width ?? 0) * this.camera.zoom,
+      rotation: draft.rotation,
+      scaleX: draft.scaleX,
+      scaleY: draft.scaleY,
+      top: screen.y,
+    });
+    if (loadFonts && content) {
+      if (this.textDraftFontTimer) {
+        clearTimeout(this.textDraftFontTimer);
+      }
+      this.textDraftFontTimer = setTimeout(() => {
+        this.textDraftFontTimer = null;
+        void ensureSceneTextFontsLoaded(content).then(() => {
+          if (this.activeTextEditor === editor && editor.content === content) {
+            this.syncTextEditor(false);
+          }
+        });
+      }, 80);
+    }
+  }
+
+  private async finishTextEditor(commit: boolean): Promise<void> {
+    const editor = this.activeTextEditor;
+    if (!editor) {
+      return;
+    }
+    if (!commit) {
+      editor.cancel();
+      return;
+    }
+    await editor.commit();
+  }
+
+  private async commitTextEditor(
+    editor: SceneTextEditorController,
+  ): Promise<string | null> {
+    if (this.activeTextEditor !== editor || !this.scene) {
+      return 'The active scene changed before the text could be saved.';
+    }
+    const { draft } = editor;
+    const content = editor.content;
+    if (!/\S/u.test(content)) {
+      return null;
+    }
+    const before = sceneObjectStateOf(this.scene);
+    const after = structuredClone(before);
+    let text: SceneText;
+    if (draft.originalId) {
+      const existing = after.texts[draft.layer].find(
+        (candidate) => candidate.id === draft.originalId,
+      );
+      if (!existing || existing.content === content) {
+        return null;
+      }
+      existing.content = content;
+      text = existing;
+    } else {
+      text = {
+        content,
+        id: crypto.randomUUID(),
+        ownerId: null,
+        revision: 0,
+        rotation: draft.rotation,
+        scaleX: draft.scaleX,
+        scaleY: draft.scaleY,
+        style: draft.style,
+        x: draft.point.x,
+        y: draft.point.y,
+      };
+      after.texts[draft.layer].push(text);
+    }
+    const textValidation = sceneTextSchema.safeParse(text);
+    if (!textValidation.success) {
+      return textValidation.error.issues[0]?.message ?? 'Text is not valid.';
+    }
+    const layersValidation = sceneTextLayersSchema.safeParse(after.texts);
+    if (!layersValidation.success) {
+      return layersValidation.error.issues[0]?.message ?? 'Text is not valid.';
+    }
+    this.committing = true;
+    let saved: SceneRecord | null | undefined;
+    try {
+      saved = await this.interaction.onCommit?.(after, crypto.randomUUID());
+    } catch {
+      saved = null;
+    } finally {
+      this.committing = false;
+    }
+    if (!saved) {
+      return 'Text could not be saved because the scene changed. Try again.';
+    }
+    this.scene = saved;
+    this.rebuildScene();
+    return null;
+  }
+
+  private closeTextEditor(editor: SceneTextEditorController): void {
+    if (this.activeTextEditor === editor) {
+      this.activeTextEditor = null;
+      if (this.textDraftFontTimer) {
+        clearTimeout(this.textDraftFontTimer);
+        this.textDraftFontTimer = null;
+      }
+      this.textRenderer.clearPreview();
+    }
+    this.container?.focus();
   }
 
   private placedImageAt(point: { x: number; y: number }): boolean {
@@ -1907,7 +2192,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (!this.scene || this.selected.size === 0) {
       return;
     }
-    const before = imageStateOf(this.scene);
+    const before = sceneObjectStateOf(this.scene);
     const after = deleteSelectedObjects(before, this.selected);
     if (await this.commitState(before, after)) {
       this.selected.clear();
@@ -1973,7 +2258,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (!this.scene || !this.canCreateImages(images.length)) {
       return false;
     }
-    const before = imageStateOf(this.scene);
+    const before = sceneObjectStateOf(this.scene);
     const after = structuredClone(before);
     after.images[this.interaction.activeLayer].push(...images);
     const beforeRotation = this.groupSelectionRotation;
@@ -2165,7 +2450,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (!this.scene || this.selected.has(CANONICAL_MAP_ID)) {
       return;
     }
-    const before = imageStateOf(this.scene);
+    const before = sceneObjectStateOf(this.scene);
     const after = moveSelectedImagesToLayer(before, this.selected, layer);
     if (await this.commitState(before, after)) {
       this.selected.clear();
@@ -2180,7 +2465,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (!this.scene || this.selected.has(CANONICAL_MAP_ID)) {
       return;
     }
-    const before = imageStateOf(this.scene);
+    const before = sceneObjectStateOf(this.scene);
     const after = reorderSelectedImages(
       before,
       this.selected,
@@ -2293,6 +2578,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.drawMeasurements();
     this.drawRemotePaintPreviews();
     this.drawPaintPreview();
+    this.syncTextEditor();
   }
 
   private drawRemotePaintPreviews(): void {
@@ -2353,7 +2639,7 @@ export class SceneRenderer implements SceneRendererHandle {
     ) {
       return;
     }
-    const before = imageStateOf(this.scene);
+    const before = sceneObjectStateOf(this.scene);
     const after = structuredClone(before);
     const layer =
       this.interaction.actorId == null
@@ -2541,6 +2827,9 @@ export class SceneRenderer implements SceneRendererHandle {
       hasPaintConfiguration: Boolean(
         this.interaction.paintEnabled && paintStyle && paintKind,
       ),
+      hasTextConfiguration: Boolean(
+        this.interaction.textEnabled && this.interaction.textStyle,
+      ),
       measureEnabled: Boolean(this.interaction.measureEnabled),
       pointerType: event.pointerType,
       touchCountAfter:
@@ -2549,6 +2838,21 @@ export class SceneRenderer implements SceneRendererHandle {
     });
     if (plan.primary === 'block') {
       event.preventDefault();
+      return;
+    }
+    if (plan.primary === 'text') {
+      event.preventDefault();
+      this.cancelPendingPing();
+      this.closeContextMenu();
+      if (this.activeTextEditor) {
+        void this.finishTextEditor(true);
+        return;
+      }
+      const screenPoint = this.localPoint(event);
+      const point = this.scenePointInside(screenPoint);
+      if (point && !this.editableTextAt(screenPoint)) {
+        this.beginTextEditor(point);
+      }
       return;
     }
     if (plan.primary === 'paint' && paintKind && paintStyle) {
@@ -2750,7 +3054,7 @@ export class SceneRenderer implements SceneRendererHandle {
         }
       }
       this.beginGesture({
-        before: imageStateOf(this.scene),
+        before: sceneObjectStateOf(this.scene),
         groupRotationBefore: this.groupSelectionRotation,
         kind: 'edit',
         mode,
@@ -2928,6 +3232,7 @@ export class SceneRenderer implements SceneRendererHandle {
         preserveAspectRatio: !event.shiftKey,
         scene: this.scene,
         selected: this.selected,
+        textBounds: (id) => this.textRenderer.bounds(id),
       });
       if (!update) {
         return;
@@ -3021,7 +3326,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (plan.primary === 'edit') {
       const mode = this.editMode;
       const before = this.editBefore;
-      const current = this.scene ? imageStateOf(this.scene) : null;
+      const current = this.scene ? sceneObjectStateOf(this.scene) : null;
       if (event.type === 'pointercancel' && before && this.scene) {
         this.applyState(before);
         this.groupSelectionRotation = this.editGroupRotationBefore;
@@ -3123,7 +3428,7 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     const nudge: Extract<SceneGesture, { kind: 'nudge' }> = {
-      before: imageStateOf(this.scene),
+      before: sceneObjectStateOf(this.scene),
       keys: new Set(),
       kind: 'nudge',
       operationId: null,
@@ -3148,6 +3453,8 @@ export class SceneRenderer implements SceneRendererHandle {
             id: target.id,
             transform: target.drawing
               ? drawingTransformOf(target.drawing)
+              : target.text
+                ? textTransformOf(target.text)
               : imageTransformOf(target.image),
           })),
           targets: nudge.startTargets.map((target) => target.id),
@@ -3162,7 +3469,7 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     const before = nudge.before;
-    const after = imageStateOf(this.scene);
+    const after = sceneObjectStateOf(this.scene);
     if (cancel) {
       this.applyState(before);
       if (nudge.operationId) {
@@ -3192,6 +3499,24 @@ export class SceneRenderer implements SceneRendererHandle {
     ) {
       void this.finishNudge();
     }
+  };
+
+  private readonly handleDoubleClick = (event: MouseEvent) => {
+    if (
+      !this.scene ||
+      (!this.interaction.textEnabled && !this.interaction.editable)
+    ) {
+      return;
+    }
+    const text = this.editableTextAt(this.localPoint(event));
+    if (!text) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    this.cancelEditGesture();
+    this.closeContextMenu();
+    this.beginTextEditor({ x: text.x, y: text.y }, text);
   };
 
   private readonly handleBlur = () => {
@@ -3316,6 +3641,7 @@ export class SceneRenderer implements SceneRendererHandle {
         this.selected,
         event.key,
         this.leftAlt,
+        (id) => this.textRenderer.bounds(id),
       );
       this.applyState(after);
       if (this.nudgeOperationId && this.nudgeStartTargets.length > 0) {

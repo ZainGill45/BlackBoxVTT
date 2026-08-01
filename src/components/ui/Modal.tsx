@@ -16,6 +16,7 @@ interface ModalProps {
   contentClassName?: string;
   dismissDisabled?: boolean;
   isOpen: boolean;
+  initialFocus?: 'dialog' | 'first-control';
   onDismiss: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
 }
@@ -27,6 +28,7 @@ export function Modal({
   contentClassName,
   dismissDisabled = false,
   isOpen,
+  initialFocus = 'first-control',
   onDismiss,
   returnFocusRef,
 }: ModalProps) {
@@ -57,19 +59,23 @@ export function Modal({
       dialog.setAttribute('open', '');
     }
 
-    dialog
-      .querySelector<HTMLElement>(
-        [
-          '[autofocus]:not(:disabled)',
-          'button:not(:disabled)',
-          '[href]',
-          'input:not(:disabled)',
-          'select:not(:disabled)',
-          'textarea:not(:disabled)',
-          '[tabindex]:not([tabindex="-1"])',
-        ].join(', '),
-      )
-      ?.focus();
+    if (initialFocus === 'dialog') {
+      dialog.focus();
+    } else {
+      dialog
+        .querySelector<HTMLElement>(
+          [
+            '[autofocus]:not(:disabled)',
+            'button:not(:disabled)',
+            '[href]',
+            'input:not(:disabled)',
+            'select:not(:disabled)',
+            'textarea:not(:disabled)',
+            '[tabindex]:not([tabindex="-1"])',
+          ].join(', '),
+        )
+        ?.focus();
+    }
 
     return () => {
       if (dialog.open) {
@@ -87,7 +93,7 @@ export function Modal({
         previousFocus.focus();
       }
     };
-  }, [isOpen, returnFocusRef]);
+  }, [initialFocus, isOpen, returnFocusRef]);
 
   const dismiss = () => {
     if (!dismissDisabled) {
@@ -122,6 +128,7 @@ export function Modal({
       aria-label={accessibleLabel}
       aria-modal="true"
       className={[styles.modal, className].filter(Boolean).join(' ')}
+      tabIndex={initialFocus === 'dialog' ? -1 : undefined}
       onCancel={handleCancel}
       onClick={handleBackdropClick}
       onMouseDown={handleMouseDown}

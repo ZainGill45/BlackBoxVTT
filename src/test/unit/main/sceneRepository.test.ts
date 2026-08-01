@@ -11,9 +11,11 @@ import {
   SCENE_MANIFEST_SCHEMA_VERSION,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
-  imageStateOf,
+  createEmptyTextLayers,
+  sceneObjectStateOf,
   projectSceneForPlayer,
   type SceneDrawing,
+  type SceneText,
 } from '../../../shared/scenes';
 import { SceneRepository } from '../../../main/sceneRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
@@ -67,6 +69,31 @@ function drawing(
   };
 }
 
+function text(
+  id: string,
+  ownerId: string | null = null,
+): SceneText {
+  return {
+    content: 'Gatehouse',
+    id,
+    ownerId,
+    revision: 0,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    style: {
+      fontFamily: 'lora',
+      fontSize: 40,
+      fontWeight: 700,
+      primaryColor: '#abcdef',
+      strokeColor: '#123456',
+      strokeWidth: 3,
+    },
+    x: 100,
+    y: 100,
+  };
+}
+
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'blackbox-scenes-'));
   const timestamp = '2026-07-31T12:00:00.000Z';
@@ -104,6 +131,7 @@ describe('SceneRepository', () => {
       grid: { opacity: DEFAULT_GRID_OPACITY, type: 'square' },
       height: DEFAULT_SCENE_HEIGHT,
       mapImage: null,
+      texts: createEmptyTextLayers(),
       name: DEFAULT_SCENE_NAME,
       revision: 0,
       width: DEFAULT_SCENE_WIDTH,
@@ -129,7 +157,7 @@ describe('SceneRepository', () => {
     if (!created.ok) {
       throw new Error('setup failed');
     }
-    const state = imageStateOf(created.value);
+    const state = sceneObjectStateOf(created.value);
     state.drawings.token.push(
       drawing('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     );
@@ -295,6 +323,7 @@ describe('SceneRepository', () => {
         ],
       },
       mapImage: null,
+      texts: createEmptyTextLayers(),
     };
 
     const saved = await repository.setImages(created.value.id, state, 0);
@@ -344,6 +373,7 @@ describe('SceneRepository', () => {
           drawings: createEmptyDrawingLayers(),
           images: { ...createEmptyImageLayers(), token },
           mapImage: null,
+          texts: createEmptyTextLayers(),
         },
         0,
       ),
@@ -359,7 +389,7 @@ describe('SceneRepository', () => {
     const playerId = '22222222-2222-4222-8222-222222222222';
     const otherPlayerId = '33333333-3333-4333-8333-333333333333';
     const drawingId = '44444444-4444-4444-8444-444444444444';
-    const requested = imageStateOf(created.value);
+    const requested = sceneObjectStateOf(created.value);
     requested.drawings.token.push(drawing(drawingId, otherPlayerId));
 
     const saved = await repository.setObjects(
@@ -409,7 +439,7 @@ describe('SceneRepository', () => {
         { kind: 'gm' },
       ),
     ).toMatchObject({ error: { code: 'conflict' }, ok: false });
-    const invalidLockedState = imageStateOf(saved.value);
+    const invalidLockedState = sceneObjectStateOf(saved.value);
     invalidLockedState.drawings.gm.push(
       invalidLockedState.drawings.token.pop()!,
     );
@@ -438,7 +468,7 @@ describe('SceneRepository', () => {
       { kind: 'gm' },
     );
 
-    const withoutDrawing = imageStateOf(saved.value);
+    const withoutDrawing = sceneObjectStateOf(saved.value);
     withoutDrawing.drawings.token = [];
     const deleted = await repository.setObjects(
       created.value.id,
@@ -480,7 +510,7 @@ describe('SceneRepository', () => {
     if (!created.ok) {
       throw new Error('setup failed');
     }
-    const state = imageStateOf(created.value);
+    const state = sceneObjectStateOf(created.value);
     state.drawings.gm.push(
       drawing('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     );
@@ -502,6 +532,255 @@ describe('SceneRepository', () => {
 
     expect(projected.drawings.gm).toEqual([]);
     expect(projected.drawings.token).toHaveLength(1);
+  });
+
+  it('stamps player text ownership, enforces layers and revisions, locks transforms, and preserves style', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const playerId = '22222222-2222-4222-8222-222222222222';
+    const otherPlayerId = '33333333-3333-4333-8333-333333333333';
+    const textId = '44444444-4444-4444-8444-444444444444';
+    const requested = sceneObjectStateOf(created.value);
+    requested.texts.map.push(text(textId, otherPlayerId));
+    expect(
+      await repository.setObjects(
+        created.value.id,
+        requested,
+        0,
+        '55555555-5555-4555-8555-555555555555',
+        { kind: 'player', userId: playerId },
+      ),
+    ).toMatchObject({ error: { code: 'permission_denied' }, ok: false });
+
+    requested.texts.token.push(requested.texts.map.pop()!);
+    const saved = await repository.setObjects(
+      created.value.id,
+      requested,
+      0,
+      '66666666-6666-4666-8666-666666666666',
+      { kind: 'player', userId: playerId },
+    );
+    expect(saved).toMatchObject({
+      ok: true,
+      value: {
+        texts: { token: [{ id: textId, ownerId: playerId, revision: 0 }] },
+      },
+    });
+    if (!saved.ok) {
+      return;
+    }
+
+    const editedState = sceneObjectStateOf(saved.value);
+    editedState.texts.token[0].content = 'Edited gatehouse';
+    editedState.texts.token[0].style = {
+      ...editedState.texts.token[0].style,
+      fontFamily: 'cinzel',
+      primaryColor: '#000000',
+    };
+    const edited = await repository.setObjects(
+      created.value.id,
+      editedState,
+      saved.value.revision,
+      '77777777-7777-4777-8777-777777777777',
+      { kind: 'player', userId: playerId },
+    );
+    expect(edited).toMatchObject({
+      ok: true,
+      value: {
+        texts: {
+          token: [
+            {
+              content: 'Edited gatehouse',
+              revision: 1,
+              style: { fontFamily: 'lora', primaryColor: '#abcdef' },
+            },
+          ],
+        },
+      },
+    });
+    if (!edited.ok) {
+      return;
+    }
+
+    const stale = sceneObjectStateOf(saved.value);
+    stale.texts.token[0].content = 'Stale edit';
+    expect(
+      await repository.setObjects(
+        created.value.id,
+        stale,
+        saved.value.revision,
+        '88888888-8888-4888-8888-888888888888',
+        { kind: 'player', userId: playerId },
+      ),
+    ).toMatchObject({ error: { code: 'conflict' }, ok: false });
+
+    expect(
+      await repository.beginTransform(
+        created.value.id,
+        '99999999-9999-4999-8999-999999999999',
+        [textId],
+        { kind: 'player', userId: otherPlayerId },
+      ),
+    ).toMatchObject({ error: { code: 'permission_denied' }, ok: false });
+    expect(
+      await repository.beginTransform(
+        created.value.id,
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        [textId],
+        { kind: 'player', userId: playerId },
+      ),
+    ).toMatchObject({ ok: true });
+    expect(
+      await repository.beginTransform(
+        created.value.id,
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        [textId],
+        { kind: 'gm' },
+      ),
+    ).toMatchObject({ error: { code: 'conflict' }, ok: false });
+    repository.cancelTransform('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', {
+      kind: 'player',
+      userId: playerId,
+    });
+  });
+
+  it('preserves token text ordering when a player edits an owned object', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const playerId = '22222222-2222-4222-8222-222222222222';
+    const firstId = '11111111-1111-4111-8111-111111111111';
+    const playerTextId = '22222222-2222-4222-8222-333333333333';
+    const lastId = '33333333-3333-4333-8333-333333333333';
+    const gmState = sceneObjectStateOf(created.value);
+    gmState.texts.token.push(text(firstId), text(lastId));
+    const gmSaved = await repository.setObjects(
+      created.value.id,
+      gmState,
+      created.value.revision,
+      '44444444-4444-4444-8444-444444444444',
+      { kind: 'gm' },
+    );
+    if (!gmSaved.ok) {
+      throw new Error('setup failed');
+    }
+    const playerState = sceneObjectStateOf(gmSaved.value);
+    playerState.texts.token.push(text(playerTextId));
+    const playerSaved = await repository.setObjects(
+      created.value.id,
+      playerState,
+      gmSaved.value.revision,
+      '55555555-5555-4555-8555-555555555555',
+      { kind: 'player', userId: playerId },
+    );
+    if (!playerSaved.ok) {
+      throw new Error('setup failed');
+    }
+    const reordered = sceneObjectStateOf(playerSaved.value);
+    reordered.texts.token = [
+      reordered.texts.token[0],
+      reordered.texts.token[2],
+      reordered.texts.token[1],
+    ];
+    const gmReordered = await repository.setObjects(
+      created.value.id,
+      reordered,
+      playerSaved.value.revision,
+      '66666666-6666-4666-8666-666666666666',
+      { kind: 'gm' },
+    );
+    if (!gmReordered.ok) {
+      throw new Error('setup failed');
+    }
+    const edited = sceneObjectStateOf(gmReordered.value);
+    edited.texts.token[1].content = 'Edited in place';
+    const saved = await repository.setObjects(
+      created.value.id,
+      edited,
+      gmReordered.value.revision,
+      '77777777-7777-4777-8777-777777777777',
+      { kind: 'player', userId: playerId },
+    );
+
+    expect(saved).toMatchObject({
+      ok: true,
+      value: {
+        texts: {
+          token: [
+            { id: firstId },
+            { content: 'Edited in place', id: playerTextId },
+            { id: lastId },
+          ],
+        },
+      },
+    });
+  });
+
+  it('tracks text in GM moderation history and player projections', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const gmTextId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const tokenTextId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const state = sceneObjectStateOf(created.value);
+    state.texts.gm.push(text(gmTextId));
+    state.texts.token.push(text(tokenTextId));
+    const saved = await repository.setObjects(
+      created.value.id,
+      state,
+      0,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      { kind: 'gm' },
+    );
+    if (!saved.ok) {
+      throw new Error('setup failed');
+    }
+    expect(projectSceneForPlayer(saved.value).texts).toMatchObject({
+      gm: [],
+      token: [{ id: tokenTextId }],
+    });
+
+    const deletedState = sceneObjectStateOf(saved.value);
+    deletedState.texts.token = [];
+    const deleted = await repository.setObjects(
+      created.value.id,
+      deletedState,
+      saved.value.revision,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      { kind: 'gm' },
+    );
+    expect(deleted).toMatchObject({ ok: true, value: { texts: { token: [] } } });
+    const restored = await repository.undo(created.value.id, { kind: 'gm' });
+    expect(restored).toMatchObject({
+      ok: true,
+      value: { texts: { token: [{ id: tokenTextId, revision: 1 }] } },
+    });
+    const redone = await repository.redo(created.value.id, { kind: 'gm' });
+    expect(redone).toMatchObject({ ok: true, value: { texts: { token: [] } } });
+  });
+
+  it('loads pre-v5 SQLite scene records with empty text layers', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const legacy = structuredClone(created.value) as Record<string, unknown>;
+    delete legacy.texts;
+    database.connection
+      .prepare('UPDATE scenes SET record_json = ? WHERE id = ?')
+      .run(JSON.stringify(legacy), created.value.id);
+
+    expect((await repository.readManifest()).scenes[0].texts).toEqual(
+      createEmptyTextLayers(),
+    );
   });
 
   it('recovers from a malformed manifest instead of throwing', async () => {

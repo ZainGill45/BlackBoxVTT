@@ -4,7 +4,7 @@ import type {
 import type {
   SceneDrawingPoint,
   SceneDrawingStyle,
-  SceneImageState,
+  SceneObjectState,
 } from '../../../shared/scenes';
 import type { EditTarget } from './sceneSelection';
 
@@ -42,7 +42,7 @@ export type SceneGesture =
       sceneId: string;
     }
   | {
-      before: SceneImageState;
+      before: SceneObjectState;
       groupRotationBefore: number;
       kind: 'edit';
       mode: 'marquee' | 'move' | 'resize' | 'rotate';
@@ -57,7 +57,7 @@ export type SceneGesture =
       last: { distance: number; x: number; y: number };
     }
   | {
-      before: SceneImageState;
+      before: SceneObjectState;
       keys: Set<string>;
       kind: 'nudge';
       operationId: string | null;
@@ -96,13 +96,22 @@ export interface PointerDownContext {
   editable: boolean;
   hasCommit: boolean;
   hasPaintConfiguration: boolean;
+  hasTextConfiguration: boolean;
   measureEnabled: boolean;
   pointerType: string;
   touchCountAfter: number;
 }
 
 export interface PointerDownPlan {
-  primary: 'block' | 'edit' | 'measure' | 'none' | 'paint' | 'pan' | 'pinch';
+  primary:
+    | 'block'
+    | 'edit'
+    | 'measure'
+    | 'none'
+    | 'paint'
+    | 'pan'
+    | 'pinch'
+    | 'text';
   startPendingPing: boolean;
   trackTouch: boolean;
 }
@@ -184,12 +193,16 @@ export function planPointerDown({
   editable,
   hasCommit,
   hasPaintConfiguration,
+  hasTextConfiguration,
   measureEnabled,
   pointerType,
   touchCountAfter,
 }: PointerDownContext): PointerDownPlan {
   if (button === 0 && committing) {
     return { primary: 'block', startPendingPing: false, trackTouch: false };
+  }
+  if (button === 0 && hasTextConfiguration) {
+    return { primary: 'text', startPendingPing: false, trackTouch: false };
   }
   if (button === 0 && hasPaintConfiguration) {
     return { primary: 'paint', startPendingPing: false, trackTouch: false };

@@ -14,8 +14,10 @@ import type { ChatEvent } from '../../../../shared/chat';
 import {
   createEmptyDrawingLayers,
   createEmptyImageLayers,
-  imageStateOf,
+  createEmptyTextLayers,
+  sceneObjectStateOf,
   type SceneDrawing,
+  type SceneText,
 } from '../../../../shared/scenes';
 import { ConnectionHistoryRepository } from '../../../../main/network/connectionHistoryRepository';
 import { NetworkManager } from '../../../../main/network/networkManager';
@@ -389,6 +391,7 @@ describe('scene distribution', () => {
           ],
         },
         mapImage: null,
+        texts: createEmptyTextLayers(),
       },
       1,
     );
@@ -674,7 +677,7 @@ describe('drawings', () => {
     if (!playerScene) {
       throw new Error('Expected the player scene.');
     }
-    const drawingState = imageStateOf(playerScene);
+    const drawingState = sceneObjectStateOf(playerScene);
     drawingState.drawings.token.push(liveDrawing);
 
     const committed = await (await joinedRuntime(player)).scenes.setObjects({
@@ -697,6 +700,203 @@ describe('drawings', () => {
     });
   });
 
+});
+
+describe('text objects', () => {
+  const textId = '12121212-1212-4212-8212-121212121212';
+  const transformId = '13131313-1313-4313-8313-131313131313';
+  const liveText: SceneText = {
+    content: 'Player label\nSecond line',
+    id: textId,
+    ownerId: null,
+    revision: 0,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    style: {
+      fontFamily: 'cinzel',
+      fontSize: 48,
+      fontWeight: 700,
+      primaryColor: '#abcdef',
+      strokeColor: '#123456',
+      strokeWidth: 3,
+    },
+    x: 300,
+    y: 250,
+  };
+
+  it('stamps player ownership and propagates committed content and style', async () => {
+    const playerScene = await remoteScene(player);
+    if (!playerScene) {
+      throw new Error('Expected the player scene.');
+    }
+    const state = sceneObjectStateOf(playerScene);
+    state.texts.token.push(liveText);
+    const committed = await (await joinedRuntime(player)).scenes.setObjects({
+      campaignId,
+      expectedRevision: playerScene.revision,
+      operationId: textId,
+      sceneId: playerScene.id,
+      state,
+    });
+
+    expect(committed.result).toMatchObject({
+      ok: true,
+      value: {
+        texts: {
+          token: [
+            {
+              content: liveText.content,
+              id: textId,
+              ownerId: aliceUserId,
+              style: liveText.style,
+            },
+          ],
+        },
+      },
+    });
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.texts.token[0]).toMatchObject({
+        content: liveText.content,
+        id: textId,
+        ownerId: aliceUserId,
+        style: liveText.style,
+      });
+    });
+    expect(
+      (await sceneRepository.readManifest()).scenes.find(
+        (candidate) => candidate.id === presentedSceneId,
+      )?.texts.token[0].ownerId,
+    ).toBe(aliceUserId);
+  });
+
+  it('shows public text previews, cancellation, and the authoritative final transform', async () => {
+    const playerScene = await remoteScene(player);
+    if (!playerScene) {
+      throw new Error('Expected the player scene.');
+    }
+    const runtime = await joinedRuntime(player);
+    await runtime.scenes.previewStart({
+      campaignId,
+      kind: 'resize',
+      operationId: transformId,
+      pivotX: liveText.x,
+      pivotY: liveText.y,
+      revision: playerScene.revision,
+      sceneId: playerScene.id,
+      startingTransforms: [],
+      targets: [textId],
+    });
+    await runtime.scenes.previewUpdate({
+      absolute: {
+        rotation: 25,
+        scaleX: 2,
+        scaleY: 1.5,
+        x: 360,
+        y: 280,
+      },
+      campaignId,
+      dx: 60,
+      dy: 30,
+      operationId: transformId,
+      rotation: 25,
+      scaleX: 2,
+      scaleY: 1.5,
+    });
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.texts.token[0]).toMatchObject({
+        rotation: 25,
+        scaleX: 2,
+        scaleY: 1.5,
+        x: 360,
+        y: 280,
+      });
+    });
+
+    await runtime.scenes.previewCancel({
+      campaignId,
+      operationId: transformId,
+      sceneId: playerScene.id,
+    });
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.texts.token[0]).toMatchObject({
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        x: 300,
+        y: 250,
+      });
+    });
+
+    const latest = await remoteScene(player);
+    if (!latest) {
+      throw new Error('Expected the player scene.');
+    }
+    const finalState = sceneObjectStateOf(latest);
+    Object.assign(finalState.texts.token[0], {
+      rotation: 30,
+      scaleX: 1.75,
+      scaleY: 1.75,
+      x: 375,
+      y: 290,
+    });
+    const final = await runtime.scenes.setObjects({
+      campaignId,
+      expectedRevision: latest.revision,
+      operationId: '14141414-1414-4414-8414-141414141414',
+      sceneId: latest.id,
+      state: finalState,
+    });
+    expect(final.result).toMatchObject({ ok: true });
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.texts.token[0]).toMatchObject({
+        rotation: 30,
+        scaleX: 1.75,
+        scaleY: 1.75,
+        x: 375,
+        y: 290,
+      });
+    });
+  });
+
+  it('propagates host text while withholding the GM text layer', async () => {
+    const manifest = await sceneRepository.readManifest();
+    const current = manifest.scenes.find(
+      (candidate) => candidate.id === presentedSceneId,
+    );
+    if (!current) {
+      throw new Error('Expected the host scene.');
+    }
+    const state = sceneObjectStateOf(current);
+    state.texts.map.push({
+      ...liveText,
+      content: 'Host label',
+      id: '15151515-1515-4515-8515-151515151515',
+      ownerId: null,
+    });
+    state.texts.gm.push({
+      ...liveText,
+      content: 'GM secret',
+      id: '16161616-1616-4616-8616-161616161616',
+      ownerId: null,
+    });
+    const saved = await sceneRepository.setObjects(
+      current.id,
+      state,
+      current.revision,
+      '17171717-1717-4717-8717-171717171717',
+      { kind: 'gm' },
+    );
+    expect(saved).toMatchObject({ ok: true });
+    await host.notifyScenePresented(campaignId);
+    await vi.waitFor(async () => {
+      const remote = await remoteScene(player);
+      expect(remote?.texts.map).toEqual([
+        expect.objectContaining({ content: 'Host label' }),
+      ]);
+      expect(remote?.texts.gm).toEqual([]);
+    });
+  });
 });
 
 describe('map pings', () => {

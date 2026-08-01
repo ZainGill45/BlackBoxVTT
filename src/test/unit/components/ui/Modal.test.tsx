@@ -168,4 +168,23 @@ describe('Modal', () => {
 
     expect(screen.getByRole('button', { name: 'Open modal' })).toHaveFocus();
   });
+
+  it('can focus the dialog without arbitrarily focusing its first control', () => {
+    render(
+      <Modal
+        accessibleLabel="Tool settings"
+        initialFocus="dialog"
+        isOpen
+        onDismiss={vi.fn()}
+      >
+        <select aria-label="First setting">
+          <option>Default</option>
+        </select>
+      </Modal>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Tool settings' });
+    expect(dialog).toHaveFocus();
+    expect(screen.getByLabelText('First setting')).not.toHaveFocus();
+  });
 });

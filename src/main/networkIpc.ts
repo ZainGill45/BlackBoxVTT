@@ -22,6 +22,7 @@ import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
 } from '../shared/sceneSchema';
+import { SCENE_LAYERS } from '../shared/scenes';
 import type { NetworkManager } from './network/networkManager';
 
 const campaignIdSchema = z
@@ -134,7 +135,7 @@ const drawingPreviewSchema = campaignIdSchema
     active: z.boolean(),
     closed: z.boolean(),
     kind: z.enum(['freeform', 'polyline']),
-    layer: z.enum(['map', 'token', 'gm']),
+    layer: z.enum(SCENE_LAYERS),
     operationId: z.string().uuid(),
     points: z.array(sceneDrawingPointSchema).max(MAX_DRAWING_PREVIEW_POINTS),
     reliable: z.boolean().optional(),

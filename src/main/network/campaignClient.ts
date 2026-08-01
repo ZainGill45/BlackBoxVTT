@@ -39,7 +39,7 @@ import {
 import type {
   SceneError,
   SceneHistoryInput,
-  SceneImageState,
+  SceneObjectState,
   SceneRecord,
   SceneResult,
   SceneTransformPreviewCancel,
@@ -788,7 +788,7 @@ export class CampaignClient {
     expectedRevision: number;
     operationId: string;
     sceneId: string;
-    state: SceneImageState;
+    state: SceneObjectState;
   }): Promise<SceneResult<SceneRecord>> {
     return this.sceneMutation('client.scene_objects_set', input);
   }

@@ -5,7 +5,7 @@ import {
   type SceneError,
   type SceneManifest,
   type ScenePatch,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneApi,
   type SceneRecord,
 } from '../../../shared/scenes';
@@ -27,11 +27,11 @@ export interface SceneStore {
   ) => Promise<SceneRecord | null>;
   setImages: (
     scene: SceneRecord,
-    state: SceneImageState,
+    state: SceneObjectState,
   ) => Promise<SceneRecord | null>;
   setObjects: (
     scene: SceneRecord,
-    state: SceneImageState,
+    state: SceneObjectState,
     operationId: string,
   ) => Promise<SceneRecord | null>;
   undo: (scene: SceneRecord) => Promise<SceneRecord | null>;
@@ -135,7 +135,7 @@ export function useScenes(
   );
 
   const setImages = useCallback(
-    async (scene: SceneRecord, state: SceneImageState) => {
+    async (scene: SceneRecord, state: SceneObjectState) => {
       return run(() =>
         sceneApi.setImages({
           campaignId,
@@ -151,7 +151,7 @@ export function useScenes(
   const setObjects = useCallback(
     async (
       scene: SceneRecord,
-      state: SceneImageState,
+      state: SceneObjectState,
       operationId: string,
     ) => {
       return run(() =>

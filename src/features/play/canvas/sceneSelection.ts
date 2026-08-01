@@ -1,12 +1,13 @@
 import {
+  CANONICAL_MAP_ID,
   type SceneDrawing,
   type SceneImage,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneMapImage,
   type SceneRecord,
+  type SceneText,
 } from '../../../shared/scenes';
 import {
-  CANONICAL_MAP_ID,
   corners,
   reorderSelected,
   roundTransform,
@@ -16,7 +17,15 @@ export interface EditTarget {
   drawing?: SceneDrawing;
   id: string;
   image: SceneMapImage;
+  text?: SceneText;
 }
+
+export interface SceneTextBounds {
+  height: number;
+  width: number;
+}
+
+export type SceneTextBoundsLookup = (id: string) => SceneTextBounds | null;
 
 export interface SceneSelectionPolicy {
   activeLayer: keyof SceneRecord['images'];
@@ -39,6 +48,16 @@ export function drawingTransformOf(drawing: SceneDrawing) {
     scaleY: drawing.scaleY,
     x: drawing.x,
     y: drawing.y,
+  };
+}
+
+export function textTransformOf(text: SceneText) {
+  return {
+    rotation: text.rotation,
+    scaleX: text.scaleX,
+    scaleY: text.scaleY,
+    x: text.x,
+    y: text.y,
   };
 }
 
@@ -78,6 +97,20 @@ export function drawingAsImage(drawing: SceneDrawing): SceneMapImage {
   };
 }
 
+export function textAsImage(
+  text: SceneText,
+  bounds: SceneTextBounds,
+): SceneMapImage {
+  return {
+    assetId: text.id,
+    height: Math.max(1, bounds.height * text.scaleY),
+    rotation: text.rotation,
+    width: Math.max(1, bounds.width * text.scaleX),
+    x: text.x,
+    y: text.y,
+  };
+}
+
 export function canEditDrawing(
   drawing: SceneDrawing,
   actorId?: string | null,
@@ -85,9 +118,17 @@ export function canEditDrawing(
   return actorId == null || drawing.ownerId === actorId;
 }
 
+export function canEditText(
+  text: SceneText,
+  actorId?: string | null,
+): boolean {
+  return actorId == null || text.ownerId === actorId;
+}
+
 export function activeSceneTargets(
   scene: SceneRecord,
   policy: SceneSelectionPolicy,
+  textBounds: SceneTextBoundsLookup = () => null,
 ): EditTarget[] {
   const result: EditTarget[] =
     policy.canEditImages === false
@@ -112,6 +153,16 @@ export function activeSceneTargets(
       });
     }
   }
+  for (const text of scene.texts[policy.activeLayer]) {
+    const bounds = textBounds(text.id);
+    if (bounds && canEditText(text, policy.actorId)) {
+      result.push({
+        id: text.id,
+        image: textAsImage(text, bounds),
+        text,
+      });
+    }
+  }
   return result;
 }
 
@@ -119,6 +170,7 @@ export function selectedSceneTargets(
   scene: SceneRecord,
   selected: ReadonlySet<string>,
   policy: Pick<SceneSelectionPolicy, 'actorId' | 'canEditImages'>,
+  textBounds: SceneTextBoundsLookup = () => null,
 ): EditTarget[] {
   const lookup = new Map<string, EditTarget>();
   if (scene.mapImage && policy.canEditImages !== false) {
@@ -141,6 +193,18 @@ export function selectedSceneTargets(
           drawing,
           id: drawing.id,
           image: drawingAsImage(drawing),
+        });
+      }
+    }
+  }
+  for (const layer of Object.values(scene.texts)) {
+    for (const text of layer) {
+      const bounds = textBounds(text.id);
+      if (bounds && canEditText(text, policy.actorId)) {
+        lookup.set(text.id, {
+          id: text.id,
+          image: textAsImage(text, bounds),
+          text,
         });
       }
     }
@@ -196,7 +260,10 @@ export function selectionFrame(
   };
 }
 
-export function createTargetAccessor(state: SceneImageState): {
+export function createTargetAccessor(
+  state: SceneObjectState,
+  textBounds: SceneTextBoundsLookup = () => null,
+): {
   read: (id: string) => SceneMapImage | null;
   write: (id: string, transform: SceneMapImage) => void;
 } {
@@ -208,6 +275,10 @@ export function createTargetAccessor(state: SceneImageState): {
     string,
     { index: number; layer: SceneDrawing[] }
   >();
+  const textLocations = new Map<
+    string,
+    { index: number; layer: SceneText[] }
+  >();
   for (const layer of Object.values(state.images) as SceneImage[][]) {
     layer.forEach((image, index) => {
       locations.set(image.id, { index, layer });
@@ -216,6 +287,11 @@ export function createTargetAccessor(state: SceneImageState): {
   for (const layer of Object.values(state.drawings) as SceneDrawing[][]) {
     layer.forEach((drawing, index) => {
       drawingLocations.set(drawing.id, { index, layer });
+    });
+  }
+  for (const layer of Object.values(state.texts) as SceneText[][]) {
+    layer.forEach((text, index) => {
+      textLocations.set(text.id, { index, layer });
     });
   }
   return {
@@ -228,8 +304,13 @@ export function createTargetAccessor(state: SceneImageState): {
         return location.layer[location.index];
       }
       const drawingLocation = drawingLocations.get(id);
-      return drawingLocation
-        ? drawingAsImage(drawingLocation.layer[drawingLocation.index])
+      if (drawingLocation) {
+        return drawingAsImage(drawingLocation.layer[drawingLocation.index]);
+      }
+      const textLocation = textLocations.get(id);
+      const bounds = textBounds(id);
+      return textLocation && bounds
+        ? textAsImage(textLocation.layer[textLocation.index], bounds)
         : null;
     },
     write: (id, transform) => {
@@ -257,43 +338,71 @@ export function createTargetAccessor(state: SceneImageState): {
           x: transform.x,
           y: transform.y,
         };
+        return;
+      }
+      const textLocation = textLocations.get(id);
+      const bounds = textBounds(id);
+      if (textLocation && bounds) {
+        const text = textLocation.layer[textLocation.index];
+        textLocation.layer[textLocation.index] = {
+          ...text,
+          rotation: transform.rotation,
+          scaleX: Math.max(0.001, transform.width / Math.max(1, bounds.width)),
+          scaleY: Math.max(0.001, transform.height / Math.max(1, bounds.height)),
+          x: transform.x,
+          y: transform.y,
+        };
       }
     },
   };
 }
 
 export function selectedTargetsFromState(
-  state: SceneImageState,
+  state: SceneObjectState,
   selected: ReadonlySet<string>,
+  textBounds: SceneTextBoundsLookup = () => null,
 ): EditTarget[] {
-  const accessor = createTargetAccessor(state);
+  const accessor = createTargetAccessor(state, textBounds);
   return [...selected]
     .map((id) => {
       const image = accessor.read(id);
       const drawing = Object.values(state.drawings)
         .flat()
         .find((candidate) => candidate.id === id);
-      return image ? { ...(drawing ? { drawing } : {}), id, image } : null;
+      const text = Object.values(state.texts)
+        .flat()
+        .find((candidate) => candidate.id === id);
+      return image
+        ? {
+            ...(drawing ? { drawing } : {}),
+            ...(text ? { text } : {}),
+            id,
+            image,
+          }
+        : null;
     })
     .filter((target): target is EditTarget => target !== null);
 }
 
 export function deleteSelectedObjects(
-  before: SceneImageState,
+  before: SceneObjectState,
   selected: ReadonlySet<string>,
-): SceneImageState {
+): SceneObjectState {
   const after = structuredClone(before);
   if (selected.has(CANONICAL_MAP_ID)) {
     after.mapImage = null;
   }
   for (const layer of Object.keys(after.images) as Array<
-    keyof SceneImageState['images']
+    keyof SceneObjectState['images']
   >) {
     after.images[layer] = after.images[layer].filter(
       (image) => !selected.has(image.id),
     );
     after.drawings[layer] = after.drawings[layer].filter(
       (drawing) => !selected.has(drawing.id),
+    );
+    after.texts[layer] = after.texts[layer].filter(
+      (text) => !selected.has(text.id),
     );
   }
   return after;
@@ -338,14 +447,14 @@ export function duplicateSceneImages(
 }
 
 export function moveSelectedImagesToLayer(
-  before: SceneImageState,
+  before: SceneObjectState,
   selected: ReadonlySet<string>,
-  targetLayer: keyof SceneImageState['images'],
-): SceneImageState {
+  targetLayer: keyof SceneObjectState['images'],
+): SceneObjectState {
   const after = structuredClone(before);
   const moved: SceneImage[] = [];
   for (const current of Object.keys(after.images) as Array<
-    keyof SceneImageState['images']
+    keyof SceneObjectState['images']
   >) {
     moved.push(
       ...after.images[current].filter((image) => selected.has(image.id)),
@@ -359,11 +468,11 @@ export function moveSelectedImagesToLayer(
 }
 
 export function reorderSelectedImages(
-  before: SceneImageState,
+  before: SceneObjectState,
   selected: ReadonlySet<string>,
-  layer: keyof SceneImageState['images'],
+  layer: keyof SceneObjectState['images'],
   direction: 'back' | 'backward' | 'forward' | 'front',
-): SceneImageState {
+): SceneObjectState {
   const after = structuredClone(before);
   after.images[layer] = reorderSelected(
     after.images[layer],

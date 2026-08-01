@@ -5,6 +5,7 @@ import {
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptySceneManifest,
+  createEmptyTextLayers,
   DEFAULT_SCENE_DISTANCE,
   DEFAULT_SCENE_HEIGHT,
   DEFAULT_SCENE_PIXEL_SCALE,
@@ -35,6 +36,7 @@ export function makeScene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     ...overrides,
     drawings: overrides.drawings ?? createEmptyDrawingLayers(),
     images: overrides.images ?? createEmptyImageLayers(),
+    texts: overrides.texts ?? createEmptyTextLayers(),
   };
 }
 

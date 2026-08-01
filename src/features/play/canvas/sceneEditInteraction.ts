@@ -1,5 +1,5 @@
 import {
-  type SceneImageState,
+  type SceneObjectState,
   type SceneRecord,
   type SceneTransformPreviewDelta,
 } from '../../../shared/scenes';
@@ -16,6 +16,8 @@ import {
   imageTransformOf,
   selectedTargetsFromState,
   selectionFrame,
+  textTransformOf,
+  type SceneTextBoundsLookup,
   type EditTarget,
 } from './sceneSelection';
 
@@ -30,12 +32,13 @@ export interface UpdateSceneEditInput {
   preserveAspectRatio: boolean;
   scene: SceneRecord;
   selected: ReadonlySet<string>;
+  textBounds?: SceneTextBoundsLookup;
 }
 
 export interface SceneEditUpdate {
   groupRotation: number;
   preview: TransformPreview | null;
-  state: SceneImageState;
+  state: SceneObjectState;
 }
 
 export function snapshotEditTargets(targets: EditTarget[]): EditTarget[] {
@@ -43,6 +46,7 @@ export function snapshotEditTargets(targets: EditTarget[]): EditTarget[] {
     ...(target.drawing
       ? { drawing: structuredClone(target.drawing) }
       : {}),
+    ...(target.text ? { text: structuredClone(target.text) } : {}),
     id: target.id,
     image: { ...target.image },
   }));
@@ -53,18 +57,20 @@ export function nudgeSceneState(
   selected: ReadonlySet<string>,
   key: string,
   disableSnapping: boolean,
-): SceneImageState {
-  const state: SceneImageState = structuredClone({
+  textBounds: SceneTextBoundsLookup = () => null,
+): SceneObjectState {
+  const state: SceneObjectState = structuredClone({
     drawings: scene.drawings,
     images: scene.images,
     mapImage: scene.mapImage,
+    texts: scene.texts,
   });
-  const targets = createTargetAccessor(state);
+  const targets = createTargetAccessor(state, textBounds);
   const snapped = snappingActive(scene.grid, disableSnapping);
   const step = snapped ? scene.grid.size : 1;
   const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
   const dy = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
-  for (const target of selectedTargetsFromState(state, selected)) {
+  for (const target of selectedTargetsFromState(state, selected, textBounds)) {
     targets.write(target.id, {
       ...target.image,
       x: target.image.x + dx,
@@ -87,6 +93,15 @@ export function createNudgePreview(
     drawings: scene.drawings,
     images: scene.images,
     mapImage: scene.mapImage,
+    texts: scene.texts,
+  }, (id) => {
+    const target = startTargets.find((candidate) => candidate.id === id);
+    return target?.text
+      ? {
+          height: target.image.height / Math.max(0.001, target.text.scaleY),
+          width: target.image.width / Math.max(0.001, target.text.scaleX),
+        }
+      : null;
   });
   const next = accessor.read(first.id);
   if (!next) {
@@ -95,12 +110,17 @@ export function createNudgePreview(
   const nextDrawing = Object.values(scene.drawings)
     .flat()
     .find((drawing) => drawing.id === first.id);
+  const nextText = Object.values(scene.texts)
+    .flat()
+    .find((text) => text.id === first.id);
   return {
     ...(startTargets.length === 1
       ? {
           absolute: nextDrawing
             ? drawingTransformOf(nextDrawing)
-            : imageTransformOf(next),
+            : nextText
+              ? textTransformOf(nextText)
+              : imageTransformOf(next),
         }
       : {}),
     dx: next.x - first.image.x,
@@ -125,10 +145,15 @@ export function updateSceneEdit({
   preserveAspectRatio,
   scene,
   selected,
+  textBounds = () => null,
 }: UpdateSceneEditInput): SceneEditUpdate | null {
-  const state: SceneImageState = structuredClone(gesture.before);
-  const stateTargets = createTargetAccessor(state);
-  const targets = selectedTargetsFromState(gesture.before, selected);
+  const state: SceneObjectState = structuredClone(gesture.before);
+  const stateTargets = createTargetAccessor(state, textBounds);
+  const targets = selectedTargetsFromState(
+    gesture.before,
+    selected,
+    textBounds,
+  );
   if (targets.length === 0 || gesture.mode === 'marquee') {
     return null;
   }
@@ -286,12 +311,17 @@ export function updateSceneEdit({
       const nextDrawing = Object.values(state.drawings)
         .flat()
         .find((candidate) => candidate.id === first.id);
+      const nextText = Object.values(state.texts)
+        .flat()
+        .find((candidate) => candidate.id === first.id);
       preview = {
         ...(targets.length === 1
           ? {
               absolute: nextDrawing
                 ? drawingTransformOf(nextDrawing)
-                : imageTransformOf(next),
+                : nextText
+                  ? textTransformOf(nextText)
+                  : imageTransformOf(next),
             }
           : {}),
         dx:

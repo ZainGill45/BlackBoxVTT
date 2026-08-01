@@ -6,8 +6,6 @@ import type {
   SceneMapImage,
 } from '../../../shared/scenes';
 
-export const CANONICAL_MAP_ID = 'canonical-map';
-
 export interface Point {
   x: number;
   y: number;

@@ -10,6 +10,7 @@ import {
   dropAssetOnStage,
   importFixture,
   mapFixtureCentre,
+  placeTextOnStage,
   readScene,
   stage,
 } from './support/stage';
@@ -136,6 +137,48 @@ test.describe('stage editing', () => {
       pixelDifferenceRatio(bare, await stage(gm.window).screenshot()),
       'the placed image did not survive reopening the campaign',
     ).toBeGreaterThan(VISIBLE_CHANGE);
+  });
+
+  test('moves text and keeps its transform across a campaign reopen', async () => {
+    await placeTextOnStage(gm.window, centre, 'Persistent text label');
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).texts.token.length)
+      .toBe(1);
+    const created = (await readScene(gm.window, CAMPAIGN)).texts.token[0];
+    await gm.window.getByRole('button', { name: 'Select' }).click();
+    await dragOnStage(
+      gm.window,
+      centre,
+      { x: centre.x + 140, y: centre.y + 90 },
+      { steps: 15 },
+    );
+    await expect
+      .poll(async () => {
+        const moved = (await readScene(gm.window, CAMPAIGN)).texts.token[0];
+        return Math.hypot(moved.x - created.x, moved.y - created.y);
+      })
+      .toBeGreaterThan(1);
+    const moved = (await readScene(gm.window, CAMPAIGN)).texts.token[0];
+
+    await gm.window.getByRole('button', { name: 'Logout' }).click();
+    await gm.window.getByRole('tab', { name: 'Create Campaign' }).click();
+    await gm.window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
+    await openTab(gm.window, 'Scenes');
+    await gm.window.getByRole('button', { name: 'View New Scene' }).click();
+    await gm.window.waitForTimeout(1200);
+
+    expect((await readScene(gm.window, CAMPAIGN)).texts.token[0]).toMatchObject({
+      content: 'Persistent text label',
+      rotation: moved.rotation,
+      scaleX: moved.scaleX,
+      scaleY: moved.scaleY,
+      x: moved.x,
+      y: moved.y,
+    });
+    expect(
+      pixelDifferenceRatio(bare, await stage(gm.window).screenshot()),
+      'the text disappeared after reopening the campaign',
+    ).toBeGreaterThan(0.0005);
   });
 
   test('duplicates the selection with Ctrl+D', async () => {

@@ -64,12 +64,16 @@ describe('scene interaction routing', () => {
       editable: true,
       hasCommit: true,
       hasPaintConfiguration: true,
+      hasTextConfiguration: false,
       measureEnabled: true,
       pointerType: 'mouse',
       touchCountAfter: 0,
     };
 
     expect(planPointerDown(base).primary).toBe('paint');
+    expect(
+      planPointerDown({ ...base, hasTextConfiguration: true }).primary,
+    ).toBe('text');
     expect(planPointerDown({ ...base, committing: true }).primary).toBe(
       'block',
     );

@@ -8,19 +8,20 @@ import type {
   SceneDrawing,
   SceneMapImage,
   SceneRecord,
+  SceneText,
   SceneTransformPreviewStart,
 } from '../../shared/scenes';
 
 export const MAP_PING_COOLDOWN_MS = 500;
 
-type PublicSceneObject = SceneMapImage | SceneDrawing;
+type PublicSceneObject = SceneMapImage | SceneDrawing | SceneText;
 type RelayedTransformStart = Omit<
   SceneTransformPreviewStart,
   'campaignId'
 >;
 
 function objectTransform(object: PublicSceneObject) {
-  if ('points' in object) {
+  if ('scaleX' in object) {
     return {
       rotation: object.rotation,
       scaleX: object.scaleX,
@@ -133,6 +134,8 @@ export class CampaignSceneRealtimeRules {
       ...scene.drawings.token.map(
         (drawing) => [drawing.id, drawing] as const,
       ),
+      ...scene.texts.map.map((text) => [text.id, text] as const),
+      ...scene.texts.token.map((text) => [text.id, text] as const),
     ]);
     const targets = [...new Set(input.targets)].filter((id) =>
       publicTargets.has(id),

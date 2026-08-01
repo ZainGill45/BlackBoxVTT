@@ -3,9 +3,10 @@ import type {
   SceneDrawingLayers,
   SceneGrid,
   SceneImageLayers,
-  SceneImageState,
+  SceneObjectState,
   SceneManifest,
   SceneRecord,
+  SceneTextLayers,
 } from './sceneSchema';
 import type {
   PresentSceneInput,
@@ -23,6 +24,8 @@ import type {
 } from './sceneContracts';
 
 export * from './sceneConstants';
+export * from './sceneTextMetrics';
+export * from './sceneTransformPreview';
 export type {
   SceneDrawing,
   SceneDrawingEdge,
@@ -37,13 +40,20 @@ export type {
   SceneImage,
   SceneImageLayer,
   SceneImageLayers,
-  SceneImageState,
+  SceneObjectState,
   SceneImageTransform,
   SceneManifest,
   SceneMapImage,
   SceneObjectTransform,
   ScenePatch,
   SceneRecord,
+  SceneText,
+  SceneTextFamily,
+  SceneTextLayer,
+  SceneTextLayers,
+  SceneTextStyle,
+  SceneTextTransform,
+  SceneTextWeight,
 } from './sceneSchema';
 export * from './sceneContracts';
 import {
@@ -116,9 +126,14 @@ export function createEmptyDrawingLayers(): SceneDrawingLayers {
   return { gm: [], map: [], token: [] };
 }
 
-export function imageStateOf(scene: SceneRecord): SceneImageState {
+export function createEmptyTextLayers(): SceneTextLayers {
+  return { gm: [], map: [], token: [] };
+}
+
+export function sceneObjectStateOf(scene: SceneRecord): SceneObjectState {
   const images = scene.images;
   const drawings = scene.drawings;
+  const texts = scene.texts;
   return {
     drawings: {
       gm: drawings.gm.map((drawing) => structuredClone(drawing)),
@@ -131,16 +146,23 @@ export function imageStateOf(scene: SceneRecord): SceneImageState {
       token: images.token.map((image) => ({ ...image })),
     },
     mapImage: scene.mapImage ? { ...scene.mapImage } : null,
+    texts: {
+      gm: texts.gm.map((text) => structuredClone(text)),
+      map: texts.map.map((text) => structuredClone(text)),
+      token: texts.token.map((text) => structuredClone(text)),
+    },
   };
 }
 
 export function projectSceneForPlayer(scene: SceneRecord): SceneRecord {
   const images = scene.images;
   const drawings = scene.drawings;
+  const texts = scene.texts;
   return {
     ...scene,
     drawings: { ...drawings, gm: [] },
     images: { ...images, gm: [] },
+    texts: { ...texts, gm: [] },
   };
 }
 

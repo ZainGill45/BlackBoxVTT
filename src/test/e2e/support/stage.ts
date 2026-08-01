@@ -292,6 +292,26 @@ export async function hoverStage(
   await window.mouse.move(box.x + point.x, box.y + point.y);
 }
 
+/** Creates committed text through the real inline editor. */
+export async function placeTextOnStage(
+  window: Page,
+  point: { x: number; y: number },
+  content: string,
+): Promise<{ height: number; width: number }> {
+  await window.getByRole('button', { name: 'Text', exact: true }).click();
+  await stage(window).click({ position: point });
+  const editor = window.getByLabel('New map text');
+  await expect(editor).toBeVisible();
+  await editor.fill(content);
+  const box = await editor.boundingBox();
+  if (!box) {
+    throw new Error('The inline text editor has no layout box.');
+  }
+  await editor.press('Control+Enter');
+  await expect(editor).toBeHidden();
+  return { height: box.height, width: box.width };
+}
+
 /** The centre of the stage in stage-relative coordinates. */
 export async function stageCentre(
   window: Page,

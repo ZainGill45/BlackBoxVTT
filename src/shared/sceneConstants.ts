@@ -1,16 +1,56 @@
-export const SCENE_MANIFEST_SCHEMA_VERSION = 4 as const;
+export const SCENE_MANIFEST_SCHEMA_VERSION = 5 as const;
+export const CANONICAL_MAP_ID = 'canonical-map';
 export const MAX_SCENE_IMAGES = 2_048;
 export const MAX_SCENE_DRAWINGS = 1_024;
+export const MAX_SCENE_TEXTS = 1_024;
 export const MAX_DRAWING_POINTS = 4_096;
 export const MAX_SCENE_DRAWING_POINTS = 20_000;
-export const MAX_DRAWING_HISTORY = 100;
-export const DRAWING_LOCK_TIMEOUT_MS = 15_000;
+export const MAX_TEXT_CHARACTERS = 2_048;
+export const MAX_TEXT_LINES = 32;
+export const MAX_SCENE_TEXT_CHARACTERS = 65_536;
+export const MAX_TEXT_RASTER_DIMENSION = 8_192;
+export const MAX_TEXT_RASTER_PIXELS = 8_388_608;
+export const MAX_SCENE_TEXT_RASTER_PIXELS = 67_108_864;
+export const SCENE_TEXT_TEXTURE_RESOLUTION = 2;
+export const MAX_SCENE_OBJECTS =
+  MAX_SCENE_IMAGES + MAX_SCENE_DRAWINGS + MAX_SCENE_TEXTS + 1;
+export const MAX_SCENE_EDIT_HISTORY = 100;
+export const SCENE_OBJECT_LOCK_TIMEOUT_MS = 15_000;
 export const DEFAULT_FREEFORM_WIDTH = 16;
 export const DEFAULT_POLYLINE_WIDTH = 16;
 export const DEFAULT_DRAWING_COLOR = '#ffffff';
 export const DEFAULT_DRAWING_OPACITY = 1;
 export const DEFAULT_DRAWING_FILL_OPACITY = 0.25;
 export const DEFAULT_FREEFORM_HARDNESS = 1;
+
+export const SCENE_LAYERS = ['map', 'token', 'gm'] as const;
+export type SceneLayer = (typeof SCENE_LAYERS)[number];
+
+export const SCENE_TEXT_FAMILIES = [
+  'inter',
+  'lora',
+  'roboto-mono',
+  'cinzel',
+] as const;
+export const SCENE_TEXT_WEIGHTS = [400, 500, 600, 700] as const;
+export const SCENE_TEXT_FAMILY_LABELS: Record<
+  (typeof SCENE_TEXT_FAMILIES)[number],
+  string
+> = {
+  cinzel: 'Cinzel',
+  inter: 'Inter',
+  lora: 'Lora',
+  'roboto-mono': 'Roboto Mono',
+};
+export const SCENE_TEXT_WEIGHT_LABELS: Record<
+  (typeof SCENE_TEXT_WEIGHTS)[number],
+  string
+> = {
+  400: 'Regular',
+  500: 'Medium',
+  600: 'Semibold',
+  700: 'Bold',
+};
 
 export const DEFAULT_SCENE_NAME = 'New Scene';
 export const DEFAULT_SCENE_WIDTH = 1750;
@@ -39,6 +79,8 @@ export const sceneBounds = {
   drawingScale: { max: 1_000, min: 0.001 },
   drawingHardness: { max: 1, min: 0 },
   drawingWidth: { max: 256, min: 1 },
+  textFontSize: { max: 256, min: 8 },
+  textStrokeWidth: { max: 32, min: 0 },
 } as const;
 
 export const GRID_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;

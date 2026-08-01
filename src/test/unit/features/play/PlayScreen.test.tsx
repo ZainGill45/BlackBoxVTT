@@ -166,6 +166,8 @@ describe('PlayScreen', () => {
     const paintDialog = screen.getByRole('dialog', {
       name: 'Paint settings',
     });
+    expect(paintDialog).toHaveFocus();
+    expect(document.getElementById('freeform-color-picker')).not.toHaveFocus();
     expect(
       within(paintDialog).queryByRole('heading', {
         name: 'Paint settings',
@@ -273,6 +275,63 @@ describe('PlayScreen', () => {
     await user.clear(hardness);
     await user.type(hardness, '73{Enter}');
     expect(hardness).toHaveValue(73);
+  });
+
+  it('keeps a Text settings rail and saves all authoring defaults locally', async () => {
+    const user = userEvent.setup();
+    renderPlayScreen();
+
+    await user.click(screen.getByRole('button', { name: 'Text' }));
+    const rail = screen.getByRole('toolbar', { name: 'Text tools' });
+    expect(within(rail).getAllByRole('button')).toHaveLength(1);
+    await user.click(
+      within(rail).getByRole('button', { name: 'Text settings' }),
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Text settings' });
+    expect(dialog).toHaveFocus();
+    expect(within(dialog).getByLabelText('Font family')).not.toHaveFocus();
+    expect(within(dialog).getByLabelText('Font family')).toHaveValue('inter');
+    expect(within(dialog).getByLabelText('Font weight')).toHaveValue('400');
+    expect(within(dialog).getByLabelText('Font size')).toHaveValue(64);
+    expect(within(dialog).getByLabelText('Stroke width')).toHaveValue(8);
+    expect(within(dialog).getByLabelText('Primary color')).toHaveValue(
+      '#ffffff',
+    );
+    expect(within(dialog).getByLabelText('Stroke color')).toHaveValue(
+      '#000000',
+    );
+
+    await user.selectOptions(within(dialog).getByLabelText('Font family'), 'lora');
+    await user.selectOptions(within(dialog).getByLabelText('Font weight'), '700');
+    const fontSize = within(dialog).getByLabelText('Font size');
+    await user.clear(fontSize);
+    await user.type(fontSize, '999{Enter}');
+    const strokeWidth = within(dialog).getByLabelText('Stroke width');
+    await user.clear(strokeWidth);
+    await user.type(strokeWidth, '-5{Enter}');
+    const primary = within(dialog).getByLabelText('Primary color');
+    await user.clear(primary);
+    await user.type(primary, '#ABCDEF{Enter}');
+
+    expect(fontSize).toHaveValue(256);
+    expect(strokeWidth).toHaveValue(0);
+    expect(primary).toHaveValue('#abcdef');
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          localStorage.getItem(
+            `blackboxvtt:text:${playerSession.campaignId}:player-${playerSession.userId}`,
+          ) ?? '{}',
+        ),
+      ).toMatchObject({
+        fontFamily: 'lora',
+        fontSize: 256,
+        fontWeight: 700,
+        primaryColor: '#abcdef',
+        strokeWidth: 0,
+      });
+    });
   });
 
   it('steps the active paint width with brackets without stealing form input', async () => {

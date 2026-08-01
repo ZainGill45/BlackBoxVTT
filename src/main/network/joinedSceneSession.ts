@@ -1,13 +1,12 @@
-import type {
-  SceneDrawing,
-  SceneHistoryInput,
-  SceneImage,
-  SceneRecord,
-  SceneResult,
-  SceneTransformPreviewCancel,
-  SceneTransformPreviewDelta,
-  SceneTransformPreviewStart,
-  SetSceneObjectsInput,
+import {
+  applySceneTransformPreview,
+  type SceneHistoryInput,
+  type SceneRecord,
+  type SceneResult,
+  type SceneTransformPreviewCancel,
+  type SceneTransformPreviewDelta,
+  type SceneTransformPreviewStart,
+  type SetSceneObjectsInput,
 } from '../../shared/scenes';
 import type { JoinedSceneTransport } from '../campaignSceneRuntime';
 import type { CampaignClient } from './campaignClient';
@@ -156,7 +155,12 @@ export class JoinedSceneSession {
               start.scaleY + (input.scaleY - start.scaleY) * progress,
           };
           nextAnimation.current = value;
-          this.applyTransform(active, value);
+          this.activeScene = applySceneTransformPreview(
+            active.base,
+            active.input,
+            value,
+          );
+          this.onChanged();
         }, (duration * step) / 2),
       );
     }
@@ -254,109 +258,6 @@ export class JoinedSceneSession {
       operationId: input.operationId,
       sceneId: input.sceneId,
     });
-  }
-
-  private applyTransform(
-    active: RemoteTransform,
-    delta: Omit<SceneTransformPreviewDelta, 'campaignId'>,
-  ): void {
-    const scene: SceneRecord = structuredClone(active.base);
-    if (delta.absolute && active.input.targets.length === 1) {
-      const targetId = active.input.targets[0];
-      if (targetId === 'canonical-map' && scene.mapImage) {
-        scene.mapImage = { ...scene.mapImage, ...delta.absolute };
-      } else {
-        for (const layer of Object.values(scene.images) as SceneImage[][]) {
-          const image = layer.find((candidate) => candidate.id === targetId);
-          if (image) {
-            Object.assign(image, delta.absolute);
-            break;
-          }
-        }
-        for (const layer of Object.values(scene.drawings) as SceneDrawing[][]) {
-          const drawing = layer.find(
-            (candidate) => candidate.id === targetId,
-          );
-          if (drawing) {
-            Object.assign(drawing, delta.absolute);
-            break;
-          }
-        }
-      }
-      this.activeScene = scene;
-      this.onChanged();
-      return;
-    }
-    const radians = (delta.rotation * Math.PI) / 180;
-    const apply = <
-      T extends {
-        height: number;
-        rotation: number;
-        width: number;
-        x: number;
-        y: number;
-      },
-    >(
-      image: T,
-    ): T => {
-      const dx = (image.x - active.input.pivotX) * delta.scaleX;
-      const dy = (image.y - active.input.pivotY) * delta.scaleY;
-      return {
-        ...image,
-        height: image.height * delta.scaleY,
-        rotation: image.rotation + delta.rotation,
-        width: image.width * delta.scaleX,
-        x:
-          active.input.pivotX +
-          Math.cos(radians) * dx -
-          Math.sin(radians) * dy +
-          delta.dx,
-        y:
-          active.input.pivotY +
-          Math.sin(radians) * dx +
-          Math.cos(radians) * dy +
-          delta.dy,
-      };
-    };
-    if (active.input.targets.includes('canonical-map') && scene.mapImage) {
-      scene.mapImage = apply(scene.mapImage);
-    }
-    const targets = new Set(active.input.targets);
-    for (const layer of Object.values(scene.images)) {
-      for (let index = 0; index < layer.length; index += 1) {
-        if (targets.has(layer[index].id)) {
-          layer[index] = apply(layer[index]);
-        }
-      }
-    }
-    for (const layer of Object.values(scene.drawings)) {
-      for (let index = 0; index < layer.length; index += 1) {
-        const drawing = layer[index];
-        if (!targets.has(drawing.id)) {
-          continue;
-        }
-        const dx = (drawing.x - active.input.pivotX) * delta.scaleX;
-        const dy = (drawing.y - active.input.pivotY) * delta.scaleY;
-        layer[index] = {
-          ...drawing,
-          rotation: drawing.rotation + delta.rotation,
-          scaleX: drawing.scaleX * delta.scaleX,
-          scaleY: drawing.scaleY * delta.scaleY,
-          x:
-            active.input.pivotX +
-            Math.cos(radians) * dx -
-            Math.sin(radians) * dy +
-            delta.dx,
-          y:
-            active.input.pivotY +
-            Math.sin(radians) * dx +
-            Math.cos(radians) * dy +
-            delta.dy,
-        };
-      }
-    }
-    this.activeScene = scene;
-    this.onChanged();
   }
 
   private clearAnimation(operationId: string): void {

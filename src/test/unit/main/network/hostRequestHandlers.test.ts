@@ -9,7 +9,8 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
-  imageStateOf,
+  createEmptyTextLayers,
+  sceneObjectStateOf,
   type SceneRecord,
 } from '../../../../shared/scenes';
 import type { CampaignChatService } from '../../../../main/campaignTable/chatService';
@@ -75,6 +76,7 @@ function scene(): SceneRecord {
     unit: 'ft',
     updatedAt: '2026-07-31T12:00:00.000Z',
     width: 100,
+    texts: createEmptyTextLayers(),
   };
 }
 
@@ -157,7 +159,7 @@ describe('host scene request handler', () => {
       } as unknown as CampaignSceneService,
     });
     const { client, writtenEnvelopes } = createClient();
-    const state = imageStateOf(activeScene);
+    const state = sceneObjectStateOf(activeScene);
 
     await expect(
       handler.handleRequest(

@@ -10,7 +10,11 @@ import {
   selectedSceneTargets,
   selectionFrame,
 } from '../../../../../features/play/canvas/sceneSelection';
-import { imageStateOf, type SceneDrawing } from '../../../../../shared/scenes';
+import {
+  sceneObjectStateOf,
+  type SceneDrawing,
+  type SceneText,
+} from '../../../../../shared/scenes';
 import { makeScene } from '../../../../support/scenes';
 
 const image = {
@@ -49,6 +53,28 @@ function drawing(ownerId: string): SceneDrawing {
   };
 }
 
+function text(ownerId: string, id = '55555555-5555-4555-8555-555555555555'): SceneText {
+  return {
+    content: 'Label',
+    id,
+    ownerId,
+    revision: 0,
+    rotation: 0,
+    scaleX: 1,
+    scaleY: 1,
+    style: {
+      fontFamily: 'inter',
+      fontSize: 32,
+      fontWeight: 600,
+      primaryColor: '#ffffff',
+      strokeColor: '#000000',
+      strokeWidth: 2,
+    },
+    x: 200,
+    y: 150,
+  };
+}
+
 describe('scene selection model', () => {
   it('filters active and selected targets through actor capabilities', () => {
     const owned = drawing('player-a');
@@ -77,7 +103,7 @@ describe('scene selection model', () => {
 
   it('writes image and drawing transforms through one state accessor', () => {
     const owned = drawing('player-a');
-    const state = imageStateOf(
+    const state = sceneObjectStateOf(
       makeScene({
         drawings: { gm: [], map: [], token: [owned] },
         images: { gm: [], map: [], token: [image] },
@@ -89,6 +115,45 @@ describe('scene selection model', () => {
 
     expect(state.images.token[0].x).toBe(500);
     expect(state.drawings.token[0]).toMatchObject({ scaleY: 10, x: 150 });
+  });
+
+  it('measures, filters, transforms, and deletes text without Pixi dependencies', () => {
+    const owned = text('player-a');
+    const foreign = text(
+      'player-b',
+      '66666666-6666-4666-8666-666666666666',
+    );
+    const scene = makeScene({
+      texts: { gm: [], map: [], token: [owned, foreign] },
+    });
+    const bounds = () => ({ height: 40, width: 100 });
+    const policy = {
+      activeLayer: 'token' as const,
+      actorId: 'player-a',
+      canEditImages: false,
+    };
+    expect(activeSceneTargets(scene, policy, bounds).map(({ id }) => id)).toEqual([
+      owned.id,
+    ]);
+
+    const state = sceneObjectStateOf(scene);
+    const targets = createTargetAccessor(state, bounds);
+    targets.write(owned.id, {
+      ...targets.read(owned.id)!,
+      height: 20,
+      rotation: 45,
+      width: 200,
+      x: 250,
+    });
+    expect(state.texts.token[0]).toMatchObject({
+      rotation: 45,
+      scaleX: 2,
+      scaleY: 0.5,
+      x: 250,
+    });
+    expect(deleteSelectedObjects(state, new Set([owned.id])).texts.token).toEqual([
+      foreign,
+    ]);
   });
 
   it('computes one frame for multi-selection', () => {
@@ -108,7 +173,7 @@ describe('scene selection model', () => {
       images: { gm: [], map: [], token: [image, second] },
     });
     const selected = new Set([image.id]);
-    const before = imageStateOf(scene);
+    const before = sceneObjectStateOf(scene);
 
     expect(canCreateSceneImages(scene, 1, 3)).toBe(true);
     expect(

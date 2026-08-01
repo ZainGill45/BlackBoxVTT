@@ -1,5 +1,9 @@
 import { Container, Graphics } from 'pixi.js';
-import type { SceneDrawing, SceneDrawingLayers } from '../../../shared/scenes';
+import {
+  SCENE_LAYERS,
+  type SceneDrawing,
+  type SceneDrawingLayers,
+} from '../../../shared/scenes';
 import { softBrushPasses } from './softBrush';
 
 export interface DrawingGraphics {
@@ -95,7 +99,7 @@ export class SceneDrawingRenderer {
       return;
     }
     const wanted = new Set<string>();
-    for (const layer of ['map', 'token', 'gm'] as const) {
+    for (const layer of SCENE_LAYERS) {
       const container =
         layer === 'map'
           ? this.mapWorld

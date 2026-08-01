@@ -11,6 +11,7 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyTextLayers,
   type SceneRecord,
   type SceneTransformPreviewStart,
 } from '../../../../shared/scenes';
@@ -22,6 +23,8 @@ const assetId = '44444444-4444-4444-8444-444444444444';
 const mapImageId = '55555555-5555-4555-8555-555555555555';
 const tokenImageId = '66666666-6666-4666-8666-666666666666';
 const gmImageId = '77777777-7777-4777-8777-777777777777';
+const tokenTextId = '88888888-8888-4888-8888-888888888888';
+const gmTextId = '99999999-9999-4999-8999-999999999999';
 
 function scene(): SceneRecord {
   return {
@@ -64,6 +67,51 @@ function scene(): SceneRecord {
           width: 14,
           x: 5,
           y: 6,
+        },
+      ],
+    },
+    texts: {
+      ...createEmptyTextLayers(),
+      gm: [
+        {
+          content: 'Secret',
+          id: gmTextId,
+          ownerId: null,
+          revision: 0,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          style: {
+            fontFamily: 'inter',
+            fontSize: 32,
+            fontWeight: 600,
+            primaryColor: '#ffffff',
+            strokeColor: '#000000',
+            strokeWidth: 2,
+          },
+          x: 30,
+          y: 40,
+        },
+      ],
+      token: [
+        {
+          content: 'Public',
+          id: tokenTextId,
+          ownerId: null,
+          revision: 0,
+          rotation: 15,
+          scaleX: 2,
+          scaleY: 3,
+          style: {
+            fontFamily: 'inter',
+            fontSize: 32,
+            fontWeight: 600,
+            primaryColor: '#ffffff',
+            strokeColor: '#000000',
+            strokeWidth: 2,
+          },
+          x: 10,
+          y: 20,
         },
       ],
     },
@@ -241,5 +289,29 @@ describe('CampaignSceneRealtimeRules', () => {
         scene(),
       ),
     ).toBeNull();
+  });
+
+  it('relays public text transform starts while keeping GM text private', () => {
+    const rules = new CampaignSceneRealtimeRules(campaignId);
+    const input = {
+      ...transformStart(),
+      targets: [tokenTextId, gmTextId],
+    };
+
+    expect(rules.createTransformStart(input, scene())).toMatchObject({
+      startingTransforms: [
+        {
+          id: tokenTextId,
+          transform: {
+            rotation: 15,
+            scaleX: 2,
+            scaleY: 3,
+            x: 10,
+            y: 20,
+          },
+        },
+      ],
+      targets: [tokenTextId],
+    });
   });
 });

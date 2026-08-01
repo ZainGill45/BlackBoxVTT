@@ -21,6 +21,7 @@ import {
 } from './serverSettings';
 import { ServerSettingsPanel } from './ServerSettingsPanel';
 import { PaintSettingsModal } from './PaintSettingsModal';
+import { TextSettingsModal } from './TextSettingsModal';
 import {
   loadPaintSettings,
   savePaintSettings,
@@ -28,6 +29,11 @@ import {
   type PaintSettings,
   type PaintSubtool,
 } from './paintSettings';
+import {
+  loadTextSettings,
+  saveTextSettings,
+  type TextSettings,
+} from './textSettings';
 import {
   fogTool,
   playerTools,
@@ -79,6 +85,10 @@ export function PlayScreen({
   const [paintSettingsOpen, setPaintSettingsOpen] = useState(false);
   const [paintSubtool, setPaintSubtool] =
     useState<PaintSubtool>('freeform');
+  const [textSettings, setTextSettings] = useState<TextSettings>(() =>
+    loadTextSettings(session),
+  );
+  const [textSettingsOpen, setTextSettingsOpen] = useState(false);
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
   const stageControls = useRef<MapStageControls>(null);
@@ -114,6 +124,10 @@ export function PlayScreen({
   useEffect(() => {
     savePaintSettings(session, paintSettings);
   }, [paintSettings, session]);
+
+  useEffect(() => {
+    saveTextSettings(session, textSettings);
+  }, [session, textSettings]);
 
   useEffect(() => {
     const handlePaintWidthShortcut = (event: KeyboardEvent) => {
@@ -198,6 +212,7 @@ export function PlayScreen({
         onUndo={scenes.undo}
         paintSettings={paintSettings}
         paintSubtool={paintSubtool}
+        textSettings={textSettings}
       />
 
       <div
@@ -209,7 +224,7 @@ export function PlayScreen({
         <IconButton icon={LogOut} label="Logout" onClick={onLogout} />
         {tools.map((tool) =>
           tool.id === 'paint' ? (
-            <div className={styles.paintTool} key={tool.id}>
+            <div className={styles.toolWithRail} key={tool.id}>
               <IconButton
                 active={activeTool === tool.id}
                 aria-pressed={activeTool === tool.id}
@@ -220,7 +235,7 @@ export function PlayScreen({
               {activeTool === 'paint' ? (
                 <div
                   aria-label="Paint tools"
-                  className={styles.paintSubtools}
+                  className={styles.toolRail}
                   role="toolbar"
                 >
                   <IconButton
@@ -241,6 +256,29 @@ export function PlayScreen({
                     icon={PenTool}
                     label="Polyline pen"
                     onClick={() => setPaintSubtool('polyline')}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ) : tool.id === 'text' ? (
+            <div className={styles.toolWithRail} key={tool.id}>
+              <IconButton
+                active={activeTool === tool.id}
+                aria-pressed={activeTool === tool.id}
+                icon={tool.icon}
+                label={tool.label}
+                onClick={() => handleToolChange(tool.id)}
+              />
+              {activeTool === 'text' ? (
+                <div
+                  aria-label="Text tools"
+                  className={styles.toolRail}
+                  role="toolbar"
+                >
+                  <IconButton
+                    icon={Settings2}
+                    label="Text settings"
+                    onClick={() => setTextSettingsOpen(true)}
                   />
                 </div>
               ) : null}
@@ -383,11 +421,18 @@ export function PlayScreen({
       </div>
 
       <PaintSettingsModal
-        key={paintSettingsOpen ? 'open' : 'closed'}
+        key={paintSettingsOpen ? 'paint-open' : 'paint-closed'}
         isOpen={paintSettingsOpen}
         settings={paintSettings}
         onChange={setPaintSettings}
         onDismiss={() => setPaintSettingsOpen(false)}
+      />
+      <TextSettingsModal
+        key={textSettingsOpen ? 'text-open' : 'text-closed'}
+        isOpen={textSettingsOpen}
+        settings={textSettings}
+        onChange={setTextSettings}
+        onDismiss={() => setTextSettingsOpen(false)}
       />
     </section>
   );

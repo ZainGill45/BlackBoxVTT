@@ -2,7 +2,7 @@ import {
   findScene,
   projectSceneForPlayer,
   type SceneEditActor,
-  type SceneImageState,
+  type SceneObjectState,
   type SceneRecord,
   type SceneResult,
 } from '../../shared/scenes';
@@ -44,7 +44,7 @@ export class CampaignSceneService {
 
   async setPlayerObjects(
     sceneId: string,
-    state: SceneImageState,
+    state: SceneObjectState,
     expectedRevision: number,
     operationId: string,
     userId: string,

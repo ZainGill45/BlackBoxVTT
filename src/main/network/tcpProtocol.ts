@@ -1,6 +1,10 @@
 import type { Socket } from 'node:net';
 import { z } from 'zod';
 import {
+  MAX_SCENE_OBJECTS,
+  SCENE_LAYERS,
+} from '../../shared/scenes';
+import {
   MAX_CHAT_HISTORY_PAGE_MESSAGES,
   MAX_CHAT_MESSAGE_BYTES,
   MAX_MAX_CHAT_MESSAGE_CHARACTERS,
@@ -19,7 +23,7 @@ import {
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
-  sceneImageStateSchema,
+  sceneObjectStateSchema,
   sceneObjectTransformSchema,
   sceneRecordSchema,
 } from '../../shared/sceneSchema';
@@ -122,7 +126,7 @@ const sceneTransformStartSchema = z
     pivotY: z.number().finite(),
     revision: z.number().int().nonnegative(),
     sceneId: z.string().uuid(),
-    targets: z.array(z.string().min(1).max(128)).max(3_073),
+    targets: z.array(z.string().min(1).max(128)).max(MAX_SCENE_OBJECTS),
   })
   .strict();
 
@@ -131,7 +135,7 @@ const drawingPreviewSchema = z
     active: z.boolean(),
     closed: z.boolean(),
     kind: z.enum(['freeform', 'polyline']),
-    layer: z.enum(['map', 'token', 'gm']),
+    layer: z.enum(SCENE_LAYERS),
     operationId: z.string().uuid(),
     points: z.array(sceneDrawingPointSchema).max(MAX_DRAWING_PREVIEW_POINTS),
     reliable: z.literal(true),
@@ -330,7 +334,7 @@ export const protocolPayloadSchemas = {
       expectedRevision: z.number().int().nonnegative(),
       operationId: z.string().uuid(),
       sceneId: z.string().uuid(),
-      state: sceneImageStateSchema,
+      state: sceneObjectStateSchema,
     })
     .strict(),
   'client.scene_redo': z

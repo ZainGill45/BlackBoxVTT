@@ -3,6 +3,7 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyTextLayers,
   type SceneRecord,
 } from '../../../../../shared/scenes';
 import {
@@ -29,6 +30,7 @@ function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     updatedAt: '',
     width: 400,
     ...overrides,
+    texts: overrides.texts ?? createEmptyTextLayers(),
   };
 }
 
