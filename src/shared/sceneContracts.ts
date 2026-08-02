@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MAX_SCENE_OBJECTS } from './sceneConstants';
+import { MAX_SCENE_OBJECTS, SCENE_LAYERS } from './sceneConstants';
 import {
   sceneObjectStateSchema,
   sceneManifestSchema,
@@ -26,7 +26,33 @@ export const updateSceneInputSchema = trashSceneInputSchema.extend({
 export const setSceneImagesInputSchema = trashSceneInputSchema.extend({
   state: sceneObjectStateSchema,
 });
+const sceneArrangementTargetsSchema = z
+  .array(z.string().uuid())
+  .min(1)
+  .max(MAX_SCENE_OBJECTS)
+  .refine(
+    (targets) => new Set(targets).size === targets.length,
+    'Arrangement targets must be unique.',
+  );
+
+export const sceneArrangementSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      direction: z.enum(['back', 'backward', 'forward', 'front']),
+      kind: z.literal('reorder'),
+      targets: sceneArrangementTargetsSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('move-layer'),
+      targetLayer: z.enum(SCENE_LAYERS),
+      targets: sceneArrangementTargetsSchema,
+    })
+    .strict(),
+]);
 export const setSceneObjectsInputSchema = setSceneImagesInputSchema.extend({
+  arrangement: sceneArrangementSchema.optional(),
   operationId: z.string().uuid(),
 });
 export const sceneHistoryInputSchema = sceneCampaignInputSchema.extend({
@@ -84,6 +110,7 @@ export type TrashSceneInput = z.infer<typeof trashSceneInputSchema>;
 export type UpdateSceneInput = z.infer<typeof updateSceneInputSchema>;
 export type SetSceneImagesInput = z.infer<typeof setSceneImagesInputSchema>;
 export type SetSceneObjectsInput = z.infer<typeof setSceneObjectsInputSchema>;
+export type SceneArrangement = z.infer<typeof sceneArrangementSchema>;
 export type SceneHistoryInput = z.infer<typeof sceneHistoryInputSchema>;
 export type SceneEditActor = z.infer<typeof sceneEditActorSchema>;
 export type SceneTransformPreviewStart = z.infer<

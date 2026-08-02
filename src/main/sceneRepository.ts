@@ -3,7 +3,9 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyObjectOrderLayers,
   createEmptySceneManifest,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
   SCENE_OBJECT_LOCK_TIMEOUT_MS,
   sceneObjectStateOf,
@@ -18,6 +20,7 @@ import {
   normalizeSceneName,
   sceneBounds,
   type ScenePatch,
+  type SceneArrangement,
   type SceneDrawing,
   type SceneLayer,
   type SceneEditActor,
@@ -27,6 +30,7 @@ import {
   type SceneImage,
   type SceneRecord,
   type SceneResult,
+  type SceneShape,
   type SceneText,
 } from '../shared/scenes';
 import {
@@ -91,20 +95,30 @@ function normalizeImageTransform<
 type SceneObjectSnapshot =
   | {
       index: number;
+      kind: 'shape';
+      layer: SceneLayer;
+      orderIndex: number;
+      value: SceneShape;
+    }
+  | {
+      index: number;
       kind: 'drawing';
       layer: SceneLayer;
+      orderIndex: number;
       value: SceneDrawing;
     }
   | {
       index: number;
       kind: 'image';
       layer: SceneLayer;
+      orderIndex: number;
       value: SceneImage;
     }
   | {
       index: number;
       kind: 'text';
       layer: SceneLayer;
+      orderIndex: number;
       value: SceneText;
     }
   | {
@@ -209,6 +223,7 @@ function snapshotMap(state: SceneObjectState): Map<string, SceneObjectSnapshot> 
         index,
         kind: 'image',
         layer,
+        orderIndex: state.objectOrder[layer].indexOf(image.id),
         value: structuredClone(image),
       });
     });
@@ -217,6 +232,7 @@ function snapshotMap(state: SceneObjectState): Map<string, SceneObjectSnapshot> 
         index,
         kind: 'drawing',
         layer,
+        orderIndex: state.objectOrder[layer].indexOf(drawing.id),
         value: structuredClone(drawing),
       });
     });
@@ -225,7 +241,17 @@ function snapshotMap(state: SceneObjectState): Map<string, SceneObjectSnapshot> 
         index,
         kind: 'text',
         layer,
+        orderIndex: state.objectOrder[layer].indexOf(text.id),
         value: structuredClone(text),
+      });
+    });
+    state.shapes[layer].forEach((shape, index) => {
+      snapshots.set(shape.id, {
+        index,
+        kind: 'shape',
+        layer,
+        orderIndex: state.objectOrder[layer].indexOf(shape.id),
+        value: structuredClone(shape),
       });
     });
   }
@@ -257,11 +283,15 @@ function removeObject(state: SceneObjectState, id: string): void {
     state.mapImage = null;
   }
   for (const layer of SCENE_LAYERS) {
+    state.objectOrder[layer] = state.objectOrder[layer].filter(
+      (candidate) => candidate !== id,
+    );
     state.images[layer] = state.images[layer].filter((image) => image.id !== id);
     state.drawings[layer] = state.drawings[layer].filter(
       (drawing) => drawing.id !== id,
     );
     state.texts[layer] = state.texts[layer].filter((text) => text.id !== id);
+    state.shapes[layer] = state.shapes[layer].filter((shape) => shape.id !== id);
   }
 }
 
@@ -292,7 +322,7 @@ function insertSnapshot(
       0,
       value,
     );
-  } else {
+  } else if (snapshot.kind === 'text') {
     const value = structuredClone(snapshot.value);
     value.revision = nextObjectRevision;
     state.texts[snapshot.layer].splice(
@@ -300,7 +330,308 @@ function insertSnapshot(
       0,
       value,
     );
+  } else {
+    const value = structuredClone(snapshot.value);
+    value.revision = nextObjectRevision;
+    state.shapes[snapshot.layer].splice(
+      Math.min(snapshot.index, state.shapes[snapshot.layer].length),
+      0,
+      value,
+    );
   }
+  state.objectOrder[snapshot.layer].splice(
+    Math.min(snapshot.orderIndex, state.objectOrder[snapshot.layer].length),
+    0,
+    snapshot.value.id,
+  );
+}
+
+function objectIdsInLayer(
+  state: SceneObjectState,
+  layer: SceneLayer,
+): string[] {
+  return [
+    ...state.images[layer],
+    ...state.drawings[layer],
+    ...state.shapes[layer],
+    ...state.texts[layer],
+  ].map((object) => object.id);
+}
+
+function objectLocation(
+  state: SceneObjectState,
+  id: string,
+): { layer: SceneLayer; ownerId?: string | null; revision?: number } | null {
+  for (const layer of SCENE_LAYERS) {
+    for (const object of state.images[layer]) {
+      if (object.id === id) return { layer };
+    }
+    for (const object of [
+      ...state.drawings[layer],
+      ...state.shapes[layer],
+      ...state.texts[layer],
+    ]) {
+      if (object.id === id) {
+        return { layer, ownerId: object.ownerId, revision: object.revision };
+      }
+    }
+  }
+  return null;
+}
+
+function reconcileObjectOrder(
+  current: SceneObjectState,
+  requested: SceneObjectState,
+): void {
+  for (const layer of SCENE_LAYERS) {
+    const wanted = new Set(objectIdsInLayer(requested, layer));
+    const order = current.objectOrder[layer].filter((id) => wanted.has(id));
+    const retainedIds = new Set(order);
+    const imageIds = new Set(requested.images[layer].map((image) => image.id));
+    const shapeIds = new Set(requested.shapes[layer].map((shape) => shape.id));
+    for (const id of objectIdsInLayer(requested, layer)) {
+      if (retainedIds.has(id)) continue;
+      if (shapeIds.has(id)) {
+        const firstImageIndex = order.findIndex((candidate) =>
+          imageIds.has(candidate));
+        if (firstImageIndex >= 0) {
+          order.splice(firstImageIndex, 0, id);
+          continue;
+        }
+      }
+      order.push(id);
+    }
+    requested.objectOrder[layer] = order;
+  }
+}
+
+function reorderObjectIds(
+  order: string[],
+  selected: ReadonlySet<string>,
+  direction: 'back' | 'backward' | 'forward' | 'front',
+): string[] {
+  if (direction === 'front') {
+    return [
+      ...order.filter((id) => !selected.has(id)),
+      ...order.filter((id) => selected.has(id)),
+    ];
+  }
+  if (direction === 'back') {
+    return [
+      ...order.filter((id) => selected.has(id)),
+      ...order.filter((id) => !selected.has(id)),
+    ];
+  }
+  const next = [...order];
+  if (direction === 'forward') {
+    for (let index = next.length - 2; index >= 0; index -= 1) {
+      if (selected.has(next[index]) && !selected.has(next[index + 1])) {
+        [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      }
+    }
+  } else {
+    for (let index = 1; index < next.length; index += 1) {
+      if (selected.has(next[index]) && !selected.has(next[index - 1])) {
+        [next[index], next[index - 1]] = [next[index - 1], next[index]];
+      }
+    }
+  }
+  return next;
+}
+
+function sameObjectIds(left: SceneObjectState, right: SceneObjectState): boolean {
+  const ids = (state: SceneObjectState) =>
+    SCENE_LAYERS.flatMap((layer) => objectIdsInLayer(state, layer)).sort();
+  return JSON.stringify(ids(left)) === JSON.stringify(ids(right));
+}
+
+function objectContent(
+  state: SceneObjectState,
+  id: string,
+): { kind: 'drawing' | 'image' | 'shape' | 'text'; value: unknown } | null {
+  for (const layer of SCENE_LAYERS) {
+    const image = state.images[layer].find((candidate) => candidate.id === id);
+    if (image) return { kind: 'image', value: image };
+    const drawing = state.drawings[layer].find((candidate) => candidate.id === id);
+    if (drawing) return { kind: 'drawing', value: drawing };
+    const shape = state.shapes[layer].find((candidate) => candidate.id === id);
+    if (shape) return { kind: 'shape', value: shape };
+    const text = state.texts[layer].find((candidate) => candidate.id === id);
+    if (text) return { kind: 'text', value: text };
+  }
+  return null;
+}
+
+function sameArrangementObjectValues(
+  current: SceneObjectState,
+  requested: SceneObjectState,
+): boolean {
+  if (JSON.stringify(current.mapImage) !== JSON.stringify(requested.mapImage)) {
+    return false;
+  }
+  return SCENE_LAYERS.flatMap((layer) => objectIdsInLayer(current, layer))
+    .every((id) =>
+      JSON.stringify(objectContent(current, id)) ===
+        JSON.stringify(objectContent(requested, id)),
+    );
+}
+
+function implicitLayerChange(
+  current: SceneObjectState,
+  requested: SceneObjectState,
+): boolean {
+  return SCENE_LAYERS.some((layer) =>
+    objectIdsInLayer(current, layer).some((id) => {
+      const next = objectLocation(requested, id);
+      return next && next.layer !== layer;
+    }),
+  );
+}
+
+function arrangementProblem(
+  current: SceneObjectState,
+  requested: SceneObjectState,
+  arrangement: SceneArrangement,
+  actor: SceneEditActor,
+  submitted: SceneObjectState,
+): { code: SceneErrorCode; message: string } | null {
+  const targets = new Set(arrangement.targets);
+  if (targets.size === 0 ||
+    targets.size !== arrangement.targets.length ||
+    !sameObjectIds(current, requested) ||
+    !sameArrangementObjectValues(current, requested)) {
+    return {
+      code: 'invalid_input',
+      message: 'The object arrangement contains unrelated scene changes.',
+    };
+  }
+  const locations = arrangement.targets.map((id) => objectLocation(current, id));
+  if (locations.some((location) => !location)) {
+    return {
+      code: 'invalid_input',
+      message: 'One or more arranged objects no longer exist.',
+    };
+  }
+  const sourceLayer = locations[0]!.layer;
+  if (locations.some((location) => location!.layer !== sourceLayer)) {
+    return {
+      code: 'invalid_input',
+      message: 'Objects can be arranged only within one source layer.',
+    };
+  }
+  if (actor.kind === 'player') {
+    if (arrangement.kind === 'move-layer') {
+      return {
+        code: 'permission_denied',
+        message: 'Only the game master can move objects between layers.',
+      };
+    }
+    if (
+      sourceLayer !== 'token' ||
+      locations.some((location) => location!.ownerId !== actor.userId)
+    ) {
+      return {
+        code: 'permission_denied',
+        message: 'Players can reorder only their own token-layer objects.',
+      };
+    }
+    for (const id of arrangement.targets) {
+      const currentObject = objectLocation(current, id);
+      const candidate = objectLocation(submitted, id);
+      if (currentObject?.revision !== candidate?.revision) {
+        return {
+          code: 'conflict',
+          message: 'An arranged object changed somewhere else. Try again.',
+        };
+      }
+    }
+  }
+  if (arrangement.kind === 'reorder') {
+    if (implicitLayerChange(current, requested)) {
+      return {
+        code: 'invalid_input',
+        message: 'Reordering cannot move objects between layers.',
+      };
+    }
+    return null;
+  }
+  for (const layer of SCENE_LAYERS) {
+    for (const id of objectIdsInLayer(current, layer)) {
+      const next = objectLocation(requested, id);
+      if (
+        targets.has(id)
+          ? next?.layer !== arrangement.targetLayer
+          : next?.layer !== layer
+      ) {
+        return {
+          code: 'invalid_input',
+          message: 'The requested layer move contains unrelated changes.',
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function bumpArrangementTargetRevisions(
+  current: SceneObjectState,
+  requested: SceneObjectState,
+  changedTargets: ReadonlySet<string>,
+): void {
+  for (const layer of SCENE_LAYERS) {
+    for (const objects of [
+      requested.drawings[layer],
+      requested.shapes[layer],
+      requested.texts[layer],
+    ]) {
+      for (const object of objects) {
+        if (!changedTargets.has(object.id)) continue;
+        const previous = objectLocation(current, object.id);
+        if (previous?.revision !== undefined) {
+          object.revision = Math.max(object.revision, previous.revision + 1);
+        }
+      }
+    }
+  }
+}
+
+function applyArrangement(
+  current: SceneObjectState,
+  requested: SceneObjectState,
+  arrangement: SceneArrangement,
+): void {
+  const selected = new Set(arrangement.targets);
+  const beforeLocations = new Map(
+    arrangement.targets.map((id) => [id, objectLocation(current, id)]),
+  );
+  if (arrangement.kind === 'reorder') {
+    const layer = beforeLocations.get(arrangement.targets[0])!.layer;
+    requested.objectOrder[layer] = reorderObjectIds(
+      requested.objectOrder[layer],
+      selected,
+      arrangement.direction,
+    );
+  } else {
+    const moved = SCENE_LAYERS.flatMap((layer) => current.objectOrder[layer])
+      .filter((id) => selected.has(id));
+    for (const layer of SCENE_LAYERS) {
+      requested.objectOrder[layer] = requested.objectOrder[layer].filter(
+        (id) => !selected.has(id),
+      );
+    }
+    requested.objectOrder[arrangement.targetLayer].push(...moved);
+  }
+  const changed = new Set(
+    arrangement.targets.filter((id) => {
+      const before = beforeLocations.get(id);
+      const after = objectLocation(requested, id);
+      return before?.layer !== after?.layer ||
+        (before && after &&
+          current.objectOrder[before.layer].indexOf(id) !==
+            requested.objectOrder[after.layer].indexOf(id));
+    }),
+  );
+  bumpArrangementTargetRevisions(current, requested, changed);
 }
 
 export class SceneRepository {
@@ -394,8 +725,10 @@ export class SceneRepository {
         images: createEmptyImageLayers(),
         mapImage: null,
         name: DEFAULT_SCENE_NAME,
+        objectOrder: createEmptyObjectOrderLayers(),
         pixelScale: DEFAULT_SCENE_PIXEL_SCALE,
         revision: 0,
+        shapes: createEmptyShapeLayers(),
         unit: DEFAULT_SCENE_UNIT,
         updatedAt: timestamp,
         width: DEFAULT_SCENE_WIDTH,
@@ -428,6 +761,7 @@ export class SceneRepository {
     expectedRevision: number,
     operationId: string,
     actor: SceneEditActor,
+    arrangement?: SceneArrangement,
   ): Promise<SceneResult<SceneRecord>> {
     return this.mutate(async (manifest) => {
       const current = manifest.scenes.find((scene) => scene.id === sceneId);
@@ -472,11 +806,13 @@ export class SceneRepository {
           [
             ...Object.values(state.drawings).flat(),
             ...Object.values(state.texts).flat(),
+            ...Object.values(state.shapes).flat(),
           ].map((object) => object.id),
         );
         const deletesExisting = [
-          ...Object.values(current.drawings).flat(),
-          ...Object.values(current.texts).flat(),
+          ...current.drawings.token,
+          ...current.texts.token,
+          ...current.shapes.token,
         ]
           .some(
             (object) =>
@@ -496,6 +832,27 @@ export class SceneRepository {
         return prepared;
       }
       const normalizedState = prepared.value;
+      const before = sceneObjectStateOf(current);
+      reconcileObjectOrder(before, normalizedState);
+      if (arrangement) {
+        const problem = arrangementProblem(
+          before,
+          normalizedState,
+          arrangement,
+          actor,
+          state,
+        );
+        if (problem) {
+          return failure(problem.code, problem.message, sceneId);
+        }
+        applyArrangement(before, normalizedState, arrangement);
+      } else if (implicitLayerChange(before, normalizedState)) {
+        return failure(
+          'invalid_input',
+          'Moving objects between layers requires an explicit arrangement.',
+          sceneId,
+        );
+      }
       const parsed = sceneObjectStateSchema.safeParse(normalizedState);
       if (!parsed.success) {
         return failure(
@@ -504,7 +861,6 @@ export class SceneRepository {
           sceneId,
         );
       }
-      const before = sceneObjectStateOf(current);
       const changes = snapshotChanges(before, parsed.data);
       const lockConflict = changes.some(({ id }) =>
         this.isLockedByAnother(sceneId, id, actor, operationId),
@@ -580,14 +936,16 @@ export class SceneRepository {
         uniqueTargets.some((id) => {
           const snapshot = stateTargets.get(id);
           return (
-            (snapshot?.kind !== 'drawing' && snapshot?.kind !== 'text') ||
+            (snapshot?.kind !== 'drawing' &&
+              snapshot?.kind !== 'shape' &&
+              snapshot?.kind !== 'text') ||
             snapshot.value.ownerId !== actor.userId
           );
         })
       ) {
         return failure(
           'permission_denied',
-          'Players can transform only their own drawings and text.',
+          'Players can transform only their own drawings, shapes, and text.',
           sceneId,
         );
       }
@@ -785,6 +1143,17 @@ export class SceneRepository {
                   },
                   mapImage:
                     scene.mapImage?.assetId === assetId ? null : scene.mapImage,
+                  objectOrder: {
+                    gm: scene.objectOrder.gm.filter((id) =>
+                      !scene.images.gm.some((image) =>
+                        image.id === id && image.assetId === assetId)),
+                    map: scene.objectOrder.map.filter((id) =>
+                      !scene.images.map.some((image) =>
+                        image.id === id && image.assetId === assetId)),
+                    token: scene.objectOrder.token.filter((id) =>
+                      !scene.images.token.some((image) =>
+                        image.id === id && image.assetId === assetId)),
+                  },
                   revision: scene.revision + 1,
                   updatedAt: timestamp,
                 }
@@ -826,9 +1195,25 @@ export class SceneRepository {
         .flat()
         .map((text) => [text.id, text]),
     );
+    const currentShapes = new Map(
+      Object.values(current.shapes)
+        .flat()
+        .map((shape) => [shape.id, shape]),
+    );
+    for (const candidate of Object.values(requested.shapes).flat()) {
+      const existing = currentShapes.get(candidate.id);
+      if (existing && existing.kind !== candidate.kind) {
+        return failure(
+          'invalid_input',
+          'An existing shape cannot be changed into another shape kind.',
+          current.id,
+        );
+      }
+    }
     if (actor.kind === 'gm') {
       const drawings = createEmptyDrawingLayers();
       const texts = createEmptyTextLayers();
+      const shapes = createEmptyShapeLayers();
       for (const layer of SCENE_LAYERS) {
         drawings[layer] = requested.drawings[layer].map((candidate) => {
           const existing = currentDrawings.get(candidate.id);
@@ -861,6 +1246,22 @@ export class SceneRepository {
               : 0,
           };
         });
+        shapes[layer] = requested.shapes[layer].map((candidate) => {
+          const existing = currentShapes.get(candidate.id);
+          const normalized = normalizeShape({
+            ...candidate,
+            ownerId: existing?.ownerId ?? objectOwner(actor),
+            ...(existing ? { style: existing.style } : {}),
+          });
+          return {
+            ...normalized,
+            revision: existing
+              ? sameShape(existing, normalized)
+                ? existing.revision
+                : existing.revision + 1
+              : 0,
+          };
+        });
       }
       return {
         ok: true,
@@ -874,6 +1275,8 @@ export class SceneRepository {
           mapImage: requested.mapImage
             ? normalizeImageTransform(requested.mapImage)
             : null,
+          objectOrder: structuredClone(requested.objectOrder),
+          shapes,
           texts,
         },
       };
@@ -887,6 +1290,10 @@ export class SceneRepository {
       string,
       { layer: SceneLayer; text: SceneText }
     >();
+    const requestedShapes = new Map<
+      string,
+      { layer: SceneLayer; shape: SceneShape }
+    >();
     for (const layer of SCENE_LAYERS) {
       for (const drawing of requested.drawings[layer]) {
         requestedDrawings.set(drawing.id, { drawing, layer });
@@ -894,16 +1301,28 @@ export class SceneRepository {
       for (const text of requested.texts[layer]) {
         requestedTexts.set(text.id, { layer, text });
       }
+      for (const shape of requested.shapes[layer]) {
+        requestedShapes.set(shape.id, { layer, shape });
+      }
     }
     const merged = structuredClone(currentState);
     const preparedDrawings = new Map<string, SceneDrawing>();
     const preparedTexts = new Map<string, SceneText>();
+    const preparedShapes = new Map<string, SceneShape>();
     for (const [id, candidate] of requestedDrawings) {
       const existing = currentDrawings.get(id);
       if (existing && existing.ownerId !== actor.userId) {
         continue;
       }
       if (candidate.layer !== 'token') {
+        const currentLocation = objectLocation(currentState, id);
+        if (
+          existing &&
+          currentLocation?.layer === candidate.layer &&
+          sameDrawing(existing, candidate.drawing)
+        ) {
+          continue;
+        }
         return failure(
           'permission_denied',
           'Players can draw only on the public token layer.',
@@ -940,6 +1359,14 @@ export class SceneRepository {
         continue;
       }
       if (candidate.layer !== 'token') {
+        const currentLocation = objectLocation(currentState, id);
+        if (
+          existing &&
+          currentLocation?.layer === candidate.layer &&
+          sameText(existing, candidate.text)
+        ) {
+          continue;
+        }
         return failure(
           'permission_denied',
           'Players can place text only on the public token layer.',
@@ -971,13 +1398,50 @@ export class SceneRepository {
           : 0,
       });
     }
-    for (const layer of ['map', 'gm'] as const) {
-      merged.drawings[layer] = merged.drawings[layer].filter(
-        (drawing) => drawing.ownerId !== actor.userId,
-      );
-      merged.texts[layer] = merged.texts[layer].filter(
-        (text) => text.ownerId !== actor.userId,
-      );
+    for (const [id, candidate] of requestedShapes) {
+      const existing = currentShapes.get(id);
+      if (existing && existing.ownerId !== actor.userId) {
+        continue;
+      }
+      if (candidate.layer !== 'token') {
+        const currentLocation = objectLocation(currentState, id);
+        if (
+          existing &&
+          currentLocation?.layer === candidate.layer &&
+          sameShape(existing, candidate.shape)
+        ) {
+          continue;
+        }
+        return failure(
+          'permission_denied',
+          'Players can place shapes only on the public token layer.',
+          current.id,
+        );
+      }
+      if (
+        existing &&
+        candidate.shape.revision !== existing.revision &&
+        !sameShape(existing, candidate.shape)
+      ) {
+        return failure(
+          'conflict',
+          'The shape changed somewhere else. Try again.',
+          current.id,
+        );
+      }
+      const normalized = normalizeShape({
+        ...candidate.shape,
+        ownerId: actor.userId,
+        ...(existing ? { style: existing.style } : {}),
+      });
+      preparedShapes.set(id, {
+        ...normalized,
+        revision: existing
+          ? sameShape(existing, normalized)
+            ? existing.revision
+            : existing.revision + 1
+          : 0,
+      });
     }
     const currentTokenDrawingIds = new Set(
       current.drawings.token.map((drawing) => drawing.id),
@@ -1007,6 +1471,21 @@ export class SceneRepository {
       }),
       ...[...preparedTexts].flatMap(([id, text]) =>
         currentTokenTextIds.has(id) ? [] : [text],
+      ),
+    ];
+    const currentTokenShapeIds = new Set(
+      current.shapes.token.map((shape) => shape.id),
+    );
+    merged.shapes.token = [
+      ...current.shapes.token.flatMap((shape) => {
+        if (shape.ownerId !== actor.userId) {
+          return [shape];
+        }
+        const replacement = preparedShapes.get(shape.id);
+        return replacement ? [replacement] : [];
+      }),
+      ...[...preparedShapes].flatMap(([id, shape]) =>
+        currentTokenShapeIds.has(id) ? [] : [shape],
       ),
     ];
     return { ok: true, value: merged };
@@ -1081,8 +1560,12 @@ export class SceneRepository {
           } => change.target !== null,
         )
         .sort((left, right) => {
-          const leftIndex = 'index' in left.target ? left.target.index : -1;
-          const rightIndex = 'index' in right.target ? right.target.index : -1;
+          const leftIndex = 'orderIndex' in left.target
+            ? left.target.orderIndex
+            : -1;
+          const rightIndex = 'orderIndex' in right.target
+            ? right.target.orderIndex
+            : -1;
           return leftIndex - rightIndex;
         });
       for (const change of insertions) {
@@ -1090,11 +1573,11 @@ export class SceneRepository {
           (candidate) => candidate.id === change.id,
         )?.expected;
         const currentRevision =
-          previous?.kind === 'drawing' || previous?.kind === 'text'
+          previous?.kind === 'drawing' || previous?.kind === 'shape' || previous?.kind === 'text'
             ? previous.value.revision
             : -1;
         const targetRevision =
-          change.target.kind === 'drawing' || change.target.kind === 'text'
+          change.target.kind === 'drawing' || change.target.kind === 'shape' || change.target.kind === 'text'
             ? change.target.value.revision
             : -1;
         insertSnapshot(
@@ -1353,4 +1836,31 @@ function withoutTextRevision(text: SceneText): Omit<SceneText, 'revision'> {
 function sameText(left: SceneText, right: SceneText): boolean {
   return JSON.stringify(withoutTextRevision(left)) ===
     JSON.stringify(withoutTextRevision(right));
+}
+
+function normalizeShape(shape: SceneShape): SceneShape {
+  const normalized = normalizeImageTransform(shape);
+  return {
+    ...structuredClone(normalized),
+    ...(normalized.kind === 'cone' ? { spread: round(normalized.spread) } : {}),
+    style: {
+      ...normalized.style,
+      backgroundOpacity: round(normalized.style.backgroundOpacity),
+      fontSize: round(normalized.style.fontSize),
+      fontStrokeWidth: round(normalized.style.fontStrokeWidth),
+      strokeOpacity: round(normalized.style.strokeOpacity),
+      strokeWidth: round(normalized.style.strokeWidth),
+    },
+  } as SceneShape;
+}
+
+function withoutShapeRevision(shape: SceneShape): Omit<SceneShape, 'revision'> {
+  return Object.fromEntries(
+    Object.entries(shape).filter(([key]) => key !== 'revision'),
+  ) as Omit<SceneShape, 'revision'>;
+}
+
+function sameShape(left: SceneShape, right: SceneShape): boolean {
+  return JSON.stringify(withoutShapeRevision(left)) ===
+    JSON.stringify(withoutShapeRevision(right));
 }

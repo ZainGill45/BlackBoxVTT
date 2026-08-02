@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   decodeClientDrawingPreview,
+  decodeClientShapePreview,
   decodeServerDrawingPreview,
+  decodeServerShapePreview,
   decodeTransformPreview,
   encodeClientDrawingPreview,
   encodeServerDrawingPreview,
+  encodeClientShapePreview,
+  encodeServerShapePreview,
   encodeTransformPreview,
 } from '../../../../main/network/sceneRealtimeProtocol';
 
@@ -24,9 +28,9 @@ const clientDrawing = {
   closed: false,
   kind: 'freeform' as const,
   layer: 'token' as const,
-  operationId: 'drawing-operation',
+  operationId: '44444444-4444-4444-8444-444444444444',
   points: [{ x: 10, y: 20 }],
-  sceneId: 'scene',
+  sceneId: '55555555-5555-4555-8555-555555555555',
   sequence: 42,
   style,
 };
@@ -89,6 +93,65 @@ describe('scene realtime UDP codec', () => {
     expect(
       decodeTransformPreview(encodeTransformPreview(relative)),
     ).toEqual(relative);
+  });
+
+  it('round-trips shape snapshots without accepting ownership authority', () => {
+    const shape = {
+      height: 100,
+      id: '11111111-1111-4111-8111-111111111111',
+      kind: 'cone' as const,
+      rotation: 10,
+      spread: 53.13,
+      style: {
+        backgroundColor: '#ffffff',
+        backgroundOpacity: 0.25,
+        backgroundType: 'crosshatched' as const,
+        fontColor: '#ffffff',
+        fontFamily: 'inter' as const,
+        fontSize: 24,
+        fontStrokeColor: '#000000',
+        fontStrokeWidth: 2,
+        fontWeight: 400 as const,
+        strokeColor: '#ffffff',
+        strokeOpacity: 1,
+        strokeType: 'solid' as const,
+        strokeWidth: 2,
+      },
+      width: 200,
+      x: 30,
+      y: 40,
+    };
+    const client = {
+      layer: 'gm' as const,
+      operationId: '22222222-2222-4222-8222-222222222222',
+      phase: 'update' as const,
+      sceneId: '33333333-3333-4333-8333-333333333333',
+      sequence: 4,
+      shape,
+    };
+    expect(decodeClientShapePreview(encodeClientShapePreview(client))).toEqual({
+      operationId: client.operationId,
+      phase: client.phase,
+      sceneId: client.sceneId,
+      sequence: client.sequence,
+      shape,
+    });
+    const server = { ...client, layer: 'token' as const, sourceId: 'player' };
+    expect(decodeServerShapePreview(encodeServerShapePreview(server))).toEqual(
+      server,
+    );
+    expect(() => decodeClientShapePreview(Buffer.from(JSON.stringify({
+      ...client,
+      shape: { ...shape, ownerId: 'spoofed', revision: 0 },
+    })))).toThrow();
+    expect(() => decodeClientShapePreview(Buffer.from(JSON.stringify({
+      ...client,
+      operationId: 'not-a-uuid',
+    })))).toThrow();
+    expect(() => decodeClientShapePreview(Buffer.from(JSON.stringify({
+      ...client,
+      sequence: 0x1_0000_0000,
+    })))).toThrow();
   });
 
   it('rejects malformed snapshots and server-only drawing violations', () => {

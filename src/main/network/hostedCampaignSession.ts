@@ -19,6 +19,7 @@ import type {
   MeasurementEvent,
   NetworkResult,
   ServerSettingsView,
+  ShapePreviewEvent,
 } from '../../shared/network';
 import type {
   SceneTransformPreviewCancel,
@@ -33,6 +34,7 @@ import type {
   SessionDrawingPreview,
   SessionMapPing,
   SessionMeasurementUpdate,
+  SessionShapePreview,
 } from './campaignNetworkSession';
 import { CampaignHostServer } from './campaignHostServer';
 import type { CampaignIdentity } from './campaignIdentity';
@@ -86,6 +88,7 @@ export interface HostedCampaignSessionEvents {
   onDrawingPreview: (event: DrawingPreviewEvent) => void;
   onMapPing: (event: MapPing) => void;
   onMeasurementUpdate: (event: MeasurementEvent) => void;
+  onShapePreview: (event: ShapePreviewEvent) => void;
   onScenePresented: (campaignId: string) => void;
   onStatusChanged: (status: HostStatus) => void;
   onTransformCancelled: (event: SceneTransformPreviewCancel) => void;
@@ -155,6 +158,7 @@ export class HostedCampaignSession implements CampaignNetworkSession {
       onDrawingPreview: this.events.onDrawingPreview,
       onMapPing: this.events.onMapPing,
       onMeasurementUpdate: this.events.onMeasurementUpdate,
+      onShapePreview: this.events.onShapePreview,
       onSceneChanged: () =>
         this.events.onScenePresented(this.campaignId),
       onStatusChanged: () => this.emitStatus(),
@@ -338,6 +342,13 @@ export class HostedCampaignSession implements CampaignNetworkSession {
 
   sendDrawingPreview(input: SessionDrawingPreview): Promise<void> {
     return this.server.broadcastDrawingPreview({
+      ...input,
+      campaignId: this.campaignId,
+    });
+  }
+
+  sendShapePreview(input: SessionShapePreview): Promise<void> {
+    return this.server.broadcastShapePreview({
       ...input,
       campaignId: this.campaignId,
     });

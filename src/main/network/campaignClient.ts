@@ -35,6 +35,8 @@ import {
   type NetworkErrorCode,
   type NetworkResult,
   type RemotePlaySession,
+  type ShapePreviewEvent,
+  type ShapePreviewUpdate,
 } from '../../shared/network';
 import type {
   SceneError,
@@ -45,6 +47,7 @@ import type {
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
+  SetSceneObjectsInput,
 } from '../../shared/scenes';
 import { fail } from '../../shared/result';
 import { ClientNetworkSession } from './clientNetworkSession';
@@ -102,6 +105,9 @@ interface CampaignClientOptions {
   onMeasurementUpdate?: (
     input: Omit<MeasurementEvent, 'campaignId'>
   ) => void;
+  onShapePreview?: (
+    input: Omit<ShapePreviewEvent, 'campaignId'>
+  ) => void;
   onScenePresented?: (scene: SceneRecord | null) => void;
   onTransformCancelled?: (input: Omit<SceneTransformPreviewCancel, 'campaignId'>) => void;
   onTransformPreview?: (input: Omit<SceneTransformPreviewDelta, 'campaignId'>) => void;
@@ -129,6 +135,9 @@ export class CampaignClient {
   private readonly onScenePresented: NonNullable<
     CampaignClientOptions['onScenePresented']
   >;
+  private readonly onShapePreview: NonNullable<
+    CampaignClientOptions['onShapePreview']
+  >;
   private readonly onSessionClosed: CampaignClientOptions['onSessionClosed'];
   private readonly onTransformCancelled: NonNullable<CampaignClientOptions['onTransformCancelled']>;
   private readonly onTransformPreview: NonNullable<CampaignClientOptions['onTransformPreview']>;
@@ -144,6 +153,7 @@ export class CampaignClient {
     onMapPing = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented = () => undefined,
+    onShapePreview = () => undefined,
     onTransformCancelled = () => undefined,
     onTransformPreview = () => undefined,
     onTransformStarted = () => undefined,
@@ -157,6 +167,7 @@ export class CampaignClient {
     this.onMapPing = onMapPing;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
+    this.onShapePreview = onShapePreview;
     this.onTransformCancelled = onTransformCancelled;
     this.onTransformPreview = onTransformPreview;
     this.onTransformStarted = onTransformStarted;
@@ -356,6 +367,7 @@ export class CampaignClient {
         onMapPing: this.onMapPing,
         onMeasurementUpdate: this.onMeasurementUpdate,
         onScenePresented: this.onScenePresented,
+        onShapePreview: this.onShapePreview,
         onTransformCancelled: this.onTransformCancelled,
         onTransformPreview: this.onTransformPreview,
         onTransformStarted: this.onTransformStarted,
@@ -784,7 +796,23 @@ export class CampaignClient {
     }
   }
 
+  sendShapePreview(
+    input: Omit<ShapePreviewUpdate, 'campaignId'>,
+  ): void {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return;
+    }
+    if (input.reliable) {
+      active.dropPendingShapePreview(input.operationId);
+      active.send('client.scene_shape_preview', input);
+    } else {
+      active.sendShapePreview(input);
+    }
+  }
+
   async setSceneObjects(input: {
+    arrangement?: SetSceneObjectsInput['arrangement'];
     expectedRevision: number;
     operationId: string;
     sceneId: string;

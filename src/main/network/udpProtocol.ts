@@ -10,7 +10,7 @@ const UDP_HEADER_BYTES = 34;
 const UDP_AUTH_TAG_BYTES = 16;
 const MAX_UINT64 = (1n << 64n) - 1n;
 export const MAX_UDP_DATAGRAM_BYTES = 1_200;
-export const UDP_PROTOCOL_VERSION = 1;
+export const UDP_PROTOCOL_VERSION = 2;
 export const UDP_CLIENT_PACKET_RATE_LIMIT =
   MAX_TRANSFORM_PREVIEW_RATE + 10;
 export const UDP_CLIENT_PACKET_BURST_LIMIT =
@@ -27,6 +27,8 @@ export const udpMessageTypes = {
   clientTransformPreview: 8,
   clientDrawingPreview: 9,
   serverDrawingPreview: 10,
+  clientShapePreview: 11,
+  serverShapePreview: 12,
 } as const;
 
 type UdpMessageType =

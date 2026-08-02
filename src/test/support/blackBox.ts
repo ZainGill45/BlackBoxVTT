@@ -200,6 +200,9 @@ const networkApi: NetworkApi = {
   onMeasurementUpdate() {
     return () => undefined;
   },
+  onShapePreview() {
+    return () => undefined;
+  },
   onSessionClosed() {
     return () => undefined;
   },
@@ -233,6 +236,7 @@ const networkApi: NetworkApi = {
   async sendDrawingPreview() {},
   async sendMapPing() {},
   async sendMeasurementUpdate() {},
+  async sendShapePreview() {},
   async stopHost() {},
   async updateUsername() {
     return networkUnavailable();

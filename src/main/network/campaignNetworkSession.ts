@@ -11,6 +11,7 @@ import type {
   DrawingPreviewUpdate,
   MapPing,
   MeasurementUpdate,
+  ShapePreviewUpdate,
 } from '../../shared/network';
 
 export type SessionChatHistoryInput = Omit<ChatHistoryInput, 'campaignId'>;
@@ -27,6 +28,7 @@ export type SessionMeasurementUpdate = Omit<
   MeasurementUpdate,
   'campaignId'
 >;
+export type SessionShapePreview = Omit<ShapePreviewUpdate, 'campaignId'>;
 
 /**
  * The network behavior of one active campaign. The hosted/joined decision is
@@ -46,4 +48,5 @@ export interface CampaignNetworkSession {
   sendDrawingPreview(input: SessionDrawingPreview): Promise<void>;
   sendMapPing(input: SessionMapPing): Promise<void>;
   sendMeasurementUpdate(input: SessionMeasurementUpdate): Promise<void>;
+  sendShapePreview(input: SessionShapePreview): Promise<void>;
 }

@@ -119,6 +119,138 @@ test.describe('scene synchronization', () => {
       .toBeGreaterThan(VISIBLE_CHANGE);
   });
 
+  test('mirrors a live shape gesture before committing the same geometry', async () => {
+    await gm.window.getByRole('button', { name: 'Shape', exact: true }).click();
+    const before = await playerFrame();
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The Game Master stage has no layout box.');
+    }
+    await gm.window.mouse.move(box.x + centre.x, box.y + centre.y);
+    await gm.window.mouse.down();
+    for (let step = 1; step <= 16; step += 1) {
+      await gm.window.mouse.move(
+        box.x + centre.x + step * 10,
+        box.y + centre.y,
+      );
+    }
+
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the player never rendered the in-progress shape',
+      })
+      .toBeGreaterThan(0.0005);
+    expect((await readScene(gm.window, CAMPAIGN)).shapes.token).toEqual([]);
+
+    await gm.window.mouse.up();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.token.length, {
+        message: 'the shape preview never became a durable object',
+      })
+      .toBe(1);
+    const shape = (await readScene(gm.window, CAMPAIGN)).shapes.token[0];
+    expect(shape).toMatchObject({
+      height: shape.width,
+      kind: 'sphere',
+      style: {
+        backgroundType: 'crosshatched',
+        strokeType: 'solid',
+      },
+    });
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the committed shape did not remain on the player stage',
+      })
+      .toBeGreaterThan(0.0005);
+
+    await gm.window.getByRole('button', { name: 'Select', exact: true }).click();
+    const beforeMove = await playerFrame();
+    await dragOnStage(
+      gm.window,
+      centre,
+      { x: centre.x + 120, y: centre.y + 60 },
+      { steps: 12 },
+    );
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.token[0].x)
+      .toBeGreaterThan(shape.x);
+    await expect
+      .poll(async () => pixelDifferenceRatio(beforeMove, await playerFrame()), {
+        message: 'the committed shape move did not reach the player',
+      })
+      .toBeGreaterThan(0.0005);
+  });
+
+  test('keeps new shapes below images through synchronized layer transfers and restart', async () => {
+    await gm.window.getByRole('button', { name: 'Token layer' }).click();
+    await dropAssetOnStage(gm.window, 'map.png', {
+      x: centre.x + 320,
+      y: centre.y,
+    });
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).images.token.length)
+      .toBe(1);
+
+    await gm.window.getByRole('button', { name: 'Shape', exact: true }).click();
+    await dragOnStage(
+      gm.window,
+      centre,
+      { x: centre.x + 170, y: centre.y },
+      { steps: 16 },
+    );
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.token.length)
+      .toBe(1);
+    const created = await readScene(gm.window, CAMPAIGN);
+    const shapeId = created.shapes.token[0].id;
+    expect(created.objectOrder.token).toEqual([
+      shapeId,
+      created.images.token[0].id,
+    ]);
+
+    await gm.window.getByRole('button', { name: 'Select', exact: true }).click();
+    await stage(gm.window).click({ button: 'right', position: centre });
+    await gm.window.getByRole('menuitem', { name: 'Move to Map layer' }).click();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.map.length)
+      .toBe(1);
+
+    await gm.window.getByRole('button', { name: 'Map layer' }).click();
+    const beforePrivateMove = await playerFrame();
+    await stage(gm.window).click({ button: 'right', position: centre });
+    await gm.window.getByRole('menuitem', { name: 'Move to GM layer' }).click();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.gm.length)
+      .toBe(1);
+    await expect
+      .poll(async () => pixelDifferenceRatio(beforePrivateMove, await playerFrame()), {
+        message: 'the GM-layer transfer did not remove the shape from the player',
+      })
+      .toBeGreaterThan(0.0005);
+
+    await gm.window.getByRole('button', { name: 'GM layer' }).click();
+    await stage(gm.window).click({ button: 'right', position: centre });
+    await gm.window.getByRole('menuitem', { name: 'Move to Token layer' }).click();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.token.length)
+      .toBe(1);
+    await gm.window.getByRole('button', { name: 'Token layer' }).click();
+    await stage(gm.window).click({ button: 'right', position: centre });
+    await gm.window.getByRole('menuitem', { name: 'Send to back' }).click();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).objectOrder.token[0])
+      .toBe(shapeId);
+
+    const userDataPath = gm.userDataPath;
+    await gm.app.close();
+    gm = await apps.launchInto(userDataPath);
+    await gm.window.getByRole('tab', { name: 'Create Campaign' }).click();
+    await gm.window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
+    const restored = await readScene(gm.window, CAMPAIGN);
+    expect(restored.objectOrder.token[0]).toBe(shapeId);
+    expect(restored.shapes.token[0].id).toBe(shapeId);
+  });
+
   test('mirrors a move of that image', async () => {
     await gm.window.getByRole('button', { name: 'Token layer' }).click();
     const empty = await playerFrame();

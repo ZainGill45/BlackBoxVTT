@@ -1,8 +1,9 @@
-export const SCENE_MANIFEST_SCHEMA_VERSION = 5 as const;
+export const SCENE_MANIFEST_SCHEMA_VERSION = 8 as const;
 export const CANONICAL_MAP_ID = 'canonical-map';
 export const MAX_SCENE_IMAGES = 2_048;
 export const MAX_SCENE_DRAWINGS = 1_024;
 export const MAX_SCENE_TEXTS = 1_024;
+export const MAX_SCENE_SHAPES = 1_024;
 export const MAX_DRAWING_POINTS = 4_096;
 export const MAX_SCENE_DRAWING_POINTS = 20_000;
 export const MAX_TEXT_CHARACTERS = 2_048;
@@ -13,7 +14,8 @@ export const MAX_TEXT_RASTER_PIXELS = 8_388_608;
 export const MAX_SCENE_TEXT_RASTER_PIXELS = 67_108_864;
 export const SCENE_TEXT_TEXTURE_RESOLUTION = 2;
 export const MAX_SCENE_OBJECTS =
-  MAX_SCENE_IMAGES + MAX_SCENE_DRAWINGS + MAX_SCENE_TEXTS + 1;
+  MAX_SCENE_IMAGES + MAX_SCENE_DRAWINGS + MAX_SCENE_TEXTS +
+  MAX_SCENE_SHAPES + 1;
 export const MAX_SCENE_EDIT_HISTORY = 100;
 export const SCENE_OBJECT_LOCK_TIMEOUT_MS = 15_000;
 export const DEFAULT_FREEFORM_WIDTH = 16;
@@ -81,6 +83,10 @@ export const sceneBounds = {
   drawingWidth: { max: 256, min: 1 },
   textFontSize: { max: 256, min: 8 },
   textStrokeWidth: { max: 32, min: 0 },
+  shapeFontSize: { max: 256, min: 8 },
+  shapeFontStrokeWidth: { max: 32, min: 0 },
+  shapeStrokeWidth: { max: 32, min: 1 },
+  shapeSpread: { max: 179, min: 1 },
 } as const;
 
 export const GRID_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;

@@ -334,6 +334,74 @@ describe('PlayScreen', () => {
     });
   });
 
+  it('keeps the Shape subtool active and persists every authoring group', async () => {
+    const user = userEvent.setup();
+    renderPlayScreen();
+
+    await user.click(screen.getByRole('button', { name: 'Shape' }));
+    const rail = screen.getByRole('toolbar', { name: 'Shape tools' });
+    expect(
+      within(rail)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual(['Shape settings', 'Sphere', 'Square', 'Cone']);
+    expect(within(rail).getByRole('button', { name: 'Sphere' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await user.click(within(rail).getByRole('button', { name: 'Cone' }));
+    await user.click(screen.getByRole('button', { name: 'Select' }));
+    await user.click(screen.getByRole('button', { name: 'Shape' }));
+    expect(screen.getByRole('button', { name: 'Cone' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Shape settings' }));
+    const dialog = screen.getByRole('dialog', { name: 'Shape settings' });
+    expect(
+      within(dialog)
+        .getAllByRole('heading', { level: 2 })
+        .map((heading) => heading.textContent),
+    ).toEqual(['Background', 'Stroke', 'Measurement labels']);
+    expect(within(dialog).getByLabelText('Background type')).toHaveValue(
+      'crosshatched',
+    );
+    expect(within(dialog).getByLabelText('Background opacity')).toHaveValue(30);
+    expect(within(dialog).getByLabelText('Stroke width')).toHaveValue(2);
+    expect(within(dialog).getByLabelText('Font size')).toHaveValue(16);
+    expect(within(dialog).getByLabelText('Font weight')).toHaveValue('400');
+
+    await user.selectOptions(
+      within(dialog).getByLabelText('Background type'),
+      'transparent',
+    );
+    await user.selectOptions(
+      within(dialog).getByLabelText('Stroke type'),
+      'dotted',
+    );
+    const strokeWidth = within(dialog).getByLabelText('Stroke width');
+    await user.clear(strokeWidth);
+    await user.type(strokeWidth, '99{Enter}');
+    await user.selectOptions(within(dialog).getByLabelText('Font family'), 'cinzel');
+
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          localStorage.getItem(
+            `blackboxvtt:shape:${playerSession.campaignId}:player-${playerSession.userId}`,
+          ) ?? '{}',
+        ),
+      ).toMatchObject({
+        backgroundType: 'transparent',
+        fontFamily: 'cinzel',
+        strokeType: 'dotted',
+        strokeWidth: 32,
+      });
+    });
+  });
+
   it('steps the active paint width with brackets without stealing form input', async () => {
     const user = userEvent.setup();
     renderPlayScreen();

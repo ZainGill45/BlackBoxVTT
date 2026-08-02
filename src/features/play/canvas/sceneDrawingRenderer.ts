@@ -1,9 +1,12 @@
 import { Container, Graphics } from 'pixi.js';
 import {
+  createEmptyObjectOrderLayers,
   SCENE_LAYERS,
   type SceneDrawing,
   type SceneDrawingLayers,
+  type SceneObjectOrderLayers,
 } from '../../../shared/scenes';
+import { sceneObjectZIndex } from './sceneObjectOrder';
 import { softBrushPasses } from './softBrush';
 
 export interface DrawingGraphics {
@@ -93,7 +96,10 @@ export class SceneDrawingRenderer {
     }
   }
 
-  render(layers: SceneDrawingLayers | null): void {
+  render(
+    layers: SceneDrawingLayers | null,
+    objectOrder: SceneObjectOrderLayers = createEmptyObjectOrderLayers(),
+  ): void {
     if (!layers) {
       this.clear();
       return;
@@ -123,7 +129,12 @@ export class SceneDrawingRenderer {
         graphics.position.set(drawing.x, drawing.y);
         graphics.scale.set(drawing.scaleX, drawing.scaleY);
         graphics.angle = drawing.rotation;
-        graphics.zIndex = 1_000_000 + index;
+        graphics.zIndex = sceneObjectZIndex(
+          objectOrder,
+          layer,
+          drawing.id,
+          index,
+        );
       }
     }
     for (const [id, graphics] of this.graphics) {

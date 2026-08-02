@@ -4,6 +4,7 @@ import type {
   SceneImage,
   SceneMapImage,
   SceneRecord,
+  SceneShape,
   SceneText,
 } from './sceneSchema';
 import type {
@@ -52,6 +53,13 @@ export function applySceneTransformPreview(
       const text = layer.find((candidate) => candidate.id === targetId);
       if (text) {
         Object.assign(text, input.absolute);
+        return true;
+      }
+    }
+    for (const layer of Object.values(scene.shapes) as SceneShape[][]) {
+      const shape = layer.find((candidate) => candidate.id === targetId);
+      if (shape) {
+        Object.assign(shape, input.absolute);
         return true;
       }
     }
@@ -118,6 +126,20 @@ export function applySceneTransformPreview(
           rotation: text.rotation + input.rotation,
           scaleX: text.scaleX * input.scaleX,
           scaleY: text.scaleY * input.scaleY,
+        };
+      }
+    }
+  }
+  for (const layer of Object.values(scene.shapes) as SceneShape[][]) {
+    for (let index = 0; index < layer.length; index += 1) {
+      const shape = layer[index];
+      if (targets.has(shape.id)) {
+        layer[index] = {
+          ...shape,
+          height: shape.height * input.scaleY,
+          rotation: shape.rotation + input.rotation,
+          width: shape.width * input.scaleX,
+          ...transformPoint(shape.x, shape.y),
         };
       }
     }

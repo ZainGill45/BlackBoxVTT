@@ -7,11 +7,13 @@ import {
   type SceneApi,
   type SceneImageLayer,
   type SceneObjectState,
+  type SceneArrangement,
   type SceneRecord,
 } from '../../shared/scenes';
 import type { SceneRendererHandle } from './canvas/SceneRenderer';
 import type { PlaySession, PlayToolId } from './types';
 import type { TextSettings } from './textSettings';
+import type { ShapeSettings, ShapeSubtool } from './shapeSettings';
 import {
   drawingStyle,
   type PaintSettings,
@@ -56,11 +58,14 @@ interface MapStageProps {
     scene: SceneRecord,
     state: SceneObjectState,
     operationId: string,
+    arrangement?: SceneArrangement,
   ) => Promise<SceneRecord | null>;
   onRedo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   onUndo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   paintSettings?: PaintSettings;
   paintSubtool?: PaintSubtool;
+  shapeSettings?: ShapeSettings;
+  shapeSubtool?: ShapeSubtool;
   textSettings?: TextSettings;
   scene: SceneRecord | null;
   sceneApi: SceneApi;
@@ -95,6 +100,8 @@ export function MapStage({
   onUndo,
   paintSettings,
   paintSubtool = 'freeform',
+  shapeSettings,
+  shapeSubtool = 'sphere',
   textSettings,
 }: MapStageProps) {
   const elementRef = useRef<HTMLElement | null>(null);
@@ -192,6 +199,11 @@ export function MapStage({
           renderer.showDrawingPreview(preview);
         }
       }),
+      networkApi.onShapePreview((preview) => {
+        if (matchesScene(preview.campaignId, preview.sceneId)) {
+          renderer.showShapePreview(preview);
+        }
+      }),
       networkApi.onTransformStarted((input) => {
         if (matchesScene(input.campaignId, input.sceneId)) {
           renderer.showTransformStarted(input);
@@ -223,15 +235,18 @@ export function MapStage({
       paintStyle: paintSettings
         ? drawingStyle(paintSettings, paintSubtool)
         : undefined,
+      shapeEnabled: activeTool === 'shape',
+      shapeKind: shapeSubtool,
+      shapeStyle: shapeSettings,
       textEnabled: activeTool === 'text',
       textStyle: textSettings,
       pingEnabled: activeTool === 'select',
       onActiveLayerChange,
-      onCommit: async (state, operationId) => {
+      onCommit: async (state, operationId, arrangement) => {
         const current = sceneRef.current;
         const saved = current
           ? onCommitObjects
-            ? await onCommitObjects(current, state, operationId)
+            ? await onCommitObjects(current, state, operationId, arrangement)
             : onCommitImages
               ? await onCommitImages(current, state)
               : null
@@ -282,6 +297,12 @@ export function MapStage({
           campaignId: session.campaignId,
         });
       },
+      onShapePreview: (preview) => {
+        void networkApi.sendShapePreview({
+          ...preview,
+          campaignId: session.campaignId,
+        });
+      },
       onPreviewStart: (input) => {
         void sceneApi.previewStart({
           ...input,
@@ -316,6 +337,8 @@ export function MapStage({
     renderer,
     scene,
     sceneApi,
+    shapeSettings,
+    shapeSubtool,
     session.campaignId,
     session.role,
     sessionUserId,
@@ -410,6 +433,7 @@ export function MapStage({
               image = snapMove(image, scene.grid);
             }
             state.images[activeLayer].push(image);
+            state.objectOrder[activeLayer].push(image.id);
             bitmap.close();
             const saved = await onCommitImages(scene, state);
             if (saved) {

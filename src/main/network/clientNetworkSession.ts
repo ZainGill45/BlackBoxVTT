@@ -8,6 +8,8 @@ import type {
   MeasurementEvent,
   MeasurementUpdate,
   NetworkErrorCode,
+  ShapePreviewEvent,
+  ShapePreviewUpdate,
 } from '../../shared/network';
 import type {
   SceneRecord,
@@ -31,8 +33,10 @@ import {
 import { LatestSnapshotRateLimiter } from './latestSnapshotRateLimiter';
 import {
   decodeServerDrawingPreview,
+  decodeServerShapePreview,
   decodeTransformPreview,
   encodeClientDrawingPreview,
+  encodeClientShapePreview,
   encodeTransformPreview,
 } from './sceneRealtimeProtocol';
 
@@ -48,6 +52,10 @@ type InteractivePreview =
   | {
       input: Omit<MeasurementUpdate, 'campaignId'>;
       kind: 'measurement';
+    }
+  | {
+      input: Omit<ShapePreviewUpdate, 'campaignId'>;
+      kind: 'shape';
     }
   | {
       input: Omit<SceneTransformPreviewDelta, 'campaignId'>;
@@ -72,6 +80,9 @@ interface ClientNetworkSessionOptions {
     input: Omit<MeasurementEvent, 'campaignId'>
   ) => void;
   onScenePresented: (scene: SceneRecord | null) => void;
+  onShapePreview?: (
+    input: Omit<ShapePreviewEvent, 'campaignId'>
+  ) => void;
   onTransformCancelled?: (input: Omit<SceneTransformPreviewCancel, 'campaignId'>) => void;
   onTransformPreview?: (input: Omit<SceneTransformPreviewDelta, 'campaignId'>) => void;
   onTransformStarted?: (input: Omit<SceneTransformPreviewStart, 'campaignId'>) => void;
@@ -99,6 +110,9 @@ export class ClientNetworkSession {
     ClientNetworkSessionOptions['onMeasurementUpdate']
   >;
   private readonly onScenePresented: ClientNetworkSessionOptions['onScenePresented'];
+  private readonly onShapePreview: NonNullable<
+    ClientNetworkSessionOptions['onShapePreview']
+  >;
   private readonly onStateChanged: ClientNetworkSessionOptions['onStateChanged'];
   private readonly onTransformCancelled: NonNullable<ClientNetworkSessionOptions['onTransformCancelled']>;
   private readonly onTransformPreview: NonNullable<ClientNetworkSessionOptions['onTransformPreview']>;
@@ -114,6 +128,11 @@ export class ClientNetworkSession {
     string,
     Omit<DrawingPreviewEvent, 'campaignId'>
   >();
+  private readonly remoteShapeSequences = new Map<
+    string,
+    Omit<ShapePreviewEvent, 'campaignId'>
+  >();
+  private readonly cancelledShapeSequences = new Map<string, number>();
   private readonly interactiveRateLimiter: LatestSnapshotRateLimiter<
     InteractivePreview
   >;
@@ -130,6 +149,7 @@ export class ClientNetworkSession {
     onMapPing = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented,
+    onShapePreview = () => undefined,
     onStateChanged,
     onTransformCancelled = () => undefined,
     onTransformPreview = () => undefined,
@@ -146,6 +166,7 @@ export class ClientNetworkSession {
     this.onMapPing = onMapPing;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
+    this.onShapePreview = onShapePreview;
     this.onClosed = onClosed;
     this.onStateChanged = onStateChanged;
     this.onTransformCancelled = onTransformCancelled;
@@ -170,10 +191,15 @@ export class ClientNetworkSession {
             udpMessageTypes.clientTransformPreview,
             encodeTransformPreview(preview.input),
           );
-        } else {
+        } else if (preview.kind === 'drawing') {
           this.sendUdp(
             udpMessageTypes.clientDrawingPreview,
             encodeClientDrawingPreview(preview.input),
+          );
+        } else {
+          this.sendUdp(
+            udpMessageTypes.clientShapePreview,
+            encodeClientShapePreview(preview.input),
           );
         }
       },
@@ -223,6 +249,7 @@ export class ClientNetworkSession {
     this.interactiveRateLimiter.clear();
     this.clearRemoteDrawings();
     this.clearRemoteMeasurements();
+    this.clearRemoteShapes();
     this.channel.off('udp-recovery-required', this.beginRecovery);
     this.channel.off('message', this.handleTcpMessage);
     if (this.maintenanceTimer) {
@@ -271,6 +298,26 @@ export class ClientNetworkSession {
       input: structuredClone(input),
       kind: 'drawing',
     });
+  }
+
+  sendShapePreview(
+    input: Omit<ShapePreviewUpdate, 'campaignId'>,
+  ): void {
+    if (this.closed || this.recovering) {
+      return;
+    }
+    this.interactiveRateLimiter.push({
+      input: structuredClone(input),
+      kind: 'shape',
+    });
+  }
+
+  dropPendingShapePreview(operationId: string): void {
+    this.interactiveRateLimiter.drop(
+      (preview) =>
+        preview.kind === 'shape' &&
+        preview.input.operationId === operationId,
+    );
   }
 
   sendTransformPreview(
@@ -336,12 +383,17 @@ export class ClientNetworkSession {
     } else if (envelope.type === 'server.scene_presented') {
       this.clearRemoteMeasurements();
       this.clearRemoteDrawings();
+      this.clearRemoteShapes();
       this.onScenePresented(
         parsePayload('server.scene_presented', envelope.payload).scene,
       );
     } else if (envelope.type === 'server.scene_drawing_preview') {
       this.onDrawingPreview(
         parsePayload('server.scene_drawing_preview', envelope.payload),
+      );
+    } else if (envelope.type === 'server.scene_shape_preview') {
+      this.receiveShapePreview(
+        parsePayload('server.scene_shape_preview', envelope.payload),
       );
     } else if (envelope.type === 'server.update_rate_changed') {
       this.updateRate = parsePayload(
@@ -420,6 +472,13 @@ export class ClientNetworkSession {
           } else {
             this.remoteMeasurements.delete(update.sourceId);
           }
+        } else if (
+          decoded.type === udpMessageTypes.serverShapePreview &&
+          !this.recovering
+        ) {
+          this.receiveShapePreview(
+            decodeServerShapePreview(decoded.payload),
+          );
         }
       } catch {
         // Invalid datagrams are intentionally ignored.
@@ -454,6 +513,7 @@ export class ClientNetworkSession {
     this.interactiveRateLimiter.clear();
     this.clearRemoteDrawings();
     this.clearRemoteMeasurements();
+    this.clearRemoteShapes();
     this.recovering = this.recoverUdp().finally(() => {
       this.recovering = null;
     });
@@ -513,6 +573,7 @@ export class ClientNetworkSession {
     this.interactiveRateLimiter.clear();
     this.clearRemoteDrawings();
     this.clearRemoteMeasurements();
+    this.clearRemoteShapes();
     this.channel.off('udp-recovery-required', this.beginRecovery);
     this.channel.off('message', this.handleTcpMessage);
     if (this.maintenanceTimer) {
@@ -554,5 +615,46 @@ export class ClientNetworkSession {
       });
     }
     this.remoteDrawingSequences.clear();
+  }
+
+  private receiveShapePreview(
+    preview: Omit<ShapePreviewEvent, 'campaignId'>,
+  ): void {
+    const key = `${preview.sourceId}:${preview.operationId}`;
+    const previous = this.remoteShapeSequences.get(key);
+    const cancelledSequence = this.cancelledShapeSequences.get(key) ?? -1;
+    if (preview.sequence <= Math.max(previous?.sequence ?? -1, cancelledSequence)) {
+      return;
+    }
+    this.onShapePreview(preview);
+    if (preview.phase === 'cancel') {
+      this.remoteShapeSequences.delete(key);
+      this.cancelledShapeSequences.delete(key);
+      this.cancelledShapeSequences.set(key, preview.sequence);
+      if (this.cancelledShapeSequences.size > 512) {
+        const oldest = this.cancelledShapeSequences.keys().next().value;
+        if (oldest) {
+          this.cancelledShapeSequences.delete(oldest);
+        }
+      }
+    } else {
+      this.remoteShapeSequences.set(key, preview);
+    }
+  }
+
+  private clearRemoteShapes(): void {
+    for (const preview of this.remoteShapeSequences.values()) {
+      const sequence = preview.sequence + 1;
+      this.onShapePreview({
+        ...preview,
+        phase: 'cancel',
+        sequence,
+        shape: null,
+      });
+      const key = `${preview.sourceId}:${preview.operationId}`;
+      this.cancelledShapeSequences.delete(key);
+      this.cancelledShapeSequences.set(key, sequence);
+    }
+    this.remoteShapeSequences.clear();
   }
 }

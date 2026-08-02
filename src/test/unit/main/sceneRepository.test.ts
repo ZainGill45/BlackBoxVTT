@@ -11,10 +11,12 @@ import {
   SCENE_MANIFEST_SCHEMA_VERSION,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
   sceneObjectStateOf,
   projectSceneForPlayer,
   type SceneDrawing,
+  type SceneShape,
   type SceneText,
 } from '../../../shared/scenes';
 import { SceneRepository } from '../../../main/sceneRepository';
@@ -94,6 +96,39 @@ function text(
   };
 }
 
+function shape(
+  id: string,
+  ownerId: string | null = null,
+): SceneShape {
+  return {
+    height: 100,
+    id,
+    kind: 'cone',
+    ownerId,
+    revision: 0,
+    rotation: 0,
+    spread: 53.13,
+    style: {
+      backgroundColor: '#ffffff',
+      backgroundOpacity: 0.25,
+      backgroundType: 'crosshatched',
+      fontColor: '#ffffff',
+      fontFamily: 'inter',
+      fontSize: 24,
+      fontStrokeColor: '#000000',
+      fontStrokeWidth: 2,
+      fontWeight: 400,
+      strokeColor: '#ffffff',
+      strokeOpacity: 1,
+      strokeType: 'solid',
+      strokeWidth: 2,
+    },
+    width: 200,
+    x: 100,
+    y: 100,
+  };
+}
+
 beforeEach(async () => {
   directory = await mkdtemp(path.join(tmpdir(), 'blackbox-scenes-'));
   const timestamp = '2026-07-31T12:00:00.000Z';
@@ -131,6 +166,12 @@ describe('SceneRepository', () => {
       grid: { opacity: DEFAULT_GRID_OPACITY, type: 'square' },
       height: DEFAULT_SCENE_HEIGHT,
       mapImage: null,
+      objectOrder: {
+        gm: [],
+        map: [],
+        token: [],
+      },
+      shapes: createEmptyShapeLayers(),
       texts: createEmptyTextLayers(),
       name: DEFAULT_SCENE_NAME,
       revision: 0,
@@ -323,6 +364,12 @@ describe('SceneRepository', () => {
         ],
       },
       mapImage: null,
+      objectOrder: {
+        gm: [],
+        map: [],
+        token: ['44444444-4444-4444-8444-444444444444'],
+      },
+      shapes: createEmptyShapeLayers(),
       texts: createEmptyTextLayers(),
     };
 
@@ -373,6 +420,12 @@ describe('SceneRepository', () => {
           drawings: createEmptyDrawingLayers(),
           images: { ...createEmptyImageLayers(), token },
           mapImage: null,
+          objectOrder: {
+            gm: [],
+            map: [],
+            token: token.map((image) => image.id),
+          },
+          shapes: createEmptyShapeLayers(),
           texts: createEmptyTextLayers(),
         },
         0,
@@ -766,7 +819,347 @@ describe('SceneRepository', () => {
     expect(redone).toMatchObject({ ok: true, value: { texts: { token: [] } } });
   });
 
-  it('loads pre-v5 SQLite scene records with empty text layers', async () => {
+  it('derives shape ownership, freezes committed style, locks edits, and records history', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const playerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const otherId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const shapeId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const state = sceneObjectStateOf(projectSceneForPlayer(created.value));
+    state.shapes.token.push(shape(shapeId, otherId));
+    const saved = await repository.setObjects(
+      created.value.id,
+      state,
+      0,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      { kind: 'player', userId: playerId },
+    );
+    expect(saved).toMatchObject({
+      ok: true,
+      value: { shapes: { token: [{ id: shapeId, ownerId: playerId }] } },
+    });
+    if (!saved.ok) {
+      throw new Error('setup failed');
+    }
+
+    const forged = sceneObjectStateOf(projectSceneForPlayer(saved.value));
+    const sphereFields = structuredClone(forged.shapes.token[0]) as
+      SceneShape & { spread?: number };
+    delete sphereFields.spread;
+    forged.shapes.token[0] = {
+      ...sphereFields,
+      kind: 'sphere',
+    };
+    expect(await repository.setObjects(
+      created.value.id,
+      forged,
+      saved.value.revision,
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      { kind: 'player', userId: playerId },
+    )).toMatchObject({
+      error: { code: 'invalid_input' },
+      ok: false,
+    });
+
+    expect(await repository.beginTransform(
+      created.value.id,
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      [shapeId],
+      { kind: 'player', userId: otherId },
+    )).toMatchObject({ error: { code: 'permission_denied' }, ok: false });
+    expect(await repository.beginTransform(
+      created.value.id,
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      [shapeId],
+      { kind: 'player', userId: playerId },
+    )).toMatchObject({ ok: true });
+
+    const edited = sceneObjectStateOf(projectSceneForPlayer(saved.value));
+    edited.shapes.token[0].x = 175;
+    edited.shapes.token[0].style.backgroundColor = '#ff0000';
+    const changed = await repository.setObjects(
+      created.value.id,
+      edited,
+      saved.value.revision,
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      { kind: 'player', userId: playerId },
+    );
+    expect(changed).toMatchObject({
+      ok: true,
+      value: {
+        shapes: {
+          token: [{
+            revision: 1,
+            style: { backgroundColor: '#ffffff' },
+            x: 175,
+          }],
+        },
+      },
+    });
+    const undone = await repository.undo(created.value.id, {
+      kind: 'player',
+      userId: playerId,
+    });
+    expect(undone).toMatchObject({
+      ok: true,
+      value: { shapes: { token: [{ x: 100 }] } },
+    });
+  });
+
+  it('authoritatively reorders mixed objects and histories shape layer transfers', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) throw new Error('setup failed');
+    const imageId = '11111111-1111-4111-8111-111111111111';
+    const drawingId = '22222222-2222-4222-8222-222222222222';
+    const shapeId = '33333333-3333-4333-8333-333333333333';
+    const textId = '44444444-4444-4444-8444-444444444444';
+    const playerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const initial = sceneObjectStateOf(created.value);
+    initial.images.token.push({
+      assetId: '55555555-5555-4555-8555-555555555555',
+      height: 100,
+      id: imageId,
+      rotation: 0,
+      width: 100,
+      x: 100,
+      y: 100,
+    });
+    initial.drawings.token.push(drawing(drawingId));
+    initial.shapes.token.push(shape(shapeId, playerId));
+    initial.texts.token.push(text(textId));
+    initial.objectOrder.token.push(imageId, drawingId, shapeId, textId);
+    const saved = await repository.setObjects(
+      created.value.id,
+      initial,
+      created.value.revision,
+      '66666666-6666-4666-8666-666666666666',
+      { kind: 'gm' },
+    );
+    if (!saved.ok) throw new Error('setup failed');
+    expect(saved.value.objectOrder.token).toEqual([
+      shapeId,
+      imageId,
+      drawingId,
+      textId,
+    ]);
+
+    const forged = sceneObjectStateOf(saved.value);
+    forged.shapes.token[0].x += 1;
+    expect(await repository.setObjects(
+      created.value.id,
+      forged,
+      saved.value.revision,
+      '67676767-6767-4767-8767-676767676767',
+      { kind: 'gm' },
+      { direction: 'front', kind: 'reorder', targets: [shapeId] },
+    )).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+
+    const lockOperationId = '68686868-6868-4868-8868-686868686868';
+    expect(await repository.beginTransform(
+      created.value.id,
+      lockOperationId,
+      [shapeId],
+      { kind: 'gm' },
+    )).toMatchObject({ ok: true });
+    expect(await repository.setObjects(
+      created.value.id,
+      sceneObjectStateOf(saved.value),
+      saved.value.revision,
+      '69696969-6969-4969-8969-696969696969',
+      { kind: 'gm' },
+      { direction: 'front', kind: 'reorder', targets: [shapeId] },
+    )).toMatchObject({ error: { code: 'conflict' }, ok: false });
+    repository.cancelTransform(lockOperationId, { kind: 'gm' });
+
+    const reordered = await repository.setObjects(
+      created.value.id,
+      sceneObjectStateOf(saved.value),
+      saved.value.revision,
+      '77777777-7777-4777-8777-777777777777',
+      { kind: 'gm' },
+      { direction: 'front', kind: 'reorder', targets: [drawingId, shapeId] },
+    );
+    expect(reordered).toMatchObject({
+      ok: true,
+      value: {
+        objectOrder: { token: [imageId, textId, shapeId, drawingId] },
+        shapes: { token: [{ id: shapeId, revision: 1 }] },
+      },
+    });
+    if (!reordered.ok) throw new Error('reorder failed');
+    expect(await repository.setObjects(
+      created.value.id,
+      sceneObjectStateOf(saved.value),
+      saved.value.revision,
+      '77777777-7777-4777-8777-777777777777',
+      { kind: 'gm' },
+      { direction: 'front', kind: 'reorder', targets: [drawingId, shapeId] },
+    )).toMatchObject({
+      ok: true,
+      value: { revision: reordered.value.revision },
+    });
+
+    const undoneOrder = await repository.undo(created.value.id, { kind: 'gm' });
+    expect(undoneOrder).toMatchObject({
+      ok: true,
+      value: { objectOrder: { token: [shapeId, imageId, drawingId, textId] } },
+    });
+    const redoneOrder = await repository.redo(created.value.id, { kind: 'gm' });
+    expect(redoneOrder).toMatchObject({
+      ok: true,
+      value: { objectOrder: { token: [imageId, textId, shapeId, drawingId] } },
+    });
+    if (!redoneOrder.ok) throw new Error('redo failed');
+
+    const movedState = sceneObjectStateOf(redoneOrder.value);
+    const movedShape = movedState.shapes.token.shift()!;
+    movedState.shapes.gm.push(movedShape);
+    movedState.objectOrder.token = movedState.objectOrder.token.filter(
+      (id) => id !== shapeId,
+    );
+    movedState.objectOrder.gm.push(shapeId);
+    const moved = await repository.setObjects(
+      created.value.id,
+      movedState,
+      redoneOrder.value.revision,
+      '88888888-8888-4888-8888-888888888888',
+      { kind: 'gm' },
+      { kind: 'move-layer', targetLayer: 'gm', targets: [shapeId] },
+    );
+    expect(moved).toMatchObject({
+      ok: true,
+      value: {
+        objectOrder: { gm: [shapeId], token: [imageId, textId, drawingId] },
+        shapes: { gm: [{ id: shapeId, ownerId: null }] },
+      },
+    });
+    if (!moved.ok) throw new Error('layer move failed');
+    expect(projectSceneForPlayer(moved.value)).toMatchObject({
+      objectOrder: { gm: [] },
+      shapes: { gm: [] },
+    });
+    expect((await createRepository().readManifest()).scenes[0]).toMatchObject({
+      objectOrder: { gm: [shapeId] },
+      shapes: { gm: [{ id: shapeId, ownerId: null }] },
+    });
+
+    const undoneMove = await repository.undo(created.value.id, { kind: 'gm' });
+    expect(undoneMove).toMatchObject({
+      ok: true,
+      value: {
+        objectOrder: { token: [imageId, textId, shapeId, drawingId] },
+        shapes: { token: [{ id: shapeId, ownerId: null }] },
+      },
+    });
+  });
+
+  it('lets players reorder only their own token objects and preserves off-token ownership', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) throw new Error('setup failed');
+    const playerId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const otherId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const drawingId = '11111111-1111-4111-8111-111111111111';
+    const shapeId = '22222222-2222-4222-8222-222222222222';
+    const textId = '33333333-3333-4333-8333-333333333333';
+    const initial = sceneObjectStateOf(projectSceneForPlayer(created.value));
+    initial.drawings.token.push(drawing(drawingId, playerId));
+    initial.shapes.token.push(shape(shapeId, playerId));
+    initial.objectOrder.token.push(drawingId, shapeId);
+    const owned = await repository.setObjects(
+      created.value.id,
+      initial,
+      0,
+      '44444444-4444-4444-8444-444444444444',
+      { kind: 'player', userId: playerId },
+    );
+    if (!owned.ok) throw new Error('setup failed');
+    const withTextState = sceneObjectStateOf(owned.value);
+    withTextState.texts.token.push(text(textId, otherId));
+    withTextState.objectOrder.token.push(textId);
+    const saved = await repository.setObjects(
+      created.value.id,
+      withTextState,
+      owned.value.revision,
+      '45454545-4545-4545-8545-454545454545',
+      { kind: 'gm' },
+    );
+    if (!saved.ok) throw new Error('setup failed');
+
+    const reordered = await repository.setObjects(
+      created.value.id,
+      sceneObjectStateOf(projectSceneForPlayer(saved.value)),
+      saved.value.revision,
+      '55555555-5555-4555-8555-555555555555',
+      { kind: 'player', userId: playerId },
+      { direction: 'front', kind: 'reorder', targets: [shapeId] },
+    );
+    expect(reordered).toMatchObject({
+      ok: true,
+      value: {
+        objectOrder: { token: [drawingId, textId, shapeId] },
+        shapes: { token: [{ id: shapeId, revision: 1 }] },
+      },
+    });
+    if (!reordered.ok) throw new Error('reorder failed');
+
+    expect(await repository.setObjects(
+      created.value.id,
+      sceneObjectStateOf(projectSceneForPlayer(reordered.value)),
+      reordered.value.revision,
+      '66666666-6666-4666-8666-666666666666',
+      { kind: 'player', userId: otherId },
+      { direction: 'back', kind: 'reorder', targets: [shapeId] },
+    )).toMatchObject({ error: { code: 'permission_denied' }, ok: false });
+
+    const movedState = sceneObjectStateOf(reordered.value);
+    movedState.shapes.token = [];
+    movedState.shapes.map = [reordered.value.shapes.token[0]];
+    movedState.objectOrder.token = movedState.objectOrder.token.filter(
+      (id) => id !== shapeId,
+    );
+    movedState.objectOrder.map.push(shapeId);
+    const moved = await repository.setObjects(
+      created.value.id,
+      movedState,
+      reordered.value.revision,
+      '77777777-7777-4777-8777-777777777777',
+      { kind: 'gm' },
+      { kind: 'move-layer', targetLayer: 'map', targets: [shapeId] },
+    );
+    if (!moved.ok) throw new Error('layer move failed');
+
+    const laterPlayerState = sceneObjectStateOf(projectSceneForPlayer(moved.value));
+    laterPlayerState.drawings.token[0].x = 175;
+    const later = await repository.setObjects(
+      created.value.id,
+      laterPlayerState,
+      moved.value.revision,
+      '88888888-8888-4888-8888-888888888888',
+      { kind: 'player', userId: playerId },
+    );
+    expect(later).toMatchObject({
+      ok: true,
+      value: {
+        shapes: { map: [{ id: shapeId, ownerId: playerId }] },
+      },
+    });
+
+    expect(await repository.setObjects(
+      created.value.id,
+      laterPlayerState,
+      moved.value.revision,
+      '99999999-9999-4999-8999-999999999999',
+      { kind: 'player', userId: playerId },
+      { kind: 'move-layer', targetLayer: 'token', targets: [shapeId] },
+    )).toMatchObject({ error: { code: 'permission_denied' }, ok: false });
+  });
+
+  it('loads SQLite scene records missing newer object families as empty layers', async () => {
     const repository = createRepository();
     const created = await repository.create();
     if (!created.ok) {
@@ -774,12 +1167,16 @@ describe('SceneRepository', () => {
     }
     const legacy = structuredClone(created.value) as Record<string, unknown>;
     delete legacy.texts;
+    delete legacy.shapes;
     database.connection
       .prepare('UPDATE scenes SET record_json = ? WHERE id = ?')
       .run(JSON.stringify(legacy), created.value.id);
 
     expect((await repository.readManifest()).scenes[0].texts).toEqual(
       createEmptyTextLayers(),
+    );
+    expect((await repository.readManifest()).scenes[0].shapes).toEqual(
+      createEmptyShapeLayers(),
     );
   });
 

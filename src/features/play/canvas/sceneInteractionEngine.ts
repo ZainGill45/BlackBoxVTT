@@ -5,11 +5,24 @@ import type {
   SceneDrawingPoint,
   SceneDrawingStyle,
   SceneObjectState,
+  SceneShapeKind,
+  SceneShapeStyle,
 } from '../../../shared/scenes';
 import type { EditTarget } from './sceneSelection';
+import type { ShapeSemanticHandle } from './shapeGeometry';
 
 export type SceneGesture =
   | { kind: 'idle' }
+  | {
+      id: string;
+      kind: 'shape';
+      operationId: string;
+      pointerId: number;
+      sequence: number;
+      shapeKind: SceneShapeKind;
+      start: { x: number; y: number };
+      style: SceneShapeStyle;
+    }
   | {
       clientX: number;
       clientY: number;
@@ -45,11 +58,12 @@ export type SceneGesture =
       before: SceneObjectState;
       groupRotationBefore: number;
       kind: 'edit';
-      mode: 'marquee' | 'move' | 'resize' | 'rotate';
+      mode: 'marquee' | 'move' | 'resize' | 'rotate' | 'semantic';
       pointerId: number;
       previewOperationId: string | null;
       previewPivot: { x: number; y: number };
       resizeCorner: number;
+      semanticHandle?: ShapeSemanticHandle | null;
       start: { x: number; y: number };
     }
   | {
@@ -96,6 +110,7 @@ export interface PointerDownContext {
   editable: boolean;
   hasCommit: boolean;
   hasPaintConfiguration: boolean;
+  hasShapeConfiguration?: boolean;
   hasTextConfiguration: boolean;
   measureEnabled: boolean;
   pointerType: string;
@@ -111,6 +126,7 @@ export interface PointerDownPlan {
     | 'paint'
     | 'pan'
     | 'pinch'
+    | 'shape'
     | 'text';
   startPendingPing: boolean;
   trackTouch: boolean;
@@ -135,7 +151,8 @@ export interface PointerMovePlan {
     | 'none'
     | 'pan'
     | 'pinch'
-    | 'polyline';
+    | 'polyline'
+    | 'shape';
   stopForPendingPing: boolean;
   trackTouch: boolean;
 }
@@ -155,7 +172,8 @@ export interface PointerUpPlan {
     | 'measurement'
     | 'none'
     | 'pan'
-    | 'ping';
+    | 'ping'
+    | 'shape';
   releaseTouch: boolean;
 }
 
@@ -193,6 +211,7 @@ export function planPointerDown({
   editable,
   hasCommit,
   hasPaintConfiguration,
+  hasShapeConfiguration,
   hasTextConfiguration,
   measureEnabled,
   pointerType,
@@ -206,6 +225,9 @@ export function planPointerDown({
   }
   if (button === 0 && hasPaintConfiguration) {
     return { primary: 'paint', startPendingPing: false, trackTouch: false };
+  }
+  if (button === 0 && hasShapeConfiguration) {
+    return { primary: 'shape', startPendingPing: false, trackTouch: false };
   }
   if (button === 0 && pointerType !== 'touch' && measureEnabled) {
     return { primary: 'measure', startPendingPing: false, trackTouch: false };
@@ -244,6 +266,9 @@ export function planPointerMove(
   };
   if (gestureOfKind(state.gesture, 'freeform')?.pointerId === pointerId) {
     return { ...defaults, primary: 'freeform' };
+  }
+  if (gestureOfKind(state.gesture, 'shape')?.pointerId === pointerId) {
+    return { ...defaults, primary: 'shape' };
   }
   if (gestureOfKind(state.gesture, 'polyline') && paintEnabled) {
     return { ...defaults, primary: 'polyline' };
@@ -356,6 +381,9 @@ export function planPointerUp(
 ): PointerUpPlan {
   if (gestureOfKind(state.gesture, 'freeform')?.pointerId === pointerId) {
     return { primary: 'freeform', releaseTouch: false };
+  }
+  if (gestureOfKind(state.gesture, 'shape')?.pointerId === pointerId) {
+    return { primary: 'shape', releaseTouch: false };
   }
   if (gestureOfKind(state.gesture, 'measurement')?.pointerId === pointerId) {
     return {

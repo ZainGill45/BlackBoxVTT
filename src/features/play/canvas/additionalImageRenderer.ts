@@ -1,14 +1,14 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
 import {
   createEmptyImageLayers,
+  createEmptyObjectOrderLayers,
   SCENE_LAYERS,
   type SceneImage,
   type SceneMapImage,
   type SceneRecord,
 } from '../../../shared/scenes';
 import { SceneImageResourceCache } from './imageResourceLoader';
-
-const ADDITIONAL_MAP_Z_INDEX = 3;
+import { sceneObjectZIndex } from './sceneObjectOrder';
 
 interface CanonicalImageResource {
   assetId: string | null;
@@ -90,6 +90,7 @@ export class AdditionalImageRenderer {
   ): void {
     this.setSceneState(scene, imageUrls);
     const layers = scene?.images ?? createEmptyImageLayers();
+    const objectOrder = scene?.objectOrder ?? createEmptyObjectOrderLayers();
     const wanted = new Set<string>();
     for (const layer of SCENE_LAYERS) {
       const container = containers[layer];
@@ -133,10 +134,12 @@ export class AdditionalImageRenderer {
             sprite.parent?.removeChild(sprite);
             container.addChild(sprite);
           }
-          sprite.zIndex =
-            layer === 'map'
-              ? ADDITIONAL_MAP_Z_INDEX + imageIndex
-              : imageIndex;
+          sprite.zIndex = sceneObjectZIndex(
+            objectOrder,
+            layer,
+            image.id,
+            imageIndex,
+          );
           sprite.width = image.width;
           sprite.height = image.height;
           sprite.position.set(image.x, image.y);
@@ -161,10 +164,12 @@ export class AdditionalImageRenderer {
             placeholder.parent?.removeChild(placeholder);
             container.addChild(placeholder);
           }
-          placeholder.zIndex =
-            layer === 'map'
-              ? ADDITIONAL_MAP_Z_INDEX + imageIndex
-              : imageIndex;
+          placeholder.zIndex = sceneObjectZIndex(
+            objectOrder,
+            layer,
+            image.id,
+            imageIndex,
+          );
           drawImagePlaceholder(
             placeholder,
             image,

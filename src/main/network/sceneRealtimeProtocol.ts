@@ -2,12 +2,16 @@ import {
   MAX_DRAWING_PREVIEW_POINTS,
   type DrawingPreviewEvent,
   type DrawingPreviewUpdate,
+  type ShapePreviewEvent,
+  type ShapePreviewUpdate,
 } from '../../shared/network';
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
   sceneDrawingTransformSchema,
   sceneImageTransformSchema,
+  sceneShapePreviewSchema,
+  sceneShapeTransformSchema,
 } from '../../shared/sceneSchema';
 import type { SceneTransformPreviewDelta } from '../../shared/scenes';
 
@@ -20,6 +24,17 @@ type ServerDrawingPreview = Omit<
   'campaignId' | 'reliable'
 >;
 type TransformPreview = Omit<SceneTransformPreviewDelta, 'campaignId'>;
+type ClientShapePreview = Omit<
+  ShapePreviewUpdate,
+  'campaignId' | 'layer' | 'reliable'
+>;
+type ServerShapePreview = Omit<
+  ShapePreviewEvent,
+  'campaignId' | 'reliable'
+>;
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function parseObject(payload: Buffer): Record<string, unknown> {
   const value = JSON.parse(payload.toString('utf8')) as unknown;
@@ -44,10 +59,13 @@ function decodeDrawingBase(
     typeof value.closed !== 'boolean' ||
     (value.kind !== 'freeform' && value.kind !== 'polyline') ||
     typeof value.operationId !== 'string' ||
+    !UUID_PATTERN.test(value.operationId) ||
     typeof value.sceneId !== 'string' ||
+    !UUID_PATTERN.test(value.sceneId) ||
     typeof value.sequence !== 'number' ||
     !Number.isInteger(value.sequence) ||
     value.sequence < 0 ||
+    value.sequence > 0xffff_ffff ||
     points.length > MAX_DRAWING_PREVIEW_POINTS ||
     !style.success ||
     (value.active ? points.length === 0 : points.length !== 0)
@@ -102,6 +120,70 @@ export function decodeServerDrawingPreview(
   };
 }
 
+function decodeShapeBase(value: Record<string, unknown>): ClientShapePreview {
+  const shape = value.shape === null
+    ? { data: null, success: true as const }
+    : sceneShapePreviewSchema.safeParse(value.shape);
+  const phase = value.phase;
+  const needsShape = phase === 'final' || phase === 'update';
+  if (
+    !['cancel', 'final', 'start', 'update'].includes(String(phase)) ||
+    typeof value.operationId !== 'string' ||
+    !UUID_PATTERN.test(value.operationId) ||
+    typeof value.sceneId !== 'string' ||
+    !UUID_PATTERN.test(value.sceneId) ||
+    typeof value.sequence !== 'number' ||
+    !Number.isInteger(value.sequence) ||
+    value.sequence < 0 ||
+    value.sequence > 0xffff_ffff ||
+    !shape.success ||
+    needsShape !== Boolean(shape.data)
+  ) {
+    throw new Error('Invalid shape preview.');
+  }
+  return {
+    operationId: value.operationId,
+    phase: phase as ClientShapePreview['phase'],
+    sceneId: value.sceneId,
+    sequence: value.sequence,
+    shape: shape.data,
+  };
+}
+
+export function encodeClientShapePreview(
+  input: Omit<ShapePreviewUpdate, 'campaignId'>,
+): Buffer {
+  return Buffer.from(JSON.stringify(input), 'utf8');
+}
+
+export function decodeClientShapePreview(
+  payload: Buffer,
+): ClientShapePreview {
+  return decodeShapeBase(parseObject(payload));
+}
+
+export function encodeServerShapePreview(input: ServerShapePreview): Buffer {
+  return Buffer.from(JSON.stringify(input), 'utf8');
+}
+
+export function decodeServerShapePreview(
+  payload: Buffer,
+): ServerShapePreview {
+  const value = parseObject(payload);
+  const preview = decodeShapeBase(value);
+  if (
+    (value.layer !== 'map' && value.layer !== 'token') ||
+    typeof value.sourceId !== 'string'
+  ) {
+    throw new Error('Invalid server shape preview.');
+  }
+  return {
+    ...preview,
+    layer: value.layer,
+    sourceId: value.sourceId,
+  };
+}
+
 export function encodeTransformPreview(input: TransformPreview): Buffer {
   return Buffer.from(JSON.stringify(input), 'utf8');
 }
@@ -112,6 +194,7 @@ export function decodeTransformPreview(payload: Buffer): TransformPreview {
     value.absolute === undefined
       ? null
       : sceneImageTransformSchema
+          .or(sceneShapeTransformSchema)
           .or(sceneDrawingTransformSchema)
           .safeParse(value.absolute);
   if (

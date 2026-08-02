@@ -3,6 +3,7 @@ import {
   createEmptySceneManifest,
   findScene,
   type SceneError,
+  type SceneArrangement,
   type SceneManifest,
   type ScenePatch,
   type SceneObjectState,
@@ -33,6 +34,7 @@ export interface SceneStore {
     scene: SceneRecord,
     state: SceneObjectState,
     operationId: string,
+    arrangement?: SceneArrangement,
   ) => Promise<SceneRecord | null>;
   undo: (scene: SceneRecord) => Promise<SceneRecord | null>;
   redo: (scene: SceneRecord) => Promise<SceneRecord | null>;
@@ -153,10 +155,12 @@ export function useScenes(
       scene: SceneRecord,
       state: SceneObjectState,
       operationId: string,
+      arrangement?: SceneArrangement,
     ) => {
       return run(() =>
         sceneApi.setObjects({
           campaignId,
+          arrangement,
           expectedRevision: scene.revision,
           operationId,
           sceneId: scene.id,

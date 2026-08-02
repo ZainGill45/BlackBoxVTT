@@ -6,11 +6,13 @@ import {
 import type {
   DrawingPreviewUpdate,
   MeasurementEvent,
+  ShapePreviewUpdate,
 } from '../../../../shared/network';
 import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
   type SceneRecord,
   type SceneTransformPreviewStart,
@@ -70,6 +72,12 @@ function scene(): SceneRecord {
         },
       ],
     },
+    objectOrder: {
+      gm: [gmImageId, gmTextId],
+      map: [mapImageId],
+      token: [tokenImageId, tokenTextId],
+    },
+    shapes: createEmptyShapeLayers(),
     texts: {
       ...createEmptyTextLayers(),
       gm: [
@@ -173,6 +181,43 @@ function measurement(
   };
 }
 
+function shapePreview(
+  layer: ShapePreviewUpdate['layer'] = 'map',
+): ShapePreviewUpdate {
+  return {
+    campaignId,
+    layer,
+    operationId,
+    phase: 'update',
+    sceneId,
+    sequence: 1,
+    shape: {
+      height: 100,
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      kind: 'sphere',
+      rotation: 0,
+      style: {
+        backgroundColor: '#ffffff',
+        backgroundOpacity: 0.25,
+        backgroundType: 'crosshatched',
+        fontColor: '#ffffff',
+        fontFamily: 'inter',
+        fontSize: 24,
+        fontStrokeColor: '#000000',
+        fontStrokeWidth: 2,
+        fontWeight: 400,
+        strokeColor: '#ffffff',
+        strokeOpacity: 1,
+        strokeType: 'solid',
+        strokeWidth: 2,
+      },
+      width: 100,
+      x: 50,
+      y: 50,
+    },
+  };
+}
+
 function transformStart(): SceneTransformPreviewStart {
   return {
     campaignId,
@@ -225,6 +270,73 @@ describe('CampaignSceneRealtimeRules', () => {
       rules.createDrawingPreview(
         { ...drawingPreview(), sceneId: 'other' },
         scene(),
+      ),
+    ).toBeNull();
+  });
+
+  it('derives shape preview source/layer and keeps the GM layer private', () => {
+    const rules = new CampaignSceneRealtimeRules(campaignId);
+    const update = shapePreview('gm');
+    expect(
+      rules.createShapePreview(
+        {
+          ...update,
+          phase: 'start',
+          reliable: true,
+          sequence: 0,
+          shape: null,
+        },
+        scene(),
+        'player-id',
+      ),
+    ).toMatchObject({ layer: 'token', phase: 'start', sourceId: 'player-id' });
+    expect(
+      rules.createShapePreview(update, scene(), 'player-id'),
+    ).toMatchObject({ layer: 'token', sourceId: 'player-id' });
+    expect(rules.createShapePreview(update, scene())).toBeNull();
+    expect(
+      rules.createShapePreview(
+        { ...update, sceneId: 'other' },
+        scene(),
+      ),
+    ).toBeNull();
+    expect(
+      rules.createShapePreview(
+        { ...update, sequence: 2 },
+        scene(),
+        'player-id',
+      ),
+    ).toMatchObject({ sequence: 2 });
+    expect(
+      rules.createShapePreview(
+        {
+          ...update,
+          phase: 'cancel',
+          reliable: true,
+          sequence: 3,
+          shape: null,
+        },
+        scene(),
+        'player-id',
+      ),
+    ).toMatchObject({ phase: 'cancel' });
+    expect(
+      rules.createShapePreview(
+        { ...update, sequence: 2 },
+        scene(),
+        'player-id',
+      ),
+    ).toBeNull();
+    expect(
+      new CampaignSceneRealtimeRules(campaignId).createShapePreview(
+        {
+          ...update,
+          phase: 'start',
+          sequence: 0,
+          shape: null,
+        },
+        scene(),
+        'player-id',
       ),
     ).toBeNull();
   });

@@ -47,6 +47,7 @@ export function snapshotEditTargets(targets: EditTarget[]): EditTarget[] {
       ? { drawing: structuredClone(target.drawing) }
       : {}),
     ...(target.text ? { text: structuredClone(target.text) } : {}),
+    ...(target.shape ? { shape: structuredClone(target.shape) } : {}),
     id: target.id,
     image: { ...target.image },
   }));
@@ -63,6 +64,8 @@ export function nudgeSceneState(
     drawings: scene.drawings,
     images: scene.images,
     mapImage: scene.mapImage,
+    objectOrder: scene.objectOrder,
+    shapes: scene.shapes,
     texts: scene.texts,
   });
   const targets = createTargetAccessor(state, textBounds);
@@ -93,6 +96,8 @@ export function createNudgePreview(
     drawings: scene.drawings,
     images: scene.images,
     mapImage: scene.mapImage,
+    objectOrder: scene.objectOrder,
+    shapes: scene.shapes,
     texts: scene.texts,
   }, (id) => {
     const target = startTargets.find((candidate) => candidate.id === id);

@@ -6,9 +6,11 @@ import {
   MAX_SCENE_DRAWING_POINTS,
   SCENE_MANIFEST_SCHEMA_VERSION,
   MAX_SCENE_IMAGES,
+  MAX_SCENE_OBJECTS,
   MAX_SCENE_TEXT_CHARACTERS,
   MAX_SCENE_TEXT_RASTER_PIXELS,
   MAX_SCENE_TEXTS,
+  MAX_SCENE_SHAPES,
   MAX_TEXT_CHARACTERS,
   MAX_TEXT_LINES,
   MAX_TEXT_RASTER_DIMENSION,
@@ -288,27 +290,130 @@ export const sceneTextLayersSchema = z
     return new Set(ids).size === ids.length;
   }, 'Scene text IDs must be unique.');
 
+export const sceneShapeStyleSchema = z
+  .object({
+    backgroundColor: z.string().regex(GRID_COLOR_PATTERN),
+    backgroundOpacity: z.number().finite().min(0).max(1),
+    backgroundType: z.enum(['fill', 'crosshatched', 'transparent']),
+    fontColor: z.string().regex(GRID_COLOR_PATTERN),
+    fontFamily: sceneTextFamilySchema,
+    fontSize: bounded(sceneBounds.shapeFontSize),
+    fontStrokeColor: z.string().regex(GRID_COLOR_PATTERN),
+    fontStrokeWidth: bounded(sceneBounds.shapeFontStrokeWidth),
+    fontWeight: sceneTextWeightSchema,
+    strokeColor: z.string().regex(GRID_COLOR_PATTERN),
+    strokeOpacity: z.number().finite().min(0).max(1),
+    strokeType: z.enum(['solid', 'dashed', 'dotted']),
+    strokeWidth: bounded(sceneBounds.shapeStrokeWidth),
+  })
+  .strict();
+
+const sceneShapeBaseSchema = sceneImageTransformSchema.extend({
+  id: z.string().uuid(),
+  ownerId: z.string().uuid().nullable(),
+  revision: z.number().int().nonnegative(),
+  style: sceneShapeStyleSchema,
+});
+
+export const sceneShapeSchema = z.discriminatedUnion('kind', [
+  sceneShapeBaseSchema.extend({ kind: z.literal('sphere') }).strict(),
+  sceneShapeBaseSchema.extend({ kind: z.literal('square') }).strict(),
+  sceneShapeBaseSchema
+    .extend({
+      kind: z.literal('cone'),
+      spread: bounded(sceneBounds.shapeSpread),
+    })
+    .strict(),
+]);
+
+const sceneShapePreviewBase = sceneImageTransformSchema.extend({
+  id: z.string().uuid(),
+  style: sceneShapeStyleSchema,
+});
+
+export const sceneShapePreviewSchema = z.discriminatedUnion('kind', [
+  sceneShapePreviewBase.extend({ kind: z.literal('sphere') }).strict(),
+  sceneShapePreviewBase.extend({ kind: z.literal('square') }).strict(),
+  sceneShapePreviewBase
+    .extend({
+      kind: z.literal('cone'),
+      spread: bounded(sceneBounds.shapeSpread),
+    })
+    .strict(),
+]);
+
+export const sceneShapeLayersSchema = z
+  .object({
+    gm: z.array(sceneShapeSchema),
+    map: z.array(sceneShapeSchema),
+    token: z.array(sceneShapeSchema),
+  })
+  .strict()
+  .refine(
+    (layers) =>
+      layers.gm.length + layers.map.length + layers.token.length <=
+      MAX_SCENE_SHAPES,
+    `A scene can contain at most ${MAX_SCENE_SHAPES} shapes.`,
+  )
+  .refine((layers) => {
+    const ids = [...layers.gm, ...layers.map, ...layers.token].map(
+      (shape) => shape.id,
+    );
+    return new Set(ids).size === ids.length;
+  }, 'Scene shape IDs must be unique.');
+
+export const sceneObjectOrderLayersSchema = z
+  .object({
+    gm: z.array(z.string().uuid()).max(MAX_SCENE_OBJECTS),
+    map: z.array(z.string().uuid()).max(MAX_SCENE_OBJECTS),
+    token: z.array(z.string().uuid()).max(MAX_SCENE_OBJECTS),
+  })
+  .strict();
+
+type OrderedSceneObjects = {
+  drawings: z.infer<typeof sceneDrawingLayersSchema>;
+  images: z.infer<typeof sceneImageLayersSchema>;
+  objectOrder: z.infer<typeof sceneObjectOrderLayersSchema>;
+  shapes: z.infer<typeof sceneShapeLayersSchema>;
+  texts: z.infer<typeof sceneTextLayersSchema>;
+};
+
+function validObjectOrder(state: OrderedSceneObjects): boolean {
+  return (['map', 'token', 'gm'] as const).every((layer) => {
+    const expected = [
+      ...state.images[layer],
+      ...state.drawings[layer],
+      ...state.shapes[layer],
+      ...state.texts[layer],
+    ].map((object) => object.id);
+    const order = state.objectOrder[layer];
+    return order.length === expected.length &&
+      new Set(order).size === order.length &&
+      expected.every((id) => order.includes(id));
+  });
+}
+
+function uniqueObjectIds(state: Omit<OrderedSceneObjects, 'objectOrder'>): boolean {
+  const imageIds = Object.values(state.images).flat().map((image) => image.id);
+  const drawingIds = Object.values(state.drawings).flat().map((drawing) => drawing.id);
+  const textIds = Object.values(state.texts).flat().map((text) => text.id);
+  const shapeIds = Object.values(state.shapes).flat().map((shape) => shape.id);
+  const ids = [...imageIds, ...drawingIds, ...shapeIds, ...textIds];
+  return new Set(ids).size === ids.length;
+}
+
 export const sceneObjectStateSchema = z
   .object({
     drawings: sceneDrawingLayersSchema,
     images: sceneImageLayersSchema,
     mapImage: sceneMapImageSchema.nullable(),
+    objectOrder: sceneObjectOrderLayersSchema,
+    shapes: sceneShapeLayersSchema,
     texts: sceneTextLayersSchema,
   })
   .strict()
-  .refine((state) => {
-    const imageIds = Object.values(state.images)
-      .flat()
-      .map((image) => image.id);
-    const drawingIds = Object.values(state.drawings)
-      .flat()
-      .map((drawing) => drawing.id);
-    const textIds = Object.values(state.texts)
-      .flat()
-      .map((text) => text.id);
-    return new Set([...imageIds, ...drawingIds, ...textIds]).size ===
-      imageIds.length + drawingIds.length + textIds.length;
-  }, 'Scene object IDs must be unique.');
+  .refine(uniqueObjectIds, 'Scene object IDs must be unique.')
+  .refine(validObjectOrder, 'Scene object order must contain every object in its layer exactly once.');
 
 export const sceneRecordSchema = z
   .object({
@@ -321,36 +426,76 @@ export const sceneRecordSchema = z
     images: sceneImageLayersSchema,
     mapImage: sceneMapImageSchema.nullable(),
     name: z.string().min(sceneBounds.name.min).max(sceneBounds.name.max),
+    objectOrder: sceneObjectOrderLayersSchema,
     pixelScale: bounded(sceneBounds.pixelScale),
     revision: z.number().int().nonnegative(),
+    shapes: sceneShapeLayersSchema,
     unit: z.string().max(sceneBounds.unit.max),
     updatedAt: z.string().datetime(),
     width: boundedInteger(sceneBounds.width),
     texts: sceneTextLayersSchema,
   })
   .strict()
-  .refine((scene) => {
-    const imageIds = Object.values(scene.images)
-      .flat()
-      .map((image) => image.id);
-    const drawingIds = Object.values(scene.drawings)
-      .flat()
-      .map((drawing) => drawing.id);
-    const textIds = Object.values(scene.texts)
-      .flat()
-      .map((text) => text.id);
-    return new Set([...imageIds, ...drawingIds, ...textIds]).size ===
-      imageIds.length + drawingIds.length + textIds.length;
-  }, 'Scene object IDs must be unique.');
+  .refine(uniqueObjectIds, 'Scene object IDs must be unique.')
+  .refine(validObjectOrder, 'Scene object order must contain every object in its layer exactly once.');
 
 export const persistedSceneRecordSchema = z.preprocess((value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return value;
   }
   const record = value as Record<string, unknown>;
-  return record.texts === undefined
-    ? { ...record, texts: { gm: [], map: [], token: [] } }
-    : record;
+  const shapes = record.shapes && typeof record.shapes === 'object'
+    ? Object.fromEntries(
+        Object.entries(record.shapes as Record<string, unknown>).map(
+          ([layer, entries]) => [
+            layer,
+            Array.isArray(entries)
+              ? entries.map((shape) =>
+                  shape && typeof shape === 'object' && !Array.isArray(shape)
+                    ? Object.fromEntries(
+                        Object.entries(shape).filter(([key]) => key !== 'label'),
+                      )
+                    : shape,
+                )
+              : entries,
+          ],
+        ),
+      )
+    : { gm: [], map: [], token: [] };
+  const objectIds = (layer: 'gm' | 'map' | 'token') =>
+    ['shapes', 'images', 'drawings', 'texts'].flatMap((family) => {
+      const layers = family === 'shapes'
+        ? shapes
+        : record[family];
+      if (!layers || typeof layers !== 'object' || Array.isArray(layers)) {
+        return [];
+      }
+      const entries = (layers as Record<string, unknown>)[layer];
+      return Array.isArray(entries)
+        ? entries.flatMap((entry) =>
+            entry && typeof entry === 'object' && !Array.isArray(entry) &&
+              typeof (entry as Record<string, unknown>).id === 'string'
+              ? [(entry as Record<string, unknown>).id]
+              : [],
+          )
+        : [];
+    });
+  return {
+    ...record,
+    shapes,
+    ...(record.texts === undefined
+      ? { texts: { gm: [], map: [], token: [] } }
+      : {}),
+    ...(record.objectOrder === undefined
+      ? {
+          objectOrder: {
+            gm: objectIds('gm'),
+            map: objectIds('map'),
+            token: objectIds('token'),
+          },
+        }
+      : {}),
+  };
 }, sceneRecordSchema);
 
 export const sceneManifestSchema = z
@@ -375,8 +520,12 @@ export const scenePatchSchema = z
   })
   .strict();
 
+export const sceneShapeTransformSchema = sceneImageTransformSchema.extend({
+  spread: bounded(sceneBounds.shapeSpread).optional(),
+});
+
 export const sceneObjectTransformSchema = z.union([
-  sceneImageTransformSchema,
+  sceneShapeTransformSchema,
   sceneDrawingTransformSchema,
 ]);
 
@@ -403,6 +552,12 @@ export type SceneTextStyle = z.infer<typeof sceneTextStyleSchema>;
 export type SceneText = z.infer<typeof sceneTextSchema>;
 export type SceneTextLayers = z.infer<typeof sceneTextLayersSchema>;
 export type SceneTextLayer = SceneLayer;
+export type SceneShapeStyle = z.infer<typeof sceneShapeStyleSchema>;
+export type SceneShape = z.infer<typeof sceneShapeSchema>;
+export type SceneShapeKind = SceneShape['kind'];
+export type SceneShapeLayers = z.infer<typeof sceneShapeLayersSchema>;
+export type SceneObjectOrderLayers = z.infer<typeof sceneObjectOrderLayersSchema>;
+export type SceneShapeLayer = SceneLayer;
 export type SceneObjectState = z.infer<typeof sceneObjectStateSchema>;
 export type SceneRecord = z.infer<typeof sceneRecordSchema>;
 export type SceneManifest = z.infer<typeof sceneManifestSchema>;

@@ -5,6 +5,7 @@ import {
   type SceneObjectState,
   type SceneMapImage,
   type SceneRecord,
+  type SceneShape,
   type SceneText,
 } from '../../../shared/scenes';
 import {
@@ -12,11 +13,13 @@ import {
   reorderSelected,
   roundTransform,
 } from './imageGeometry';
+import { shapeAsImage } from './shapeGeometry';
 
 export interface EditTarget {
   drawing?: SceneDrawing;
   id: string;
   image: SceneMapImage;
+  shape?: SceneShape;
   text?: SceneText;
 }
 
@@ -125,6 +128,13 @@ export function canEditText(
   return actorId == null || text.ownerId === actorId;
 }
 
+export function canEditShape(
+  shape: SceneShape,
+  actorId?: string | null,
+): boolean {
+  return actorId == null || shape.ownerId === actorId;
+}
+
 export function activeSceneTargets(
   scene: SceneRecord,
   policy: SceneSelectionPolicy,
@@ -137,19 +147,27 @@ export function activeSceneTargets(
           id: image.id,
           image,
         }));
-  if (
+  const canonical =
     policy.canEditImages !== false &&
     policy.activeLayer === 'map' &&
     scene.mapImage
-  ) {
-    result.unshift({ id: CANONICAL_MAP_ID, image: scene.mapImage });
-  }
+      ? { id: CANONICAL_MAP_ID, image: scene.mapImage }
+      : null;
   for (const drawing of scene.drawings[policy.activeLayer]) {
     if (canEditDrawing(drawing, policy.actorId)) {
       result.push({
         drawing,
         id: drawing.id,
         image: drawingAsImage(drawing),
+      });
+    }
+  }
+  for (const shape of scene.shapes[policy.activeLayer]) {
+    if (canEditShape(shape, policy.actorId)) {
+      result.push({
+        id: shape.id,
+        image: shapeAsImage(shape),
+        shape,
       });
     }
   }
@@ -163,7 +181,15 @@ export function activeSceneTargets(
       });
     }
   }
-  return result;
+  const order = new Map(
+    scene.objectOrder[policy.activeLayer].map((id, index) => [id, index]),
+  );
+  result.sort(
+    (left, right) =>
+      (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+  );
+  return canonical ? [canonical, ...result] : result;
 }
 
 export function selectedSceneTargets(
@@ -205,6 +231,17 @@ export function selectedSceneTargets(
           id: text.id,
           image: textAsImage(text, bounds),
           text,
+        });
+      }
+    }
+  }
+  for (const layer of Object.values(scene.shapes)) {
+    for (const shape of layer) {
+      if (canEditShape(shape, policy.actorId)) {
+        lookup.set(shape.id, {
+          id: shape.id,
+          image: shapeAsImage(shape),
+          shape,
         });
       }
     }
@@ -279,6 +316,10 @@ export function createTargetAccessor(
     string,
     { index: number; layer: SceneText[] }
   >();
+  const shapeLocations = new Map<
+    string,
+    { index: number; layer: SceneShape[] }
+  >();
   for (const layer of Object.values(state.images) as SceneImage[][]) {
     layer.forEach((image, index) => {
       locations.set(image.id, { index, layer });
@@ -292,6 +333,11 @@ export function createTargetAccessor(
   for (const layer of Object.values(state.texts) as SceneText[][]) {
     layer.forEach((text, index) => {
       textLocations.set(text.id, { index, layer });
+    });
+  }
+  for (const layer of Object.values(state.shapes) as SceneShape[][]) {
+    layer.forEach((shape, index) => {
+      shapeLocations.set(shape.id, { index, layer });
     });
   }
   return {
@@ -309,8 +355,12 @@ export function createTargetAccessor(
       }
       const textLocation = textLocations.get(id);
       const bounds = textBounds(id);
-      return textLocation && bounds
-        ? textAsImage(textLocation.layer[textLocation.index], bounds)
+      if (textLocation && bounds) {
+        return textAsImage(textLocation.layer[textLocation.index], bounds);
+      }
+      const shapeLocation = shapeLocations.get(id);
+      return shapeLocation
+        ? shapeAsImage(shapeLocation.layer[shapeLocation.index])
         : null;
     },
     write: (id, transform) => {
@@ -352,6 +402,18 @@ export function createTargetAccessor(
           x: transform.x,
           y: transform.y,
         };
+        return;
+      }
+      const shapeLocation = shapeLocations.get(id);
+      if (shapeLocation) {
+        shapeLocation.layer[shapeLocation.index] = {
+          ...shapeLocation.layer[shapeLocation.index],
+          height: transform.height,
+          rotation: transform.rotation,
+          width: transform.width,
+          x: transform.x,
+          y: transform.y,
+        };
       }
     },
   };
@@ -372,10 +434,14 @@ export function selectedTargetsFromState(
       const text = Object.values(state.texts)
         .flat()
         .find((candidate) => candidate.id === id);
+      const shape = Object.values(state.shapes)
+        .flat()
+        .find((candidate) => candidate.id === id);
       return image
         ? {
             ...(drawing ? { drawing } : {}),
             ...(text ? { text } : {}),
+            ...(shape ? { shape } : {}),
             id,
             image,
           }
@@ -403,6 +469,12 @@ export function deleteSelectedObjects(
     );
     after.texts[layer] = after.texts[layer].filter(
       (text) => !selected.has(text.id),
+    );
+    after.shapes[layer] = after.shapes[layer].filter(
+      (shape) => !selected.has(shape.id),
+    );
+    after.objectOrder[layer] = after.objectOrder[layer].filter(
+      (id) => !selected.has(id),
     );
   }
   return after;
@@ -446,38 +518,56 @@ export function duplicateSceneImages(
   );
 }
 
-export function moveSelectedImagesToLayer(
+export function moveSelectedObjectsToLayer(
   before: SceneObjectState,
   selected: ReadonlySet<string>,
-  targetLayer: keyof SceneObjectState['images'],
+  targetLayer: keyof SceneObjectState['objectOrder'],
 ): SceneObjectState {
   const after = structuredClone(before);
-  const moved: SceneImage[] = [];
-  for (const current of Object.keys(after.images) as Array<
-    keyof SceneObjectState['images']
+  const movedIds = (Object.keys(after.objectOrder) as Array<
+    keyof SceneObjectState['objectOrder']
+  >).flatMap((layer) =>
+    after.objectOrder[layer].filter((id) => selected.has(id)),
+  );
+  for (const current of Object.keys(after.objectOrder) as Array<
+    keyof SceneObjectState['objectOrder']
   >) {
-    moved.push(
-      ...after.images[current].filter((image) => selected.has(image.id)),
-    );
+    const images = after.images[current].filter((image) => selected.has(image.id));
+    const drawings = after.drawings[current].filter((drawing) =>
+      selected.has(drawing.id));
+    const shapes = after.shapes[current].filter((shape) => selected.has(shape.id));
+    const texts = after.texts[current].filter((text) => selected.has(text.id));
     after.images[current] = after.images[current].filter(
-      (image) => !selected.has(image.id),
+      (image) => !selected.has(image.id));
+    after.drawings[current] = after.drawings[current].filter(
+      (drawing) => !selected.has(drawing.id));
+    after.shapes[current] = after.shapes[current].filter(
+      (shape) => !selected.has(shape.id));
+    after.texts[current] = after.texts[current].filter(
+      (text) => !selected.has(text.id));
+    after.images[targetLayer].push(...images);
+    after.drawings[targetLayer].push(...drawings);
+    after.shapes[targetLayer].push(...shapes);
+    after.texts[targetLayer].push(...texts);
+    after.objectOrder[current] = after.objectOrder[current].filter(
+      (id) => !selected.has(id),
     );
   }
-  after.images[targetLayer].push(...moved);
+  after.objectOrder[targetLayer].push(...movedIds);
   return after;
 }
 
-export function reorderSelectedImages(
+export function reorderSelectedObjects(
   before: SceneObjectState,
   selected: ReadonlySet<string>,
-  layer: keyof SceneObjectState['images'],
+  layer: keyof SceneObjectState['objectOrder'],
   direction: 'back' | 'backward' | 'forward' | 'front',
 ): SceneObjectState {
   const after = structuredClone(before);
-  after.images[layer] = reorderSelected(
-    after.images[layer],
+  after.objectOrder[layer] = reorderSelected(
+    after.objectOrder[layer].map((id) => ({ id })),
     new Set(selected),
     direction,
-  );
+  ).map(({ id }) => id);
   return after;
 }

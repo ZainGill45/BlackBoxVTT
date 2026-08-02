@@ -1,6 +1,5 @@
 import type {
   SceneGrid,
-  SceneImage,
   SceneImageLayer,
   SceneImageLayers,
   SceneMapImage,
@@ -173,11 +172,11 @@ export function snapMove<T extends SceneMapImage>(
   };
 }
 
-export function reorderSelected(
-  images: SceneImage[],
+export function reorderSelected<T extends { id: string }>(
+  images: T[],
   selected: Set<string>,
   direction: 'back' | 'backward' | 'forward' | 'front',
-): SceneImage[] {
+): T[] {
   if (direction === 'front') {
     return [
       ...images.filter((image) => !selected.has(image.id)),

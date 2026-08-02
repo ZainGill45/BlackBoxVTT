@@ -1,6 +1,10 @@
 import { Graphics } from 'pixi.js';
 import { sceneToScreen, type Camera, type Viewport } from './camera';
 import { selectionFrame, type EditTarget } from './sceneSelection';
+import {
+  semanticShapeHandles,
+  type ShapeSemanticHandle,
+} from './shapeGeometry';
 
 const HANDLE_SIZE = 10;
 const HANDLE_HIT_SIZE = 24;
@@ -115,6 +119,16 @@ export class SceneSelectionOverlay {
       )
       .fill({ color: surface })
       .stroke({ color: focus, width: 2 });
+    const shape = input.targets.length === 1 ? input.targets[0].shape : null;
+    if (shape) {
+      for (const handle of semanticShapeHandles(shape)) {
+        const point = sceneToScreen(input.camera, input.viewport, handle.point);
+        this.selection
+          .circle(point.x, point.y, HANDLE_SIZE * 0.7)
+          .fill({ color: surface })
+          .stroke({ color: focus, width: 2 });
+      }
+    }
   }
 
   handleAt(
@@ -128,12 +142,22 @@ export class SceneSelectionOverlay {
   ):
     | { mode: 'resize'; corner: number }
     | { mode: 'rotate' }
+    | { mode: 'semantic'; handle: ShapeSemanticHandle }
     | null {
+    const shape = input.targets.length === 1 ? input.targets[0].shape : null;
+    const threshold = HANDLE_HIT_SIZE / 2;
+    if (shape) {
+      for (const handle of semanticShapeHandles(shape)) {
+        const screen = sceneToScreen(input.camera, input.viewport, handle.point);
+        if (Math.hypot(point.x - screen.x, point.y - screen.y) <= threshold) {
+          return { handle: handle.kind, mode: 'semantic' };
+        }
+      }
+    }
     const points = selectionScreenCorners(input);
     if (points.length !== 4) {
       return null;
     }
-    const threshold = HANDLE_HIT_SIZE / 2;
     for (let index = 0; index < points.length; index += 1) {
       if (
         Math.hypot(point.x - points[index].x, point.y - points[index].y) <=

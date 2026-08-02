@@ -3,6 +3,7 @@ import {
   projectSceneForPlayer,
   type SceneEditActor,
   type SceneObjectState,
+  type SceneArrangement,
   type SceneRecord,
   type SceneResult,
 } from '../../shared/scenes';
@@ -48,15 +49,26 @@ export class CampaignSceneService {
     expectedRevision: number,
     operationId: string,
     userId: string,
+    arrangement?: SceneArrangement,
   ): Promise<SceneResult<SceneRecord>> {
+    const result = arrangement
+      ? await this.scenes.setObjects(
+          sceneId,
+          state,
+          expectedRevision,
+          operationId,
+          actor(userId),
+          arrangement,
+        )
+      : await this.scenes.setObjects(
+          sceneId,
+          state,
+          expectedRevision,
+          operationId,
+          actor(userId),
+        );
     return projectResult(
-      await this.scenes.setObjects(
-        sceneId,
-        state,
-        expectedRevision,
-        operationId,
-        actor(userId),
-      ),
+      result,
     );
   }
 

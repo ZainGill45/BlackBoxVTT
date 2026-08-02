@@ -159,6 +159,56 @@ test.describe('stage camera and tools', () => {
       .toBeGreaterThan(THIN_LINE_CHANGE);
   });
 
+  test('renders a stable 5-unit shape while zooming', async () => {
+    await gm.window.getByRole('button', { name: 'Shape', exact: true }).click();
+    const rail = gm.window.getByRole('toolbar', { name: 'Shape tools' });
+    await expect(rail.getByRole('button', { name: 'Sphere' }))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    await dragOnStage(
+      gm.window,
+      centre,
+      { x: centre.x + 60, y: centre.y },
+      { steps: 16 },
+    );
+
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).shapes.token.length, {
+        message: 'the shape gesture did not persist a sphere',
+      })
+      .toBe(1);
+    const storedScene = await readScene(gm.window, CAMPAIGN);
+    const sphere = storedScene.shapes.token[0];
+    expect(sphere).toMatchObject({
+      height: sphere.width,
+      kind: 'sphere',
+      style: { backgroundType: 'crosshatched' },
+    });
+    const radius = ((sphere.width / 2) / storedScene.pixelScale) *
+      storedScene.distance;
+    expect(radius % 5).toBeCloseTo(0);
+    expect(
+      (sphere.x - storedScene.grid.offsetX) % storedScene.grid.size,
+    ).not.toBeCloseTo(0);
+    await expect
+      .poll(async () => pixelDifferenceRatio(settled, await canvas.screenshot()), {
+        message: 'the committed sphere never appeared',
+      })
+      .toBeGreaterThan(THIN_LINE_CHANGE);
+
+    await hoverStage(gm.window, centre);
+    for (let index = 0; index < 8; index += 1) {
+      await gm.window.mouse.wheel(0, -250);
+    }
+    await gm.window.waitForTimeout(100);
+    const firstZoomedFrame = await canvas.screenshot();
+    const secondZoomedFrame = await canvas.screenshot();
+    expect(
+      pixelDifferenceRatio(firstZoomedFrame, secondZoomedFrame),
+      'the shape fill changed between settled frames at the same zoom',
+    ).toBeLessThan(0.0002);
+  });
+
   test('renders and persists styled multiline text with packaged fonts', async () => {
     await gm.window.getByRole('button', { name: 'Text' }).click();
     const rail = gm.window.getByRole('toolbar', { name: 'Text tools' });

@@ -1,5 +1,8 @@
 import type { Socket } from 'node:net';
-import type { DrawingPreviewUpdate } from '../../shared/network';
+import type {
+  DrawingPreviewUpdate,
+  ShapePreviewUpdate,
+} from '../../shared/network';
 import type {
   SceneRecord,
   SceneResult,
@@ -25,6 +28,10 @@ type PlayerSceneService = Pick<
 interface HostSceneRequestHandlerOptions {
   broadcastDrawingPreview: (
     input: DrawingPreviewUpdate,
+    source: HostClient,
+  ) => Promise<void>;
+  broadcastShapePreview: (
+    input: ShapePreviewUpdate,
     source: HostClient,
   ) => Promise<void>;
   broadcastTransformCancelled: (
@@ -68,18 +75,42 @@ export class HostSceneRequestHandler {
       );
       return true;
     }
+    if (envelope.type === 'client.scene_shape_preview') {
+      const input = parsePayload(
+        'client.scene_shape_preview',
+        envelope.payload,
+      );
+      await this.options.broadcastShapePreview(
+        {
+          ...input,
+          campaignId: this.options.campaignId,
+          layer: 'token',
+        },
+        client,
+      );
+      return true;
+    }
     if (envelope.type === 'client.scene_objects_set') {
       const input = parsePayload(
         'client.scene_objects_set',
         envelope.payload,
       );
-      const result = await this.options.scenes.setPlayerObjects(
-        input.sceneId,
-        input.state,
-        input.expectedRevision,
-        input.operationId,
-        client.user.id,
-      );
+      const result = input.arrangement
+        ? await this.options.scenes.setPlayerObjects(
+            input.sceneId,
+            input.state,
+            input.expectedRevision,
+            input.operationId,
+            client.user.id,
+            input.arrangement,
+          )
+        : await this.options.scenes.setPlayerObjects(
+            input.sceneId,
+            input.state,
+            input.expectedRevision,
+            input.operationId,
+            client.user.id,
+          );
       this.sendResult(client, result, envelope.requestId);
       if (result.ok) {
         await this.options.onSceneMutation();

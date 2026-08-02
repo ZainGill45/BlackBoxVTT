@@ -26,7 +26,9 @@ import {
   sceneObjectStateSchema,
   sceneObjectTransformSchema,
   sceneRecordSchema,
+  sceneShapePreviewSchema,
 } from '../../shared/sceneSchema';
+import { sceneArrangementSchema } from '../../shared/sceneContracts';
 
 export const MAX_TCP_MESSAGE_BYTES = 1024 * 1024;
 
@@ -153,6 +155,35 @@ const drawingPreviewSchema = z
         code: 'custom',
         message: 'The drawing preview lifecycle is inconsistent.',
         path: ['points'],
+      });
+    }
+  });
+
+const shapePreviewSchema = z
+  .object({
+    layer: z.enum(SCENE_LAYERS),
+    operationId: z.string().uuid(),
+    phase: z.enum(['cancel', 'final', 'start', 'update']),
+    reliable: z.literal(true),
+    sceneId: z.string().uuid(),
+    sequence: z.number().int().min(0).max(0xffff_ffff),
+    shape: sceneShapePreviewSchema.nullable(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const needsShape = input.phase === 'final' || input.phase === 'update';
+    if (needsShape !== Boolean(input.shape)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'The shape preview lifecycle is inconsistent.',
+        path: ['shape'],
+      });
+    }
+    if (input.phase === 'update') {
+      context.addIssue({
+        code: 'custom',
+        message: 'Shape updates must use the throttled snapshot channel.',
+        path: ['phase'],
       });
     }
   });
@@ -329,8 +360,10 @@ export const protocolPayloadSchemas = {
     })
     .strict(),
   'client.scene_drawing_preview': drawingPreviewSchema,
+  'client.scene_shape_preview': shapePreviewSchema,
   'client.scene_objects_set': z
     .object({
+      arrangement: sceneArrangementSchema.optional(),
       expectedRevision: z.number().int().nonnegative(),
       operationId: z.string().uuid(),
       sceneId: z.string().uuid(),
@@ -477,6 +510,9 @@ export const protocolPayloadSchemas = {
     })
     .strict(),
   'server.scene_drawing_preview': drawingPreviewSchema.extend({
+    sourceId: z.string().min(1).max(128),
+  }),
+  'server.scene_shape_preview': shapePreviewSchema.extend({
     sourceId: z.string().min(1).max(128),
   }),
   'server.scene_mutation': z

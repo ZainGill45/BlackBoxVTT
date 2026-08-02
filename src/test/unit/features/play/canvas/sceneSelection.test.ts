@@ -5,16 +5,22 @@ import {
   createTargetAccessor,
   deleteSelectedObjects,
   duplicateSceneImages,
-  moveSelectedImagesToLayer,
-  reorderSelectedImages,
+  moveSelectedObjectsToLayer,
+  reorderSelectedObjects,
   selectedSceneTargets,
   selectionFrame,
 } from '../../../../../features/play/canvas/sceneSelection';
 import {
+  createEmptyDrawingLayers,
+  createEmptyImageLayers,
+  createEmptyShapeLayers,
+  createEmptyTextLayers,
   sceneObjectStateOf,
   type SceneDrawing,
+  type SceneShape,
   type SceneText,
 } from '../../../../../shared/scenes';
+import { DEFAULT_SHAPE_SETTINGS } from '../../../../../features/play/shapeSettings';
 import { makeScene } from '../../../../support/scenes';
 
 const image = {
@@ -70,6 +76,24 @@ function text(ownerId: string, id = '55555555-5555-4555-8555-555555555555'): Sce
       strokeColor: '#000000',
       strokeWidth: 2,
     },
+    x: 200,
+    y: 150,
+  };
+}
+
+function shape(
+  ownerId: string | null,
+  id = '77777777-7777-4777-8777-777777777777',
+): SceneShape {
+  return {
+    height: 100,
+    id,
+    kind: 'sphere',
+    ownerId,
+    revision: 0,
+    rotation: 0,
+    style: DEFAULT_SHAPE_SETTINGS,
+    width: 100,
     x: 200,
     y: 150,
   };
@@ -180,14 +204,100 @@ describe('scene selection model', () => {
       duplicateSceneImages([image], 20, () => 'copy')[0],
     ).toMatchObject({ id: 'copy', x: 320, y: 220 });
     expect(
-      moveSelectedImagesToLayer(before, selected, 'map').images.map,
+      moveSelectedObjectsToLayer(before, selected, 'map').images.map,
     ).toHaveLength(1);
     expect(
-      reorderSelectedImages(before, selected, 'token', 'front').images.token
-        .at(-1)?.id,
+      reorderSelectedObjects(before, selected, 'token', 'front')
+        .objectOrder.token.at(-1),
     ).toBe(image.id);
     expect(deleteSelectedObjects(before, selected).images.token).toEqual([
       second,
+    ]);
+  });
+
+  it('uses shared mixed-object order for selection and reverse-order hit precedence', () => {
+    const ownedDrawing = drawing('player-a');
+    const ownedShape = shape('player-a');
+    const ownedText = text('player-a');
+    const current = makeScene({
+      drawings: { ...createEmptyDrawingLayers(), token: [ownedDrawing] },
+      images: { ...createEmptyImageLayers(), token: [image] },
+      objectOrder: {
+        gm: [],
+        map: [],
+        token: [ownedText.id, image.id, ownedShape.id, ownedDrawing.id],
+      },
+      shapes: { ...createEmptyShapeLayers(), token: [ownedShape] },
+      texts: { ...createEmptyTextLayers(), token: [ownedText] },
+    });
+
+    expect(activeSceneTargets(current, {
+      activeLayer: 'token',
+      actorId: 'player-a',
+      canEditImages: true,
+    }, () => ({ height: 40, width: 100 })).map(({ id }) => id)).toEqual([
+      ownedText.id,
+      image.id,
+      ownedShape.id,
+      ownedDrawing.id,
+    ]);
+  });
+
+  it('reorders mixed selected runs as a group and transfers them to a layer front', () => {
+    const ownedDrawing = drawing('player-a');
+    const ownedShape = shape('player-a');
+    const ownedText = text('player-a');
+    const mapImage = { ...image, id: '88888888-8888-4888-8888-888888888888' };
+    const before = sceneObjectStateOf(makeScene({
+      drawings: { ...createEmptyDrawingLayers(), token: [ownedDrawing] },
+      images: {
+        ...createEmptyImageLayers(),
+        map: [mapImage],
+        token: [image],
+      },
+      objectOrder: {
+        gm: [],
+        map: [mapImage.id],
+        token: [image.id, ownedDrawing.id, ownedShape.id, ownedText.id],
+      },
+      shapes: { ...createEmptyShapeLayers(), token: [ownedShape] },
+      texts: { ...createEmptyTextLayers(), token: [ownedText] },
+    }));
+    const selected = new Set([ownedDrawing.id, ownedShape.id]);
+
+    expect(reorderSelectedObjects(
+      before,
+      selected,
+      'token',
+      'forward',
+    ).objectOrder.token).toEqual([
+      image.id,
+      ownedText.id,
+      ownedDrawing.id,
+      ownedShape.id,
+    ]);
+    expect(reorderSelectedObjects(
+      before,
+      selected,
+      'token',
+      'backward',
+    ).objectOrder.token).toEqual([
+      ownedDrawing.id,
+      ownedShape.id,
+      image.id,
+      ownedText.id,
+    ]);
+
+    const moved = moveSelectedObjectsToLayer(before, selected, 'map');
+    expect(moved.drawings.token).toEqual([]);
+    expect(moved.shapes.token).toEqual([]);
+    expect(moved.drawings.map).toEqual([ownedDrawing]);
+    expect(moved.shapes.map).toEqual([ownedShape]);
+    expect(moved.objectOrder.token).toEqual([image.id, ownedText.id]);
+    expect(moved.objectOrder.map).toEqual([
+      mapImage.id,
+      ownedDrawing.id,
+      ownedShape.id,
     ]);
   });
 });

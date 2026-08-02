@@ -3,18 +3,21 @@ import type {
   DrawingPreviewUpdate,
   MapPing,
   MeasurementEvent,
+  ShapePreviewEvent,
+  ShapePreviewUpdate,
 } from '../../shared/network';
 import type {
   SceneDrawing,
   SceneMapImage,
   SceneRecord,
+  SceneShape,
   SceneText,
   SceneTransformPreviewStart,
 } from '../../shared/scenes';
 
 export const MAP_PING_COOLDOWN_MS = 500;
 
-type PublicSceneObject = SceneMapImage | SceneDrawing | SceneText;
+type PublicSceneObject = SceneMapImage | SceneDrawing | SceneShape | SceneText;
 type RelayedTransformStart = Omit<
   SceneTransformPreviewStart,
   'campaignId'
@@ -40,6 +43,16 @@ function objectTransform(object: PublicSceneObject) {
 }
 
 export class CampaignSceneRealtimeRules {
+  private readonly shapePreviewOperations = new Map<
+    string,
+    {
+      phase: ShapePreviewUpdate['phase'];
+      sceneId: string;
+      sequence: number;
+      shapeId: string | null;
+    }
+  >();
+
   constructor(
     private readonly campaignId: string,
     private readonly now: () => number = Date.now,
@@ -90,6 +103,73 @@ export class CampaignSceneRealtimeRules {
     };
   }
 
+  createShapePreview(
+    input: ShapePreviewUpdate,
+    scene: SceneRecord | null,
+    sourceUserId?: string,
+  ): ShapePreviewEvent | null {
+    const layer = sourceUserId ? 'token' : input.layer;
+    if (
+      input.campaignId !== this.campaignId ||
+      !scene ||
+      scene.id !== input.sceneId ||
+      layer === 'gm' ||
+      (input.phase === 'update') === (input.reliable === true) ||
+      (input.shape &&
+        (input.shape.x < 0 ||
+          input.shape.x > scene.width ||
+          input.shape.y < 0 ||
+          input.shape.y > scene.height)) ||
+      (input.shape && [
+        ...Object.values(scene.images).flat(),
+        ...Object.values(scene.drawings).flat(),
+        ...Object.values(scene.shapes).flat(),
+        ...Object.values(scene.texts).flat(),
+      ].some((object) => object.id === input.shape?.id))
+    ) {
+      return null;
+    }
+    const sourceId = sourceUserId ?? 'gm';
+    const operationKey = `${sourceId}:${input.operationId}`;
+    const operation = this.shapePreviewOperations.get(operationKey);
+    if (
+      input.sequence <= (operation?.sequence ?? -1) ||
+      (input.phase === 'start' && operation) ||
+      (input.phase === 'update' &&
+        (!operation ||
+          (operation.phase !== 'start' && operation.phase !== 'update'))) ||
+      (input.phase === 'final' &&
+        (!operation ||
+          (operation.phase !== 'start' && operation.phase !== 'update'))) ||
+      (input.phase === 'cancel' &&
+        (!operation || operation.phase === 'cancel')) ||
+      (operation && operation.sceneId !== input.sceneId) ||
+      (operation?.shapeId &&
+        input.shape &&
+        operation.shapeId !== input.shape.id)
+    ) {
+      return null;
+    }
+    this.shapePreviewOperations.delete(operationKey);
+    this.shapePreviewOperations.set(operationKey, {
+      phase: input.phase,
+      sceneId: input.sceneId,
+      sequence: input.sequence,
+      shapeId: input.shape?.id ?? operation?.shapeId ?? null,
+    });
+    if (this.shapePreviewOperations.size > 512) {
+      const oldest = this.shapePreviewOperations.keys().next().value;
+      if (oldest) {
+        this.shapePreviewOperations.delete(oldest);
+      }
+    }
+    return {
+      ...input,
+      layer,
+      sourceId,
+    };
+  }
+
   acceptsMeasurement(
     input: MeasurementEvent,
     scene: SceneRecord,
@@ -134,6 +214,8 @@ export class CampaignSceneRealtimeRules {
       ...scene.drawings.token.map(
         (drawing) => [drawing.id, drawing] as const,
       ),
+      ...scene.shapes.map.map((shape) => [shape.id, shape] as const),
+      ...scene.shapes.token.map((shape) => [shape.id, shape] as const),
       ...scene.texts.map.map((text) => [text.id, text] as const),
       ...scene.texts.token.map((text) => [text.id, text] as const),
     ]);

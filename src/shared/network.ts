@@ -16,12 +16,13 @@ import type {
   SceneDrawingLayer,
   SceneDrawingPoint,
   SceneDrawingStyle,
+  SceneShape,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
 } from './scenes';
 
-export const NETWORK_PROTOCOL_VERSION = 10 as const;
+export const NETWORK_PROTOCOL_VERSION = 13 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;
@@ -54,6 +55,7 @@ export const networkIpcChannels = {
   openHost: 'network:open-host',
   resetPassword: 'network:reset-password',
   sessionClosed: 'network:session-closed',
+  shapePreview: 'network:shape-preview',
   setMaxChatMessageCharacters: 'network:set-max-chat-message-characters',
   setPort: 'network:set-port',
   setTransformPreviewRate: 'network:set-transform-preview-rate',
@@ -61,6 +63,7 @@ export const networkIpcChannels = {
   sendChatMessage: 'network:send-chat-message',
   sendDrawingPreview: 'network:send-drawing-preview',
   sendMeasurementUpdate: 'network:send-measurement-update',
+  sendShapePreview: 'network:send-shape-preview',
   stopHost: 'network:stop-host',
   transformCancelled: 'network:transform-cancelled',
   transformPreview: 'network:transform-preview',
@@ -303,6 +306,30 @@ export interface DrawingPreviewEvent extends DrawingPreviewUpdate {
   sourceId: string;
 }
 
+type ShapeWithoutAuthority<T> = T extends SceneShape
+  ? Omit<T, 'ownerId' | 'revision'>
+  : never;
+
+/** Geometry and style used by a live shape preview, without trusted ownership. */
+export type SceneShapePreview = ShapeWithoutAuthority<SceneShape>;
+
+/** Explicit start/update/final/cancel lifecycle for a live shape gesture. */
+export interface ShapePreviewUpdate {
+  campaignId: string;
+  layer: 'gm' | 'map' | 'token';
+  operationId: string;
+  phase: 'cancel' | 'final' | 'start' | 'update';
+  reliable?: boolean;
+  sceneId: string;
+  sequence: number;
+  shape: SceneShapePreview | null;
+}
+
+/** A host-authenticated live shape preview received from a participant. */
+export interface ShapePreviewEvent extends ShapePreviewUpdate {
+  sourceId: string;
+}
+
 export interface NetworkApi {
   acceptTrust(
     input: AcceptTrustInput,
@@ -344,6 +371,9 @@ export interface NetworkApi {
   onMeasurementUpdate(
     listener: (update: MeasurementEvent) => void,
   ): () => void;
+  onShapePreview(
+    listener: (preview: ShapePreviewEvent) => void,
+  ): () => void;
   onSessionClosed(listener: (event: SessionClosedEvent) => void): () => void;
   onTransformCancelled(
     listener: (input: SceneTransformPreviewCancel) => void,
@@ -371,6 +401,7 @@ export interface NetworkApi {
   sendMapPing(input: MapPing): Promise<void>;
   sendDrawingPreview(input: DrawingPreviewUpdate): Promise<void>;
   sendMeasurementUpdate(input: MeasurementUpdate): Promise<void>;
+  sendShapePreview(input: ShapePreviewUpdate): Promise<void>;
   stopHost(): Promise<void>;
   updateUsername(
     input: UpdateManagedUsernameInput,

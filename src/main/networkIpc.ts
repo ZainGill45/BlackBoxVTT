@@ -21,6 +21,7 @@ import {
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
+  sceneShapePreviewSchema,
 } from '../shared/sceneSchema';
 import { SCENE_LAYERS } from '../shared/scenes';
 import type { NetworkManager } from './network/networkManager';
@@ -184,6 +185,7 @@ export function registerNetworkIpcHandlers(
       channel !== networkIpcChannels.drawingPreview &&
       channel !== networkIpcChannels.mapPing &&
       channel !== networkIpcChannels.measurementUpdate &&
+      channel !== networkIpcChannels.shapePreview &&
       channel !== networkIpcChannels.sessionClosed,
   );
   channels.forEach((channel) => ipc.removeHandler(channel));
@@ -216,6 +218,35 @@ export function registerNetworkIpcHandlers(
     return parsed.success
       ? manager.getChatBootstrap(parsed.data.campaignId)
       : invalidInput();
+  });
+
+const shapePreviewSchema = campaignIdSchema
+  .extend({
+    layer: z.enum(SCENE_LAYERS),
+    operationId: z.string().uuid(),
+    phase: z.enum(['cancel', 'final', 'start', 'update']),
+    reliable: z.boolean().optional(),
+    sceneId: z.string().uuid(),
+    sequence: z.number().int().min(0).max(0xffff_ffff),
+    shape: sceneShapePreviewSchema.nullable(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    const needsShape = input.phase === 'final' || input.phase === 'update';
+    if (needsShape !== Boolean(input.shape)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'The shape preview lifecycle is inconsistent.',
+        path: ['shape'],
+      });
+    }
+    if ((input.phase === 'update') === (input.reliable === true)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only shape updates may use the unreliable preview path.',
+        path: ['reliable'],
+      });
+    }
   });
   handle(networkIpcChannels.getChatHistory, async (input) => {
     const parsed = chatHistorySchema.safeParse(input);
@@ -325,6 +356,12 @@ export function registerNetworkIpcHandlers(
       await manager.sendMeasurementUpdate(parsed.data);
     }
   });
+  handle(networkIpcChannels.sendShapePreview, async (input) => {
+    const parsed = shapePreviewSchema.safeParse(input);
+    if (parsed.success) {
+      await manager.sendShapePreview(parsed.data);
+    }
+  });
 
   const send = (channel: string, value: unknown) => {
     const webContents = getAllowedWebContents();
@@ -346,6 +383,8 @@ export function registerNetworkIpcHandlers(
     send(networkIpcChannels.drawingPreview, event);
   const onMeasurementUpdate = (event: unknown) =>
     send(networkIpcChannels.measurementUpdate, event);
+  const onShapePreview = (event: unknown) =>
+    send(networkIpcChannels.shapePreview, event);
   const onTransformCancelled = (event: unknown) =>
     send(networkIpcChannels.transformCancelled, event);
   const onTransformPreview = (event: unknown) =>
@@ -358,6 +397,7 @@ export function registerNetworkIpcHandlers(
   manager.on('map-ping', onMapPing);
   manager.on('drawing-preview', onDrawingPreview);
   manager.on('measurement-update', onMeasurementUpdate);
+  manager.on('shape-preview', onShapePreview);
   manager.on('session-closed', onSessionClosed);
   manager.on('transform-cancelled', onTransformCancelled);
   manager.on('transform-preview', onTransformPreview);
@@ -371,6 +411,7 @@ export function registerNetworkIpcHandlers(
     manager.off('map-ping', onMapPing);
     manager.off('drawing-preview', onDrawingPreview);
     manager.off('measurement-update', onMeasurementUpdate);
+    manager.off('shape-preview', onShapePreview);
     manager.off('session-closed', onSessionClosed);
     manager.off('transform-cancelled', onTransformCancelled);
     manager.off('transform-preview', onTransformPreview);

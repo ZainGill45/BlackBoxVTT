@@ -112,6 +112,7 @@ export function createMockNetworkApi(
     onHostStatusChanged: vi.fn(() => () => undefined),
     onMapPing: vi.fn(() => () => undefined),
     onMeasurementUpdate: vi.fn(() => () => undefined),
+    onShapePreview: vi.fn(() => () => undefined),
     onSessionClosed: vi.fn(() => () => undefined),
     onTransformCancelled: vi.fn(() => () => undefined),
     onTransformPreview: vi.fn(() => () => undefined),
@@ -131,6 +132,7 @@ export function createMockNetworkApi(
     sendDrawingPreview: vi.fn(async () => undefined),
     sendMapPing: vi.fn(async () => undefined),
     sendMeasurementUpdate: vi.fn(async () => undefined),
+    sendShapePreview: vi.fn(async () => undefined),
     stopHost: vi.fn(async () => undefined),
     updateUsername: vi.fn(async (input: UpdateManagedUsernameInput) =>
       success({

@@ -1,16 +1,19 @@
 import { Container, Text, type TextStyleOptions } from 'pixi.js';
-import type {
-  SceneText,
-  SceneTextFamily,
-  SceneTextLayers,
+import {
+  createEmptyObjectOrderLayers,
+  type SceneObjectOrderLayers,
+  type SceneText,
+  type SceneTextFamily,
+  type SceneTextLayers,
 } from '../../../shared/scenes';
 import {
   SCENE_LAYERS,
   SCENE_TEXT_TEXTURE_RESOLUTION,
 } from '../../../shared/scenes';
 
-const TEXT_Z_INDEX = 2_000_000;
-const TEXT_PREVIEW_Z_INDEX = 3_000_000;
+import { OBJECT_PREVIEW_Z_INDEX, sceneObjectZIndex } from './sceneObjectOrder';
+
+const TEXT_PREVIEW_Z_INDEX = OBJECT_PREVIEW_Z_INDEX + 1_000_000;
 const DEFAULT_FONT_SAMPLE = 'BlackBox VTT';
 const SCENE_TEXT_FONT_LICENSE_URL = new URL(
   '../../../assets/fonts/OFL-1.1.txt',
@@ -216,6 +219,7 @@ export class SceneTextRenderer {
   render(
     layers: SceneTextLayers | null,
     containers: TextLayerContainers,
+    objectOrder: SceneObjectOrderLayers = createEmptyObjectOrderLayers(),
   ): void {
     if (!layers) {
       this.clear();
@@ -246,7 +250,12 @@ export class SceneTextRenderer {
         );
         this.renderKeys.set(text.id, key);
         instance.visible = text.id !== this.hiddenTextId;
-        instance.zIndex = TEXT_Z_INDEX + index;
+        instance.zIndex = sceneObjectZIndex(
+          objectOrder,
+          layer,
+          text.id,
+          index,
+        );
       }
     }
     for (const [id, instance] of this.instances) {

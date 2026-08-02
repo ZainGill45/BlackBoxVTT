@@ -6,6 +6,8 @@ import type {
   MapPing,
   MeasurementEvent,
   MeasurementUpdate,
+  ShapePreviewEvent,
+  ShapePreviewUpdate,
 } from '../../shared/network';
 import type {
   SceneRecord,
@@ -22,6 +24,7 @@ import {
 } from './measurementProtocol';
 import {
   encodeServerDrawingPreview,
+  encodeServerShapePreview,
   encodeTransformPreview,
 } from './sceneRealtimeProtocol';
 import { writeEnvelope } from './tcpProtocol';
@@ -33,6 +36,7 @@ interface HostSceneRealtimeEvents {
   onDrawingPreview: (input: DrawingPreviewEvent) => void;
   onMapPing: (input: MapPing) => void;
   onMeasurementUpdate: (input: MeasurementEvent) => void;
+  onShapePreview: (input: ShapePreviewEvent) => void;
   onTransformCancelled: (input: SceneTransformPreviewCancel) => void;
   onTransformPreview: (input: SceneTransformPreviewDelta) => void;
   onTransformStarted: (input: SceneTransformPreviewStart) => void;
@@ -59,12 +63,16 @@ export class HostSceneRealtime {
   >();
   private activeScene: SceneRecord | null = null;
   private readonly activeTransformOperations = new Set<string>();
+  private readonly activeShapePreviews = new Map<string, ShapePreviewEvent>();
   private readonly campaignId: string;
   private readonly cancelledTransformOperations = new Set<string>();
   private readonly clients: Set<HostClient>;
   private readonly events: HostSceneRealtimeEvents;
   private lastBroadcastSceneSignature: string | null | undefined;
   private lastHostMapPingAt = 0;
+  private readonly hostShapePreviewRateLimiter: LatestSnapshotRateLimiter<
+    ShapePreviewUpdate
+  >;
   private readonly lastTransformPreviewAt = new Map<string, number>();
   private readonly measurementRateLimiters = new Map<
     string,
@@ -98,6 +106,12 @@ export class HostSceneRealtime {
     this.sendUdp = sendUdp;
     this.transformPreviewRate = transformPreviewRate;
     this.warn = warn;
+    this.hostShapePreviewRateLimiter = new LatestSnapshotRateLimiter(
+      () => this.transformPreviewRate,
+      (preview) => {
+        void this.relayShapePreview(preview);
+      },
+    );
   }
 
   get updateRate(): number {
@@ -110,6 +124,7 @@ export class HostSceneRealtime {
 
   setTransformPreviewRate(rate: number): void {
     this.transformPreviewRate = rate;
+    this.hostShapePreviewRateLimiter.rateChanged();
     for (const limiter of this.measurementRateLimiters.values()) {
       limiter.rateChanged();
     }
@@ -214,6 +229,92 @@ export class HostSceneRealtime {
           this.sendUdp(
             client,
             udpMessageTypes.serverDrawingPreview,
+            payload,
+          );
+        }
+      }
+    }
+  }
+
+  async broadcastShapePreview(
+    input: ShapePreviewUpdate,
+    source: HostClient | null = null,
+  ): Promise<void> {
+    if (!source && input.phase === 'update' && !input.reliable) {
+      this.hostShapePreviewRateLimiter.push(structuredClone(input));
+      return;
+    }
+    if (!source) {
+      this.hostShapePreviewRateLimiter.drop(
+        (pending) => pending.operationId === input.operationId,
+      );
+    }
+    await this.relayShapePreview(input, source);
+  }
+
+  private async relayShapePreview(
+    input: ShapePreviewUpdate,
+    source: HostClient | null = null,
+  ): Promise<void> {
+    const scene = await this.readActiveScene();
+    const preview = this.rules.createShapePreview(
+      input,
+      scene,
+      source?.user?.id,
+    );
+    if (!preview) {
+      return;
+    }
+    const previewKey = `${preview.sourceId}:${preview.operationId}`;
+    if (preview.phase === 'cancel') {
+      this.activeShapePreviews.delete(previewKey);
+    } else {
+      this.activeShapePreviews.set(previewKey, structuredClone(preview));
+      if (this.activeShapePreviews.size > 512) {
+        const oldest = this.activeShapePreviews.keys().next().value;
+        if (oldest) {
+          this.activeShapePreviews.delete(oldest);
+        }
+      }
+    }
+    if (source?.user) {
+      this.events.onShapePreview(preview);
+    }
+    const payload = encodeServerShapePreview({
+      layer: preview.layer,
+      operationId: preview.operationId,
+      phase: preview.phase,
+      sceneId: preview.sceneId,
+      sequence: preview.sequence,
+      shape: preview.shape,
+      sourceId: preview.sourceId,
+    });
+    for (const client of this.clients) {
+      if (
+        client !== source &&
+        client.state === 'ready' &&
+        client.user &&
+        (preview.reliable || !client.udpRecoveryStartedAt)
+      ) {
+        if (preview.reliable) {
+          writeEnvelope(
+            client.socket as unknown as Socket,
+            'server.scene_shape_preview',
+            {
+              layer: preview.layer,
+              operationId: preview.operationId,
+              phase: preview.phase,
+              reliable: true,
+              sceneId: preview.sceneId,
+              sequence: preview.sequence,
+              shape: preview.shape,
+              sourceId: preview.sourceId,
+            },
+          );
+        } else {
+          this.sendUdp(
+            client,
+            udpMessageTypes.serverShapePreview,
             payload,
           );
         }
@@ -383,6 +484,7 @@ export class HostSceneRealtime {
       return;
     }
     this.lastBroadcastSceneSignature = signature;
+    this.activeShapePreviews.clear();
     for (const client of this.clients) {
       if (client.state === 'ready' && client.user) {
         writeEnvelope(
@@ -422,6 +524,24 @@ export class HostSceneRealtime {
       return;
     }
     this.clearMeasurementSource(client.user.id, client);
+    for (const preview of [...this.activeShapePreviews.values()]) {
+      if (preview.sourceId !== client.user.id) {
+        continue;
+      }
+      void this.broadcastShapePreview(
+        {
+          campaignId: this.campaignId,
+          layer: preview.layer,
+          operationId: preview.operationId,
+          phase: 'cancel',
+          reliable: true,
+          sceneId: preview.sceneId,
+          sequence: preview.sequence + 1,
+          shape: null,
+        },
+        client,
+      );
+    }
     for (const [operationId, source] of this.transformSources) {
       if (source !== client) {
         continue;
@@ -440,6 +560,8 @@ export class HostSceneRealtime {
 
   reset(): void {
     this.clearAllMeasurements();
+    this.hostShapePreviewRateLimiter.clear();
+    this.activeShapePreviews.clear();
     for (const limiter of this.measurementRateLimiters.values()) {
       limiter.clear();
     }

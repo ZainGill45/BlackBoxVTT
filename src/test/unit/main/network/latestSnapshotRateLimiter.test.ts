@@ -50,4 +50,30 @@ describe('LatestSnapshotRateLimiter', () => {
     expect(emit).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledWith('start');
   });
+
+  it('drops a matching pending snapshot without discarding another operation', () => {
+    vi.useFakeTimers();
+    const emit = vi.fn();
+    const limiter = new LatestSnapshotRateLimiter<{
+      operationId: string;
+      sequence: number;
+    }>(
+      () => MIN_TRANSFORM_PREVIEW_RATE,
+      emit,
+    );
+
+    limiter.push({ operationId: 'first', sequence: 1 });
+    limiter.push({ operationId: 'cancelled', sequence: 2 });
+    limiter.drop((value) => value.operationId === 'cancelled');
+    vi.advanceTimersByTime(100);
+    expect(emit).toHaveBeenCalledTimes(1);
+
+    limiter.push({ operationId: 'kept', sequence: 3 });
+    limiter.drop((value) => value.operationId === 'different');
+    vi.advanceTimersByTime(100);
+    expect(emit).toHaveBeenLastCalledWith({
+      operationId: 'kept',
+      sequence: 3,
+    });
+  });
 });

@@ -3,7 +3,9 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
+  createSceneObjectOrder,
   type SceneRecord,
 } from '../../../../../shared/scenes';
 import {
@@ -14,23 +16,34 @@ import {
 } from '../../../../../features/play/canvas/measurement';
 
 function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
+  const drawings = createEmptyDrawingLayers();
+  const images = createEmptyImageLayers();
+  const shapes = createEmptyShapeLayers();
+  const texts = overrides.texts ?? createEmptyTextLayers();
   return {
     createdAt: '',
     distance: 5,
     grid: createDefaultGrid(),
     height: 300,
     id: '11111111-1111-4111-8111-111111111111',
-    drawings: createEmptyDrawingLayers(),
-    images: createEmptyImageLayers(),
+    drawings,
+    images,
+    shapes,
     mapImage: null,
     name: 'Scene',
+    objectOrder: overrides.objectOrder ?? createSceneObjectOrder({
+      drawings,
+      images,
+      shapes,
+      texts,
+    }),
     pixelScale: 100,
     revision: 0,
     unit: 'ft',
     updatedAt: '',
     width: 400,
     ...overrides,
-    texts: overrides.texts ?? createEmptyTextLayers(),
+    texts,
   };
 }
 

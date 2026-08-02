@@ -23,6 +23,8 @@ import type {
   MeasurementEvent,
   MeasurementUpdate,
   NetworkResult,
+  ShapePreviewEvent,
+  ShapePreviewUpdate,
 } from '../../shared/network';
 import { NETWORK_PROTOCOL_VERSION } from '../../shared/network';
 import {
@@ -69,6 +71,7 @@ import type { HostClient } from './hostClient';
 import { decodeClientMeasurement } from './measurementProtocol';
 import {
   decodeClientDrawingPreview,
+  decodeClientShapePreview,
   decodeTransformPreview,
 } from './sceneRealtimeProtocol';
 
@@ -101,6 +104,7 @@ interface CampaignHostServerOptions {
   onChatEvent?: (event: ChatEvent) => void;
   onDrawingPreview?: (input: DrawingPreviewEvent) => void;
   onMeasurementUpdate?: (input: MeasurementEvent) => void;
+  onShapePreview?: (input: ShapePreviewEvent) => void;
   onSceneChanged?: () => void;
   onTransformCancelled?: (input: SceneTransformPreviewCancel) => void;
   onTransformPreview?: (input: SceneTransformPreviewDelta) => void;
@@ -172,6 +176,9 @@ export class CampaignHostServer {
   private readonly onMeasurementUpdate: NonNullable<
     CampaignHostServerOptions['onMeasurementUpdate']
   >;
+  private readonly onShapePreview: NonNullable<
+    CampaignHostServerOptions['onShapePreview']
+  >;
   private readonly onSceneChanged: NonNullable<
     CampaignHostServerOptions['onSceneChanged']
   >;
@@ -201,6 +208,7 @@ export class CampaignHostServer {
     onChatEvent = () => undefined,
     onDrawingPreview = () => undefined,
     onMeasurementUpdate = () => undefined,
+    onShapePreview = () => undefined,
     onSceneChanged = () => undefined,
     onStatusChanged,
     onTransformCancelled = () => undefined,
@@ -224,6 +232,7 @@ export class CampaignHostServer {
     this.onChatEvent = onChatEvent;
     this.onDrawingPreview = onDrawingPreview;
     this.onMeasurementUpdate = onMeasurementUpdate;
+    this.onShapePreview = onShapePreview;
     this.onSceneChanged = onSceneChanged;
     this.onStatusChanged = onStatusChanged;
     this.onTransformCancelled = onTransformCancelled;
@@ -237,6 +246,7 @@ export class CampaignHostServer {
         onDrawingPreview,
         onMapPing,
         onMeasurementUpdate,
+        onShapePreview,
         onTransformCancelled,
         onTransformPreview,
         onTransformStarted,
@@ -272,6 +282,8 @@ export class CampaignHostServer {
     this.sceneRequests = new HostSceneRequestHandler({
       broadcastDrawingPreview: (input, source) =>
         this.broadcastDrawingPreview(input, source),
+      broadcastShapePreview: (input, source) =>
+        this.broadcastShapePreview(input, source),
       broadcastTransformCancelled: (input, source) =>
         this.broadcastTransformCancelled(input, source),
       broadcastTransformStarted: (input, source) =>
@@ -400,6 +412,13 @@ export class CampaignHostServer {
     input: MeasurementUpdate,
   ): Promise<void> {
     await this.sceneRealtime.broadcastMeasurementUpdate(input);
+  }
+
+  async broadcastShapePreview(
+    input: ShapePreviewUpdate,
+    source: HostClient | null = null,
+  ): Promise<void> {
+    await this.sceneRealtime.broadcastShapePreview(input, source);
   }
 
   async broadcastTransformStarted(
@@ -1089,6 +1108,21 @@ export class CampaignHostServer {
           {
             ...decodeTransformPreview(decoded.payload),
             campaignId: this.campaignId,
+          },
+          client,
+        );
+      } else if (
+        decoded.type === udpMessageTypes.clientShapePreview &&
+        client.state === 'ready' &&
+        client.user &&
+        !client.udpRecoveryStartedAt
+      ) {
+        const value = decodeClientShapePreview(decoded.payload);
+        void this.broadcastShapePreview(
+          {
+            ...value,
+            campaignId: this.campaignId,
+            layer: 'token',
           },
           client,
         );

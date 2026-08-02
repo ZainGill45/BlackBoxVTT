@@ -204,6 +204,7 @@ export class JoinedSceneSession {
       };
     }
     return this.client.setSceneObjects({
+      arrangement: input.arrangement,
       expectedRevision: input.expectedRevision,
       operationId: input.operationId,
       sceneId: input.sceneId,

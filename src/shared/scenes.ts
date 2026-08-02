@@ -4,8 +4,10 @@ import type {
   SceneGrid,
   SceneImageLayers,
   SceneObjectState,
+  SceneObjectOrderLayers,
   SceneManifest,
   SceneRecord,
+  SceneShapeLayers,
   SceneTextLayers,
 } from './sceneSchema';
 import type {
@@ -41,6 +43,7 @@ export type {
   SceneImageLayer,
   SceneImageLayers,
   SceneObjectState,
+  SceneObjectOrderLayers,
   SceneImageTransform,
   SceneManifest,
   SceneMapImage,
@@ -54,6 +57,11 @@ export type {
   SceneTextStyle,
   SceneTextTransform,
   SceneTextWeight,
+  SceneShape,
+  SceneShapeKind,
+  SceneShapeLayer,
+  SceneShapeLayers,
+  SceneShapeStyle,
 } from './sceneSchema';
 export * from './sceneContracts';
 import {
@@ -61,6 +69,7 @@ import {
   DEFAULT_GRID_LINE_THICKNESS,
   DEFAULT_GRID_OPACITY,
   DEFAULT_GRID_SIZE,
+  SCENE_LAYERS,
   SCENE_MANIFEST_SCHEMA_VERSION,
 } from './sceneConstants';
 
@@ -130,10 +139,37 @@ export function createEmptyTextLayers(): SceneTextLayers {
   return { gm: [], map: [], token: [] };
 }
 
+export function createEmptyShapeLayers(): SceneShapeLayers {
+  return { gm: [], map: [], token: [] };
+}
+
+export function createEmptyObjectOrderLayers(): SceneObjectOrderLayers {
+  return { gm: [], map: [], token: [] };
+}
+
+export function createSceneObjectOrder(
+  state: Pick<
+    SceneObjectState,
+    'drawings' | 'images' | 'shapes' | 'texts'
+  >,
+): SceneObjectOrderLayers {
+  const order = createEmptyObjectOrderLayers();
+  for (const layer of SCENE_LAYERS) {
+    order[layer] = [
+      ...state.shapes[layer],
+      ...state.images[layer],
+      ...state.drawings[layer],
+      ...state.texts[layer],
+    ].map((object) => object.id);
+  }
+  return order;
+}
+
 export function sceneObjectStateOf(scene: SceneRecord): SceneObjectState {
   const images = scene.images;
   const drawings = scene.drawings;
   const texts = scene.texts;
+  const shapes = scene.shapes;
   return {
     drawings: {
       gm: drawings.gm.map((drawing) => structuredClone(drawing)),
@@ -146,6 +182,16 @@ export function sceneObjectStateOf(scene: SceneRecord): SceneObjectState {
       token: images.token.map((image) => ({ ...image })),
     },
     mapImage: scene.mapImage ? { ...scene.mapImage } : null,
+    objectOrder: {
+      gm: [...scene.objectOrder.gm],
+      map: [...scene.objectOrder.map],
+      token: [...scene.objectOrder.token],
+    },
+    shapes: {
+      gm: shapes.gm.map((shape) => structuredClone(shape)),
+      map: shapes.map.map((shape) => structuredClone(shape)),
+      token: shapes.token.map((shape) => structuredClone(shape)),
+    },
     texts: {
       gm: texts.gm.map((text) => structuredClone(text)),
       map: texts.map.map((text) => structuredClone(text)),
@@ -158,10 +204,13 @@ export function projectSceneForPlayer(scene: SceneRecord): SceneRecord {
   const images = scene.images;
   const drawings = scene.drawings;
   const texts = scene.texts;
+  const shapes = scene.shapes;
   return {
     ...scene,
     drawings: { ...drawings, gm: [] },
     images: { ...images, gm: [] },
+    objectOrder: { ...scene.objectOrder, gm: [] },
+    shapes: { ...shapes, gm: [] },
     texts: { ...texts, gm: [] },
   };
 }

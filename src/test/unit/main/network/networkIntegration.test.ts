@@ -14,9 +14,11 @@ import type { ChatEvent } from '../../../../shared/chat';
 import {
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
   sceneObjectStateOf,
   type SceneDrawing,
+  type SceneShape,
   type SceneText,
 } from '../../../../shared/scenes';
 import { ConnectionHistoryRepository } from '../../../../main/network/connectionHistoryRepository';
@@ -391,6 +393,12 @@ describe('scene distribution', () => {
           ],
         },
         mapImage: null,
+        objectOrder: {
+          gm: ['55555555-5555-4555-8555-555555555555'],
+          map: [],
+          token: ['66666666-6666-4666-8666-666666666666'],
+        },
+        shapes: createEmptyShapeLayers(),
         texts: createEmptyTextLayers(),
       },
       1,
@@ -679,6 +687,7 @@ describe('drawings', () => {
     }
     const drawingState = sceneObjectStateOf(playerScene);
     drawingState.drawings.token.push(liveDrawing);
+    drawingState.objectOrder.token.push(liveDrawing.id);
 
     const committed = await (await joinedRuntime(player)).scenes.setObjects({
         campaignId,
@@ -732,6 +741,7 @@ describe('text objects', () => {
     }
     const state = sceneObjectStateOf(playerScene);
     state.texts.token.push(liveText);
+    state.objectOrder.token.push(liveText.id);
     const committed = await (await joinedRuntime(player)).scenes.setObjects({
       campaignId,
       expectedRevision: playerScene.revision,
@@ -874,12 +884,14 @@ describe('text objects', () => {
       id: '15151515-1515-4515-8515-151515151515',
       ownerId: null,
     });
+    state.objectOrder.map.push('15151515-1515-4515-8515-151515151515');
     state.texts.gm.push({
       ...liveText,
       content: 'GM secret',
       id: '16161616-1616-4616-8616-161616161616',
       ownerId: null,
     });
+    state.objectOrder.gm.push('16161616-1616-4616-8616-161616161616');
     const saved = await sceneRepository.setObjects(
       current.id,
       state,
@@ -895,6 +907,316 @@ describe('text objects', () => {
         expect.objectContaining({ content: 'Host label' }),
       ]);
       expect(remote?.texts.gm).toEqual([]);
+    });
+  });
+});
+
+describe('shape objects', () => {
+  const shapeId = '18181818-1818-4818-8818-181818181818';
+  const operationId = '19191919-1919-4919-8919-191919191919';
+  const liveShape: SceneShape = {
+    height: 180,
+    id: shapeId,
+    kind: 'cone',
+    ownerId: null,
+    revision: 0,
+    rotation: 15,
+    spread: 53.13,
+    style: {
+      backgroundColor: '#abcdef',
+      backgroundOpacity: 0.4,
+      backgroundType: 'crosshatched',
+      fontColor: '#fedcba',
+      fontFamily: 'cinzel',
+      fontSize: 28,
+      fontStrokeColor: '#123456',
+      fontStrokeWidth: 3,
+      fontWeight: 600,
+      strokeColor: '#654321',
+      strokeOpacity: 0.8,
+      strokeType: 'dashed',
+      strokeWidth: 4,
+    },
+    width: 300,
+    x: 420,
+    y: 320,
+  };
+
+  it('relays in-progress geometry before committing the identical styled shape', async () => {
+    const hostPreviews: unknown[] = [];
+    const observerPreviews: unknown[] = [];
+    host.on('shape-preview', (preview) => hostPreviews.push(preview));
+    observer.on('shape-preview', (preview) => observerPreviews.push(preview));
+
+    await player.sendShapePreview({
+      campaignId,
+      layer: 'gm',
+      operationId,
+      phase: 'start',
+      reliable: true,
+      sceneId: presentedSceneId,
+      sequence: 1,
+      shape: null,
+    });
+    const previewShape = Object.fromEntries(
+      Object.entries(liveShape).filter(
+        ([key]) => key !== 'ownerId' && key !== 'revision',
+      ),
+    ) as NonNullable<
+      Parameters<NetworkManager['sendShapePreview']>[0]['shape']
+    >;
+    await player.sendShapePreview({
+      campaignId,
+      layer: 'gm',
+      operationId,
+      phase: 'update',
+      sceneId: presentedSceneId,
+      sequence: 2,
+      shape: previewShape,
+    });
+    await vi.waitFor(() => {
+      expect(hostPreviews).toContainEqual(expect.objectContaining({
+        layer: 'token',
+        phase: 'update',
+        shape: previewShape,
+        sourceId: aliceUserId,
+      }));
+      expect(observerPreviews).toEqual(hostPreviews);
+    });
+    await player.sendShapePreview({
+      campaignId,
+      layer: 'gm',
+      operationId,
+      phase: 'final',
+      reliable: true,
+      sceneId: presentedSceneId,
+      sequence: 3,
+      shape: previewShape,
+    });
+    await vi.waitFor(() => {
+      expect(hostPreviews).toContainEqual(expect.objectContaining({
+        layer: 'token',
+        phase: 'final',
+        sequence: 3,
+        shape: previewShape,
+        sourceId: aliceUserId,
+      }));
+      expect(observerPreviews).toEqual(hostPreviews);
+    });
+
+    const current = await remoteScene(player);
+    if (!current) {
+      throw new Error('Expected the player scene.');
+    }
+    const state = sceneObjectStateOf(current);
+    state.shapes.token.push(liveShape);
+    state.objectOrder.token.push(liveShape.id);
+    const committed = await (await joinedRuntime(player)).scenes.setObjects({
+      campaignId,
+      expectedRevision: current.revision,
+      operationId,
+      sceneId: current.id,
+      state,
+    });
+    expect(committed.result).toMatchObject({
+      ok: true,
+      value: {
+        shapes: {
+          token: [{ id: shapeId, ownerId: aliceUserId, style: liveShape.style }],
+        },
+      },
+    });
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.shapes.token[0]).toMatchObject({
+        id: shapeId,
+        ownerId: aliceUserId,
+        style: liveShape.style,
+      });
+    });
+  });
+
+  it('accepts owner geometry edits, rejects another player, and synchronizes undo/redo', async () => {
+    const aliceScene = await remoteScene(player);
+    if (!aliceScene) {
+      throw new Error('Expected the player scene.');
+    }
+    const edited = sceneObjectStateOf(aliceScene);
+    Object.assign(edited.shapes.token[0], {
+      height: 240,
+      rotation: 42,
+      spread: 80,
+      width: 410,
+      x: 500,
+      y: 360,
+    });
+    const saved = await (await joinedRuntime(player)).scenes.setObjects({
+      campaignId,
+      expectedRevision: aliceScene.revision,
+      operationId: '20202020-2020-4020-8020-202020202020',
+      sceneId: aliceScene.id,
+      state: edited,
+    });
+    expect(saved.result).toMatchObject({ ok: true });
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.shapes.token[0]).toMatchObject({
+        height: 240,
+        rotation: 42,
+        spread: 80,
+        width: 410,
+      });
+    });
+
+    const bobScene = await remoteScene(observer);
+    if (!bobScene) {
+      throw new Error('Expected the observer scene.');
+    }
+    const forbidden = sceneObjectStateOf(bobScene);
+    forbidden.shapes.token[0].x = 999;
+    await (await joinedRuntime(observer)).scenes.setObjects({
+      campaignId,
+      expectedRevision: bobScene.revision,
+      operationId: '21212121-2121-4121-8121-212121212121',
+      sceneId: bobScene.id,
+      state: forbidden,
+    });
+    expect((await remoteScene(player))?.shapes.token[0].x).toBe(500);
+
+    const undone = await (await joinedRuntime(player)).scenes.undo({
+      campaignId,
+      sceneId: aliceScene.id,
+    });
+    expect(undone.result).toMatchObject({
+      ok: true,
+      value: { shapes: { token: [{ rotation: 15, spread: 53.13 }] } },
+    });
+    const redone = await (await joinedRuntime(player)).scenes.redo({
+      campaignId,
+      sceneId: aliceScene.id,
+    });
+    expect(redone.result).toMatchObject({
+      ok: true,
+      value: { shapes: { token: [{ rotation: 42, spread: 80 }] } },
+    });
+  });
+
+  it('synchronizes mixed object ordering', async () => {
+    const authoritative = (await sceneRepository.readManifest()).scenes.find(
+      (candidate) => candidate.id === presentedSceneId,
+    );
+    if (!authoritative) throw new Error('Expected the host scene.');
+    await vi.waitFor(async () => {
+      expect((await remoteScene(player))?.revision).toBe(authoritative.revision);
+    });
+    const current = await remoteScene(player);
+    if (!current) throw new Error('Expected the player scene.');
+    const runtime = await joinedRuntime(player);
+    const reordered = await runtime.scenes.setObjects({
+      arrangement: {
+        direction: 'back',
+        kind: 'reorder',
+        targets: [shapeId],
+      },
+      campaignId,
+      expectedRevision: current.revision,
+      operationId: '24242424-2424-4424-8424-242424242424',
+      sceneId: current.id,
+      state: sceneObjectStateOf(current),
+    });
+    expect(reordered.result).toMatchObject({ ok: true });
+    if (!reordered.result.ok) throw new Error(reordered.result.error.message);
+    expect(reordered.result.value.objectOrder.token[0]).toBe(shapeId);
+    await vi.waitFor(async () => {
+      expect((await remoteScene(observer))?.objectOrder.token[0]).toBe(shapeId);
+    });
+  });
+
+  it('moves a player-owned shape through every GM-controlled layer without leaking GM order', async () => {
+    const moveShape = async (
+      source: 'gm' | 'map' | 'token',
+      target: 'gm' | 'map' | 'token',
+      operationId: string,
+    ) => {
+      const current = (await sceneRepository.readManifest()).scenes.find(
+        (candidate) => candidate.id === presentedSceneId,
+      );
+      if (!current) throw new Error('Expected the host scene.');
+      const state = sceneObjectStateOf(current);
+      const index = state.shapes[source].findIndex((shape) => shape.id === shapeId);
+      const [movedShape] = state.shapes[source].splice(index, 1);
+      state.shapes[target].push(movedShape);
+      state.objectOrder[source] = state.objectOrder[source].filter(
+        (id) => id !== shapeId,
+      );
+      state.objectOrder[target].push(shapeId);
+      const result = await sceneRepository.setObjects(
+        current.id,
+        state,
+        current.revision,
+        operationId,
+        { kind: 'gm' },
+        { kind: 'move-layer', targetLayer: target, targets: [shapeId] },
+      );
+      expect(result).toMatchObject({
+        ok: true,
+        value: { shapes: { [target]: [expect.objectContaining({
+          id: shapeId,
+          ownerId: aliceUserId,
+        })] } },
+      });
+      await host.notifyScenePresented(campaignId);
+    };
+
+    await moveShape('token', 'map', '27272727-2727-4727-8727-272727272727');
+    await vi.waitFor(async () => {
+      const remote = await remoteScene(observer);
+      expect(remote?.shapes.map.some((shape) => shape.id === shapeId)).toBe(true);
+      expect(remote?.objectOrder.map).toContain(shapeId);
+    });
+
+    await moveShape('map', 'gm', '28282828-2828-4828-8828-282828282828');
+    await vi.waitFor(async () => {
+      const remote = await remoteScene(observer);
+      expect(remote?.shapes.gm).toEqual([]);
+      expect(remote?.objectOrder.gm).toEqual([]);
+      expect(Object.values(remote?.shapes ?? {}).flat().some(
+        (shape) => shape.id === shapeId,
+      )).toBe(false);
+    });
+
+    await moveShape('gm', 'token', '29292929-2929-4929-8929-292929292929');
+    await vi.waitFor(async () => {
+      const remote = await remoteScene(player);
+      expect(remote?.shapes.token.some((shape) => shape.id === shapeId)).toBe(true);
+      expect(remote?.objectOrder.token).toContain(shapeId);
+    });
+  });
+
+  it('never projects GM-layer shapes to players', async () => {
+    const current = (await sceneRepository.readManifest()).scenes.find(
+      (candidate) => candidate.id === presentedSceneId,
+    );
+    if (!current) {
+      throw new Error('Expected the host scene.');
+    }
+    const state = sceneObjectStateOf(current);
+    state.shapes.gm.push({
+      ...liveShape,
+      id: '22222222-aaaa-4aaa-8aaa-222222222222',
+      ownerId: null,
+    });
+    state.objectOrder.gm.push('22222222-aaaa-4aaa-8aaa-222222222222');
+    const saved = await sceneRepository.setObjects(
+      current.id,
+      state,
+      current.revision,
+      '23232323-2323-4323-8323-232323232323',
+      { kind: 'gm' },
+    );
+    expect(saved).toMatchObject({ ok: true });
+    await host.notifyScenePresented(campaignId);
+    await vi.waitFor(async () => {
+      expect((await remoteScene(player))?.shapes.gm).toEqual([]);
+      expect((await remoteScene(observer))?.shapes.gm).toEqual([]);
     });
   });
 });

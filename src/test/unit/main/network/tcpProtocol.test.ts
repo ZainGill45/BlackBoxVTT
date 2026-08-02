@@ -4,6 +4,7 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
 } from '../../../../shared/scenes';
 import {
@@ -107,6 +108,7 @@ describe('server.scene_presented', () => {
     height: 1080,
     id: '11111111-1111-4111-8111-111111111111',
     images: createEmptyImageLayers(),
+    shapes: createEmptyShapeLayers(),
     texts: createEmptyTextLayers(),
     mapImage: {
       assetId: '22222222-2222-4222-8222-222222222222',
@@ -117,6 +119,7 @@ describe('server.scene_presented', () => {
       y: 0,
     },
     name: 'Iron Keep',
+    objectOrder: { gm: [], map: [], token: [] },
     pixelScale: 70,
     revision: 3,
     unit: 'ft',
@@ -164,6 +167,52 @@ describe('server.scene_presented', () => {
     });
 
     expect(frame.length).toBeLessThan(MAX_TCP_MESSAGE_BYTES);
+  });
+});
+
+describe('client.scene_objects_set arrangements', () => {
+  const targetId = '22222222-2222-4222-8222-222222222222';
+  const state = {
+    drawings: createEmptyDrawingLayers(),
+    images: createEmptyImageLayers(),
+    mapImage: null,
+    objectOrder: { gm: [], map: [], token: [] },
+    shapes: createEmptyShapeLayers(),
+    texts: createEmptyTextLayers(),
+  };
+  const payload = {
+    arrangement: {
+      direction: 'front',
+      kind: 'reorder',
+      targets: [targetId],
+    },
+    expectedRevision: 3,
+    operationId: '33333333-3333-4333-8333-333333333333',
+    sceneId: '11111111-1111-4111-8111-111111111111',
+    state,
+  } as const;
+
+  it('validates explicit arrangement variants and rejects spoofed or duplicate fields', () => {
+    expect(parsePayload('client.scene_objects_set', payload)).toEqual(payload);
+    expect(parsePayload('client.scene_objects_set', {
+      ...payload,
+      arrangement: {
+        kind: 'move-layer',
+        targetLayer: 'gm',
+        targets: [targetId],
+      },
+    })).toMatchObject({ arrangement: { kind: 'move-layer', targetLayer: 'gm' } });
+    expect(() => parsePayload('client.scene_objects_set', {
+      ...payload,
+      actor: { kind: 'gm' },
+    })).toThrow();
+    expect(() => parsePayload('client.scene_objects_set', {
+      ...payload,
+      arrangement: {
+        ...payload.arrangement,
+        targets: [targetId, targetId],
+      },
+    })).toThrow(/unique/i);
   });
 });
 

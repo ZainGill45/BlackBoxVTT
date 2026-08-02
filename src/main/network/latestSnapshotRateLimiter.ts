@@ -29,6 +29,16 @@ export class LatestSnapshotRateLimiter<T> {
     this.pending = null;
   }
 
+  drop(predicate: (value: T) => boolean): void {
+    if (this.pending !== null && predicate(this.pending)) {
+      this.pending = null;
+    }
+    if (this.pending === null && this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
+  }
+
   private schedule(): void {
     if (this.pending === null || this.timer) {
       return;

@@ -17,6 +17,8 @@ import {
   type MeasurementEvent,
   type MeasurementPoint,
   type MeasurementUpdate,
+  type ShapePreviewEvent,
+  type ShapePreviewUpdate,
 } from '../../../shared/network';
 import {
   applySceneTransformPreview,
@@ -24,14 +26,19 @@ import {
   createEmptyImageLayers,
   sceneObjectStateOf,
   MAX_SCENE_IMAGES,
+  MAX_SCENE_SHAPES,
   type SceneDrawing,
   type SceneDrawingPoint,
   type SceneDrawingStyle,
   type SceneImage,
   type SceneImageLayer,
   type SceneObjectState,
+  type SceneArrangement,
   type SceneMapImage,
   type SceneRecord,
+  type SceneShape,
+  type SceneShapeKind,
+  type SceneShapeStyle,
   type SceneText,
   type SceneTextStyle,
   type SceneTransformPreviewCancel,
@@ -86,14 +93,15 @@ import {
   activeSceneTargets,
   canCreateSceneImages,
   canEditDrawing,
+  canEditShape,
   canEditText,
   deleteSelectedObjects,
   drawingAsImage,
   drawingTransformOf,
   imageTransformOf,
   duplicateSceneImages,
-  moveSelectedImagesToLayer,
-  reorderSelectedImages,
+  moveSelectedObjectsToLayer,
+  reorderSelectedObjects,
   selectedPlacedImages,
   selectedSceneTargets,
   selectionFrame,
@@ -101,6 +109,14 @@ import {
   textTransformOf,
   type EditTarget,
 } from './sceneSelection';
+import {
+  containsShapePoint,
+  createShapeFromDrag,
+  editShapeWithSemanticHandle,
+  shapeAsImage,
+  shapeIncrementPixels,
+  type ShapeSemanticHandle,
+} from './shapeGeometry';
 import {
   createNudgePreview,
   nudgeSceneState,
@@ -145,6 +161,7 @@ import {
   AdditionalImageRenderer,
   drawImagePlaceholder,
 } from './additionalImageRenderer';
+import { SceneShapeRenderer } from './sceneShapeRenderer';
 import styles from './SceneRenderer.module.css';
 
 /**
@@ -170,6 +187,7 @@ const ANIMATION_FRAME_MS = 16;
 const MEASUREMENT_UPDATE_INTERVAL_MS = 1_000 / MAX_TRANSFORM_PREVIEW_RATE;
 const MEASUREMENT_KEEPALIVE_MS = 500;
 const MEASUREMENT_EXPIRY_MS = 1_500;
+const SHAPE_PREVIEW_EXPIRY_MS = 30_000;
 const LOCAL_TEXT_PREVIEW_ID = '00000000-0000-4000-8000-000000000000';
 
 type RendererMapPing = Omit<MapPing, 'campaignId'>;
@@ -184,6 +202,7 @@ export interface SceneRendererHandle {
   selectImages(ids: string[]): void;
   showMeasurement(update: MeasurementEvent): void;
   showDrawingPreview(preview: DrawingPreviewEvent): void;
+  showShapePreview(preview: ShapePreviewEvent): void;
   showPing(ping: RendererMapPing, centerCamera?: boolean): void;
   showTransformCancelled(input: SceneTransformPreviewCancel): void;
   showTransformPreview(input: SceneTransformPreviewDelta): void;
@@ -204,6 +223,9 @@ export interface SceneRendererInteraction {
   paintEnabled?: boolean;
   paintKind?: 'freeform' | 'polyline';
   paintStyle?: SceneDrawingStyle;
+  shapeEnabled?: boolean;
+  shapeKind?: SceneShapeKind;
+  shapeStyle?: SceneShapeStyle;
   textEnabled?: boolean;
   textStyle?: SceneTextStyle;
   pingEnabled?: boolean;
@@ -211,10 +233,14 @@ export interface SceneRendererInteraction {
   onCommit?: (
     state: SceneObjectState,
     operationId: string,
+    arrangement?: SceneArrangement,
   ) => Promise<SceneRecord | null>;
   onMeasurementUpdate?: (update: RendererMeasurementUpdate) => void;
   onDrawingPreview?: (
     preview: Omit<DrawingPreviewUpdate, 'campaignId'>,
+  ) => void;
+  onShapePreview?: (
+    preview: Omit<ShapePreviewUpdate, 'campaignId'>,
   ) => void;
   onPreviewCancel?: (operationId: string, sceneId: string) => void;
   onPreviewStart?: (
@@ -406,6 +432,7 @@ export class SceneRenderer implements SceneRendererHandle {
   private imageUrl: string | null = null;
   private imageUrls: Record<string, string> = {};
   private readonly drawingRenderer: SceneDrawingRenderer;
+  private readonly shapeRenderer: SceneShapeRenderer;
   private readonly textRenderer = new SceneTextRenderer();
   private activeTextEditor: SceneTextEditorController | null = null;
   private textDraftFontTimer: ReturnType<typeof setTimeout> | null = null;
@@ -440,6 +467,11 @@ export class SceneRenderer implements SceneRendererHandle {
     string,
     { lastAt: number; preview: DrawingPreviewEvent }
   >();
+  private readonly remoteShapePreviews = new Map<
+    string,
+    { lastAt: number; preview: ShapePreviewEvent }
+  >();
+  private readonly remoteShapeSequences = new Map<string, number>();
   private readonly remoteTransformStarts = new Map<
     string,
     { base: SceneRecord; input: SceneTransformPreviewStart }
@@ -466,6 +498,7 @@ export class SceneRenderer implements SceneRendererHandle {
     16,
   );
   private scene: SceneRecord | null = null;
+  private draftShape: SceneShape | null = null;
   private viewport: Viewport = { height: 0, width: 0 };
   private readonly world = new Container();
   private readonly tokenWorld = new Container();
@@ -473,6 +506,11 @@ export class SceneRenderer implements SceneRendererHandle {
 
   constructor() {
     this.drawingRenderer = new SceneDrawingRenderer(
+      this.world,
+      this.tokenWorld,
+      this.gmWorld,
+    );
+    this.shapeRenderer = new SceneShapeRenderer(
       this.world,
       this.tokenWorld,
       this.gmWorld,
@@ -572,6 +610,10 @@ export class SceneRenderer implements SceneRendererHandle {
 
   private get activePolyline() {
     return gestureOfKind(this.gesture, 'polyline');
+  }
+
+  private get activeShape() {
+    return gestureOfKind(this.gesture, 'shape');
   }
 
   private set activePolyline(
@@ -751,6 +793,9 @@ export class SceneRenderer implements SceneRendererHandle {
     const paintChanged =
       this.interaction.paintEnabled !== options.paintEnabled ||
       this.interaction.paintKind !== options.paintKind;
+    const shapeChanged =
+      this.interaction.shapeEnabled !== options.shapeEnabled ||
+      this.interaction.shapeKind !== options.shapeKind;
     const measurementDisabled =
       this.interaction.measureEnabled && !options.measureEnabled;
     const textEditingDisabled =
@@ -766,6 +811,9 @@ export class SceneRenderer implements SceneRendererHandle {
     if (editingDisabled || layerChanged) {
       this.cancelEditGesture();
       void this.finishNudge(true);
+    }
+    if (shapeChanged || layerChanged) {
+      this.cancelShapeGesture();
     }
     if (textEditingDisabled) {
       void this.finishTextEditor(true);
@@ -802,11 +850,16 @@ export class SceneRenderer implements SceneRendererHandle {
     if (sceneChanged || revisionChanged) {
       this.remotePaintPreviews.clear();
       this.remotePaintGraphics.clear();
+      this.remoteShapePreviews.clear();
       this.remoteTransformStarts.clear();
+    }
+    if (sceneChanged) {
+      this.remoteShapeSequences.clear();
     }
     if (sceneChanged) {
       void this.finishTextEditor(false);
       this.cancelPaintGesture();
+      this.cancelShapeGesture();
       this.cancelMeasurement();
       this.clearRemoteMeasurements();
       this.clearPings();
@@ -833,10 +886,13 @@ export class SceneRenderer implements SceneRendererHandle {
           .map((text) => text.content)
           .join('\n')
       : '';
-    if (scene && textFontContent) {
+    const hasShapeLabels = Boolean(
+      scene && Object.values(scene.shapes).some((layer) => layer.length > 0),
+    );
+    if (scene && (textFontContent || hasShapeLabels)) {
       const expectedSceneId = scene.id;
       const expectedRevision = scene.revision;
-      void ensureSceneTextFontsLoaded(textFontContent).then(() => {
+      void ensureSceneTextFontsLoaded(textFontContent || undefined).then(() => {
         if (
           this.scene?.id === expectedSceneId &&
           this.scene.revision === expectedRevision
@@ -929,6 +985,7 @@ export class SceneRenderer implements SceneRendererHandle {
   destroy(): void {
     this.cancelMeasurement();
     this.cancelPaintGesture();
+    this.cancelShapeGesture();
     this.remotePaintPreviews.clear();
     this.remotePaintGraphics.clear();
     this.remoteTransformStarts.clear();
@@ -961,6 +1018,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.hatchTexture?.destroy(true);
     this.hatchTexture = null;
     this.drawingRenderer.clear();
+    this.shapeRenderer.clear();
     this.textRenderer.clear();
     this.additionalImages.destroy();
     this.mapPlaceholder?.destroy();
@@ -1093,13 +1151,55 @@ export class SceneRenderer implements SceneRendererHandle {
         url: this.imageUrl,
       },
     );
-    this.drawingRenderer.render(this.scene?.drawings ?? null);
+    this.drawingRenderer.render(
+      this.scene?.drawings ?? null,
+      this.scene?.objectOrder,
+    );
     this.textRenderer.render(this.scene?.texts ?? null, {
       gm: this.gmWorld,
       map: this.world,
       token: this.tokenWorld,
-    });
+    }, this.scene?.objectOrder);
     this.applyCamera();
+  }
+
+  private renderShapes(): void {
+    if (!this.scene) {
+      this.shapeRenderer.render(null, null, this.camera.zoom);
+      return;
+    }
+    const hasPreviews = this.draftShape || this.remoteShapePreviews.size > 0;
+    const layers = hasPreviews
+      ? {
+          gm: [...this.scene.shapes.gm],
+          map: [...this.scene.shapes.map],
+          token: [...this.scene.shapes.token],
+        }
+      : this.scene.shapes;
+    if (this.draftShape) {
+      const layer = this.interaction.actorId == null
+        ? this.interaction.activeLayer
+        : 'token';
+      layers[layer].push(this.draftShape);
+    }
+    for (const { preview } of this.remoteShapePreviews.values()) {
+      if (!preview.shape || preview.phase === 'cancel') {
+        continue;
+      }
+      layers[preview.layer].push({
+        ...structuredClone(preview.shape),
+        ownerId: null,
+        revision: 0,
+      });
+    }
+    const halfWidth = this.viewport.width / (2 * this.camera.zoom);
+    const halfHeight = this.viewport.height / (2 * this.camera.zoom);
+    this.shapeRenderer.render(layers, this.scene, this.camera.zoom, {
+      maxX: this.camera.x + halfWidth,
+      maxY: this.camera.y + halfHeight,
+      minX: this.camera.x - halfWidth,
+      minY: this.camera.y - halfHeight,
+    });
   }
 
   /**
@@ -1305,6 +1405,44 @@ export class SceneRenderer implements SceneRendererHandle {
       }, MEASUREMENT_EXPIRY_MS + 20);
     }
     this.drawRemotePaintPreviews();
+  }
+
+  showShapePreview(preview: ShapePreviewEvent): void {
+    if (!this.scene || preview.sceneId !== this.scene.id) {
+      return;
+    }
+    const key = `${preview.sourceId}:${preview.operationId}`;
+    if (preview.sequence <= (this.remoteShapeSequences.get(key) ?? -1)) {
+      return;
+    }
+    this.remoteShapeSequences.delete(key);
+    this.remoteShapeSequences.set(key, preview.sequence);
+    if (this.remoteShapeSequences.size > 512) {
+      const oldest = this.remoteShapeSequences.keys().next().value;
+      if (oldest) {
+        this.remoteShapeSequences.delete(oldest);
+      }
+    }
+    if (preview.phase === 'cancel') {
+      this.remoteShapePreviews.delete(key);
+    } else {
+      this.remoteShapePreviews.set(key, {
+        lastAt: Date.now(),
+        preview: structuredClone(preview),
+      });
+      const sequence = preview.sequence;
+      setTimeout(() => {
+        const current = this.remoteShapePreviews.get(key);
+        if (
+          current?.preview.sequence === sequence &&
+          Date.now() - current.lastAt >= SHAPE_PREVIEW_EXPIRY_MS
+        ) {
+          this.remoteShapePreviews.delete(key);
+          this.renderShapes();
+        }
+      }, SHAPE_PREVIEW_EXPIRY_MS + 20);
+    }
+    this.renderShapes();
   }
 
   showTransformStarted(input: SceneTransformPreviewStart): void {
@@ -1650,7 +1788,7 @@ export class SceneRenderer implements SceneRendererHandle {
     edit.previewPivot = frame?.center ?? selected[0].image;
     edit.previewOperationId = crypto.randomUUID();
     this.interaction.onPreviewStart?.({
-      kind: edit.mode,
+      kind: edit.mode === 'semantic' ? 'resize' : edit.mode,
       operationId: edit.previewOperationId,
       pivotX: edit.previewPivot.x,
       pivotY: edit.previewPivot.y,
@@ -1689,6 +1827,12 @@ export class SceneRenderer implements SceneRendererHandle {
       const drawing = layer.find((candidate) => candidate.id === id);
       if (drawing && canEditDrawing(drawing, this.interaction.actorId)) {
         return drawingAsImage(drawing);
+      }
+    }
+    for (const layer of Object.values(this.scene.shapes)) {
+      const shape = layer.find((candidate) => candidate.id === id);
+      if (shape && canEditShape(shape, this.interaction.actorId)) {
+        return shapeAsImage(shape);
       }
     }
     for (const layer of Object.values(this.scene.texts)) {
@@ -1748,6 +1892,7 @@ export class SceneRenderer implements SceneRendererHandle {
     after: SceneObjectState,
     beforeRotation = this.groupSelectionRotation,
     operationId: string = crypto.randomUUID(),
+    arrangement?: SceneArrangement,
   ): Promise<boolean> {
     if (!this.scene || JSON.stringify(before) === JSON.stringify(after)) {
       return false;
@@ -1757,7 +1902,11 @@ export class SceneRenderer implements SceneRendererHandle {
     this.committing = true;
     let result: SceneRecord | null | undefined;
     try {
-      result = await this.interaction.onCommit?.(after, operationId);
+      result = await this.interaction.onCommit?.(
+        after,
+        operationId,
+        arrangement,
+      );
     } catch {
       result = null;
     } finally {
@@ -1965,6 +2114,7 @@ export class SceneRenderer implements SceneRendererHandle {
         y: draft.point.y,
       };
       after.texts[draft.layer].push(text);
+      after.objectOrder[draft.layer].push(text.id);
     }
     const textValidation = sceneTextSchema.safeParse(text);
     if (!textValidation.success) {
@@ -2018,6 +2168,12 @@ export class SceneRenderer implements SceneRendererHandle {
     );
   }
 
+  private editableShapeAt(point: { x: number; y: number }): boolean {
+    return this.activeTargets().some(
+      (target) => target.shape && containsShapePoint(target.shape, point),
+    );
+  }
+
   private beginPendingPing(
     event: PointerEvent,
     screenPoint: { x: number; y: number },
@@ -2026,9 +2182,13 @@ export class SceneRenderer implements SceneRendererHandle {
     if (
       !canBeginPendingPing({
         editable: this.interaction.editable,
-        hasEditableDrawing: this.editableDrawingAt(
-          screenToScene(this.camera, this.viewport, screenPoint),
-        ),
+        hasEditableDrawing:
+          this.editableDrawingAt(
+            screenToScene(this.camera, this.viewport, screenPoint),
+          ) ||
+          this.editableShapeAt(
+            screenToScene(this.camera, this.viewport, screenPoint),
+          ),
         hasHandle: Boolean(this.handleAt(screenPoint)),
         hasPingHandler: Boolean(this.interaction.onPing),
         overPlacedImage: Boolean(scenePoint && this.placedImageAt(scenePoint)),
@@ -2094,6 +2254,8 @@ export class SceneRenderer implements SceneRendererHandle {
               scenePoint,
               6 / this.camera.zoom,
             )
+          : targets[index].shape
+            ? containsShapePoint(targets[index].shape!, scenePoint)
           : containsPoint(targets[index].image, scenePoint)
       ) {
         return targets[index].id;
@@ -2115,6 +2277,7 @@ export class SceneRenderer implements SceneRendererHandle {
   private handleAt(point: { x: number; y: number }):
     | { mode: 'resize'; corner: number }
     | { mode: 'rotate' }
+    | { mode: 'semantic'; handle: ShapeSemanticHandle }
     | null {
     return this.selectionOverlay.handleAt(point, {
       camera: this.camera,
@@ -2148,6 +2311,8 @@ export class SceneRenderer implements SceneRendererHandle {
       this.container.style.cursor = this.resizeCursor(handle.corner);
     } else if (handle?.mode === 'rotate') {
       this.container.style.cursor = 'grab';
+    } else if (handle?.mode === 'semantic') {
+      this.container.style.cursor = 'crosshair';
     } else if (this.hitAt(point)) {
       this.container.style.cursor = 'move';
     } else {
@@ -2261,6 +2426,9 @@ export class SceneRenderer implements SceneRendererHandle {
     const before = sceneObjectStateOf(this.scene);
     const after = structuredClone(before);
     after.images[this.interaction.activeLayer].push(...images);
+    after.objectOrder[this.interaction.activeLayer].push(
+      ...images.map((image) => image.id),
+    );
     const beforeRotation = this.groupSelectionRotation;
     const afterRotation = images.length > 1 ? groupRotation : 0;
     if (
@@ -2384,7 +2552,9 @@ export class SceneRenderer implements SceneRendererHandle {
       for (const layer of ['gm', 'token', 'map'] as const) {
         entries.push({
           disabled:
-            includesCanonical || layer === this.interaction.activeLayer,
+            includesCanonical ||
+            layer === this.interaction.activeLayer ||
+            (this.interaction.actorId != null && layer !== 'token'),
           kind: 'action',
           label: `Move to ${layer === 'gm' ? 'GM' : `${layer[0].toUpperCase()}${layer.slice(1)}`} layer`,
           onSelect: () => void this.moveSelectionToLayer(layer),
@@ -2428,7 +2598,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.contextMenu.open(
       clientX,
       clientY,
-      canPing ? 'Canvas actions' : 'Image actions',
+      canEditImage ? 'Selection actions' : 'Canvas actions',
       entries,
       () => this.container?.focus(),
     );
@@ -2451,8 +2621,18 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     const before = sceneObjectStateOf(this.scene);
-    const after = moveSelectedImagesToLayer(before, this.selected, layer);
-    if (await this.commitState(before, after)) {
+    const after = moveSelectedObjectsToLayer(before, this.selected, layer);
+    if (await this.commitState(
+      before,
+      after,
+      this.groupSelectionRotation,
+      crypto.randomUUID(),
+      {
+        kind: 'move-layer',
+        targetLayer: layer,
+        targets: [...this.selected],
+      },
+    )) {
       this.selected.clear();
       this.groupSelectionRotation = 0;
       this.drawSelection();
@@ -2466,13 +2646,19 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     const before = sceneObjectStateOf(this.scene);
-    const after = reorderSelectedImages(
+    const after = reorderSelectedObjects(
       before,
       this.selected,
       this.interaction.activeLayer,
       direction,
     );
-    await this.commitState(before, after);
+    await this.commitState(
+      before,
+      after,
+      this.groupSelectionRotation,
+      crypto.randomUUID(),
+      { direction, kind: 'reorder', targets: [...this.selected] },
+    );
   }
 
   private drawGrid(): void {
@@ -2578,6 +2764,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.drawMeasurements();
     this.drawRemotePaintPreviews();
     this.drawPaintPreview();
+    this.renderShapes();
     this.syncTextEditor();
   }
 
@@ -2645,16 +2832,16 @@ export class SceneRenderer implements SceneRendererHandle {
       this.interaction.actorId == null
         ? this.interaction.activeLayer
         : 'token';
-    after.drawings[layer].push(
-      createSceneDrawing(
-        points,
-        kind,
-        style,
-        closed,
-        crypto.randomUUID(),
-        this.interaction.actorId ?? null,
-      ),
+    const drawing = createSceneDrawing(
+      points,
+      kind,
+      style,
+      closed,
+      crypto.randomUUID(),
+      this.interaction.actorId ?? null,
     );
+    after.drawings[layer].push(drawing);
+    after.objectOrder[layer].push(drawing.id);
     await this.commitState(
       before,
       after,
@@ -2754,6 +2941,50 @@ export class SceneRenderer implements SceneRendererHandle {
     this.paintPreviewGraphics.clear();
   }
 
+  private emitShapeSnapshot(
+    active: Extract<SceneGesture, { kind: 'shape' }>,
+    phase: ShapePreviewUpdate['phase'],
+    shape: SceneShape | null,
+  ): void {
+    if (!this.scene) {
+      return;
+    }
+    active.sequence = (active.sequence + 1) >>> 0;
+    const previewShape = shape
+      ? Object.fromEntries(
+          Object.entries(shape).filter(
+            ([key]) =>
+              key !== 'ownerId' && key !== 'revision',
+          ),
+        ) as NonNullable<ShapePreviewUpdate['shape']>
+      : null;
+    this.interaction.onShapePreview?.({
+      layer:
+        this.interaction.actorId == null
+          ? this.interaction.activeLayer
+          : 'token',
+      operationId: active.operationId,
+      phase,
+      ...(phase === 'update' ? {} : { reliable: true }),
+      sceneId: this.scene.id,
+      sequence: active.sequence,
+      shape: previewShape,
+    });
+  }
+
+  private cancelShapeGesture(): void {
+    const active = this.activeShape;
+    if (active && this.container?.hasPointerCapture(active.pointerId)) {
+      this.container.releasePointerCapture(active.pointerId);
+    }
+    if (active) {
+      this.emitShapeSnapshot(active, 'cancel', null);
+      this.finishGesture('shape');
+    }
+    this.draftShape = null;
+    this.renderShapes();
+  }
+
   private drawPaintPreview(): void {
     this.paintPreviewGraphics.clear();
     const active = this.activeFreeform ?? this.activePolyline;
@@ -2826,6 +3057,11 @@ export class SceneRenderer implements SceneRendererHandle {
       hasCommit: Boolean(this.interaction.onCommit),
       hasPaintConfiguration: Boolean(
         this.interaction.paintEnabled && paintStyle && paintKind,
+      ),
+      hasShapeConfiguration: Boolean(
+        this.interaction.shapeEnabled &&
+        this.interaction.shapeKind &&
+        this.interaction.shapeStyle,
       ),
       hasTextConfiguration: Boolean(
         this.interaction.textEnabled && this.interaction.textStyle,
@@ -2940,6 +3176,36 @@ export class SceneRenderer implements SceneRendererHandle {
       this.drawPaintPreview();
       return;
     }
+    if (
+      plan.primary === 'shape' &&
+      this.interaction.shapeKind &&
+      this.interaction.shapeStyle
+    ) {
+      const point = this.scenePointInside(this.localPoint(event));
+      if (!point) {
+        return;
+      }
+      event.preventDefault();
+      void ensureSceneTextFontsLoaded();
+      this.cancelPendingPing();
+      this.closeContextMenu();
+      this.container?.focus();
+      const active: Extract<SceneGesture, { kind: 'shape' }> = {
+        id: crypto.randomUUID(),
+        kind: 'shape',
+        operationId: crypto.randomUUID(),
+        pointerId: event.pointerId,
+        sequence: 0,
+        shapeKind: this.interaction.shapeKind,
+        start: point,
+        style: structuredClone(this.interaction.shapeStyle),
+      };
+      if (this.beginGesture(active)) {
+        this.emitShapeSnapshot(active, 'start', null);
+        this.container?.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
     if (plan.primary === 'measure') {
       const point = this.scenePointInside(this.localPoint(event));
       if (!point) {
@@ -3014,12 +3280,18 @@ export class SceneRenderer implements SceneRendererHandle {
         { kind: 'edit' }
       >['mode'];
       let resizeCorner = 0;
+      let semanticHandle: ShapeSemanticHandle | null = null;
       if (handle) {
         mode = handle.mode;
         if (handle.mode === 'resize') {
           resizeCorner = handle.corner;
           if (this.container) {
             this.container.style.cursor = this.resizeCursor(handle.corner);
+          }
+        } else if (handle.mode === 'semantic') {
+          semanticHandle = handle.handle;
+          if (this.container) {
+            this.container.style.cursor = 'crosshair';
           }
         } else if (this.container) {
           this.container.style.cursor = 'grabbing';
@@ -3062,6 +3334,7 @@ export class SceneRenderer implements SceneRendererHandle {
         previewOperationId: null,
         previewPivot: { x: 0, y: 0 },
         resizeCorner,
+        semanticHandle,
         start: screenToScene(
           this.camera,
           this.viewport,
@@ -3091,6 +3364,7 @@ export class SceneRenderer implements SceneRendererHandle {
   private readonly handlePointerMove = (event: PointerEvent) => {
     const freeform = this.activeFreeform;
     const polyline = this.activePolyline;
+    const shapeGesture = this.activeShape;
     const pendingPingDistance =
       this.pendingPing?.pointerId === event.pointerId
         ? Math.hypot(
@@ -3134,6 +3408,29 @@ export class SceneRenderer implements SceneRendererHandle {
         );
         this.drawPaintPreview();
       }
+      return;
+    }
+    if (plan.primary === 'shape' && shapeGesture && this.scene) {
+      const point = this.scenePointInside(this.localPoint(event));
+      if (!point) {
+        return;
+      }
+      event.preventDefault();
+      this.draftShape = createShapeFromDrag({
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        end: point,
+        id: shapeGesture.id,
+        kind: shapeGesture.shapeKind,
+        ownerId: this.interaction.actorId ?? null,
+        scene: this.scene,
+        start: shapeGesture.start,
+        style: shapeGesture.style,
+      });
+      if (this.draftShape) {
+        this.emitShapeSnapshot(shapeGesture, 'update', this.draftShape);
+      }
+      this.renderShapes();
       return;
     }
     if (plan.primary === 'measurement' && this.activeMeasurement && this.scene) {
@@ -3224,6 +3521,60 @@ export class SceneRenderer implements SceneRendererHandle {
         this.selectionOverlay.drawMarquee(start, screenPoint);
         return;
       }
+      if (this.editMode === 'semantic' && activeEdit.semanticHandle) {
+        const shapeId = [...this.selected].find((id) =>
+          Object.values(activeEdit.before.shapes)
+            .flat()
+            .some((shape) => shape.id === id),
+        );
+        const original = shapeId
+          ? Object.values(activeEdit.before.shapes)
+              .flat()
+              .find((shape) => shape.id === shapeId)
+          : null;
+        const next = original
+          ? editShapeWithSemanticHandle(
+              original,
+              activeEdit.semanticHandle,
+              point,
+              {
+                freeform: this.leftAlt,
+                increment: shapeIncrementPixels(this.scene),
+              },
+            )
+          : null;
+        if (!shapeId || !next) {
+          return;
+        }
+        const state = structuredClone(activeEdit.before);
+        for (const layer of Object.values(state.shapes)) {
+          const index = layer.findIndex((shape) => shape.id === shapeId);
+          if (index >= 0) {
+            layer[index] = next;
+            break;
+          }
+        }
+        if (this.previewOperationId) {
+          this.interaction.onPreviewUpdate?.({
+            absolute: {
+              height: next.height,
+              rotation: next.rotation,
+              ...(next.kind === 'cone' ? { spread: next.spread } : {}),
+              width: next.width,
+              x: next.x,
+              y: next.y,
+            },
+            dx: 0,
+            dy: 0,
+            operationId: this.previewOperationId,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+          });
+        }
+        this.applyState(state);
+        return;
+      }
       const update = updateSceneEdit({
         currentGroupRotation: this.groupSelectionRotation,
         disableSnapping: this.leftAlt,
@@ -3292,6 +3643,79 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     if (plan.primary === 'ignore') {
+      return;
+    }
+    if (plan.primary === 'shape' && this.activeShape) {
+      event.preventDefault();
+      const active = this.activeShape;
+      const scene = this.scene;
+      const releasePoint = scene
+        ? this.scenePointInside(this.localPoint(event))
+        : null;
+      const shape =
+        scene && releasePoint && event.type !== 'pointercancel'
+          ? createShapeFromDrag({
+              altKey: event.altKey,
+              ctrlKey: event.ctrlKey,
+              end: releasePoint,
+              id: active.id,
+              kind: active.shapeKind,
+              ownerId: this.interaction.actorId ?? null,
+              scene,
+              start: active.start,
+              style: active.style,
+            })
+          : null;
+      const layer = this.interaction.actorId == null
+        ? this.interaction.activeLayer
+        : 'token';
+      const shapeCount = scene
+        ? Object.values(scene.shapes).reduce(
+            (total, shapes) => total + shapes.length,
+            0,
+          )
+        : MAX_SCENE_SHAPES;
+      const canCommit = Boolean(
+        shape &&
+        scene &&
+        event.type !== 'pointercancel' &&
+        shapeCount < MAX_SCENE_SHAPES,
+      );
+      this.emitShapeSnapshot(
+        active,
+        canCommit ? 'final' : 'cancel',
+        canCommit ? shape : null,
+      );
+      this.finishGesture('shape');
+      this.draftShape = null;
+      this.renderShapes();
+      if (this.container?.hasPointerCapture(event.pointerId)) {
+        this.container.releasePointerCapture(event.pointerId);
+      }
+      if (!shape || !scene || !canCommit) {
+        return;
+      }
+      const before = sceneObjectStateOf(scene);
+      const after = structuredClone(before);
+      after.shapes[layer].push(shape);
+      const imageIds = new Set(after.images[layer].map((image) => image.id));
+      const firstImageIndex = after.objectOrder[layer].findIndex((id) =>
+        imageIds.has(id));
+      after.objectOrder[layer].splice(
+        firstImageIndex < 0 ? after.objectOrder[layer].length : firstImageIndex,
+        0,
+        shape.id,
+      );
+      void this.commitState(
+        before,
+        after,
+        this.groupSelectionRotation,
+        active.operationId,
+      ).then((committed) => {
+        if (!committed) {
+          this.emitShapeSnapshot(active, 'cancel', null);
+        }
+      });
       return;
     }
     if (plan.primary === 'measurement') {
@@ -3525,6 +3949,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.pingConsumedPointers.clear();
     this.cancelMeasurement();
     this.cancelPaintGesture();
+    this.cancelShapeGesture();
     this.cancelEditGesture();
     if (this.nudgeBefore) {
       void this.finishNudge();
@@ -3533,6 +3958,11 @@ export class SceneRenderer implements SceneRendererHandle {
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
     if (this.interactionEngine.pressModifier(event.code)) {
+      return;
+    }
+    if (event.key === 'Escape' && this.activeShape) {
+      event.preventDefault();
+      this.cancelShapeGesture();
       return;
     }
     const plan = planKeyDown({

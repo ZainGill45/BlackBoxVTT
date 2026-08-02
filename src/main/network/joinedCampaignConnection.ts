@@ -22,6 +22,7 @@ import type {
   NetworkResult,
   RemotePlaySession,
   SessionClosedEvent,
+  ShapePreviewEvent,
 } from '../../shared/network';
 import type { CampaignRuntimeRegistry } from '../campaignRuntime';
 import type { CampaignNetworkSession } from './campaignNetworkSession';
@@ -39,6 +40,7 @@ export interface JoinedCampaignConnectionEvents {
   onDrawingPreview: (event: DrawingPreviewEvent) => void;
   onMapPing: (event: MapPing) => void;
   onMeasurementUpdate: (event: MeasurementEvent) => void;
+  onShapePreview: (event: ShapePreviewEvent) => void;
   onScenePresented: (campaignId: string) => void;
   onSessionClosed: (event: SessionClosedEvent) => void;
 }
@@ -89,6 +91,12 @@ export class JoinedCampaignConnection {
         const campaignId = this.client.getSession()?.campaignId;
         if (campaignId) {
           this.events.onMeasurementUpdate({ ...input, campaignId });
+        }
+      },
+      onShapePreview: (input) => {
+        const campaignId = this.client.getSession()?.campaignId;
+        if (campaignId) {
+          this.events.onShapePreview({ ...input, campaignId });
         }
       },
       onScenePresented: (scene) => this.scenes.present(scene),
@@ -189,6 +197,9 @@ export class JoinedCampaignConnection {
       },
       sendMeasurementUpdate: async (input) => {
         this.client.sendMeasurementUpdate(input);
+      },
+      sendShapePreview: async (input) => {
+        this.client.sendShapePreview(input);
       },
     };
   }

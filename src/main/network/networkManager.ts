@@ -30,6 +30,7 @@ import type {
   ResetManagedPasswordInput,
   SavedConnection,
   ServerSettingsView,
+  ShapePreviewUpdate,
   SetServerPortInput,
   SetTransformPreviewRateInput,
   UpdateManagedUsernameInput,
@@ -105,6 +106,8 @@ export class NetworkManager extends EventEmitter {
         onMapPing: (event) => this.emit('map-ping', event),
         onMeasurementUpdate: (event) =>
           this.emit('measurement-update', event),
+        onShapePreview: (event) =>
+          this.emit('shape-preview', event),
         onScenePresented: (campaignId) =>
           this.emit('scene-presented', { campaignId }),
         onSessionClosed: (event) => this.emit('session-closed', event),
@@ -131,6 +134,8 @@ export class NetworkManager extends EventEmitter {
           onMapPing: (event) => this.emit('map-ping', event),
           onMeasurementUpdate: (event) =>
             this.emit('measurement-update', event),
+          onShapePreview: (event) =>
+            this.emit('shape-preview', event),
           onScenePresented: (activeCampaignId) =>
             this.emit('scene-presented', {
               campaignId: activeCampaignId,
@@ -395,6 +400,18 @@ export class NetworkManager extends EventEmitter {
       sceneId: input.sceneId,
       sequence: input.sequence,
       style: input.style,
+    });
+  }
+
+  async sendShapePreview(input: ShapePreviewUpdate): Promise<void> {
+    await this.sessionFor(input.campaignId)?.sendShapePreview({
+      layer: input.layer,
+      operationId: input.operationId,
+      phase: input.phase,
+      ...(input.reliable ? { reliable: true } : {}),
+      sceneId: input.sceneId,
+      sequence: input.sequence,
+      shape: input.shape,
     });
   }
 

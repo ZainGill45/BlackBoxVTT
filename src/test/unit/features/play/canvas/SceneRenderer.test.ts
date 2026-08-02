@@ -11,13 +11,16 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
+  createSceneObjectOrder,
   MAX_SCENE_IMAGES,
   type SceneDrawing,
   type SceneDrawingStyle,
   type SceneImage,
   type SceneObjectState,
   type SceneRecord,
+  type SceneShape,
   type SceneText,
 } from '../../../../../shared/scenes';
 import {
@@ -27,6 +30,7 @@ import {
 } from '../../../../../features/play/canvas/camera';
 import { CANONICAL_MAP_ID } from '../../../../../shared/scenes';
 import { SceneRenderer } from '../../../../../features/play/canvas/SceneRenderer';
+import { DEFAULT_SHAPE_SETTINGS } from '../../../../../features/play/shapeSettings';
 import { strokeDrawingPath } from '../../../../../features/play/canvas/sceneDrawingRenderer';
 import { selectedSceneTargets } from '../../../../../features/play/canvas/sceneSelection';
 import {
@@ -70,6 +74,10 @@ const stubCreateImageBitmap = (() =>
   } as unknown as ImageBitmap)) as unknown as typeof createImageBitmap;
 
 function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
+  const drawings = overrides.drawings ?? createEmptyDrawingLayers();
+  const images = overrides.images ?? createEmptyImageLayers();
+  const shapes = overrides.shapes ?? createEmptyShapeLayers();
+  const texts = overrides.texts ?? createEmptyTextLayers();
   return {
     createdAt: '2026-07-28T00:00:00.000Z',
     distance: 5,
@@ -78,15 +86,22 @@ function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     id: '11111111-1111-4111-8111-111111111111',
     mapImage: null,
     name: 'Iron Keep',
+    objectOrder: overrides.objectOrder ?? createSceneObjectOrder({
+      drawings,
+      images,
+      shapes,
+      texts,
+    }),
     pixelScale: 70,
     revision: 0,
     unit: 'ft',
     updatedAt: '2026-07-28T00:00:00.000Z',
     width: 1920,
     ...overrides,
-    drawings: overrides.drawings ?? createEmptyDrawingLayers(),
-    images: overrides.images ?? createEmptyImageLayers(),
-    texts: overrides.texts ?? createEmptyTextLayers(),
+    drawings,
+    images,
+    shapes,
+    texts,
   };
 }
 
@@ -153,6 +168,22 @@ function sceneText(overrides: Partial<SceneText> = {}): SceneText {
   };
 }
 
+function sceneShape(overrides: Partial<SceneShape> = {}): SceneShape {
+  return {
+    height: 240,
+    id: '66666666-6666-4666-8666-666666666666',
+    kind: 'sphere',
+    ownerId: null,
+    revision: 0,
+    rotation: 0,
+    style: DEFAULT_SHAPE_SETTINGS,
+    width: 240,
+    x: 960,
+    y: 540,
+    ...overrides,
+  } as SceneShape;
+}
+
 function spriteOf(renderer: SceneRenderer): Sprite | undefined {
   return (renderer as unknown as { mapSprite: Sprite | null }).mapSprite ??
     undefined;
@@ -181,6 +212,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 function pointerEvent(
   type: string,
   init: {
+    altKey?: boolean;
     button: number;
     clientX?: number;
     clientY?: number;
@@ -192,6 +224,7 @@ function pointerEvent(
   },
 ): Event {
   const event = new MouseEvent(type, {
+    altKey: init.altKey,
     bubbles: true,
     button: init.button,
     cancelable: true,
@@ -470,6 +503,193 @@ describe('SceneRenderer', () => {
       paintStyle: { ...paintStyle, edge: 'hard', hardness: 1 },
     });
     expect(element.style.cursor).toBe('');
+  });
+
+  it('creates the same 5-unit sphere with either grid mode and uses the true release point', async () => {
+    const create = async (grid: SceneRecord['grid']) => {
+      const existingImage = {
+        ...placement,
+        id: '99999999-9999-4999-8999-999999999999',
+        x: 200,
+        y: 200,
+      };
+      const current = scene({
+        grid,
+        images: { ...createEmptyImageLayers(), token: [existingImage] },
+      });
+      const committed: SceneShape[] = [];
+      const onCommit = vi.fn(async (
+        state: SceneObjectState,
+        _operationId: string,
+      ) => {
+        void _operationId;
+        committed.push(structuredClone(state.shapes.token[0]));
+        expect(state.objectOrder.token).toEqual([
+          state.shapes.token[0].id,
+          existingImage.id,
+        ]);
+        return {
+          ...current,
+          ...state,
+          revision: current.revision + 1,
+        };
+      });
+      const onShapePreview = vi.fn();
+      renderer.setScene(current, null);
+      renderer.setInteraction({
+        activeLayer: 'token',
+        actorId: null,
+        editable: false,
+        onCommit,
+        onShapePreview,
+        shapeEnabled: true,
+        shapeKind: 'sphere',
+        shapeStyle: DEFAULT_SHAPE_SETTINGS,
+      });
+      const origin = renderer.clientToScene(383, 287);
+
+      element.dispatchEvent(pointerEvent('pointerdown', {
+        button: 0,
+        clientX: 383,
+        clientY: 287,
+      }));
+      element.dispatchEvent(pointerEvent('pointermove', {
+        button: -1,
+        clientX: 413,
+        clientY: 287,
+      }));
+      element.dispatchEvent(pointerEvent('pointerup', {
+        button: 0,
+        clientX: 470,
+        clientY: 287,
+      }));
+
+      await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+      expect(onShapePreview.mock.calls.map(([preview]) => preview.phase))
+        .toEqual(['start', 'update', 'final']);
+      expect(onShapePreview.mock.calls.at(-1)?.[0].operationId)
+        .toBe(onCommit.mock.calls[0][1]);
+      expect(committed[0])
+        .toMatchObject(onShapePreview.mock.calls.at(-1)?.[0].shape);
+      expect(committed[0]).toMatchObject({
+        height: 420,
+        kind: 'sphere',
+        width: 420,
+        x: origin.x,
+        y: origin.y,
+      });
+      return committed[0];
+    };
+
+    const squareGrid = await create({
+      ...createDefaultGrid(),
+      offsetX: 19,
+      offsetY: 31,
+      size: 83,
+      type: 'square',
+    });
+    const gridless = await create({
+      ...createDefaultGrid(),
+      type: 'gridless',
+    });
+
+    expect(gridless).toMatchObject({
+      height: squareGrid.height,
+      width: squareGrid.width,
+      x: squareGrid.x,
+      y: squareGrid.y,
+    });
+    expect((squareGrid.width / 2 / 70) * 5).toBe(15);
+    expect((squareGrid.x - 19) % 83).not.toBeCloseTo(0);
+  });
+
+  it('keeps Alt dimensions quantized and makes Alt+Control truly freeform', async () => {
+    const current = scene();
+    const shapes: SceneShape[] = [];
+    const onCommit = vi.fn(async (state: SceneObjectState) => {
+      const created = state.shapes.token.at(-1);
+      if (created) shapes.push(structuredClone(created));
+      return {
+        ...current,
+        ...state,
+        revision: current.revision + shapes.length,
+      };
+    });
+    renderer.setScene(current, null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId: null,
+      editable: false,
+      onCommit,
+      shapeEnabled: true,
+      shapeKind: 'sphere',
+      shapeStyle: DEFAULT_SHAPE_SETTINGS,
+    });
+    const drag = async (pointerId: number, ctrlKey: boolean) => {
+      element.dispatchEvent(pointerEvent('pointerdown', {
+        altKey: true,
+        button: 0,
+        clientX: 380,
+        clientY: 280,
+        ctrlKey,
+        pointerId,
+      }));
+      element.dispatchEvent(pointerEvent('pointerup', {
+        altKey: true,
+        button: 0,
+        clientX: 419,
+        clientY: 346,
+        ctrlKey,
+        pointerId,
+      }));
+      await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(pointerId));
+    };
+
+    await drag(1, false);
+    renderer.setScene(current, null);
+    await drag(2, true);
+
+    expect(shapes[0].width % 140).toBe(0);
+    expect(shapes[0].height % 140).toBe(0);
+    expect(shapes[0].width).not.toBe(shapes[0].height);
+    expect(shapes[1].width % 140).not.toBeCloseTo(0);
+    expect(shapes[1].height % 140).not.toBeCloseTo(0);
+    expect(shapes[1].width).not.toBe(shapes[1].height);
+  });
+
+  it('cancels the reliable shape preview when the authoritative commit fails', async () => {
+    const onShapePreview = vi.fn();
+    const onCommit = vi.fn(async () => null);
+    renderer.setScene(scene(), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId: null,
+      editable: false,
+      onCommit,
+      onShapePreview,
+      shapeEnabled: true,
+      shapeKind: 'cone',
+      shapeStyle: DEFAULT_SHAPE_SETTINGS,
+    });
+
+    element.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 350,
+      clientY: 300,
+    }));
+    element.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 450,
+      clientY: 300,
+    }));
+
+    await vi.waitFor(() => expect(onCommit).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(onShapePreview.mock.calls.map(([preview]) => preview.phase))
+        .toEqual(['start', 'final', 'cancel']),
+    );
+    expect((renderer as unknown as { draftShape: SceneShape | null }).draftShape)
+      .toBeNull();
   });
 
   it('uses all soft passes for both paths and single-click dots', () => {
@@ -2052,11 +2272,16 @@ describe('SceneRenderer', () => {
       },
     });
     const onActiveLayerChange = vi.fn();
-    const onCommit = vi.fn(async (state) => ({
-      ...current,
-      ...state,
-      revision: current.revision + 1,
-    }));
+    const onCommit = vi.fn(async (
+      ...args: [SceneObjectState, string?, unknown?]
+    ) => {
+      const [state] = args;
+      return {
+        ...current,
+        ...state,
+        revision: current.revision + 1,
+      };
+    });
     renderer.setScene(current, null);
     renderer.setInteraction({
       activeLayer: 'token',
@@ -2107,6 +2332,11 @@ describe('SceneRenderer', () => {
 
     expect(onActiveLayerChange).not.toHaveBeenCalled();
     expect(onCommit).toHaveBeenCalled();
+    expect(onCommit.mock.calls[0][2]).toEqual({
+      kind: 'move-layer',
+      targetLayer: 'gm',
+      targets: [tokenId],
+    });
     expect(
       (renderer as unknown as { interaction: { activeLayer: string } })
         .interaction.activeLayer,
@@ -3223,6 +3453,27 @@ describe('SceneRenderer', () => {
       ...original,
       content: 'New\nlabel',
     });
+  });
+
+  it('does not open a text editor when a shape is double-clicked', () => {
+    const original = sceneShape();
+    renderer.setScene(scene({
+      shapes: { ...createEmptyShapeLayers(), token: [original] },
+    }), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      canEditImages: true,
+      editable: true,
+      onCommit: vi.fn(async () => null),
+    });
+
+    element.dispatchEvent(new MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 400,
+      clientY: 300,
+    }));
+    expect(element.querySelector('textarea')).toBeNull();
   });
 
   describe('camera input', () => {

@@ -9,6 +9,7 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
   sceneObjectStateOf,
   type SceneRecord,
@@ -71,8 +72,10 @@ function scene(): SceneRecord {
     images: createEmptyImageLayers(),
     mapImage: null,
     name: 'Arena',
+    objectOrder: { gm: [], map: [], token: [] },
     pixelScale: 1,
     revision: 2,
+    shapes: createEmptyShapeLayers(),
     unit: 'ft',
     updatedAt: '2026-07-31T12:00:00.000Z',
     width: 100,
@@ -147,6 +150,7 @@ describe('host scene request handler', () => {
     const onSceneMutation = vi.fn(async () => undefined);
     const handler = new HostSceneRequestHandler({
       broadcastDrawingPreview: vi.fn(),
+      broadcastShapePreview: vi.fn(),
       broadcastTransformCancelled: vi.fn(),
       broadcastTransformStarted: vi.fn(),
       campaignId,

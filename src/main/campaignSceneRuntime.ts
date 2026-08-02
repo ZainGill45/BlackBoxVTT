@@ -235,6 +235,7 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
         input.expectedRevision,
         input.operationId,
         { kind: 'gm' },
+        input.arrangement,
       ),
     );
   }

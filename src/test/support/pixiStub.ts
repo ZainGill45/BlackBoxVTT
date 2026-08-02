@@ -22,7 +22,9 @@ class Point {
 
 export class Container {
   alpha = 1;
+  angle = 0;
   children: Container[] = [];
+  mask: Container | null = null;
   parent: Container | null = null;
   readonly position = new Point();
   readonly scale = new Point();
@@ -124,7 +126,6 @@ export class Texture {
 
 export class Sprite extends Container {
   readonly anchor = new Point();
-  angle = 0;
   height = 0;
   texture: Texture | null = null;
   width = 0;
@@ -132,7 +133,6 @@ export class Sprite extends Container {
 
 export class Text extends Container {
   readonly anchor = new Point();
-  angle = 0;
   style: {
     fontSize?: number;
     padding?: number;
@@ -140,10 +140,20 @@ export class Text extends Container {
   } = {};
   text = '';
 
-  constructor(options: { anchor?: number } = {}) {
+  constructor(options: {
+    anchor?: number;
+    style?: typeof Text.prototype.style;
+    text?: string;
+  } = {}) {
     super();
     if (options.anchor !== undefined) {
       this.anchor.set(options.anchor);
+    }
+    if (options.style) {
+      this.style = options.style;
+    }
+    if (options.text !== undefined) {
+      this.text = options.text;
     }
   }
 
@@ -165,15 +175,26 @@ export class Text extends Container {
 }
 
 export class TilingSprite extends Container {
+  readonly anchor = new Point();
   height: number;
   /** Real Pixi defaults this to 1, not 0. */
   readonly tileScale = new Point(1);
   tint = 0xffffff;
+  texture: Texture | null = null;
   width: number;
 
-  constructor(options: { height?: number; width?: number } = {}) {
+  constructor(options: {
+    anchor?: number;
+    height?: number;
+    texture?: Texture;
+    width?: number;
+  } = {}) {
     super();
+    if (options.anchor !== undefined) {
+      this.anchor.set(options.anchor);
+    }
     this.height = options.height ?? 0;
+    this.texture = options.texture ?? null;
     this.width = options.width ?? 0;
   }
 }

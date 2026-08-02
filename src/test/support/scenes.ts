@@ -4,7 +4,9 @@ import {
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
+  createSceneObjectOrder,
   createEmptySceneManifest,
+  createEmptyShapeLayers,
   createEmptyTextLayers,
   DEFAULT_SCENE_DISTANCE,
   DEFAULT_SCENE_HEIGHT,
@@ -20,6 +22,10 @@ import {
 export const testCampaignId = '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325';
 
 export function makeScene(overrides: Partial<SceneRecord> = {}): SceneRecord {
+  const drawings = overrides.drawings ?? createEmptyDrawingLayers();
+  const images = overrides.images ?? createEmptyImageLayers();
+  const shapes = overrides.shapes ?? createEmptyShapeLayers();
+  const texts = overrides.texts ?? createEmptyTextLayers();
   return {
     createdAt: '2026-07-28T00:00:00.000Z',
     distance: DEFAULT_SCENE_DISTANCE,
@@ -28,15 +34,22 @@ export function makeScene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     id: '11111111-1111-4111-8111-111111111111',
     mapImage: null,
     name: 'Iron Keep',
+    objectOrder: overrides.objectOrder ?? createSceneObjectOrder({
+      drawings,
+      images,
+      shapes,
+      texts,
+    }),
     pixelScale: DEFAULT_SCENE_PIXEL_SCALE,
     revision: 0,
     unit: DEFAULT_SCENE_UNIT,
     updatedAt: '2026-07-28T00:00:00.000Z',
     width: DEFAULT_SCENE_WIDTH,
     ...overrides,
-    drawings: overrides.drawings ?? createEmptyDrawingLayers(),
-    images: overrides.images ?? createEmptyImageLayers(),
-    texts: overrides.texts ?? createEmptyTextLayers(),
+    drawings,
+    images,
+    shapes,
+    texts,
   };
 }
 
@@ -123,6 +136,17 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
                   scene.mapImage?.assetId === assetId
                     ? null
                     : scene.mapImage,
+                objectOrder: {
+                  gm: scene.objectOrder.gm.filter((id) =>
+                    !scene.images.gm.some((image) =>
+                      image.id === id && image.assetId === assetId)),
+                  map: scene.objectOrder.map.filter((id) =>
+                    !scene.images.map.some((image) =>
+                      image.id === id && image.assetId === assetId)),
+                  token: scene.objectOrder.token.filter((id) =>
+                    !scene.images.token.some((image) =>
+                      image.id === id && image.assetId === assetId)),
+                },
                 revision: scene.revision + 1,
               }
             : scene,

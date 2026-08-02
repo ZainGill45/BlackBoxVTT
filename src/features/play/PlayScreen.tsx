@@ -1,9 +1,12 @@
 import {
   Brush,
+  Circle,
   LogOut,
   PenTool,
   Power,
   Settings2,
+  Square,
+  Triangle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconButton } from '../../components/ui/IconButton';
@@ -22,6 +25,7 @@ import {
 import { ServerSettingsPanel } from './ServerSettingsPanel';
 import { PaintSettingsModal } from './PaintSettingsModal';
 import { TextSettingsModal } from './TextSettingsModal';
+import { ShapeSettingsModal } from './ShapeSettingsModal';
 import {
   loadPaintSettings,
   savePaintSettings,
@@ -34,6 +38,12 @@ import {
   saveTextSettings,
   type TextSettings,
 } from './textSettings';
+import {
+  loadShapeSettings,
+  saveShapeSettings,
+  type ShapeSettings,
+  type ShapeSubtool,
+} from './shapeSettings';
 import {
   fogTool,
   playerTools,
@@ -89,6 +99,11 @@ export function PlayScreen({
     loadTextSettings(session),
   );
   const [textSettingsOpen, setTextSettingsOpen] = useState(false);
+  const [shapeSettings, setShapeSettings] = useState<ShapeSettings>(() =>
+    loadShapeSettings(session),
+  );
+  const [shapeSettingsOpen, setShapeSettingsOpen] = useState(false);
+  const [shapeSubtool, setShapeSubtool] = useState<ShapeSubtool>('sphere');
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
   const stageControls = useRef<MapStageControls>(null);
@@ -128,6 +143,10 @@ export function PlayScreen({
   useEffect(() => {
     saveTextSettings(session, textSettings);
   }, [session, textSettings]);
+
+  useEffect(() => {
+    saveShapeSettings(session, shapeSettings);
+  }, [session, shapeSettings]);
 
   useEffect(() => {
     const handlePaintWidthShortcut = (event: KeyboardEvent) => {
@@ -212,6 +231,8 @@ export function PlayScreen({
         onUndo={scenes.undo}
         paintSettings={paintSettings}
         paintSubtool={paintSubtool}
+        shapeSettings={shapeSettings}
+        shapeSubtool={shapeSubtool}
         textSettings={textSettings}
       />
 
@@ -257,6 +278,24 @@ export function PlayScreen({
                     label="Polyline pen"
                     onClick={() => setPaintSubtool('polyline')}
                   />
+                </div>
+              ) : null}
+            </div>
+          ) : tool.id === 'shape' ? (
+            <div className={styles.toolWithRail} key={tool.id}>
+              <IconButton
+                active={activeTool === tool.id}
+                aria-pressed={activeTool === tool.id}
+                icon={tool.icon}
+                label={tool.label}
+                onClick={() => handleToolChange(tool.id)}
+              />
+              {activeTool === 'shape' ? (
+                <div aria-label="Shape tools" className={styles.toolRail} role="toolbar">
+                  <IconButton active={shapeSettingsOpen} aria-pressed={shapeSettingsOpen} icon={Settings2} label="Shape settings" onClick={() => setShapeSettingsOpen(true)} />
+                  <IconButton active={shapeSubtool === 'sphere'} aria-pressed={shapeSubtool === 'sphere'} icon={Circle} label="Sphere" onClick={() => setShapeSubtool('sphere')} />
+                  <IconButton active={shapeSubtool === 'square'} aria-pressed={shapeSubtool === 'square'} icon={Square} label="Square" onClick={() => setShapeSubtool('square')} />
+                  <IconButton active={shapeSubtool === 'cone'} aria-pressed={shapeSubtool === 'cone'} icon={Triangle} label="Cone" onClick={() => setShapeSubtool('cone')} />
                 </div>
               ) : null}
             </div>
@@ -433,6 +472,13 @@ export function PlayScreen({
         settings={textSettings}
         onChange={setTextSettings}
         onDismiss={() => setTextSettingsOpen(false)}
+      />
+      <ShapeSettingsModal
+        key={shapeSettingsOpen ? 'shape-open' : 'shape-closed'}
+        isOpen={shapeSettingsOpen}
+        settings={shapeSettings}
+        onChange={setShapeSettings}
+        onDismiss={() => setShapeSettingsOpen(false)}
       />
     </section>
   );
