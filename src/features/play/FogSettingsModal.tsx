@@ -44,60 +44,59 @@ export function FogSettingsModal({
       onDismiss={dismiss}
     >
       <div className={styles.content}>
-        <section className={styles.section} aria-labelledby="fog-appearance-heading">
-          <h2 id="fog-appearance-heading">Appearance</h2>
-          <div className={styles.fields}>
-            <ColorControl
-              id="fog-color"
-              label="Fog color"
-              value={draftColor}
-              onChange={setDraftColor}
-            />
-            <NumberControl
-              id="fog-gm-opacity"
-              label="GM preview opacity"
-              max={100}
-              min={0}
-              suffix="%"
-              value={Math.round(settings.gmOpacity * 100)}
-              onChange={(gmOpacity) =>
-                onChange({ ...settings, gmOpacity: gmOpacity / 100 })
-              }
-            />
-          </div>
-        </section>
-        <section className={styles.section} aria-labelledby="fog-brush-heading">
-          <h2 id="fog-brush-heading">Brush</h2>
-          <div className={styles.fields}>
-            <NumberControl
-              id="fog-brush-width"
-              label="Width"
-              max={512}
-              min={1}
-              suffix="units"
-              value={settings.brushWidth}
-              onChange={(brushWidth) => onChange({ ...settings, brushWidth })}
-            />
-            <NumberControl
-              id="fog-brush-hardness"
-              label="Hardness"
-              max={100}
-              min={0}
-              suffix="%"
-              value={Math.round(settings.brushHardness * 100)}
-              onChange={(brushHardness) =>
-                onChange({ ...settings, brushHardness: brushHardness / 100 })
-              }
-            />
-          </div>
-        </section>
-        <section className={styles.section} aria-labelledby="fog-map-heading">
-          <h2 id="fog-map-heading">Entire map</h2>
-          <div className={styles.actions}>
-            <Button onClick={onCoverAll}>Cover map</Button>
-            <Button variant="danger" onClick={onClearAll}>Clear all fog</Button>
-          </div>
-        </section>
+        <div className={styles.fields}>
+          <ColorControl
+            id="fog-color"
+            label="Fog color"
+            value={draftColor}
+            onChange={setDraftColor}
+          />
+          <NumberControl
+            id="fog-gm-opacity"
+            label="GM preview opacity"
+            max={100}
+            min={0}
+            suffix="%"
+            value={Math.round(settings.gmOpacity * 100)}
+            onChange={(gmOpacity) =>
+              onChange({ ...settings, gmOpacity: gmOpacity / 100 })
+            }
+          />
+        </div>
+        <div className={styles.fields}>
+          <NumberControl
+            id="fog-brush-width"
+            label="Width"
+            max={512}
+            min={1}
+            suffix="units"
+            value={settings.brushWidth}
+            onChange={(brushWidth) => onChange({ ...settings, brushWidth })}
+          />
+          <NumberControl
+            id="fog-brush-hardness"
+            label="Hardness"
+            max={100}
+            min={0}
+            suffix="%"
+            value={Math.round(settings.brushHardness * 100)}
+            onChange={(brushHardness) =>
+              onChange({ ...settings, brushHardness: brushHardness / 100 })
+            }
+          />
+        </div>
+        <div className={styles.actions}>
+          <Button className={styles.actionButton} onClick={onCoverAll}>
+            Cover map
+          </Button>
+          <Button
+            className={styles.actionButton}
+            variant="danger"
+            onClick={onClearAll}
+          >
+            Clear all fog
+          </Button>
+        </div>
       </div>
     </Modal>
   );

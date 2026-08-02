@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconButton } from '../../components/ui/IconButton';
-import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { IconTabs } from '../../components/ui/IconTabs';
 import { QuickActionButton } from '../../components/ui/QuickActionButton';
 import { ChatPanel } from './chat/ChatPanel';
@@ -123,7 +122,6 @@ export function PlayScreen({
   const [fogSettingsOpen, setFogSettingsOpen] = useState(false);
   const [fogMode, setFogMode] = useState<FogMode>('reveal');
   const [fogSubtool, setFogSubtool] = useState<FogSubtool>('brush');
-  const [fogReset, setFogReset] = useState<'clear-all' | 'cover-all' | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
   const stageControls = useRef<MapStageControls>(null);
@@ -560,8 +558,15 @@ export function PlayScreen({
         settings={fogSettings}
         onChange={setFogSettings}
         onClearAll={() => {
+          const scene = scenes.viewedScene;
           setFogSettingsOpen(false);
-          setFogReset('clear-all');
+          if (scene) {
+            void scenes.setFog(
+              scene,
+              { kind: 'clear-all' },
+              crypto.randomUUID(),
+            );
+          }
         }}
         onColorChange={(color) => {
           const scene = scenes.viewedScene;
@@ -574,30 +579,17 @@ export function PlayScreen({
           }
         }}
         onCoverAll={() => {
-          setFogSettingsOpen(false);
-          setFogReset('cover-all');
-        }}
-        onDismiss={() => setFogSettingsOpen(false)}
-      />
-      <ConfirmModal
-        cancelLabel="Cancel"
-        confirmLabel={fogReset === 'cover-all' ? 'Cover map' : 'Clear all fog'}
-        isOpen={fogReset !== null}
-        message={
-          fogReset === 'cover-all'
-            ? 'This replaces the current fog with complete map coverage.'
-            : 'This removes all fog coverage from the map.'
-        }
-        title={fogReset === 'cover-all' ? 'Cover map with fog?' : 'Clear all fog?'}
-        onCancel={() => setFogReset(null)}
-        onConfirm={() => {
           const scene = scenes.viewedScene;
-          const action = fogReset;
-          setFogReset(null);
-          if (scene && action) {
-            void scenes.setFog(scene, { kind: action }, crypto.randomUUID());
+          setFogSettingsOpen(false);
+          if (scene) {
+            void scenes.setFog(
+              scene,
+              { kind: 'cover-all' },
+              crypto.randomUUID(),
+            );
           }
         }}
+        onDismiss={() => setFogSettingsOpen(false)}
       />
     </section>
   );

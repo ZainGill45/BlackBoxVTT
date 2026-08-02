@@ -531,6 +531,7 @@ describe('PlayScreen', () => {
 
     await user.click(within(rail).getByRole('button', { name: 'Fog settings' }));
     const dialog = screen.getByRole('dialog', { name: 'Fog settings' });
+    expect(within(dialog).queryAllByRole('heading')).toHaveLength(0);
     expect(within(dialog).getByLabelText('Fog color')).toHaveValue('#000000');
     expect(within(dialog).getByLabelText('GM preview opacity')).toHaveValue(35);
     expect(within(dialog).getByLabelText('Width')).toHaveValue(70);
@@ -552,13 +553,29 @@ describe('PlayScreen', () => {
       ).toMatchObject({ brushWidth: 88, gmOpacity: 0.25 });
     });
 
-    await user.click(within(dialog).getByRole('button', { name: 'Cover map' }));
-    expect(screen.getByRole('dialog', { name: 'Cover map with fog?' }))
-      .toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Cover map' }));
+    const coverMap = within(dialog).getByRole('button', { name: 'Cover map' });
+    const clearFog = within(dialog).getByRole('button', { name: 'Clear all fog' });
+    expect(coverMap.parentElement).toBe(clearFog.parentElement);
+    await user.click(coverMap);
+    expect(screen.queryByRole('dialog', { name: 'Cover map with fog?' }))
+      .not.toBeInTheDocument();
     await waitFor(() => {
       expect(sceneApi.setFog).toHaveBeenCalledWith(expect.objectContaining({
         mutation: { kind: 'cover-all' },
+        sceneId: currentScene.id,
+      }));
+    });
+
+    await user.click(within(rail).getByRole('button', { name: 'Fog settings' }));
+    const reopened = screen.getByRole('dialog', { name: 'Fog settings' });
+    await user.click(within(reopened).getByRole('button', {
+      name: 'Clear all fog',
+    }));
+    expect(screen.queryByRole('dialog', { name: 'Clear all fog?' }))
+      .not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(sceneApi.setFog).toHaveBeenCalledWith(expect.objectContaining({
+        mutation: { kind: 'clear-all' },
         sceneId: currentScene.id,
       }));
     });

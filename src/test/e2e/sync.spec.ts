@@ -143,10 +143,6 @@ test.describe('scene synchronization', () => {
     await gm.window.getByRole('button', { name: 'Fog settings' }).click();
     const settings = gm.window.getByRole('dialog', { name: 'Fog settings' });
     await settings.getByRole('button', { name: 'Clear all fog' }).click();
-    const confirmation = gm.window.getByRole('dialog', {
-      name: 'Clear all fog?',
-    });
-    await confirmation.getByRole('button', { name: 'Clear all fog' }).click();
     await expect
       .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
       .toEqual([]);
