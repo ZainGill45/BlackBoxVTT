@@ -245,6 +245,7 @@ export function PlayScreen({
         assetApi={assetApi}
         controlsRef={stageControls}
         networkApi={networkApi}
+        networkUpdateRate={serverSettings.transformPreviewRate}
         scene={scenes.viewedScene}
         sceneApi={sceneApi}
         session={session}

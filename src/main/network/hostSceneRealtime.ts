@@ -19,7 +19,7 @@ import type {
 import { CampaignSceneRealtimeRules } from '../campaignTable/sceneRealtimeRules';
 import type { CampaignSceneService } from '../campaignTable/sceneService';
 import type { HostClient } from './hostClient';
-import { LatestSnapshotRateLimiter } from './latestSnapshotRateLimiter';
+import { LatestSnapshotRateLimiter } from '../../shared/latestSnapshotRateLimiter';
 import {
   encodeServerMeasurement,
 } from './measurementProtocol';
@@ -72,6 +72,9 @@ export class HostSceneRealtime {
   private readonly events: HostSceneRealtimeEvents;
   private lastBroadcastSceneSignature: string | null | undefined;
   private lastHostMapPingAt = 0;
+  private readonly hostDrawingPreviewRateLimiter: LatestSnapshotRateLimiter<
+    DrawingPreviewUpdate
+  >;
   private readonly hostShapePreviewRateLimiter: LatestSnapshotRateLimiter<
     ShapePreviewUpdate
   >;
@@ -111,6 +114,12 @@ export class HostSceneRealtime {
     this.sendUdp = sendUdp;
     this.transformPreviewRate = transformPreviewRate;
     this.warn = warn;
+    this.hostDrawingPreviewRateLimiter = new LatestSnapshotRateLimiter(
+      () => this.transformPreviewRate,
+      (preview) => {
+        void this.relayDrawingPreview(preview);
+      },
+    );
     this.hostShapePreviewRateLimiter = new LatestSnapshotRateLimiter(
       () => this.transformPreviewRate,
       (preview) => {
@@ -135,6 +144,7 @@ export class HostSceneRealtime {
 
   setTransformPreviewRate(rate: number): void {
     this.transformPreviewRate = rate;
+    this.hostDrawingPreviewRateLimiter.rateChanged();
     this.hostShapePreviewRateLimiter.rateChanged();
     this.hostFogPreviewRateLimiter.rateChanged();
     for (const limiter of this.measurementRateLimiters.values()) {
@@ -185,6 +195,22 @@ export class HostSceneRealtime {
   }
 
   async broadcastDrawingPreview(
+    input: DrawingPreviewUpdate,
+    source: HostClient | null = null,
+  ): Promise<void> {
+    if (!source && input.active && !input.reliable) {
+      this.hostDrawingPreviewRateLimiter.push(structuredClone(input));
+      return;
+    }
+    if (!source) {
+      this.hostDrawingPreviewRateLimiter.drop(
+        (pending) => pending.operationId === input.operationId,
+      );
+    }
+    await this.relayDrawingPreview(input, source);
+  }
+
+  private async relayDrawingPreview(
     input: DrawingPreviewUpdate,
     source: HostClient | null = null,
   ): Promise<void> {
@@ -616,6 +642,7 @@ export class HostSceneRealtime {
 
   reset(): void {
     this.clearAllMeasurements();
+    this.hostDrawingPreviewRateLimiter.clear();
     this.hostShapePreviewRateLimiter.clear();
     this.hostFogPreviewRateLimiter.clear();
     this.activeShapePreviews.clear();

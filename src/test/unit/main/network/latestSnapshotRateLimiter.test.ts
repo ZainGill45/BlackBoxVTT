@@ -3,7 +3,7 @@ import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MIN_TRANSFORM_PREVIEW_RATE,
 } from '../../../../shared/network';
-import { LatestSnapshotRateLimiter } from '../../../../main/network/latestSnapshotRateLimiter';
+import { LatestSnapshotRateLimiter } from '../../../../shared/latestSnapshotRateLimiter';
 
 describe('LatestSnapshotRateLimiter', () => {
   it('emits immediately after idle and coalesces every later value at the configured rate', () => {

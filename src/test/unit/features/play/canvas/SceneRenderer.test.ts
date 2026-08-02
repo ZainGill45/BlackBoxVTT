@@ -304,6 +304,7 @@ beforeEach(async () => {
 afterEach(() => {
   renderer.destroy();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   element.remove();
 });
 
@@ -477,6 +478,67 @@ describe('SceneRenderer', () => {
     );
   });
 
+  it('limits continuous GM paint callbacks before they cross renderer IPC', async () => {
+    const current = scene();
+    const onDrawingPreview = vi.fn();
+    const onCommit = vi.fn(async (state: SceneObjectState) => ({
+      ...current,
+      ...state,
+      revision: 1,
+    }));
+    renderer.setScene(current, null);
+    renderer.setInteraction({
+      activeLayer: 'map',
+      actorId: null,
+      editable: false,
+      networkUpdateRate: 32,
+      onCommit,
+      onDrawingPreview,
+      paintEnabled: true,
+      paintKind: 'freeform',
+      paintStyle: {
+        edge: 'hard',
+        fillColor: '#ffffff',
+        fillEnabled: false,
+        fillOpacity: 0.25,
+        hardness: 1,
+        strokeColor: '#ffffff',
+        strokeOpacity: 1,
+        strokeWidth: 12,
+      },
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-02T00:00:00.000Z'));
+
+    element.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 300,
+      clientY: 250,
+    }));
+    for (let index = 1; index <= 10; index += 1) {
+      element.dispatchEvent(pointerEvent('pointermove', {
+        button: -1,
+        clientX: 300 + index * 5,
+        clientY: 250 + index * 3,
+      }));
+    }
+    expect(onDrawingPreview).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(31);
+    expect(onDrawingPreview).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onDrawingPreview).toHaveBeenCalledTimes(3);
+
+    element.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 350,
+      clientY: 280,
+    }));
+    expect(onDrawingPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ active: false, reliable: true }),
+    );
+  });
+
   it('streams brush fog snapshots but commits both fog tools only on release', async () => {
     const current = scene();
     const onFogPreview = vi.fn();
@@ -584,6 +646,64 @@ describe('SceneRenderer', () => {
       operation: { kind: 'box', mode: 'hide' },
     });
     expect(onFogPreview).toHaveBeenCalledTimes(previewCount);
+  });
+
+  it('coalesces dense fog pointer input into one render per animation frame', async () => {
+    const current = scene();
+    const onFogCommit = vi.fn(async () => ({ ...current, revision: 1 }));
+    renderer.setScene(current, null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId: null,
+      editable: false,
+      fogEnabled: true,
+      fogMode: 'hide',
+      fogSubtool: 'brush',
+      onFogCommit,
+      onFogPreview: vi.fn(),
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 25));
+
+    const scheduled: FrameRequestCallback[] = [];
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      scheduled.push(callback);
+      return 77;
+    });
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    const fogRenderer = (renderer as unknown as {
+      fogRenderer: { render: () => void };
+    }).fogRenderer;
+    const renderFog = vi.spyOn(fogRenderer, 'render');
+
+    element.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 300,
+      clientY: 250,
+    }));
+    renderFog.mockClear();
+    for (let index = 1; index <= 20; index += 1) {
+      element.dispatchEvent(pointerEvent('pointermove', {
+        button: -1,
+        clientX: 300 + index * 3,
+        clientY: 250 + index * 2,
+      }));
+    }
+
+    expect(requestFrame).toHaveBeenCalledTimes(1);
+    expect(renderFog).not.toHaveBeenCalled();
+    if (!scheduled[0]) {
+      throw new Error('fog frame was not scheduled');
+    }
+    scheduled[0](performance.now());
+    expect(renderFog).toHaveBeenCalledTimes(1);
+
+    element.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 360,
+      clientY: 290,
+    }));
+    await vi.waitFor(() => expect(onFogCommit).toHaveBeenCalledTimes(1));
   });
 
   it('uses the default cursor for both paint tools', () => {
@@ -3661,6 +3781,32 @@ describe('SceneRenderer', () => {
       );
 
       expect(cameraOf().zoom).toBeGreaterThan(before.zoom);
+    });
+
+    it('moves committed fog with wheel zoom in the same input turn', () => {
+      renderer.setScene(scene({
+        fog: { base: 'covered', color: '#000000', operations: [] },
+      }), null);
+      const fogRenderer = (renderer as unknown as {
+        fogRenderer: {
+          render: () => void;
+          sprite: { scale: { x: number } };
+        };
+      }).fogRenderer;
+      const renderFog = vi.spyOn(fogRenderer, 'render');
+      renderFog.mockClear();
+
+      element.dispatchEvent(
+        new WheelEvent('wheel', {
+          cancelable: true,
+          clientX: 400,
+          clientY: 300,
+          deltaY: -240,
+        }),
+      );
+
+      expect(renderFog).toHaveBeenCalledTimes(1);
+      expect(fogRenderer.sprite.scale.x).toBe(cameraOf().zoom);
     });
   });
 

@@ -23,6 +23,7 @@ class Point {
 export class Container {
   alpha = 1;
   angle = 0;
+  blendMode = 'normal';
   children: Container[] = [];
   mask: Container | null = null;
   parent: Container | null = null;
@@ -124,6 +125,18 @@ export class Texture {
   }
 }
 
+export class RenderTexture extends Texture {
+  static create(options: { height: number; width: number }) {
+    return new RenderTexture(options.width, options.height);
+  }
+
+  resize(width: number, height: number): this {
+    this.width = width;
+    this.height = height;
+    return this;
+  }
+}
+
 export class Sprite extends Container {
   readonly anchor = new Point();
   height = 0;
@@ -204,6 +217,7 @@ export class Application {
   destroyed = false;
   readonly renderer = {
     height: 0,
+    render: () => undefined,
     resize(width: number, height: number) {
       this.width = width;
       this.height = height;

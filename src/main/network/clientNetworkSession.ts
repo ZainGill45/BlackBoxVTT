@@ -31,7 +31,7 @@ import {
   decodeServerMeasurement,
   encodeClientMeasurement,
 } from './measurementProtocol';
-import { LatestSnapshotRateLimiter } from './latestSnapshotRateLimiter';
+import { LatestSnapshotRateLimiter } from '../../shared/latestSnapshotRateLimiter';
 import {
   decodeServerDrawingPreview,
   decodeServerFogPreview,

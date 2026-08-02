@@ -1,20 +1,42 @@
-import { Sprite, Texture } from 'pixi.js';
+import {
+  Container,
+  Graphics,
+  RenderTexture,
+  Sprite,
+  type Application,
+} from 'pixi.js';
 import type {
   SceneFog,
   SceneFogOperation,
   SceneFogPoint,
   SceneRecord,
 } from '../../../shared/scenes';
-import { sceneToScreen, type Camera, type Viewport } from './camera';
+import type { Camera, Viewport } from './camera';
 import { softBrushPasses } from './softBrush';
+
+type PixiRenderer = Pick<Application['renderer'], 'render'>;
+
+const MAX_COMMITTED_FOG_TEXTURE_DIMENSION = 4_096;
 
 export interface FogRenderInput {
   camera: Camera;
   gmOpacity: number;
   isGameMaster: boolean;
-  operations?: SceneFogOperation[];
+  localOperation?: SceneFogOperation | null;
+  remoteOperations?: SceneFogOperation[];
   scene: SceneRecord | null;
   viewport: Viewport;
+}
+
+interface LiveFogState {
+  cameraKey: string;
+  hardness?: number;
+  id: string;
+  kind: SceneFogOperation['kind'];
+  mode: SceneFogOperation['mode'];
+  pointCount: number;
+  source: 'local' | 'remote';
+  width: number;
 }
 
 function segmentDistance(
@@ -76,130 +98,418 @@ export function fogCoversPoint(fog: SceneFog, point: SceneFogPoint): boolean {
   return covered;
 }
 
-function traceBrush(
-  context: CanvasRenderingContext2D,
-  points: SceneFogPoint[],
-  width: number,
-): void {
-  context.beginPath();
-  if (points.length === 1) {
-    context.arc(points[0].x, points[0].y, width / 2, 0, Math.PI * 2);
-    context.fill();
-    return;
-  }
-  context.moveTo(points[0].x, points[0].y);
-  for (const point of points.slice(1)) {
-    context.lineTo(point.x, point.y);
-  }
-  context.stroke();
+/**
+ * Large scenes keep their logical dimensions while the backing GPU texture is
+ * capped to a safe desktop WebGL size. Pixi applies the fractional resolution
+ * when rendering, so all fog geometry can stay in scene coordinates.
+ */
+export function committedFogTextureResolution(
+  scene: Pick<SceneRecord, 'height' | 'width'>,
+): number {
+  return Math.min(
+    1,
+    MAX_COMMITTED_FOG_TEXTURE_DIMENSION / scene.width,
+    MAX_COMMITTED_FOG_TEXTURE_DIMENSION / scene.height,
+  );
 }
 
-export function drawFogOperation(
-  context: CanvasRenderingContext2D,
-  operation: SceneFogOperation,
-  camera: Camera,
-  viewport: Viewport,
+function drawBrush(
+  graphics: Graphics,
+  operation: Extract<SceneFogOperation, { kind: 'brush' }>,
+  color: string,
 ): void {
-  context.globalCompositeOperation =
-    operation.mode === 'hide' ? 'source-over' : 'destination-out';
-  if (operation.kind === 'box') {
-    const topLeft = sceneToScreen(camera, viewport, {
-      x: operation.x,
-      y: operation.y,
-    });
-    context.globalAlpha = 1;
-    context.fillRect(
-      topLeft.x,
-      topLeft.y,
-      operation.width * camera.zoom,
-      operation.height * camera.zoom,
-    );
-    return;
-  }
-  const points = operation.points.map((point) =>
-    sceneToScreen(camera, viewport, point),
-  );
-  context.lineCap = 'round';
-  context.lineJoin = 'round';
   for (const pass of softBrushPasses(
-    operation.width * camera.zoom,
+    operation.width,
     1,
     operation.hardness,
   )) {
-    context.globalAlpha = pass.alpha;
-    context.lineWidth = pass.width;
-    traceBrush(context, points, pass.width);
+    if (operation.points.length === 1) {
+      graphics
+        .circle(operation.points[0].x, operation.points[0].y, pass.width / 2)
+        .fill({ alpha: pass.alpha, color });
+      continue;
+    }
+    graphics.moveTo(operation.points[0].x, operation.points[0].y);
+    for (let index = 1; index < operation.points.length; index += 1) {
+      graphics.lineTo(operation.points[index].x, operation.points[index].y);
+    }
+    graphics.stroke({
+      alpha: pass.alpha,
+      cap: 'round',
+      color,
+      join: 'round',
+      width: pass.width,
+    });
   }
 }
 
+function operationGraphics(
+  operation: SceneFogOperation,
+  color: string,
+  asMask = false,
+): Graphics {
+  const graphics = new Graphics();
+  graphics.blendMode = asMask || operation.mode === 'hide' ? 'normal' : 'erase';
+  if (operation.kind === 'box') {
+    graphics
+      .rect(operation.x, operation.y, operation.width, operation.height)
+      .fill({ color });
+  } else {
+    drawBrush(graphics, operation, color);
+  }
+  return graphics;
+}
+
+function screenFogRoot(
+  scene: SceneRecord,
+  camera: Camera,
+  viewport: Viewport,
+): { content: Container; root: Container } {
+  const root = new Container();
+  root.scale.set(camera.zoom);
+  root.position.set(
+    viewport.width / 2 - camera.x * camera.zoom,
+    viewport.height / 2 - camera.y * camera.zoom,
+  );
+  const content = new Container();
+  const clip = new Graphics()
+    .rect(0, 0, scene.width, scene.height)
+    .fill({ color: 0xffffff });
+  content.mask = clip;
+  root.addChild(content);
+  root.addChild(clip);
+  return { content, root };
+}
+
+function sameLiveBrush(
+  state: LiveFogState | null,
+  operation: Extract<SceneFogOperation, { kind: 'brush' }>,
+  cameraKey: string,
+): boolean {
+  return state?.source === 'local' &&
+    state.cameraKey === cameraKey &&
+    state.id === operation.id &&
+    state.kind === 'brush' &&
+    state.mode === operation.mode &&
+    state.width === operation.width &&
+    state.hardness === operation.hardness &&
+    state.pointCount <= operation.points.length;
+}
+
+/**
+ * Keeps committed fog in a camera-independent GPU texture. Camera changes only
+ * update the displayed sprite transform; they never replay fog operations.
+ * Live brush input remains in a separate viewport texture and appends only the
+ * newly accepted path segment while the camera is unchanged.
+ */
 export class SceneFogRenderer {
   readonly sprite = new Sprite();
-  private readonly canvas = document.createElement('canvas');
-  private context: CanvasRenderingContext2D | null = null;
-  private texture: Texture | null = null;
+  private committedBase: SceneFog['base'] | null = null;
+  private committedColor: string | null = null;
+  private committedOperationIds: string[] = [];
+  private committedSceneKey: string | null = null;
+  private committedTexture: RenderTexture | null = null;
+  private liveState: LiveFogState | null = null;
+  private liveTexture: RenderTexture | null = null;
+  private outputTexture: RenderTexture | null = null;
+  private renderer: PixiRenderer | null = null;
+  private viewportKey: string | null = null;
+
+  attach(renderer: PixiRenderer): void {
+    this.renderer = renderer;
+  }
 
   render({
     camera,
     gmOpacity,
     isGameMaster,
-    operations = [],
+    localOperation = null,
+    remoteOperations = [],
     scene,
     viewport,
   }: FogRenderInput): void {
-    const width = Math.max(1, Math.round(viewport.width));
-    const height = Math.max(1, Math.round(viewport.height));
-    if (!this.texture || this.canvas.width !== width || this.canvas.height !== height) {
-      this.texture?.destroy(true);
-      this.canvas.width = width;
-      this.canvas.height = height;
-      this.context = this.canvas.getContext('2d');
-      this.texture = Texture.from(this.canvas);
-      this.sprite.texture = this.texture;
-    }
-    this.sprite.width = width;
-    this.sprite.height = height;
     this.sprite.alpha = isGameMaster ? gmOpacity : 1;
     this.sprite.visible = Boolean(scene);
-    const context = this.context;
-    if (!context || !scene) {
+    if (!scene || !this.renderer) {
       return;
     }
-    context.clearRect(0, 0, width, height);
-    context.save();
-    const topLeft = sceneToScreen(camera, viewport, { x: 0, y: 0 });
-    context.beginPath();
-    context.rect(
-      topLeft.x,
-      topLeft.y,
-      scene.width * camera.zoom,
-      scene.height * camera.zoom,
+
+    const { committedChanged, viewportChanged } = this.ensureTextures(
+      scene,
+      viewport,
     );
-    context.clip();
-    context.fillStyle = scene.fog.color;
-    context.strokeStyle = scene.fog.color;
-    if (scene.fog.base === 'covered') {
-      context.globalAlpha = 1;
-      context.globalCompositeOperation = 'source-over';
-      context.fillRect(
-        topLeft.x,
-        topLeft.y,
-        scene.width * camera.zoom,
-        scene.height * camera.zoom,
-      );
+    if (viewportChanged) {
+      this.liveState = null;
     }
-    for (const operation of [...scene.fog.operations, ...operations]) {
-      drawFogOperation(context, operation, camera, viewport);
+    this.syncCommittedFog(scene, committedChanged);
+
+    const previews = [
+      ...remoteOperations.map((operation) => ({ operation, source: 'remote' as const })),
+      ...(localOperation
+        ? [{ operation: localOperation, source: 'local' as const }]
+        : []),
+    ];
+    if (previews.length === 0) {
+      this.liveState = null;
+      this.displayCommitted(camera, viewport);
+      return;
     }
-    context.restore();
-    const source = this.texture.source as { update?: () => void };
-    source.update?.();
+
+    if (previews.length === 1) {
+      const [{ operation, source }] = previews;
+      this.updateLiveTexture(operation, source, scene, camera, viewport);
+      this.composeLive(operation.mode, scene, camera, viewport);
+      return;
+    }
+
+    this.composeOperations(
+      previews.map(({ operation }) => operation),
+      scene,
+      camera,
+      viewport,
+    );
   }
 
   destroy(): void {
     this.sprite.parent?.removeChild(this.sprite);
     this.sprite.destroy();
-    this.texture?.destroy(true);
-    this.texture = null;
-    this.context = null;
+    this.committedTexture?.destroy(true);
+    this.liveTexture?.destroy(true);
+    this.outputTexture?.destroy(true);
+    this.committedTexture = null;
+    this.liveTexture = null;
+    this.outputTexture = null;
+    this.renderer = null;
+  }
+
+  private ensureTextures(
+    scene: SceneRecord,
+    viewport: Viewport,
+  ): { committedChanged: boolean; viewportChanged: boolean } {
+    const resolution = committedFogTextureResolution(scene);
+    const nextCommittedSceneKey = `${scene.width}:${scene.height}:${resolution}`;
+    const committedChanged = this.committedSceneKey !== nextCommittedSceneKey;
+    if (committedChanged) {
+      this.committedTexture?.destroy(true);
+      this.committedTexture = RenderTexture.create({
+        height: scene.height,
+        resolution,
+        width: scene.width,
+      });
+      this.committedSceneKey = nextCommittedSceneKey;
+    }
+
+    const width = Math.max(1, Math.round(viewport.width));
+    const height = Math.max(1, Math.round(viewport.height));
+    const nextViewportKey = `${width}:${height}`;
+    const viewportChanged = this.viewportKey !== nextViewportKey;
+    if (viewportChanged) {
+      this.liveTexture?.destroy(true);
+      this.outputTexture?.destroy(true);
+      this.liveTexture = RenderTexture.create({ height, resolution: 1, width });
+      this.outputTexture = RenderTexture.create({ height, resolution: 1, width });
+      this.viewportKey = nextViewportKey;
+    }
+    return { committedChanged, viewportChanged };
+  }
+
+  private syncCommittedFog(scene: SceneRecord, textureChanged: boolean): void {
+    const fog = scene.fog;
+    const isAppend = !textureChanged &&
+      this.committedBase === fog.base &&
+      this.committedColor === fog.color &&
+      this.committedOperationIds.length <= fog.operations.length &&
+      this.committedOperationIds.every(
+        (id, index) => fog.operations[index]?.id === id,
+      );
+
+    if (!isAppend) {
+      this.rebuildCommitted(scene);
+    } else if (fog.operations.length > this.committedOperationIds.length) {
+      this.appendCommitted(
+        fog.operations.slice(this.committedOperationIds.length),
+        fog.color,
+      );
+    }
+
+    this.committedBase = fog.base;
+    this.committedColor = fog.color;
+    this.committedOperationIds = fog.operations.map((operation) => operation.id);
+  }
+
+  private rebuildCommitted(scene: SceneRecord): void {
+    const root = new Container();
+    if (scene.fog.base === 'covered') {
+      root.addChild(
+        new Graphics()
+          .rect(0, 0, scene.width, scene.height)
+          .fill({ color: scene.fog.color }),
+      );
+    }
+    for (const operation of scene.fog.operations) {
+      root.addChild(operationGraphics(operation, scene.fog.color));
+    }
+    this.renderer!.render({
+      clear: true,
+      container: root,
+      target: this.committedTexture!,
+    });
+    root.destroy({ children: true });
+  }
+
+  private appendCommitted(
+    operations: SceneFogOperation[],
+    color: string,
+  ): void {
+    const root = new Container();
+    for (const operation of operations) {
+      root.addChild(operationGraphics(operation, color));
+    }
+    this.renderer!.render({
+      clear: false,
+      container: root,
+      target: this.committedTexture!,
+    });
+    root.destroy({ children: true });
+  }
+
+  private updateLiveTexture(
+    operation: SceneFogOperation,
+    source: LiveFogState['source'],
+    scene: SceneRecord,
+    camera: Camera,
+    viewport: Viewport,
+  ): void {
+    const cameraKey = [
+      camera.x,
+      camera.y,
+      camera.zoom,
+      viewport.width,
+      viewport.height,
+    ].join(':');
+    if (
+      source === 'local' &&
+      operation.kind === 'brush' &&
+      sameLiveBrush(this.liveState, operation, cameraKey)
+    ) {
+      const previousCount = this.liveState!.pointCount;
+      if (operation.points.length > previousCount) {
+        const segment = {
+          ...operation,
+          points: operation.points.slice(Math.max(0, previousCount - 1)),
+        };
+        this.renderLiveOperation(segment, scene, camera, viewport, false);
+      }
+    } else {
+      this.renderLiveOperation(operation, scene, camera, viewport, true);
+    }
+    this.liveState = {
+      ...(operation.kind === 'brush' ? { hardness: operation.hardness } : {}),
+      cameraKey,
+      id: operation.id,
+      kind: operation.kind,
+      mode: operation.mode,
+      pointCount: operation.kind === 'brush' ? operation.points.length : 0,
+      source,
+      width: operation.width,
+    };
+  }
+
+  private renderLiveOperation(
+    operation: SceneFogOperation,
+    scene: SceneRecord,
+    camera: Camera,
+    viewport: Viewport,
+    clear: boolean,
+  ): void {
+    const { content, root } = screenFogRoot(scene, camera, viewport);
+    content.addChild(operationGraphics(operation, scene.fog.color, true));
+    this.renderer!.render({
+      clear,
+      container: root,
+      target: this.liveTexture!,
+    });
+    root.destroy({ children: true });
+  }
+
+  private composeLive(
+    mode: SceneFogOperation['mode'],
+    scene: SceneRecord,
+    camera: Camera,
+    viewport: Viewport,
+  ): void {
+    const root = new Container();
+    root.addChild(this.createCommittedSprite(camera, viewport));
+    const live = new Sprite();
+    live.texture = this.liveTexture!;
+    live.blendMode = mode === 'hide' ? 'normal' : 'erase';
+    root.addChild(live);
+    this.renderer!.render({
+      clear: true,
+      container: root,
+      target: this.outputTexture!,
+    });
+    root.destroy({ children: true });
+    this.displayOutput();
+  }
+
+  private composeOperations(
+    operations: SceneFogOperation[],
+    scene: SceneRecord,
+    camera: Camera,
+    viewport: Viewport,
+  ): void {
+    const base = new Container();
+    base.addChild(this.createCommittedSprite(camera, viewport));
+    this.renderer!.render({
+      clear: true,
+      container: base,
+      target: this.outputTexture!,
+    });
+    base.destroy({ children: true });
+
+    const { content, root } = screenFogRoot(scene, camera, viewport);
+    for (const operation of operations) {
+      content.addChild(operationGraphics(operation, scene.fog.color));
+    }
+    this.renderer!.render({
+      clear: false,
+      container: root,
+      target: this.outputTexture!,
+    });
+    root.destroy({ children: true });
+    this.displayOutput();
+  }
+
+  private createCommittedSprite(
+    camera: Camera,
+    viewport: Viewport,
+  ): Sprite {
+    const sprite = new Sprite();
+    sprite.texture = this.committedTexture!;
+    sprite.position.set(
+      viewport.width / 2 - camera.x * camera.zoom,
+      viewport.height / 2 - camera.y * camera.zoom,
+    );
+    sprite.scale.set(camera.zoom);
+    return sprite;
+  }
+
+  private displayCommitted(
+    camera: Camera,
+    viewport: Viewport,
+  ): void {
+    this.sprite.texture = this.committedTexture!;
+    this.sprite.position.set(
+      viewport.width / 2 - camera.x * camera.zoom,
+      viewport.height / 2 - camera.y * camera.zoom,
+    );
+    this.sprite.scale.set(camera.zoom);
+  }
+
+  private displayOutput(): void {
+    this.sprite.texture = this.outputTexture!;
+    this.sprite.position.set(0, 0);
+    this.sprite.scale.set(1);
   }
 }

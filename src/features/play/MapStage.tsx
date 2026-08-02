@@ -1,6 +1,9 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
-import type { NetworkApi } from '../../shared/network';
+import {
+  DEFAULT_TRANSFORM_PREVIEW_RATE,
+  type NetworkApi,
+} from '../../shared/network';
 import {
   sceneObjectStateOf,
   MAX_SCENE_IMAGES,
@@ -53,6 +56,7 @@ interface MapStageProps {
   /** Injected so tests can drive the stage without a WebGL context. */
   createRenderer?: () => SceneRendererHandle;
   networkApi: NetworkApi;
+  networkUpdateRate?: number;
   activeLayer?: SceneImageLayer;
   activeTool?: PlayToolId;
   onActiveLayerChange?: (layer: SceneImageLayer) => void;
@@ -104,6 +108,7 @@ export function MapStage({
   controlsRef,
   createRenderer,
   networkApi,
+  networkUpdateRate = DEFAULT_TRANSFORM_PREVIEW_RATE,
   scene,
   sceneApi,
   session,
@@ -259,6 +264,7 @@ export function MapStage({
       fogBrushWidth: fogSettings?.brushWidth,
       fogGmOpacity: fogSettings?.gmOpacity,
       measureEnabled: activeTool === 'measure',
+      networkUpdateRate,
       paintEnabled: activeTool === 'paint',
       paintKind: paintSubtool,
       paintStyle: paintSettings
@@ -381,6 +387,7 @@ export function MapStage({
     onRedo,
     onUndo,
     networkApi,
+    networkUpdateRate,
     paintSettings,
     paintSubtool,
     renderer,

@@ -8,6 +8,7 @@ import {
 } from 'pixi.js';
 import type { GifSource } from 'pixi.js/gif';
 import {
+  DEFAULT_TRANSFORM_PREVIEW_RATE,
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
   MAX_FOG_PREVIEW_POINTS,
@@ -23,6 +24,7 @@ import {
   type ShapePreviewEvent,
   type ShapePreviewUpdate,
 } from '../../../shared/network';
+import { LatestSnapshotRateLimiter } from '../../../shared/latestSnapshotRateLimiter';
 import {
   applySceneTransformPreview,
   CANONICAL_MAP_ID,
@@ -196,10 +198,13 @@ const MEASUREMENT_UPDATE_INTERVAL_MS = 1_000 / MAX_TRANSFORM_PREVIEW_RATE;
 const MEASUREMENT_KEEPALIVE_MS = 500;
 const MEASUREMENT_EXPIRY_MS = 1_500;
 const SHAPE_PREVIEW_EXPIRY_MS = 30_000;
+const FOG_POINT_SPACING_PX = 2;
 const LOCAL_TEXT_PREVIEW_ID = '00000000-0000-4000-8000-000000000000';
 
 type RendererMapPing = Omit<MapPing, 'campaignId'>;
 type RendererMeasurementUpdate = Omit<MeasurementUpdate, 'campaignId'>;
+type RendererDrawingPreview = Omit<DrawingPreviewUpdate, 'campaignId'>;
+type RendererFogPreview = Omit<FogBrushPreviewUpdate, 'campaignId'>;
 
 export interface SceneRendererHandle {
   destroy(): void;
@@ -238,6 +243,7 @@ export interface SceneRendererInteraction {
   fogBrushHardness?: number;
   fogBrushWidth?: number;
   fogGmOpacity?: number;
+  networkUpdateRate?: number;
   shapeEnabled?: boolean;
   shapeKind?: SceneShapeKind;
   shapeStyle?: SceneShapeStyle;
@@ -251,16 +257,12 @@ export interface SceneRendererInteraction {
     arrangement?: SceneArrangement,
   ) => Promise<SceneRecord | null>;
   onMeasurementUpdate?: (update: RendererMeasurementUpdate) => void;
-  onDrawingPreview?: (
-    preview: Omit<DrawingPreviewUpdate, 'campaignId'>,
-  ) => void;
+  onDrawingPreview?: (preview: RendererDrawingPreview) => void;
   onFogCommit?: (
     mutation: SceneFogMutation,
     operationId: string,
   ) => Promise<SceneRecord | null>;
-  onFogPreview?: (
-    preview: Omit<FogBrushPreviewUpdate, 'campaignId'>,
-  ) => void;
+  onFogPreview?: (preview: RendererFogPreview) => void;
   onShapePreview?: (
     preview: Omit<ShapePreviewUpdate, 'campaignId'>,
   ) => void;
@@ -483,8 +485,20 @@ export class SceneRenderer implements SceneRendererHandle {
     { lastAt: number; update: MeasurementEvent }
   >();
   private readonly remoteMeasurementVersions = new Map<string, number>();
+  private readonly drawingPreviewRateLimiter =
+    new LatestSnapshotRateLimiter<RendererDrawingPreview>(
+      () => this.interaction.networkUpdateRate ?? DEFAULT_TRANSFORM_PREVIEW_RATE,
+      (preview) => this.interaction.onDrawingPreview?.(preview),
+    );
   private readonly paintPreviewGraphics = new Graphics();
   private readonly fogRenderer = new SceneFogRenderer();
+  private fogFrameId: number | null = null;
+  private fogPreviewPending = false;
+  private readonly fogPreviewRateLimiter =
+    new LatestSnapshotRateLimiter<RendererFogPreview>(
+      () => this.interaction.networkUpdateRate ?? DEFAULT_TRANSFORM_PREVIEW_RATE,
+      (preview) => this.interaction.onFogPreview?.(preview),
+    );
   private localFogOperation: SceneFogOperation | null = null;
   private readonly completedFogOperationIds = new Set<string>();
   private readonly remoteFogPreviews = new Map<
@@ -766,6 +780,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.container = element;
     this.viewport = { height, width };
     this.mounted = true;
+    this.fogRenderer.attach(this.app.renderer);
 
     // `autoDensity` owns the canvas's CSS size; only the box model is ours.
     const canvas = this.app.canvas;
@@ -826,6 +841,8 @@ export class SceneRenderer implements SceneRendererHandle {
 
   setInteraction(options: SceneRendererInteraction): void {
     const layerChanged = options.activeLayer !== this.interaction.activeLayer;
+    const networkUpdateRateChanged =
+      options.networkUpdateRate !== this.interaction.networkUpdateRate;
     const editingDisabled =
       this.interaction.editable && !options.editable;
     const paintChanged =
@@ -864,6 +881,10 @@ export class SceneRenderer implements SceneRendererHandle {
       void this.finishTextEditor(true);
     }
     this.interaction = options;
+    if (networkUpdateRateChanged) {
+      this.drawingPreviewRateLimiter.rateChanged();
+      this.fogPreviewRateLimiter.rateChanged();
+    }
     this.gmWorld.alpha = options.activeLayer === 'gm' ? 1 : 0.5;
     if (layerChanged) {
       this.selected.clear();
@@ -1046,6 +1067,8 @@ export class SceneRenderer implements SceneRendererHandle {
     this.cancelPaintGesture();
     this.cancelShapeGesture();
     this.cancelFogGesture();
+    this.drawingPreviewRateLimiter.clear();
+    this.fogPreviewRateLimiter.clear();
     this.remotePaintPreviews.clear();
     this.remoteFogPreviews.clear();
     this.remotePaintGraphics.clear();
@@ -1499,11 +1522,11 @@ export class SceneRenderer implements SceneRendererHandle {
           Date.now() - current.lastAt >= MEASUREMENT_EXPIRY_MS
         ) {
           this.remoteFogPreviews.delete(preview.operationId);
-          this.renderFog();
+          this.scheduleFogFrame();
         }
       }, MEASUREMENT_EXPIRY_MS + 20);
     }
-    this.renderFog();
+    this.scheduleFogFrame();
   }
 
   showShapePreview(preview: ShapePreviewEvent): void {
@@ -2869,7 +2892,7 @@ export class SceneRenderer implements SceneRendererHandle {
         this.viewport.height / 2 - this.camera.y * this.camera.zoom,
       );
     }
-    // Both are screen-space, so they follow the camera by being redrawn.
+    // Screen-space overlays follow the camera by being redrawn.
     this.drawGrid();
     this.drawOutline();
     this.drawSelection();
@@ -2878,8 +2901,30 @@ export class SceneRenderer implements SceneRendererHandle {
     this.drawRemotePaintPreviews();
     this.drawPaintPreview();
     this.renderShapes();
-    this.renderFog();
+    if (this.hasVisibleFogPreview()) {
+      this.scheduleFogFrame();
+    } else {
+      // Committed fog is camera-independent and this only updates its sprite
+      // transform. Keep it in the same input turn as the map so fast wheel and
+      // pinch input cannot leave fog visually trailing the scene by a frame.
+      this.renderFog();
+    }
     this.syncTextEditor();
+  }
+
+  private hasVisibleFogPreview(): boolean {
+    if (this.localFogOperation) {
+      return true;
+    }
+    for (const { preview } of this.remoteFogPreviews.values()) {
+      if (
+        preview.active &&
+        !this.completedFogOperationIds.has(preview.operationId)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private drawRemotePaintPreviews(): void {
@@ -2980,7 +3025,7 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     active.sequence = (active.sequence + 1) >>> 0;
-    this.interaction.onDrawingPreview?.({
+    const preview: RendererDrawingPreview = {
       active: isActive,
       closed,
       kind,
@@ -2996,7 +3041,15 @@ export class SceneRenderer implements SceneRendererHandle {
       sceneId: this.scene.id,
       sequence: active.sequence,
       style: structuredClone(active.style),
-    });
+    };
+    if (reliable) {
+      this.drawingPreviewRateLimiter.drop(
+        (pending) => pending.operationId === active.operationId,
+      );
+      this.interaction.onDrawingPreview?.(preview);
+    } else {
+      this.drawingPreviewRateLimiter.push(preview);
+    }
   }
 
   private finishPolyline(closed = false): void {
@@ -3057,13 +3110,16 @@ export class SceneRenderer implements SceneRendererHandle {
 
   private fogBrushOperation(
     gesture: Extract<SceneGesture, { kind: 'fog-brush' }>,
+    copyPoints = true,
   ): SceneFogOperation {
     return {
       hardness: gesture.hardness,
       id: gesture.operationId,
       kind: 'brush',
       mode: gesture.mode,
-      points: gesture.points.map((point) => ({ ...point })),
+      points: copyPoints
+        ? gesture.points.map((point) => ({ ...point }))
+        : gesture.points,
       width: gesture.width,
     };
   }
@@ -3090,7 +3146,7 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     gesture.sequence = (gesture.sequence + 1) >>> 0;
-    this.interaction.onFogPreview?.({
+    const preview: RendererFogPreview = {
       active,
       hardness: gesture.hardness,
       mode: gesture.mode,
@@ -3101,7 +3157,70 @@ export class SceneRenderer implements SceneRendererHandle {
       sceneId: this.scene.id,
       sequence: gesture.sequence,
       width: gesture.width,
-    });
+    };
+    if (active) {
+      this.fogPreviewRateLimiter.push(preview);
+    } else {
+      this.fogPreviewRateLimiter.drop(
+        (pending) => pending.operationId === gesture.operationId,
+      );
+      this.interaction.onFogPreview?.(preview);
+    }
+  }
+
+  private scheduleFogFrame(sendBrushPreview = false): void {
+    this.fogPreviewPending ||= sendBrushPreview;
+    if (this.fogFrameId !== null) {
+      return;
+    }
+    const callback = () => {
+      this.fogFrameId = null;
+      if (this.destroyed) {
+        this.fogPreviewPending = false;
+        return;
+      }
+      const shouldSendPreview = this.fogPreviewPending;
+      this.fogPreviewPending = false;
+      const brush = this.activeFogBrush;
+      if (shouldSendPreview && brush) {
+        this.emitFogSnapshot(brush, true);
+      }
+      this.renderFog();
+    };
+    this.fogFrameId = typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(callback)
+      : window.setTimeout(callback, ANIMATION_FRAME_MS);
+  }
+
+  private cancelScheduledFogFrame(): void {
+    if (this.fogFrameId !== null) {
+      if (typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(this.fogFrameId);
+      } else {
+        window.clearTimeout(this.fogFrameId);
+      }
+    }
+    this.fogFrameId = null;
+    this.fogPreviewPending = false;
+  }
+
+  private flushFogFrame(): void {
+    if (this.fogFrameId === null) {
+      return;
+    }
+    if (typeof window.cancelAnimationFrame === 'function') {
+      window.cancelAnimationFrame(this.fogFrameId);
+    } else {
+      window.clearTimeout(this.fogFrameId);
+    }
+    this.fogFrameId = null;
+    const shouldSendPreview = this.fogPreviewPending;
+    this.fogPreviewPending = false;
+    const brush = this.activeFogBrush;
+    if (shouldSendPreview && brush) {
+      this.emitFogSnapshot(brush, true);
+    }
+    this.renderFog();
   }
 
   private beginFogGesture(event: PointerEvent): boolean {
@@ -3139,7 +3258,7 @@ export class SceneRenderer implements SceneRendererHandle {
       if (!this.beginGesture(gesture)) {
         return true;
       }
-      this.localFogOperation = this.fogBrushOperation(gesture);
+      this.localFogOperation = this.fogBrushOperation(gesture, false);
       this.emitFogSnapshot(gesture, true);
     } else {
       const gesture: Extract<SceneGesture, { kind: 'fog-box' }> = {
@@ -3164,11 +3283,17 @@ export class SceneRenderer implements SceneRendererHandle {
     const brush = this.activeFogBrush;
     if (brush?.pointerId === event.pointerId) {
       const point = this.scenePointInside(this.localPoint(event));
-      if (point && appendFreeformPoint(brush.points, point, this.camera.zoom)) {
+      if (
+        point &&
+        appendFreeformPoint(
+          brush.points,
+          point,
+          this.camera.zoom,
+          FOG_POINT_SPACING_PX,
+        )
+      ) {
         event.preventDefault();
-        this.localFogOperation = this.fogBrushOperation(brush);
-        this.emitFogSnapshot(brush, true);
-        this.renderFog();
+        this.scheduleFogFrame(true);
       }
       return true;
     }
@@ -3179,7 +3304,7 @@ export class SceneRenderer implements SceneRendererHandle {
         event.preventDefault();
         box.current = point;
         this.localFogOperation = this.fogBoxOperation(box);
-        this.renderFog();
+        this.scheduleFogFrame();
       }
       return true;
     }
@@ -3194,6 +3319,11 @@ export class SceneRenderer implements SceneRendererHandle {
       return false;
     }
     event.preventDefault();
+    if (event.type === 'pointercancel') {
+      this.cancelScheduledFogFrame();
+    } else {
+      this.flushFogFrame();
+    }
     if (this.container?.hasPointerCapture(event.pointerId)) {
       this.container.releasePointerCapture(event.pointerId);
     }
@@ -3228,7 +3358,6 @@ export class SceneRenderer implements SceneRendererHandle {
       return true;
     }
     this.localFogOperation = operation;
-    this.renderFog();
     void this.commitFogOperation(operation, brush ?? null);
     return true;
   }
@@ -3264,6 +3393,7 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private cancelFogGesture(): void {
+    this.cancelScheduledFogFrame();
     const brush = this.activeFogBrush;
     const box = this.activeFogBox;
     if (brush) {
@@ -3284,12 +3414,12 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private renderFog(): void {
-    const operations: SceneFogOperation[] = [];
+    const remoteOperations: SceneFogOperation[] = [];
     for (const { preview } of this.remoteFogPreviews.values()) {
       if (!preview.active || this.completedFogOperationIds.has(preview.operationId)) {
         continue;
       }
-      operations.push({
+      remoteOperations.push({
         hardness: preview.hardness,
         id: preview.operationId,
         kind: 'brush',
@@ -3298,14 +3428,19 @@ export class SceneRenderer implements SceneRendererHandle {
         width: preview.width,
       });
     }
-    if (this.localFogOperation) {
-      operations.push(structuredClone(this.localFogOperation));
-    }
+    const localOperation = this.localFogOperation &&
+        !this.completedFogOperationIds.has(this.localFogOperation.id) &&
+        !this.scene?.fog.operations.some(
+          (operation) => operation.id === this.localFogOperation?.id,
+        )
+      ? this.localFogOperation
+      : null;
     this.fogRenderer.render({
       camera: this.camera,
       gmOpacity: this.interaction.fogGmOpacity ?? 0.35,
       isGameMaster: this.interaction.actorId == null,
-      operations,
+      localOperation,
+      remoteOperations,
       scene: this.scene,
       viewport: this.viewport,
     });

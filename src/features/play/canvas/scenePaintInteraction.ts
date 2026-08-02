@@ -9,11 +9,13 @@ export function appendFreeformPoint(
   points: SceneDrawingPoint[],
   point: SceneDrawingPoint,
   zoom: number,
+  minimumScreenDistance = 0.25,
 ): boolean {
   const previous = points.at(-1);
   if (
     !previous ||
-    Math.hypot(point.x - previous.x, point.y - previous.y) < 0.25 / zoom
+    Math.hypot(point.x - previous.x, point.y - previous.y) <
+      minimumScreenDistance / zoom
   ) {
     return false;
   }

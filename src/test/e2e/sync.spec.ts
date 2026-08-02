@@ -19,6 +19,7 @@ import {
   createLargeSceneWithMap,
   dragOnStage,
   dropAssetOnStage,
+  hoverStage,
   importFixture,
   measurementLabels,
   placeTextOnStage,
@@ -156,6 +157,19 @@ test.describe('scene synchronization', () => {
       .poll(async () => pixelDifferenceRatio(before, await playerFrame()))
       .toBeLessThan(VISIBLE_CHANGE);
 
+    await gm.window.getByRole('button', { name: 'Fog settings' }).click();
+    const colorSettings = gm.window.getByRole('dialog', { name: 'Fog settings' });
+    const colorInput = colorSettings.getByRole('textbox', {
+      name: 'Fog color',
+      exact: true,
+    });
+    await colorInput.fill('#e02b2b');
+    await colorInput.press('Enter');
+    await gm.window.keyboard.press('Escape');
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.color)
+      .toBe('#e02b2b');
+
     await gm.window.getByRole('button', { name: 'Box fog' }).click();
     const beforeBox = await playerFrame();
     await gm.window.mouse.move(box.x + centre.x - 120, box.y + centre.y - 70);
@@ -179,6 +193,47 @@ test.describe('scene synchronization', () => {
         message: 'the committed TCP box fog never reached the player',
       })
       .toBeGreaterThan(0.01);
+
+    await gm.window.getByRole('button', { name: 'Fog mode: Hide' }).click();
+    await gm.window.getByRole('button', { name: 'Brush fog' }).click();
+    const beforeReveal = await playerFrame();
+    await gm.window.mouse.move(box.x + centre.x - 80, box.y + centre.y);
+    await gm.window.mouse.down();
+    await gm.window.mouse.move(box.x + centre.x + 80, box.y + centre.y, {
+      steps: 12,
+    });
+    await expect
+      .poll(
+        async () => pixelDifferenceRatioInRegion(
+          beforeReveal,
+          await playerFrame(),
+          region,
+          4,
+        ),
+        { message: 'the player never rendered the live UDP fog reveal' },
+      )
+      .toBeGreaterThan(0.005);
+    await gm.window.mouse.up();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
+      .toEqual([
+        expect.objectContaining({ kind: 'box', mode: 'hide' }),
+        expect.objectContaining({ kind: 'brush', mode: 'reveal' }),
+      ]);
+
+    const fogColor = { blue: 43, green: 43, red: 224 };
+    expect(pixelColorCoverage(await playerFrame(), fogColor, 30))
+      .toBeGreaterThan(0.005);
+    const playerCentre = await stageCentre(player.window);
+    await hoverStage(player.window, playerCentre);
+    for (let index = 0; index < 12; index += 1) {
+      await player.window.mouse.wheel(0, -100);
+    }
+    await player.window.waitForTimeout(100);
+    expect(
+      pixelColorCoverage(await playerFrame(), fogColor, 30),
+      'fog disappeared or detached from the scene while the player zoomed',
+    ).toBeGreaterThan(0.005);
   });
 
   test('mirrors an image the Game Master places on the token layer', async () => {
