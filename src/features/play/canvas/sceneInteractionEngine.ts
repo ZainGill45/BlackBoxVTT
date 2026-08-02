@@ -29,7 +29,6 @@ export type SceneGesture =
       operationId: string;
       pointerId: number;
       points: SceneFogPoint[];
-      sequence: number;
       width: number;
     }
   | {

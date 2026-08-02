@@ -11,12 +11,9 @@ import {
   DEFAULT_TRANSFORM_PREVIEW_RATE,
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
-  MAX_FOG_PREVIEW_POINTS,
   MAX_MEASUREMENT_POINTS,
   type DrawingPreviewEvent,
   type DrawingPreviewUpdate,
-  type FogBrushPreviewEvent,
-  type FogBrushPreviewUpdate,
   type MapPing,
   type MeasurementEvent,
   type MeasurementPoint,
@@ -204,7 +201,6 @@ const LOCAL_TEXT_PREVIEW_ID = '00000000-0000-4000-8000-000000000000';
 type RendererMapPing = Omit<MapPing, 'campaignId'>;
 type RendererMeasurementUpdate = Omit<MeasurementUpdate, 'campaignId'>;
 type RendererDrawingPreview = Omit<DrawingPreviewUpdate, 'campaignId'>;
-type RendererFogPreview = Omit<FogBrushPreviewUpdate, 'campaignId'>;
 
 export interface SceneRendererHandle {
   destroy(): void;
@@ -215,7 +211,6 @@ export interface SceneRendererHandle {
   selectImages(ids: string[]): void;
   showMeasurement(update: MeasurementEvent): void;
   showDrawingPreview(preview: DrawingPreviewEvent): void;
-  showFogPreview(preview: FogBrushPreviewEvent): void;
   showShapePreview(preview: ShapePreviewEvent): void;
   showPing(ping: RendererMapPing, centerCamera?: boolean): void;
   showTransformCancelled(input: SceneTransformPreviewCancel): void;
@@ -262,7 +257,6 @@ export interface SceneRendererInteraction {
     mutation: SceneFogMutation,
     operationId: string,
   ) => Promise<SceneRecord | null>;
-  onFogPreview?: (preview: RendererFogPreview) => void;
   onShapePreview?: (
     preview: Omit<ShapePreviewUpdate, 'campaignId'>,
   ) => void;
@@ -493,18 +487,7 @@ export class SceneRenderer implements SceneRendererHandle {
   private readonly paintPreviewGraphics = new Graphics();
   private readonly fogRenderer = new SceneFogRenderer();
   private fogFrameId: number | null = null;
-  private fogPreviewPending = false;
-  private readonly fogPreviewRateLimiter =
-    new LatestSnapshotRateLimiter<RendererFogPreview>(
-      () => this.interaction.networkUpdateRate ?? DEFAULT_TRANSFORM_PREVIEW_RATE,
-      (preview) => this.interaction.onFogPreview?.(preview),
-    );
   private localFogOperation: SceneFogOperation | null = null;
-  private readonly completedFogOperationIds = new Set<string>();
-  private readonly remoteFogPreviews = new Map<
-    string,
-    { lastAt: number; preview: FogBrushPreviewEvent }
-  >();
   private readonly remotePaintGraphics = new Graphics();
   private readonly remotePaintPreviews = new Map<
     string,
@@ -883,7 +866,6 @@ export class SceneRenderer implements SceneRendererHandle {
     this.interaction = options;
     if (networkUpdateRateChanged) {
       this.drawingPreviewRateLimiter.rateChanged();
-      this.fogPreviewRateLimiter.rateChanged();
     }
     this.gmWorld.alpha = options.activeLayer === 'gm' ? 1 : 0.5;
     if (layerChanged) {
@@ -919,11 +901,9 @@ export class SceneRenderer implements SceneRendererHandle {
       this.remotePaintGraphics.clear();
       this.remoteShapePreviews.clear();
       this.remoteTransformStarts.clear();
-      this.remoteFogPreviews.clear();
     }
     if (sceneChanged) {
       this.remoteShapeSequences.clear();
-      this.completedFogOperationIds.clear();
     }
     if (sceneChanged) {
       void this.finishTextEditor(false);
@@ -950,16 +930,6 @@ export class SceneRenderer implements SceneRendererHandle {
       void this.finishNudge(true);
     }
     this.scene = scene;
-    for (const operation of scene?.fog.operations ?? []) {
-      this.completedFogOperationIds.delete(operation.id);
-      this.completedFogOperationIds.add(operation.id);
-    }
-    while (this.completedFogOperationIds.size > 512) {
-      const oldest = this.completedFogOperationIds.values().next().value;
-      if (oldest) {
-        this.completedFogOperationIds.delete(oldest);
-      }
-    }
     const textFontContent = scene
       ? Object.values(scene.texts)
           .flat()
@@ -1068,9 +1038,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.cancelShapeGesture();
     this.cancelFogGesture();
     this.drawingPreviewRateLimiter.clear();
-    this.fogPreviewRateLimiter.clear();
     this.remotePaintPreviews.clear();
-    this.remoteFogPreviews.clear();
     this.remotePaintGraphics.clear();
     this.remoteTransformStarts.clear();
     this.clearRemoteMeasurements();
@@ -1490,43 +1458,6 @@ export class SceneRenderer implements SceneRendererHandle {
       }, MEASUREMENT_EXPIRY_MS + 20);
     }
     this.drawRemotePaintPreviews();
-  }
-
-  showFogPreview(preview: FogBrushPreviewEvent): void {
-    if (
-      !this.scene ||
-      preview.sceneId !== this.scene.id ||
-      this.completedFogOperationIds.has(preview.operationId) ||
-      this.scene.fog.operations.some(
-        (operation) => operation.id === preview.operationId,
-      )
-    ) {
-      return;
-    }
-    const previous = this.remoteFogPreviews.get(preview.operationId)?.preview;
-    if (previous && preview.sequence <= previous.sequence) {
-      return;
-    }
-    if (!preview.active) {
-      this.remoteFogPreviews.delete(preview.operationId);
-    } else {
-      this.remoteFogPreviews.set(preview.operationId, {
-        lastAt: Date.now(),
-        preview: structuredClone(preview),
-      });
-      const sequence = preview.sequence;
-      setTimeout(() => {
-        const current = this.remoteFogPreviews.get(preview.operationId);
-        if (
-          current?.preview.sequence === sequence &&
-          Date.now() - current.lastAt >= MEASUREMENT_EXPIRY_MS
-        ) {
-          this.remoteFogPreviews.delete(preview.operationId);
-          this.scheduleFogFrame();
-        }
-      }, MEASUREMENT_EXPIRY_MS + 20);
-    }
-    this.scheduleFogFrame();
   }
 
   showShapePreview(preview: ShapePreviewEvent): void {
@@ -2901,7 +2832,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.drawRemotePaintPreviews();
     this.drawPaintPreview();
     this.renderShapes();
-    if (this.hasVisibleFogPreview()) {
+    if (this.localFogOperation) {
       this.scheduleFogFrame();
     } else {
       // Committed fog is camera-independent and this only updates its sprite
@@ -2910,21 +2841,6 @@ export class SceneRenderer implements SceneRendererHandle {
       this.renderFog();
     }
     this.syncTextEditor();
-  }
-
-  private hasVisibleFogPreview(): boolean {
-    if (this.localFogOperation) {
-      return true;
-    }
-    for (const { preview } of this.remoteFogPreviews.values()) {
-      if (
-        preview.active &&
-        !this.completedFogOperationIds.has(preview.operationId)
-      ) {
-        return true;
-      }
-    }
-    return false;
   }
 
   private drawRemotePaintPreviews(): void {
@@ -3138,52 +3054,14 @@ export class SceneRenderer implements SceneRendererHandle {
     };
   }
 
-  private emitFogSnapshot(
-    gesture: Extract<SceneGesture, { kind: 'fog-brush' }>,
-    active: boolean,
-  ): void {
-    if (!this.scene) {
-      return;
-    }
-    gesture.sequence = (gesture.sequence + 1) >>> 0;
-    const preview: RendererFogPreview = {
-      active,
-      hardness: gesture.hardness,
-      mode: gesture.mode,
-      operationId: gesture.operationId,
-      points: active
-        ? compactPreviewPoints(gesture.points, MAX_FOG_PREVIEW_POINTS)
-        : [],
-      sceneId: this.scene.id,
-      sequence: gesture.sequence,
-      width: gesture.width,
-    };
-    if (active) {
-      this.fogPreviewRateLimiter.push(preview);
-    } else {
-      this.fogPreviewRateLimiter.drop(
-        (pending) => pending.operationId === gesture.operationId,
-      );
-      this.interaction.onFogPreview?.(preview);
-    }
-  }
-
-  private scheduleFogFrame(sendBrushPreview = false): void {
-    this.fogPreviewPending ||= sendBrushPreview;
+  private scheduleFogFrame(): void {
     if (this.fogFrameId !== null) {
       return;
     }
     const callback = () => {
       this.fogFrameId = null;
       if (this.destroyed) {
-        this.fogPreviewPending = false;
         return;
-      }
-      const shouldSendPreview = this.fogPreviewPending;
-      this.fogPreviewPending = false;
-      const brush = this.activeFogBrush;
-      if (shouldSendPreview && brush) {
-        this.emitFogSnapshot(brush, true);
       }
       this.renderFog();
     };
@@ -3201,7 +3079,6 @@ export class SceneRenderer implements SceneRendererHandle {
       }
     }
     this.fogFrameId = null;
-    this.fogPreviewPending = false;
   }
 
   private flushFogFrame(): void {
@@ -3214,12 +3091,6 @@ export class SceneRenderer implements SceneRendererHandle {
       window.clearTimeout(this.fogFrameId);
     }
     this.fogFrameId = null;
-    const shouldSendPreview = this.fogPreviewPending;
-    this.fogPreviewPending = false;
-    const brush = this.activeFogBrush;
-    if (shouldSendPreview && brush) {
-      this.emitFogSnapshot(brush, true);
-    }
     this.renderFog();
   }
 
@@ -3252,14 +3123,12 @@ export class SceneRenderer implements SceneRendererHandle {
         operationId,
         pointerId: event.pointerId,
         points: [point],
-        sequence: 0,
         width: this.interaction.fogBrushWidth ?? 70,
       };
       if (!this.beginGesture(gesture)) {
         return true;
       }
       this.localFogOperation = this.fogBrushOperation(gesture, false);
-      this.emitFogSnapshot(gesture, true);
     } else {
       const gesture: Extract<SceneGesture, { kind: 'fog-box' }> = {
         current: point,
@@ -3293,7 +3162,7 @@ export class SceneRenderer implements SceneRendererHandle {
         )
       ) {
         event.preventDefault();
-        this.scheduleFogFrame(true);
+        this.scheduleFogFrame();
       }
       return true;
     }
@@ -3329,9 +3198,6 @@ export class SceneRenderer implements SceneRendererHandle {
     }
     this.finishGesture(gesture.kind);
     if (event.type === 'pointercancel') {
-      if (brush) {
-        this.emitFogSnapshot(brush, false);
-      }
       this.localFogOperation = null;
       this.renderFog();
       return true;
@@ -3350,21 +3216,17 @@ export class SceneRenderer implements SceneRendererHandle {
         (operation.width <= 0 || operation.height <= 0)) ||
       !this.interaction.onFogCommit
     ) {
-      if (brush) {
-        this.emitFogSnapshot(brush, false);
-      }
       this.localFogOperation = null;
       this.renderFog();
       return true;
     }
     this.localFogOperation = operation;
-    void this.commitFogOperation(operation, brush ?? null);
+    void this.commitFogOperation(operation);
     return true;
   }
 
   private async commitFogOperation(
     operation: SceneFogOperation,
-    brush: Extract<SceneGesture, { kind: 'fog-brush' }> | null,
   ): Promise<void> {
     this.committing = true;
     try {
@@ -3373,16 +3235,10 @@ export class SceneRenderer implements SceneRendererHandle {
         operation.id,
       );
       if (saved) {
-        this.completedFogOperationIds.add(operation.id);
-        this.remoteFogPreviews.delete(operation.id);
         this.scene = saved;
-      } else if (brush) {
-        this.emitFogSnapshot(brush, false);
       }
     } catch {
-      if (brush) {
-        this.emitFogSnapshot(brush, false);
-      }
+      // The local preview is discarded below if the TCP commit fails.
     } finally {
       this.committing = false;
       if (this.localFogOperation?.id === operation.id) {
@@ -3396,9 +3252,6 @@ export class SceneRenderer implements SceneRendererHandle {
     this.cancelScheduledFogFrame();
     const brush = this.activeFogBrush;
     const box = this.activeFogBox;
-    if (brush) {
-      this.emitFogSnapshot(brush, false);
-    }
     const pointerId = brush?.pointerId ?? box?.pointerId;
     if (pointerId !== undefined && this.container?.hasPointerCapture(pointerId)) {
       this.container.releasePointerCapture(pointerId);
@@ -3414,22 +3267,7 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private renderFog(): void {
-    const remoteOperations: SceneFogOperation[] = [];
-    for (const { preview } of this.remoteFogPreviews.values()) {
-      if (!preview.active || this.completedFogOperationIds.has(preview.operationId)) {
-        continue;
-      }
-      remoteOperations.push({
-        hardness: preview.hardness,
-        id: preview.operationId,
-        kind: 'brush',
-        mode: preview.mode,
-        points: preview.points.map((point) => ({ ...point })),
-        width: preview.width,
-      });
-    }
     const localOperation = this.localFogOperation &&
-        !this.completedFogOperationIds.has(this.localFogOperation.id) &&
         !this.scene?.fog.operations.some(
           (operation) => operation.id === this.localFogOperation?.id,
         )
@@ -3440,7 +3278,6 @@ export class SceneRenderer implements SceneRendererHandle {
       gmOpacity: this.interaction.fogGmOpacity ?? 0.35,
       isGameMaster: this.interaction.actorId == null,
       localOperation,
-      remoteOperations,
       scene: this.scene,
       viewport: this.viewport,
     });

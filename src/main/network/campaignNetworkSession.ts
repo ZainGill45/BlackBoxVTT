@@ -9,7 +9,6 @@ import type {
 } from '../../shared/chat';
 import type {
   DrawingPreviewUpdate,
-  FogBrushPreviewUpdate,
   MapPing,
   MeasurementUpdate,
   ShapePreviewUpdate,
@@ -24,7 +23,6 @@ export type SessionDrawingPreview = Omit<
   DrawingPreviewUpdate,
   'campaignId'
 >;
-export type SessionFogPreview = Omit<FogBrushPreviewUpdate, 'campaignId'>;
 export type SessionMapPing = Omit<MapPing, 'campaignId'>;
 export type SessionMeasurementUpdate = Omit<
   MeasurementUpdate,
@@ -48,7 +46,6 @@ export interface CampaignNetworkSession {
     input: SessionChatMessageInput,
   ): Promise<ChatResult<ChatMessage>>;
   sendDrawingPreview(input: SessionDrawingPreview): Promise<void>;
-  sendFogPreview(input: SessionFogPreview): Promise<void>;
   sendMapPing(input: SessionMapPing): Promise<void>;
   sendMeasurementUpdate(input: SessionMeasurementUpdate): Promise<void>;
   sendShapePreview(input: SessionShapePreview): Promise<void>;

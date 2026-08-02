@@ -4,7 +4,6 @@ import type {
   ClientConnectionState,
   DrawingPreviewEvent,
   DrawingPreviewUpdate,
-  FogBrushPreviewEvent,
   MapPing,
   MeasurementEvent,
   MeasurementUpdate,
@@ -34,7 +33,6 @@ import {
 import { LatestSnapshotRateLimiter } from '../../shared/latestSnapshotRateLimiter';
 import {
   decodeServerDrawingPreview,
-  decodeServerFogPreview,
   decodeServerShapePreview,
   decodeTransformPreview,
   encodeClientDrawingPreview,
@@ -85,9 +83,6 @@ interface ClientNetworkSessionOptions {
   onShapePreview?: (
     input: Omit<ShapePreviewEvent, 'campaignId'>
   ) => void;
-  onFogPreview?: (
-    input: Omit<FogBrushPreviewEvent, 'campaignId'>
-  ) => void;
   onTransformCancelled?: (input: Omit<SceneTransformPreviewCancel, 'campaignId'>) => void;
   onTransformPreview?: (input: Omit<SceneTransformPreviewDelta, 'campaignId'>) => void;
   onTransformStarted?: (input: Omit<SceneTransformPreviewStart, 'campaignId'>) => void;
@@ -105,9 +100,6 @@ export class ClientNetworkSession {
   private readonly onClosed: ClientNetworkSessionOptions['onClosed'];
   private readonly onDrawingPreview: NonNullable<
     ClientNetworkSessionOptions['onDrawingPreview']
-  >;
-  private readonly onFogPreview: NonNullable<
-    ClientNetworkSessionOptions['onFogPreview']
   >;
   private readonly onChatEvent: NonNullable<
     ClientNetworkSessionOptions['onChatEvent']
@@ -136,10 +128,6 @@ export class ClientNetworkSession {
     string,
     Omit<DrawingPreviewEvent, 'campaignId'>
   >();
-  private readonly remoteFogSequences = new Map<
-    string,
-    Omit<FogBrushPreviewEvent, 'campaignId'>
-  >();
   private readonly remoteShapeSequences = new Map<
     string,
     Omit<ShapePreviewEvent, 'campaignId'>
@@ -157,7 +145,6 @@ export class ClientNetworkSession {
     onAssetsChanged,
     onClosed,
     onDrawingPreview = () => undefined,
-    onFogPreview = () => undefined,
     onChatEvent = () => undefined,
     onMapPing = () => undefined,
     onMeasurementUpdate = () => undefined,
@@ -175,7 +162,6 @@ export class ClientNetworkSession {
     this.channel = channel;
     this.onAssetsChanged = onAssetsChanged;
     this.onDrawingPreview = onDrawingPreview;
-    this.onFogPreview = onFogPreview;
     this.onChatEvent = onChatEvent;
     this.onMapPing = onMapPing;
     this.onMeasurementUpdate = onMeasurementUpdate;
@@ -262,7 +248,6 @@ export class ClientNetworkSession {
     this.closed = true;
     this.interactiveRateLimiter.clear();
     this.clearRemoteDrawings();
-    this.clearRemoteFog();
     this.clearRemoteMeasurements();
     this.clearRemoteShapes();
     this.channel.off('udp-recovery-required', this.beginRecovery);
@@ -398,7 +383,6 @@ export class ClientNetworkSession {
     } else if (envelope.type === 'server.scene_presented') {
       this.clearRemoteMeasurements();
       this.clearRemoteDrawings();
-      this.clearRemoteFog();
       this.clearRemoteShapes();
       this.onScenePresented(
         parsePayload('server.scene_presented', envelope.payload).scene,
@@ -469,21 +453,6 @@ export class ClientNetworkSession {
             this.remoteDrawingSequences.delete(key);
           }
         } else if (
-          decoded.type === udpMessageTypes.serverFogPreview &&
-          !this.recovering
-        ) {
-          const preview = decodeServerFogPreview(decoded.payload);
-          const previous = this.remoteFogSequences.get(preview.operationId);
-          if (preview.sequence <= (previous?.sequence ?? -1)) {
-            return;
-          }
-          this.onFogPreview(preview);
-          if (preview.active) {
-            this.remoteFogSequences.set(preview.operationId, preview);
-          } else {
-            this.remoteFogSequences.delete(preview.operationId);
-          }
-        } else if (
           decoded.type === udpMessageTypes.serverMeasurement &&
           !this.recovering
         ) {
@@ -543,7 +512,6 @@ export class ClientNetworkSession {
     }
     this.interactiveRateLimiter.clear();
     this.clearRemoteDrawings();
-    this.clearRemoteFog();
     this.clearRemoteMeasurements();
     this.clearRemoteShapes();
     this.recovering = this.recoverUdp().finally(() => {
@@ -604,7 +572,6 @@ export class ClientNetworkSession {
     this.closed = true;
     this.interactiveRateLimiter.clear();
     this.clearRemoteDrawings();
-    this.clearRemoteFog();
     this.clearRemoteMeasurements();
     this.clearRemoteShapes();
     this.channel.off('udp-recovery-required', this.beginRecovery);
@@ -648,18 +615,6 @@ export class ClientNetworkSession {
       });
     }
     this.remoteDrawingSequences.clear();
-  }
-
-  private clearRemoteFog(): void {
-    for (const preview of this.remoteFogSequences.values()) {
-      this.onFogPreview({
-        ...preview,
-        active: false,
-        points: [],
-        sequence: Math.min(0xffff_ffff, preview.sequence + 1),
-      });
-    }
-    this.remoteFogSequences.clear();
   }
 
   private receiveShapePreview(

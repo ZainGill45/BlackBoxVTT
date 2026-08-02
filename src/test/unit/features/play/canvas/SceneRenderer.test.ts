@@ -539,9 +539,8 @@ describe('SceneRenderer', () => {
     );
   });
 
-  it('streams brush fog snapshots but commits both fog tools only on release', async () => {
+  it('previews fog locally but commits both fog tools only on release', async () => {
     const current = scene();
-    const onFogPreview = vi.fn();
     const onFogCommit = vi.fn(
       async (mutation: SceneFogMutation, operationId: string) => {
         void operationId;
@@ -568,7 +567,6 @@ describe('SceneRenderer', () => {
       fogMode: 'reveal',
       fogSubtool: 'brush',
       onFogCommit,
-      onFogPreview,
     });
 
     element.dispatchEvent(pointerEvent('pointerdown', {
@@ -582,12 +580,6 @@ describe('SceneRenderer', () => {
       clientY: 325,
     }));
     expect(onFogCommit).not.toHaveBeenCalled();
-    expect(onFogPreview).toHaveBeenCalledWith(expect.objectContaining({
-      active: true,
-      hardness: 0.4,
-      mode: 'reveal',
-      width: 80,
-    }));
     element.dispatchEvent(pointerEvent('pointerup', {
       button: 0,
       clientX: 450,
@@ -611,7 +603,6 @@ describe('SceneRenderer', () => {
     }
     expect(brushMutation.operation.points.length).toBeGreaterThan(1);
 
-    const previewCount = onFogPreview.mock.calls.length;
     renderer.setInteraction({
       activeLayer: 'token',
       actorId: null,
@@ -620,7 +611,6 @@ describe('SceneRenderer', () => {
       fogMode: 'hide',
       fogSubtool: 'box',
       onFogCommit,
-      onFogPreview,
     });
     element.dispatchEvent(pointerEvent('pointerdown', {
       button: 0,
@@ -633,7 +623,6 @@ describe('SceneRenderer', () => {
       clientY: 350,
     }));
     expect(onFogCommit).toHaveBeenCalledTimes(1);
-    expect(onFogPreview).toHaveBeenCalledTimes(previewCount);
     element.dispatchEvent(pointerEvent('pointerup', {
       button: 0,
       clientX: 500,
@@ -645,7 +634,6 @@ describe('SceneRenderer', () => {
       kind: 'append',
       operation: { kind: 'box', mode: 'hide' },
     });
-    expect(onFogPreview).toHaveBeenCalledTimes(previewCount);
   });
 
   it('coalesces dense fog pointer input into one render per animation frame', async () => {
@@ -660,7 +648,6 @@ describe('SceneRenderer', () => {
       fogMode: 'hide',
       fogSubtool: 'brush',
       onFogCommit,
-      onFogPreview: vi.fn(),
     });
     await new Promise((resolve) => window.setTimeout(resolve, 25));
 

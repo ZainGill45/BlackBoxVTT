@@ -100,7 +100,7 @@ test.describe('scene synchronization', () => {
     }
   });
 
-  test('streams brush fog continuously and delays box fog until commit', async () => {
+  test('keeps all fog local until the committed TCP scene update', async () => {
     await gm.window.getByRole('button', { name: 'Fog', exact: true }).click();
     await gm.window.getByRole('button', { name: 'Fog mode: Reveal' }).click();
     const before = await playerFrame();
@@ -123,17 +123,9 @@ test.describe('scene synchronization', () => {
         box.y + centre.y,
       );
     }
-    await expect
-      .poll(
-        async () => pixelDifferenceRatioInRegion(
-          before,
-          await playerFrame(),
-          region,
-          4,
-        ),
-        { message: 'the player never rendered the live UDP fog brush' },
-      )
-      .toBeGreaterThan(0.01);
+    await player.window.waitForTimeout(500);
+    expect(pixelDifferenceRatio(before, await playerFrame()))
+      .toBeLessThan(VISIBLE_CHANGE);
     expect((await readScene(gm.window, CAMPAIGN)).fog.operations).toEqual([]);
 
     await gm.window.mouse.up();
@@ -142,6 +134,11 @@ test.describe('scene synchronization', () => {
       .toEqual([
         expect.objectContaining({ kind: 'brush', mode: 'hide' }),
       ]);
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()), {
+        message: 'the committed TCP brush fog never reached the player',
+      })
+      .toBeGreaterThan(VISIBLE_CHANGE);
 
     await gm.window.getByRole('button', { name: 'Fog settings' }).click();
     const settings = gm.window.getByRole('dialog', { name: 'Fog settings' });
@@ -192,7 +189,7 @@ test.describe('scene synchronization', () => {
       .poll(async () => pixelDifferenceRatio(beforeBox, await playerFrame()), {
         message: 'the committed TCP box fog never reached the player',
       })
-      .toBeGreaterThan(0.01);
+      .toBeGreaterThan(VISIBLE_CHANGE);
 
     await gm.window.getByRole('button', { name: 'Fog mode: Hide' }).click();
     await gm.window.getByRole('button', { name: 'Brush fog' }).click();
@@ -202,6 +199,16 @@ test.describe('scene synchronization', () => {
     await gm.window.mouse.move(box.x + centre.x + 80, box.y + centre.y, {
       steps: 12,
     });
+    await player.window.waitForTimeout(500);
+    expect(pixelDifferenceRatio(beforeReveal, await playerFrame()))
+      .toBeLessThan(VISIBLE_CHANGE);
+    await gm.window.mouse.up();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
+      .toEqual([
+        expect.objectContaining({ kind: 'box', mode: 'hide' }),
+        expect.objectContaining({ kind: 'brush', mode: 'reveal' }),
+      ]);
     await expect
       .poll(
         async () => pixelDifferenceRatioInRegion(
@@ -210,16 +217,9 @@ test.describe('scene synchronization', () => {
           region,
           4,
         ),
-        { message: 'the player never rendered the live UDP fog reveal' },
+        { message: 'the committed TCP fog reveal never reached the player' },
       )
       .toBeGreaterThan(0.005);
-    await gm.window.mouse.up();
-    await expect
-      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
-      .toEqual([
-        expect.objectContaining({ kind: 'box', mode: 'hide' }),
-        expect.objectContaining({ kind: 'brush', mode: 'reveal' }),
-      ]);
 
     const fogColor = { blue: 43, green: 43, red: 224 };
     expect(pixelColorCoverage(await playerFrame(), fogColor, 30))

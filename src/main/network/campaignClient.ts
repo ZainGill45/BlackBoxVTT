@@ -29,7 +29,6 @@ import {
   type ConnectStep,
   type DrawingPreviewEvent,
   type DrawingPreviewUpdate,
-  type FogBrushPreviewEvent,
   type MapPing,
   type MeasurementEvent,
   type MeasurementUpdate,
@@ -102,9 +101,6 @@ interface CampaignClientOptions {
   onDrawingPreview?: (
     input: Omit<DrawingPreviewEvent, 'campaignId'>
   ) => void;
-  onFogPreview?: (
-    input: Omit<FogBrushPreviewEvent, 'campaignId'>
-  ) => void;
   onMapPing?: (input: Omit<MapPing, 'campaignId'>) => void;
   onMeasurementUpdate?: (
     input: Omit<MeasurementEvent, 'campaignId'>
@@ -128,9 +124,6 @@ export class CampaignClient {
   >;
   private readonly onDrawingPreview: NonNullable<
     CampaignClientOptions['onDrawingPreview']
-  >;
-  private readonly onFogPreview: NonNullable<
-    CampaignClientOptions['onFogPreview']
   >;
   private readonly onChatEvent: NonNullable<
     CampaignClientOptions['onChatEvent']
@@ -157,7 +150,6 @@ export class CampaignClient {
     onChatEvent = () => undefined,
     onAssetsChanged = () => undefined,
     onDrawingPreview = () => undefined,
-    onFogPreview = () => undefined,
     onMapPing = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented = () => undefined,
@@ -172,7 +164,6 @@ export class CampaignClient {
     this.onChatEvent = onChatEvent;
     this.onAssetsChanged = onAssetsChanged;
     this.onDrawingPreview = onDrawingPreview;
-    this.onFogPreview = onFogPreview;
     this.onMapPing = onMapPing;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
@@ -373,7 +364,6 @@ export class CampaignClient {
         onAssetsChanged: this.onAssetsChanged,
         onChatEvent: this.onChatEvent,
         onDrawingPreview: this.onDrawingPreview,
-        onFogPreview: this.onFogPreview,
         onMapPing: this.onMapPing,
         onMeasurementUpdate: this.onMeasurementUpdate,
         onScenePresented: this.onScenePresented,

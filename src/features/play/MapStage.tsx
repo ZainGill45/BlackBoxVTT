@@ -222,11 +222,6 @@ export function MapStage({
           renderer.showDrawingPreview(preview);
         }
       }),
-      networkApi.onFogPreview((preview) => {
-        if (matchesScene(preview.campaignId, preview.sceneId)) {
-          renderer.showFogPreview(preview);
-        }
-      }),
       networkApi.onShapePreview((preview) => {
         if (matchesScene(preview.campaignId, preview.sceneId)) {
           renderer.showShapePreview(preview);
@@ -338,12 +333,6 @@ export function MapStage({
       },
       onDrawingPreview: (preview) => {
         void networkApi.sendDrawingPreview({
-          ...preview,
-          campaignId: session.campaignId,
-        });
-      },
-      onFogPreview: (preview) => {
-        void networkApi.sendFogPreview({
           ...preview,
           campaignId: session.campaignId,
         });

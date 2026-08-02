@@ -3,7 +3,6 @@ import type { Socket } from 'node:net';
 import type {
   DrawingPreviewEvent,
   DrawingPreviewUpdate,
-  FogBrushPreviewUpdate,
   MapPing,
   MeasurementEvent,
   MeasurementUpdate,
@@ -25,7 +24,6 @@ import {
 } from './measurementProtocol';
 import {
   encodeServerDrawingPreview,
-  encodeServerFogPreview,
   encodeServerShapePreview,
   encodeTransformPreview,
 } from './sceneRealtimeProtocol';
@@ -78,9 +76,6 @@ export class HostSceneRealtime {
   private readonly hostShapePreviewRateLimiter: LatestSnapshotRateLimiter<
     ShapePreviewUpdate
   >;
-  private readonly hostFogPreviewRateLimiter: LatestSnapshotRateLimiter<
-    FogBrushPreviewUpdate
-  >;
   private readonly lastTransformPreviewAt = new Map<string, number>();
   private readonly measurementRateLimiters = new Map<
     string,
@@ -126,12 +121,6 @@ export class HostSceneRealtime {
         void this.relayShapePreview(preview);
       },
     );
-    this.hostFogPreviewRateLimiter = new LatestSnapshotRateLimiter(
-      () => this.transformPreviewRate,
-      (preview) => {
-        void this.relayFogPreview(preview);
-      },
-    );
   }
 
   get updateRate(): number {
@@ -146,7 +135,6 @@ export class HostSceneRealtime {
     this.transformPreviewRate = rate;
     this.hostDrawingPreviewRateLimiter.rateChanged();
     this.hostShapePreviewRateLimiter.rateChanged();
-    this.hostFogPreviewRateLimiter.rateChanged();
     for (const limiter of this.measurementRateLimiters.values()) {
       limiter.rateChanged();
     }
@@ -288,50 +276,6 @@ export class HostSceneRealtime {
       );
     }
     await this.relayShapePreview(input, source);
-  }
-
-  async broadcastFogPreview(input: FogBrushPreviewUpdate): Promise<void> {
-    if (input.active) {
-      this.hostFogPreviewRateLimiter.push(structuredClone(input));
-      return;
-    }
-    this.hostFogPreviewRateLimiter.drop(
-      (pending) => pending.operationId === input.operationId,
-    );
-    await this.relayFogPreview(input);
-  }
-
-  private async relayFogPreview(input: FogBrushPreviewUpdate): Promise<void> {
-    const scene = this.activeScene ?? (await this.readActiveScene());
-    if (
-      input.campaignId !== this.campaignId ||
-      !scene ||
-      input.sceneId !== scene.id ||
-      input.points.some(
-        ({ x, y }) => x < 0 || x > scene.width || y < 0 || y > scene.height,
-      )
-    ) {
-      return;
-    }
-    const payload = encodeServerFogPreview({
-      active: input.active,
-      hardness: input.hardness,
-      mode: input.mode,
-      operationId: input.operationId,
-      points: input.points,
-      sceneId: input.sceneId,
-      sequence: input.sequence,
-      width: input.width,
-    });
-    for (const client of this.clients) {
-      if (
-        client.state === 'ready' &&
-        client.user &&
-        !client.udpRecoveryStartedAt
-      ) {
-        this.sendUdp(client, udpMessageTypes.serverFogPreview, payload);
-      }
-    }
   }
 
   private async relayShapePreview(
@@ -644,7 +588,6 @@ export class HostSceneRealtime {
     this.clearAllMeasurements();
     this.hostDrawingPreviewRateLimiter.clear();
     this.hostShapePreviewRateLimiter.clear();
-    this.hostFogPreviewRateLimiter.clear();
     this.activeShapePreviews.clear();
     for (const limiter of this.measurementRateLimiters.values()) {
       limiter.clear();

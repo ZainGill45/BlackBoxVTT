@@ -712,29 +712,8 @@ describe('drawings', () => {
 });
 
 describe('fog', () => {
-  it('streams GM brush snapshots over UDP before the same operation commits over TCP', async () => {
+  it('delivers a committed GM brush through the authoritative TCP scene update', async () => {
     const operationId = '45454545-4545-4545-8545-454545454545';
-    const playerFogPreviews: unknown[] = [];
-    const observerFogPreviews: unknown[] = [];
-    player.on('fog-preview', (preview) => playerFogPreviews.push(preview));
-    observer.on('fog-preview', (preview) => observerFogPreviews.push(preview));
-    const preview = {
-      active: true,
-      campaignId,
-      hardness: 0.5,
-      mode: 'reveal' as const,
-      operationId,
-      points: [{ x: 100, y: 100 }, { x: 160, y: 120 }],
-      sceneId: presentedSceneId,
-      sequence: 1,
-      width: 70,
-    };
-
-    await host.sendFogPreview(preview);
-    await vi.waitFor(() => {
-      expect(playerFogPreviews).toEqual([preview]);
-      expect(observerFogPreviews).toEqual([preview]);
-    });
     expect((await remoteScene(player))?.fog.operations).toEqual([]);
 
     const current = (await sceneRepository.readManifest()).scenes.find(
@@ -748,12 +727,12 @@ describe('fog', () => {
       {
         kind: 'append',
         operation: {
-          hardness: preview.hardness,
+          hardness: 0.5,
           id: operationId,
           kind: 'brush',
-          mode: preview.mode,
-          points: preview.points,
-          width: preview.width,
+          mode: 'reveal',
+          points: [{ x: 100, y: 100 }, { x: 160, y: 120 }],
+          width: 70,
         },
       },
       current.revision,

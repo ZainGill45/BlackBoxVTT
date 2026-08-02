@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_DRAWING_PREVIEW_POINTS,
-  MAX_FOG_PREVIEW_POINTS,
   MAX_TRANSFORM_PREVIEW_RATE,
 } from '../../../../shared/network';
 import {
@@ -176,31 +175,4 @@ describe('UDP protocol security primitives', () => {
     expect(packet.length).toBeLessThan(1_200);
   });
 
-  it('keeps a maximum GM fog brush snapshot below the datagram safety limit', () => {
-    const credentials = createUdpSessionCredentials();
-    const payload = Buffer.from(JSON.stringify({
-      active: true,
-      hardness: 0.25,
-      mode: 'reveal',
-      operationId: '33333333-3333-4333-8333-333333333333',
-      points: Array.from(
-        { length: MAX_FOG_PREVIEW_POINTS },
-        (_, index) => ({ x: index * 1234.56789, y: index * 987.654321 }),
-      ),
-      sceneId: '11111111-1111-4111-8111-111111111111',
-      sequence: 42,
-      width: 512,
-    }));
-
-    const packet = encodeUdpPacket(
-      credentials.sessionId,
-      credentials.epoch,
-      3n,
-      udpMessageTypes.serverFogPreview,
-      credentials.serverToClient,
-      payload,
-    );
-
-    expect(packet.length).toBeLessThan(1_200);
-  });
 });

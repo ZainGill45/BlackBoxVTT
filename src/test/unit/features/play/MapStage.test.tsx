@@ -304,7 +304,7 @@ describe('MapStage', () => {
     });
   });
 
-  it('wires GM fog settings, commits, and scene-filtered UDP previews', async () => {
+  it('wires GM fog settings and authoritative commits without preview transport', async () => {
     const { createRenderer, renderer } = fakeRenderer();
     const currentScene = makeScene();
     const operationId = '44444444-4444-4444-8444-444444444444';
@@ -312,19 +312,6 @@ describe('MapStage', () => {
       ...currentScene,
       revision: currentScene.revision + 1,
     }));
-    const sendFogPreview = vi.spyOn(
-      window.blackBox.network,
-      'sendFogPreview',
-    );
-    let receiveFog:
-      | Parameters<typeof window.blackBox.network.onFogPreview>[0]
-      | undefined;
-    vi.spyOn(window.blackBox.network, 'onFogPreview').mockImplementation(
-      (listener) => {
-        receiveFog = listener;
-        return () => undefined;
-      },
-    );
     render(
       <MapStage
         activeTool="fog"
@@ -343,7 +330,6 @@ describe('MapStage', () => {
     );
 
     await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
-    await waitFor(() => expect(receiveFog).toBeDefined());
     const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
     expect(interaction).toMatchObject({
       fogBrushHardness: 0.45,
@@ -353,32 +339,18 @@ describe('MapStage', () => {
       fogMode: 'hide',
       fogSubtool: 'brush',
     });
-    const preview = {
-      active: true,
+    const operation = {
       hardness: 0.45,
+      id: operationId,
+      kind: 'brush' as const,
       mode: 'hide' as const,
-      operationId,
       points: [{ x: 10, y: 20 }],
-      sceneId: currentScene.id,
-      sequence: 1,
       width: 90,
     };
-    interaction?.onFogPreview?.(preview);
-    expect(sendFogPreview).toHaveBeenCalledWith({
-      ...preview,
-      campaignId: session.campaignId,
-    });
     await interaction?.onFogCommit?.(
       {
         kind: 'append',
-        operation: {
-          hardness: preview.hardness,
-          id: operationId,
-          kind: 'brush',
-          mode: preview.mode,
-          points: preview.points,
-          width: preview.width,
-        },
+        operation,
       },
       operationId,
     );
@@ -387,18 +359,6 @@ describe('MapStage', () => {
       expect.objectContaining({ kind: 'append' }),
       operationId,
     );
-
-    const event = {
-      ...preview,
-      campaignId: session.campaignId,
-    };
-    receiveFog?.(event);
-    receiveFog?.({
-      ...event,
-      sceneId: '55555555-5555-4555-8555-555555555555',
-    });
-    expect(renderer.showFogPreview).toHaveBeenCalledTimes(1);
-    expect(renderer.showFogPreview).toHaveBeenCalledWith(event);
   });
 
   it('delivers only measurement updates for the active campaign scene', async () => {

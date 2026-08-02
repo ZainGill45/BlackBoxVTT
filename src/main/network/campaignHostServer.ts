@@ -18,7 +18,6 @@ import type {
   HostStatus,
   DrawingPreviewEvent,
   DrawingPreviewUpdate,
-  FogBrushPreviewUpdate,
   ManagedUserView,
   MapPing,
   MeasurementEvent,
@@ -413,10 +412,6 @@ export class CampaignHostServer {
     input: MeasurementUpdate,
   ): Promise<void> {
     await this.sceneRealtime.broadcastMeasurementUpdate(input);
-  }
-
-  async broadcastFogPreview(input: FogBrushPreviewUpdate): Promise<void> {
-    await this.sceneRealtime.broadcastFogPreview(input);
   }
 
   async broadcastShapePreview(

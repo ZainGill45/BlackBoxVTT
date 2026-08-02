@@ -17,7 +17,6 @@ import type {
   ConnectInput,
   ConnectStep,
   DrawingPreviewEvent,
-  FogBrushPreviewEvent,
   MapPing,
   MeasurementEvent,
   NetworkResult,
@@ -39,7 +38,6 @@ export interface JoinedCampaignConnectionEvents {
   onChatEvent: (event: ChatEvent) => void;
   onClientStateChanged: (event: ClientStateEvent) => void;
   onDrawingPreview: (event: DrawingPreviewEvent) => void;
-  onFogPreview: (event: FogBrushPreviewEvent) => void;
   onMapPing: (event: MapPing) => void;
   onMeasurementUpdate: (event: MeasurementEvent) => void;
   onShapePreview: (event: ShapePreviewEvent) => void;
@@ -81,12 +79,6 @@ export class JoinedCampaignConnection {
         const campaignId = this.client.getSession()?.campaignId;
         if (campaignId) {
           this.events.onDrawingPreview({ ...input, campaignId });
-        }
-      },
-      onFogPreview: (input) => {
-        const campaignId = this.client.getSession()?.campaignId;
-        if (campaignId) {
-          this.events.onFogPreview({ ...input, campaignId });
         }
       },
       onMapPing: (input) => {
@@ -200,7 +192,6 @@ export class JoinedCampaignConnection {
       sendDrawingPreview: async (input) => {
         this.client.sendDrawingPreview(input);
       },
-      sendFogPreview: async () => undefined,
       sendMapPing: async (input) => {
         this.client.sendMapPing(input);
       },

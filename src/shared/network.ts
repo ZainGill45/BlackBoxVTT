@@ -16,14 +16,13 @@ import type {
   SceneDrawingLayer,
   SceneDrawingPoint,
   SceneDrawingStyle,
-  SceneFogPoint,
   SceneShape,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
 } from './scenes';
 
-export const NETWORK_PROTOCOL_VERSION = 14 as const;
+export const NETWORK_PROTOCOL_VERSION = 15 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;
@@ -31,7 +30,6 @@ export const MAX_TRANSFORM_PREVIEW_RATE = 128;
 export const MAX_MANAGED_USERS = 20;
 export const MAX_MEASUREMENT_POINTS = 64;
 export const MAX_DRAWING_PREVIEW_POINTS = 16;
-export const MAX_FOG_PREVIEW_POINTS = 16;
 
 export const networkIpcChannels = {
   acceptTrust: 'network:accept-trust',
@@ -46,7 +44,6 @@ export const networkIpcChannels = {
   deleteUser: 'network:delete-user',
   disconnect: 'network:disconnect',
   drawingPreview: 'network:drawing-preview',
-  fogPreview: 'network:fog-preview',
   getChatBootstrap: 'network:get-chat-bootstrap',
   getChatHistory: 'network:get-chat-history',
   getHostStatus: 'network:get-host-status',
@@ -65,7 +62,6 @@ export const networkIpcChannels = {
   sendMapPing: 'network:send-map-ping',
   sendChatMessage: 'network:send-chat-message',
   sendDrawingPreview: 'network:send-drawing-preview',
-  sendFogPreview: 'network:send-fog-preview',
   sendMeasurementUpdate: 'network:send-measurement-update',
   sendShapePreview: 'network:send-shape-preview',
   stopHost: 'network:stop-host',
@@ -310,21 +306,6 @@ export interface DrawingPreviewEvent extends DrawingPreviewUpdate {
   sourceId: string;
 }
 
-/** Latest complete GM brush snapshot. The committed operation arrives by TCP. */
-export interface FogBrushPreviewUpdate {
-  active: boolean;
-  campaignId: string;
-  hardness: number;
-  mode: 'hide' | 'reveal';
-  operationId: string;
-  points: SceneFogPoint[];
-  sceneId: string;
-  sequence: number;
-  width: number;
-}
-
-export type FogBrushPreviewEvent = FogBrushPreviewUpdate;
-
 type ShapeWithoutAuthority<T> = T extends SceneShape
   ? Omit<T, 'ownerId' | 'revision'>
   : never;
@@ -390,7 +371,6 @@ export interface NetworkApi {
   onMeasurementUpdate(
     listener: (update: MeasurementEvent) => void,
   ): () => void;
-  onFogPreview(listener: (preview: FogBrushPreviewEvent) => void): () => void;
   onShapePreview(
     listener: (preview: ShapePreviewEvent) => void,
   ): () => void;
@@ -420,7 +400,6 @@ export interface NetworkApi {
   ): Promise<NetworkResult<number>>;
   sendMapPing(input: MapPing): Promise<void>;
   sendDrawingPreview(input: DrawingPreviewUpdate): Promise<void>;
-  sendFogPreview(input: FogBrushPreviewUpdate): Promise<void>;
   sendMeasurementUpdate(input: MeasurementUpdate): Promise<void>;
   sendShapePreview(input: ShapePreviewUpdate): Promise<void>;
   stopHost(): Promise<void>;

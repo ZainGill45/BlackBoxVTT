@@ -23,7 +23,6 @@ export interface FogRenderInput {
   gmOpacity: number;
   isGameMaster: boolean;
   localOperation?: SceneFogOperation | null;
-  remoteOperations?: SceneFogOperation[];
   scene: SceneRecord | null;
   viewport: Viewport;
 }
@@ -35,7 +34,6 @@ interface LiveFogState {
   kind: SceneFogOperation['kind'];
   mode: SceneFogOperation['mode'];
   pointCount: number;
-  source: 'local' | 'remote';
   width: number;
 }
 
@@ -186,8 +184,7 @@ function sameLiveBrush(
   operation: Extract<SceneFogOperation, { kind: 'brush' }>,
   cameraKey: string,
 ): boolean {
-  return state?.source === 'local' &&
-    state.cameraKey === cameraKey &&
+  return state?.cameraKey === cameraKey &&
     state.id === operation.id &&
     state.kind === 'brush' &&
     state.mode === operation.mode &&
@@ -224,7 +221,6 @@ export class SceneFogRenderer {
     gmOpacity,
     isGameMaster,
     localOperation = null,
-    remoteOperations = [],
     scene,
     viewport,
   }: FogRenderInput): void {
@@ -243,31 +239,14 @@ export class SceneFogRenderer {
     }
     this.syncCommittedFog(scene, committedChanged);
 
-    const previews = [
-      ...remoteOperations.map((operation) => ({ operation, source: 'remote' as const })),
-      ...(localOperation
-        ? [{ operation: localOperation, source: 'local' as const }]
-        : []),
-    ];
-    if (previews.length === 0) {
+    if (!localOperation) {
       this.liveState = null;
       this.displayCommitted(camera, viewport);
       return;
     }
 
-    if (previews.length === 1) {
-      const [{ operation, source }] = previews;
-      this.updateLiveTexture(operation, source, scene, camera, viewport);
-      this.composeLive(operation.mode, scene, camera, viewport);
-      return;
-    }
-
-    this.composeOperations(
-      previews.map(({ operation }) => operation),
-      scene,
-      camera,
-      viewport,
-    );
+    this.updateLiveTexture(localOperation, scene, camera, viewport);
+    this.composeLive(localOperation.mode, camera, viewport);
   }
 
   destroy(): void {
@@ -375,7 +354,6 @@ export class SceneFogRenderer {
 
   private updateLiveTexture(
     operation: SceneFogOperation,
-    source: LiveFogState['source'],
     scene: SceneRecord,
     camera: Camera,
     viewport: Viewport,
@@ -388,7 +366,6 @@ export class SceneFogRenderer {
       viewport.height,
     ].join(':');
     if (
-      source === 'local' &&
       operation.kind === 'brush' &&
       sameLiveBrush(this.liveState, operation, cameraKey)
     ) {
@@ -410,7 +387,6 @@ export class SceneFogRenderer {
       kind: operation.kind,
       mode: operation.mode,
       pointCount: operation.kind === 'brush' ? operation.points.length : 0,
-      source,
       width: operation.width,
     };
   }
@@ -434,7 +410,6 @@ export class SceneFogRenderer {
 
   private composeLive(
     mode: SceneFogOperation['mode'],
-    scene: SceneRecord,
     camera: Camera,
     viewport: Viewport,
   ): void {
@@ -446,34 +421,6 @@ export class SceneFogRenderer {
     root.addChild(live);
     this.renderer!.render({
       clear: true,
-      container: root,
-      target: this.outputTexture!,
-    });
-    root.destroy({ children: true });
-    this.displayOutput();
-  }
-
-  private composeOperations(
-    operations: SceneFogOperation[],
-    scene: SceneRecord,
-    camera: Camera,
-    viewport: Viewport,
-  ): void {
-    const base = new Container();
-    base.addChild(this.createCommittedSprite(camera, viewport));
-    this.renderer!.render({
-      clear: true,
-      container: base,
-      target: this.outputTexture!,
-    });
-    base.destroy({ children: true });
-
-    const { content, root } = screenFogRoot(scene, camera, viewport);
-    for (const operation of operations) {
-      content.addChild(operationGraphics(operation, scene.fog.color));
-    }
-    this.renderer!.render({
-      clear: false,
       container: root,
       target: this.outputTexture!,
     });
