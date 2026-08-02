@@ -22,6 +22,7 @@ import {
   type ShapePreviewUpdate,
 } from '../../../shared/network';
 import { LatestSnapshotRateLimiter } from '../../../shared/latestSnapshotRateLimiter';
+import { compactFogBrushPoints } from '../../../shared/sceneFogGeometry';
 import {
   applySceneTransformPreview,
   CANONICAL_MAP_ID,
@@ -29,7 +30,6 @@ import {
   sceneObjectStateOf,
   MAX_SCENE_IMAGES,
   MAX_SCENE_SHAPES,
-  MAX_FOG_OPERATION_POINTS,
   type SceneDrawing,
   type SceneDrawingPoint,
   type SceneDrawingStyle,
@@ -133,7 +133,6 @@ import {
   appendFreeformPoint,
   compactPreviewPoints,
   createSceneDrawing,
-  simplifyFreeform,
 } from './scenePaintInteraction';
 import {
   activeMeasurementUpdate,
@@ -3205,10 +3204,7 @@ export class SceneRenderer implements SceneRendererHandle {
     const operation = brush
       ? {
           ...this.fogBrushOperation(brush),
-          points: simplifyFreeform(brush.points).slice(
-            0,
-            MAX_FOG_OPERATION_POINTS,
-          ),
+          points: compactFogBrushPoints(brush.points, brush.width),
         }
       : this.fogBoxOperation(box!);
     if (

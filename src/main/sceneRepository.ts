@@ -11,6 +11,7 @@ import {
   SCENE_OBJECT_LOCK_TIMEOUT_MS,
   sceneObjectStateOf,
   MAX_SCENE_EDIT_HISTORY,
+  MAX_SCENE_FOG_POINTS,
   SCENE_LAYERS,
   DEFAULT_SCENE_DISTANCE,
   DEFAULT_SCENE_HEIGHT,
@@ -44,6 +45,10 @@ import {
   sceneRecordSchema,
 } from '../shared/sceneSchema';
 import { fail } from '../shared/result';
+import {
+  compactFogBrushPoints,
+  compactFogOperations,
+} from '../shared/sceneFogGeometry';
 import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 
@@ -1739,6 +1744,12 @@ export class SceneRepository {
           );
         }
         const operation = structuredClone(mutation.operation);
+        if (operation.kind === 'brush') {
+          operation.points = compactFogBrushPoints(
+            operation.points,
+            operation.width,
+          );
+        }
         const outside = operation.kind === 'box'
           ? operation.x + operation.width > current.width ||
             operation.y + operation.height > current.height
@@ -1757,6 +1768,14 @@ export class SceneRepository {
           );
         }
         fog.operations.push(operation);
+        const pointCount = fog.operations.reduce(
+          (total, entry) =>
+            total + (entry.kind === 'brush' ? entry.points.length : 0),
+          0,
+        );
+        if (pointCount > MAX_SCENE_FOG_POINTS) {
+          fog.operations = compactFogOperations(fog.operations);
+        }
       } else if (mutation.kind === 'clear-all') {
         fog.base = 'clear';
         fog.operations = [];

@@ -8,6 +8,7 @@ import {
   DEFAULT_SCENE_NAME,
   DEFAULT_SCENE_WIDTH,
   MAX_SCENE_IMAGES,
+  MAX_SCENE_FOG_POINTS,
   SCENE_MANIFEST_SCHEMA_VERSION,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
@@ -313,6 +314,72 @@ describe('SceneRepository', () => {
       ok: true,
       value: { fog: { base: 'clear', color: '#abcdef', operations: [] } },
     });
+  });
+
+  it('compacts saturated fog paths so later brush strokes still commit', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const operationIds = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444',
+      '55555555-5555-4555-8555-555555555555',
+    ];
+    const saturated = {
+      ...created.value,
+      fog: {
+        ...created.value.fog,
+        base: 'covered' as const,
+        operations: operationIds.map((id, operationIndex) => ({
+          hardness: 1,
+          id,
+          kind: 'brush' as const,
+          mode: operationIndex % 2 === 0 ? 'hide' as const : 'reveal' as const,
+          points: Array.from({
+            length: MAX_SCENE_FOG_POINTS / operationIds.length,
+          }, (_value, pointIndex) => ({
+            x: pointIndex * 0.4,
+            y: 100 + (pointIndex % 2),
+          })),
+          width: 1,
+        })),
+      },
+    };
+    database.connection
+      .prepare('UPDATE scenes SET record_json = ? WHERE id = ?')
+      .run(JSON.stringify(saturated), saturated.id);
+    const operationId = '66666666-6666-4666-8666-666666666666';
+    const operation = {
+      hardness: 1,
+      id: operationId,
+      kind: 'brush' as const,
+      mode: 'reveal' as const,
+      points: [{ x: 100, y: 100 }, { x: 500, y: 100 }],
+      width: 70,
+    };
+
+    const saved = await repository.setFog(
+      saturated.id,
+      { kind: 'append', operation },
+      saturated.revision,
+      operationId,
+    );
+
+    expect(saved).toMatchObject({ ok: true, value: { revision: 1 } });
+    if (!saved.ok) {
+      throw new Error('fog commit failed');
+    }
+    const pointCount = saved.value.fog.operations.reduce(
+      (total, entry) =>
+        total + (entry.kind === 'brush' ? entry.points.length : 0),
+      0,
+    );
+    expect(pointCount).toBeLessThanOrEqual(MAX_SCENE_FOG_POINTS);
+    expect(saved.value.fog.operations.at(-1)).toMatchObject(operation);
   });
 
   it('merges partial grid patches and rejects stale revisions', async () => {
