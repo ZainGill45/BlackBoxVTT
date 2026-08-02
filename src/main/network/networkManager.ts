@@ -21,6 +21,7 @@ import type {
   DeleteHistoryInput,
   DeleteManagedUserInput,
   DrawingPreviewUpdate,
+  FogBrushPreviewUpdate,
   HostStatus,
   ManagedUserView,
   MapPing,
@@ -103,6 +104,8 @@ export class NetworkManager extends EventEmitter {
           this.emit('client-state-changed', event),
         onDrawingPreview: (event) =>
           this.emit('drawing-preview', event),
+        onFogPreview: (event) =>
+          this.emit('fog-preview', event),
         onMapPing: (event) => this.emit('map-ping', event),
         onMeasurementUpdate: (event) =>
           this.emit('measurement-update', event),
@@ -400,6 +403,23 @@ export class NetworkManager extends EventEmitter {
       sceneId: input.sceneId,
       sequence: input.sequence,
       style: input.style,
+    });
+  }
+
+  async sendFogPreview(input: FogBrushPreviewUpdate): Promise<void> {
+    const session = this.sessionFor(input.campaignId);
+    if (session?.kind !== 'hosted') {
+      return;
+    }
+    await session.sendFogPreview({
+      active: input.active,
+      hardness: input.hardness,
+      mode: input.mode,
+      operationId: input.operationId,
+      points: input.points,
+      sceneId: input.sceneId,
+      sequence: input.sequence,
+      width: input.width,
     });
   }
 

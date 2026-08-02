@@ -8,12 +8,18 @@ import {
   type SceneImageLayer,
   type SceneObjectState,
   type SceneArrangement,
+  type SceneFogMutation,
   type SceneRecord,
 } from '../../shared/scenes';
 import type { SceneRendererHandle } from './canvas/SceneRenderer';
 import type { PlaySession, PlayToolId } from './types';
 import type { TextSettings } from './textSettings';
 import type { ShapeSettings, ShapeSubtool } from './shapeSettings';
+import type {
+  FogMode,
+  FogSubtool,
+  FogToolSettings,
+} from './fogSettings';
 import {
   drawingStyle,
   type PaintSettings,
@@ -60,10 +66,18 @@ interface MapStageProps {
     operationId: string,
     arrangement?: SceneArrangement,
   ) => Promise<SceneRecord | null>;
+  onCommitFog?: (
+    scene: SceneRecord,
+    mutation: SceneFogMutation,
+    operationId: string,
+  ) => Promise<SceneRecord | null>;
   onRedo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   onUndo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   paintSettings?: PaintSettings;
   paintSubtool?: PaintSubtool;
+  fogMode?: FogMode;
+  fogSettings?: FogToolSettings;
+  fogSubtool?: FogSubtool;
   shapeSettings?: ShapeSettings;
   shapeSubtool?: ShapeSubtool;
   textSettings?: TextSettings;
@@ -96,10 +110,14 @@ export function MapStage({
   onActiveLayerChange,
   onCommitImages,
   onCommitObjects,
+  onCommitFog,
   onRedo,
   onUndo,
   paintSettings,
   paintSubtool = 'freeform',
+  fogMode = 'reveal',
+  fogSettings,
+  fogSubtool = 'brush',
   shapeSettings,
   shapeSubtool = 'sphere',
   textSettings,
@@ -199,6 +217,11 @@ export function MapStage({
           renderer.showDrawingPreview(preview);
         }
       }),
+      networkApi.onFogPreview((preview) => {
+        if (matchesScene(preview.campaignId, preview.sceneId)) {
+          renderer.showFogPreview(preview);
+        }
+      }),
       networkApi.onShapePreview((preview) => {
         if (matchesScene(preview.campaignId, preview.sceneId)) {
           renderer.showShapePreview(preview);
@@ -229,6 +252,12 @@ export function MapStage({
       actorId: sessionUserId,
       canEditImages: session.role === 'gm',
       editable: activeTool === 'select',
+      fogEnabled: session.role === 'gm' && activeTool === 'fog',
+      fogMode,
+      fogSubtool,
+      fogBrushHardness: fogSettings?.brushHardness,
+      fogBrushWidth: fogSettings?.brushWidth,
+      fogGmOpacity: fogSettings?.gmOpacity,
       measureEnabled: activeTool === 'measure',
       paintEnabled: activeTool === 'paint',
       paintKind: paintSubtool,
@@ -250,6 +279,16 @@ export function MapStage({
             : onCommitImages
               ? await onCommitImages(current, state)
               : null
+          : null;
+        if (saved) {
+          sceneRef.current = saved;
+        }
+        return saved;
+      },
+      onFogCommit: async (mutation, operationId) => {
+        const current = sceneRef.current;
+        const saved = current && onCommitFog
+          ? await onCommitFog(current, mutation, operationId)
           : null;
         if (saved) {
           sceneRef.current = saved;
@@ -297,6 +336,12 @@ export function MapStage({
           campaignId: session.campaignId,
         });
       },
+      onFogPreview: (preview) => {
+        void networkApi.sendFogPreview({
+          ...preview,
+          campaignId: session.campaignId,
+        });
+      },
       onShapePreview: (preview) => {
         void networkApi.sendShapePreview({
           ...preview,
@@ -326,9 +371,13 @@ export function MapStage({
   }, [
     activeLayer,
     activeTool,
+    fogMode,
+    fogSettings,
+    fogSubtool,
     onActiveLayerChange,
     onCommitImages,
     onCommitObjects,
+    onCommitFog,
     onRedo,
     onUndo,
     networkApi,

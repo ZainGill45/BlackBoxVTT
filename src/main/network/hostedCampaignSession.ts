@@ -32,6 +32,7 @@ import type {
   SessionChatHistoryInput,
   SessionChatMessageInput,
   SessionDrawingPreview,
+  SessionFogPreview,
   SessionMapPing,
   SessionMeasurementUpdate,
   SessionShapePreview,
@@ -342,6 +343,13 @@ export class HostedCampaignSession implements CampaignNetworkSession {
 
   sendDrawingPreview(input: SessionDrawingPreview): Promise<void> {
     return this.server.broadcastDrawingPreview({
+      ...input,
+      campaignId: this.campaignId,
+    });
+  }
+
+  sendFogPreview(input: SessionFogPreview): Promise<void> {
+    return this.server.broadcastFogPreview({
       ...input,
       campaignId: this.campaignId,
     });

@@ -13,6 +13,7 @@ export function createFakeSceneRenderer(): SceneRendererHandle {
     setInteraction: vi.fn(),
     setScene: vi.fn(),
     showDrawingPreview: vi.fn(),
+    showFogPreview: vi.fn(),
     showMeasurement: vi.fn(),
     showShapePreview: vi.fn(),
     showPing: vi.fn(),

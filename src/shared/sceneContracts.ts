@@ -5,6 +5,7 @@ import {
   sceneManifestSchema,
   sceneObjectTransformSchema,
   scenePatchSchema,
+  sceneFogOperationSchema,
 } from './sceneSchema';
 
 export const sceneCampaignInputSchema = z
@@ -53,6 +54,21 @@ export const sceneArrangementSchema = z.discriminatedUnion('kind', [
 ]);
 export const setSceneObjectsInputSchema = setSceneImagesInputSchema.extend({
   arrangement: sceneArrangementSchema.optional(),
+  operationId: z.string().uuid(),
+});
+export const sceneFogMutationSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('append'), operation: sceneFogOperationSchema }).strict(),
+  z.object({ kind: z.literal('clear-all') }).strict(),
+  z.object({ kind: z.literal('cover-all') }).strict(),
+  z
+    .object({
+      color: z.string().regex(/^#[0-9a-f]{6}$/i),
+      kind: z.literal('set-color'),
+    })
+    .strict(),
+]);
+export const setSceneFogInputSchema = trashSceneInputSchema.extend({
+  mutation: sceneFogMutationSchema,
   operationId: z.string().uuid(),
 });
 export const sceneHistoryInputSchema = sceneCampaignInputSchema.extend({
@@ -110,6 +126,8 @@ export type TrashSceneInput = z.infer<typeof trashSceneInputSchema>;
 export type UpdateSceneInput = z.infer<typeof updateSceneInputSchema>;
 export type SetSceneImagesInput = z.infer<typeof setSceneImagesInputSchema>;
 export type SetSceneObjectsInput = z.infer<typeof setSceneObjectsInputSchema>;
+export type SceneFogMutation = z.infer<typeof sceneFogMutationSchema>;
+export type SetSceneFogInput = z.infer<typeof setSceneFogInputSchema>;
 export type SceneArrangement = z.infer<typeof sceneArrangementSchema>;
 export type SceneHistoryInput = z.infer<typeof sceneHistoryInputSchema>;
 export type SceneEditActor = z.infer<typeof sceneEditActorSchema>;

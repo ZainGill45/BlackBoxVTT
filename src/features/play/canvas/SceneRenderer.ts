@@ -10,9 +10,12 @@ import type { GifSource } from 'pixi.js/gif';
 import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
+  MAX_FOG_PREVIEW_POINTS,
   MAX_MEASUREMENT_POINTS,
   type DrawingPreviewEvent,
   type DrawingPreviewUpdate,
+  type FogBrushPreviewEvent,
+  type FogBrushPreviewUpdate,
   type MapPing,
   type MeasurementEvent,
   type MeasurementPoint,
@@ -27,10 +30,13 @@ import {
   sceneObjectStateOf,
   MAX_SCENE_IMAGES,
   MAX_SCENE_SHAPES,
+  MAX_FOG_OPERATION_POINTS,
   type SceneDrawing,
   type SceneDrawingPoint,
   type SceneDrawingStyle,
   type SceneImage,
+  type SceneFogMutation,
+  type SceneFogOperation,
   type SceneImageLayer,
   type SceneObjectState,
   type SceneArrangement,
@@ -128,6 +134,7 @@ import {
   appendFreeformPoint,
   compactPreviewPoints,
   createSceneDrawing,
+  simplifyFreeform,
 } from './scenePaintInteraction';
 import {
   activeMeasurementUpdate,
@@ -162,6 +169,7 @@ import {
   drawImagePlaceholder,
 } from './additionalImageRenderer';
 import { SceneShapeRenderer } from './sceneShapeRenderer';
+import { fogCoversPoint, SceneFogRenderer } from './sceneFogRenderer';
 import styles from './SceneRenderer.module.css';
 
 /**
@@ -202,6 +210,7 @@ export interface SceneRendererHandle {
   selectImages(ids: string[]): void;
   showMeasurement(update: MeasurementEvent): void;
   showDrawingPreview(preview: DrawingPreviewEvent): void;
+  showFogPreview(preview: FogBrushPreviewEvent): void;
   showShapePreview(preview: ShapePreviewEvent): void;
   showPing(ping: RendererMapPing, centerCamera?: boolean): void;
   showTransformCancelled(input: SceneTransformPreviewCancel): void;
@@ -223,6 +232,12 @@ export interface SceneRendererInteraction {
   paintEnabled?: boolean;
   paintKind?: 'freeform' | 'polyline';
   paintStyle?: SceneDrawingStyle;
+  fogEnabled?: boolean;
+  fogMode?: 'hide' | 'reveal';
+  fogSubtool?: 'box' | 'brush';
+  fogBrushHardness?: number;
+  fogBrushWidth?: number;
+  fogGmOpacity?: number;
   shapeEnabled?: boolean;
   shapeKind?: SceneShapeKind;
   shapeStyle?: SceneShapeStyle;
@@ -238,6 +253,13 @@ export interface SceneRendererInteraction {
   onMeasurementUpdate?: (update: RendererMeasurementUpdate) => void;
   onDrawingPreview?: (
     preview: Omit<DrawingPreviewUpdate, 'campaignId'>,
+  ) => void;
+  onFogCommit?: (
+    mutation: SceneFogMutation,
+    operationId: string,
+  ) => Promise<SceneRecord | null>;
+  onFogPreview?: (
+    preview: Omit<FogBrushPreviewUpdate, 'campaignId'>,
   ) => void;
   onShapePreview?: (
     preview: Omit<ShapePreviewUpdate, 'campaignId'>,
@@ -462,6 +484,13 @@ export class SceneRenderer implements SceneRendererHandle {
   >();
   private readonly remoteMeasurementVersions = new Map<string, number>();
   private readonly paintPreviewGraphics = new Graphics();
+  private readonly fogRenderer = new SceneFogRenderer();
+  private localFogOperation: SceneFogOperation | null = null;
+  private readonly completedFogOperationIds = new Set<string>();
+  private readonly remoteFogPreviews = new Map<
+    string,
+    { lastAt: number; preview: FogBrushPreviewEvent }
+  >();
   private readonly remotePaintGraphics = new Graphics();
   private readonly remotePaintPreviews = new Map<
     string,
@@ -616,6 +645,14 @@ export class SceneRenderer implements SceneRendererHandle {
     return gestureOfKind(this.gesture, 'shape');
   }
 
+  private get activeFogBrush() {
+    return gestureOfKind(this.gesture, 'fog-brush');
+  }
+
+  private get activeFogBox() {
+    return gestureOfKind(this.gesture, 'fog-box');
+  }
+
   private set activePolyline(
     value: Omit<
       Extract<SceneGesture, { kind: 'polyline' }>,
@@ -754,13 +791,14 @@ export class SceneRenderer implements SceneRendererHandle {
     this.app.stage.addChild(this.world);
     this.app.stage.addChild(this.grid);
     this.app.stage.addChild(this.tokenWorld);
-    this.gmWorld.alpha = 0.5;
-    this.app.stage.addChild(this.gmWorld);
     this.app.stage.addChild(this.remotePaintGraphics);
     this.app.stage.addChild(this.paintPreviewGraphics);
-    this.app.stage.addChild(this.outline);
     this.app.stage.addChild(this.selectionOverlay.selection);
     this.app.stage.addChild(this.selectionOverlay.marquee);
+    this.app.stage.addChild(this.fogRenderer.sprite);
+    this.gmWorld.alpha = 0.5;
+    this.app.stage.addChild(this.gmWorld);
+    this.app.stage.addChild(this.outline);
     this.app.stage.addChild(this.pingGraphics);
     this.app.stage.addChild(this.measurementGraphics);
 
@@ -796,6 +834,10 @@ export class SceneRenderer implements SceneRendererHandle {
     const shapeChanged =
       this.interaction.shapeEnabled !== options.shapeEnabled ||
       this.interaction.shapeKind !== options.shapeKind;
+    const fogChanged =
+      this.interaction.fogEnabled !== options.fogEnabled ||
+      this.interaction.fogMode !== options.fogMode ||
+      this.interaction.fogSubtool !== options.fogSubtool;
     const measurementDisabled =
       this.interaction.measureEnabled && !options.measureEnabled;
     const textEditingDisabled =
@@ -815,6 +857,9 @@ export class SceneRenderer implements SceneRendererHandle {
     if (shapeChanged || layerChanged) {
       this.cancelShapeGesture();
     }
+    if (fogChanged || layerChanged) {
+      this.cancelFogGesture();
+    }
     if (textEditingDisabled) {
       void this.finishTextEditor(true);
     }
@@ -831,6 +876,7 @@ export class SceneRenderer implements SceneRendererHandle {
     }
     this.drawSelection();
     this.drawMeasurements();
+    this.renderFog();
   }
 
   selectImages(ids: string[]): void {
@@ -852,14 +898,17 @@ export class SceneRenderer implements SceneRendererHandle {
       this.remotePaintGraphics.clear();
       this.remoteShapePreviews.clear();
       this.remoteTransformStarts.clear();
+      this.remoteFogPreviews.clear();
     }
     if (sceneChanged) {
       this.remoteShapeSequences.clear();
+      this.completedFogOperationIds.clear();
     }
     if (sceneChanged) {
       void this.finishTextEditor(false);
       this.cancelPaintGesture();
       this.cancelShapeGesture();
+      this.cancelFogGesture();
       this.cancelMeasurement();
       this.clearRemoteMeasurements();
       this.clearPings();
@@ -880,6 +929,16 @@ export class SceneRenderer implements SceneRendererHandle {
       void this.finishNudge(true);
     }
     this.scene = scene;
+    for (const operation of scene?.fog.operations ?? []) {
+      this.completedFogOperationIds.delete(operation.id);
+      this.completedFogOperationIds.add(operation.id);
+    }
+    while (this.completedFogOperationIds.size > 512) {
+      const oldest = this.completedFogOperationIds.values().next().value;
+      if (oldest) {
+        this.completedFogOperationIds.delete(oldest);
+      }
+    }
     const textFontContent = scene
       ? Object.values(scene.texts)
           .flat()
@@ -986,7 +1045,9 @@ export class SceneRenderer implements SceneRendererHandle {
     this.cancelMeasurement();
     this.cancelPaintGesture();
     this.cancelShapeGesture();
+    this.cancelFogGesture();
     this.remotePaintPreviews.clear();
+    this.remoteFogPreviews.clear();
     this.remotePaintGraphics.clear();
     this.remoteTransformStarts.clear();
     this.clearRemoteMeasurements();
@@ -1021,6 +1082,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.shapeRenderer.clear();
     this.textRenderer.clear();
     this.additionalImages.destroy();
+    this.fogRenderer.destroy();
     this.mapPlaceholder?.destroy();
     this.mapPlaceholder = null;
     this.mapGifSource?.destroy();
@@ -1405,6 +1467,43 @@ export class SceneRenderer implements SceneRendererHandle {
       }, MEASUREMENT_EXPIRY_MS + 20);
     }
     this.drawRemotePaintPreviews();
+  }
+
+  showFogPreview(preview: FogBrushPreviewEvent): void {
+    if (
+      !this.scene ||
+      preview.sceneId !== this.scene.id ||
+      this.completedFogOperationIds.has(preview.operationId) ||
+      this.scene.fog.operations.some(
+        (operation) => operation.id === preview.operationId,
+      )
+    ) {
+      return;
+    }
+    const previous = this.remoteFogPreviews.get(preview.operationId)?.preview;
+    if (previous && preview.sequence <= previous.sequence) {
+      return;
+    }
+    if (!preview.active) {
+      this.remoteFogPreviews.delete(preview.operationId);
+    } else {
+      this.remoteFogPreviews.set(preview.operationId, {
+        lastAt: Date.now(),
+        preview: structuredClone(preview),
+      });
+      const sequence = preview.sequence;
+      setTimeout(() => {
+        const current = this.remoteFogPreviews.get(preview.operationId);
+        if (
+          current?.preview.sequence === sequence &&
+          Date.now() - current.lastAt >= MEASUREMENT_EXPIRY_MS
+        ) {
+          this.remoteFogPreviews.delete(preview.operationId);
+          this.renderFog();
+        }
+      }, MEASUREMENT_EXPIRY_MS + 20);
+    }
+    this.renderFog();
   }
 
   showShapePreview(preview: ShapePreviewEvent): void {
@@ -1950,6 +2049,9 @@ export class SceneRenderer implements SceneRendererHandle {
     screenPoint: { x: number; y: number },
   ): SceneText | null {
     const point = screenToScene(this.camera, this.viewport, screenPoint);
+    if (this.playerFogCovers(point)) {
+      return null;
+    }
     const targets = this.activeTargets();
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       const target = targets[index];
@@ -2245,6 +2347,9 @@ export class SceneRenderer implements SceneRendererHandle {
 
   private hitAt(point: { x: number; y: number }): string | null {
     const scenePoint = screenToScene(this.camera, this.viewport, point);
+    if (this.playerFogCovers(scenePoint)) {
+      return null;
+    }
     const targets = this.activeTargets();
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       if (
@@ -2262,6 +2367,14 @@ export class SceneRenderer implements SceneRendererHandle {
       }
     }
     return null;
+  }
+
+  private playerFogCovers(point: { x: number; y: number }): boolean {
+    return Boolean(
+      this.scene &&
+        this.interaction.actorId != null &&
+        fogCoversPoint(this.scene.fog, point),
+    );
   }
 
   private drawSelection(): void {
@@ -2765,6 +2878,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.drawRemotePaintPreviews();
     this.drawPaintPreview();
     this.renderShapes();
+    this.renderFog();
     this.syncTextEditor();
   }
 
@@ -2941,6 +3055,262 @@ export class SceneRenderer implements SceneRendererHandle {
     this.paintPreviewGraphics.clear();
   }
 
+  private fogBrushOperation(
+    gesture: Extract<SceneGesture, { kind: 'fog-brush' }>,
+  ): SceneFogOperation {
+    return {
+      hardness: gesture.hardness,
+      id: gesture.operationId,
+      kind: 'brush',
+      mode: gesture.mode,
+      points: gesture.points.map((point) => ({ ...point })),
+      width: gesture.width,
+    };
+  }
+
+  private fogBoxOperation(
+    gesture: Extract<SceneGesture, { kind: 'fog-box' }>,
+  ): SceneFogOperation {
+    return {
+      height: Math.abs(gesture.current.y - gesture.start.y),
+      id: gesture.operationId,
+      kind: 'box',
+      mode: gesture.mode,
+      width: Math.abs(gesture.current.x - gesture.start.x),
+      x: Math.min(gesture.start.x, gesture.current.x),
+      y: Math.min(gesture.start.y, gesture.current.y),
+    };
+  }
+
+  private emitFogSnapshot(
+    gesture: Extract<SceneGesture, { kind: 'fog-brush' }>,
+    active: boolean,
+  ): void {
+    if (!this.scene) {
+      return;
+    }
+    gesture.sequence = (gesture.sequence + 1) >>> 0;
+    this.interaction.onFogPreview?.({
+      active,
+      hardness: gesture.hardness,
+      mode: gesture.mode,
+      operationId: gesture.operationId,
+      points: active
+        ? compactPreviewPoints(gesture.points, MAX_FOG_PREVIEW_POINTS)
+        : [],
+      sceneId: this.scene.id,
+      sequence: gesture.sequence,
+      width: gesture.width,
+    });
+  }
+
+  private beginFogGesture(event: PointerEvent): boolean {
+    if (
+      event.button !== 0 ||
+      !this.scene ||
+      this.committing ||
+      !this.interaction.fogEnabled ||
+      !this.interaction.fogMode ||
+      !this.interaction.fogSubtool ||
+      !this.interaction.onFogCommit
+    ) {
+      return false;
+    }
+    const point = this.scenePointInside(this.localPoint(event));
+    if (!point) {
+      return true;
+    }
+    event.preventDefault();
+    this.closeContextMenu();
+    this.cancelPendingPing();
+    this.container?.focus();
+    const operationId = crypto.randomUUID();
+    if (this.interaction.fogSubtool === 'brush') {
+      const gesture: Extract<SceneGesture, { kind: 'fog-brush' }> = {
+        hardness: this.interaction.fogBrushHardness ?? 1,
+        kind: 'fog-brush',
+        mode: this.interaction.fogMode,
+        operationId,
+        pointerId: event.pointerId,
+        points: [point],
+        sequence: 0,
+        width: this.interaction.fogBrushWidth ?? 70,
+      };
+      if (!this.beginGesture(gesture)) {
+        return true;
+      }
+      this.localFogOperation = this.fogBrushOperation(gesture);
+      this.emitFogSnapshot(gesture, true);
+    } else {
+      const gesture: Extract<SceneGesture, { kind: 'fog-box' }> = {
+        current: point,
+        kind: 'fog-box',
+        mode: this.interaction.fogMode,
+        operationId,
+        pointerId: event.pointerId,
+        start: point,
+      };
+      if (!this.beginGesture(gesture)) {
+        return true;
+      }
+      this.localFogOperation = this.fogBoxOperation(gesture);
+    }
+    this.container?.setPointerCapture(event.pointerId);
+    this.renderFog();
+    return true;
+  }
+
+  private updateFogGesture(event: PointerEvent): boolean {
+    const brush = this.activeFogBrush;
+    if (brush?.pointerId === event.pointerId) {
+      const point = this.scenePointInside(this.localPoint(event));
+      if (point && appendFreeformPoint(brush.points, point, this.camera.zoom)) {
+        event.preventDefault();
+        this.localFogOperation = this.fogBrushOperation(brush);
+        this.emitFogSnapshot(brush, true);
+        this.renderFog();
+      }
+      return true;
+    }
+    const box = this.activeFogBox;
+    if (box?.pointerId === event.pointerId) {
+      const point = this.scenePointInside(this.localPoint(event));
+      if (point) {
+        event.preventDefault();
+        box.current = point;
+        this.localFogOperation = this.fogBoxOperation(box);
+        this.renderFog();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private finishFogGesture(event: PointerEvent): boolean {
+    const brush = this.activeFogBrush;
+    const box = this.activeFogBox;
+    const gesture = brush ?? box;
+    if (!gesture || gesture.pointerId !== event.pointerId) {
+      return false;
+    }
+    event.preventDefault();
+    if (this.container?.hasPointerCapture(event.pointerId)) {
+      this.container.releasePointerCapture(event.pointerId);
+    }
+    this.finishGesture(gesture.kind);
+    if (event.type === 'pointercancel') {
+      if (brush) {
+        this.emitFogSnapshot(brush, false);
+      }
+      this.localFogOperation = null;
+      this.renderFog();
+      return true;
+    }
+    const operation = brush
+      ? {
+          ...this.fogBrushOperation(brush),
+          points: simplifyFreeform(brush.points).slice(
+            0,
+            MAX_FOG_OPERATION_POINTS,
+          ),
+        }
+      : this.fogBoxOperation(box!);
+    if (
+      (operation.kind === 'box' &&
+        (operation.width <= 0 || operation.height <= 0)) ||
+      !this.interaction.onFogCommit
+    ) {
+      if (brush) {
+        this.emitFogSnapshot(brush, false);
+      }
+      this.localFogOperation = null;
+      this.renderFog();
+      return true;
+    }
+    this.localFogOperation = operation;
+    this.renderFog();
+    void this.commitFogOperation(operation, brush ?? null);
+    return true;
+  }
+
+  private async commitFogOperation(
+    operation: SceneFogOperation,
+    brush: Extract<SceneGesture, { kind: 'fog-brush' }> | null,
+  ): Promise<void> {
+    this.committing = true;
+    try {
+      const saved = await this.interaction.onFogCommit?.(
+        { kind: 'append', operation },
+        operation.id,
+      );
+      if (saved) {
+        this.completedFogOperationIds.add(operation.id);
+        this.remoteFogPreviews.delete(operation.id);
+        this.scene = saved;
+      } else if (brush) {
+        this.emitFogSnapshot(brush, false);
+      }
+    } catch {
+      if (brush) {
+        this.emitFogSnapshot(brush, false);
+      }
+    } finally {
+      this.committing = false;
+      if (this.localFogOperation?.id === operation.id) {
+        this.localFogOperation = null;
+      }
+      this.renderFog();
+    }
+  }
+
+  private cancelFogGesture(): void {
+    const brush = this.activeFogBrush;
+    const box = this.activeFogBox;
+    if (brush) {
+      this.emitFogSnapshot(brush, false);
+    }
+    const pointerId = brush?.pointerId ?? box?.pointerId;
+    if (pointerId !== undefined && this.container?.hasPointerCapture(pointerId)) {
+      this.container.releasePointerCapture(pointerId);
+    }
+    if (brush) {
+      this.finishGesture('fog-brush');
+    }
+    if (box) {
+      this.finishGesture('fog-box');
+    }
+    this.localFogOperation = null;
+    this.renderFog();
+  }
+
+  private renderFog(): void {
+    const operations: SceneFogOperation[] = [];
+    for (const { preview } of this.remoteFogPreviews.values()) {
+      if (!preview.active || this.completedFogOperationIds.has(preview.operationId)) {
+        continue;
+      }
+      operations.push({
+        hardness: preview.hardness,
+        id: preview.operationId,
+        kind: 'brush',
+        mode: preview.mode,
+        points: preview.points.map((point) => ({ ...point })),
+        width: preview.width,
+      });
+    }
+    if (this.localFogOperation) {
+      operations.push(structuredClone(this.localFogOperation));
+    }
+    this.fogRenderer.render({
+      camera: this.camera,
+      gmOpacity: this.interaction.fogGmOpacity ?? 0.35,
+      isGameMaster: this.interaction.actorId == null,
+      operations,
+      scene: this.scene,
+      viewport: this.viewport,
+    });
+  }
+
   private emitShapeSnapshot(
     active: Extract<SceneGesture, { kind: 'shape' }>,
     phase: ShapePreviewUpdate['phase'],
@@ -3046,6 +3416,9 @@ export class SceneRenderer implements SceneRendererHandle {
     // Middle button only. The left button belongs to the tools — selecting,
     // painting, measuring — so it must never move the camera.
     if (!this.scene) {
+      return;
+    }
+    if (this.beginFogGesture(event)) {
       return;
     }
     const paintKind = this.interaction.paintKind;
@@ -3362,6 +3735,9 @@ export class SceneRenderer implements SceneRendererHandle {
   };
 
   private readonly handlePointerMove = (event: PointerEvent) => {
+    if (this.updateFogGesture(event)) {
+      return;
+    }
     const freeform = this.activeFreeform;
     const polyline = this.activePolyline;
     const shapeGesture = this.activeShape;
@@ -3610,6 +3986,9 @@ export class SceneRenderer implements SceneRendererHandle {
   };
 
   private readonly handlePointerUp = (event: PointerEvent) => {
+    if (this.finishFogGesture(event)) {
+      return;
+    }
     const plan = planPointerUp(this.interactionEngine, {
       button: event.button,
       cancelled: event.type === 'pointercancel',
@@ -3950,6 +4329,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.cancelMeasurement();
     this.cancelPaintGesture();
     this.cancelShapeGesture();
+    this.cancelFogGesture();
     this.cancelEditGesture();
     if (this.nudgeBefore) {
       void this.finishNudge();
@@ -3963,6 +4343,11 @@ export class SceneRenderer implements SceneRendererHandle {
     if (event.key === 'Escape' && this.activeShape) {
       event.preventDefault();
       this.cancelShapeGesture();
+      return;
+    }
+    if (event.key === 'Escape' && (this.activeFogBrush || this.activeFogBox)) {
+      event.preventDefault();
+      this.cancelFogGesture();
       return;
     }
     const plan = planKeyDown({

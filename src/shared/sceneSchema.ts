@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  DEFAULT_FOG_COLOR,
   MAX_DRAWING_POINTS,
   GRID_COLOR_PATTERN,
   MAX_SCENE_DRAWINGS,
@@ -11,6 +12,9 @@ import {
   MAX_SCENE_TEXT_RASTER_PIXELS,
   MAX_SCENE_TEXTS,
   MAX_SCENE_SHAPES,
+  MAX_SCENE_FOG_OPERATIONS,
+  MAX_SCENE_FOG_POINTS,
+  MAX_FOG_OPERATION_POINTS,
   MAX_TEXT_CHARACTERS,
   MAX_TEXT_LINES,
   MAX_TEXT_RASTER_DIMENSION,
@@ -211,6 +215,64 @@ export const sceneTextStyleSchema = z
     strokeWidth: bounded(sceneBounds.textStrokeWidth),
   })
   .strict();
+
+export const sceneFogPointSchema = z
+  .object({
+    x: z.number().finite().min(0).max(sceneBounds.width.max),
+    y: z.number().finite().min(0).max(sceneBounds.height.max),
+  })
+  .strict();
+
+const sceneFogOperationBaseSchema = z.object({
+  id: z.string().uuid(),
+  mode: z.enum(['hide', 'reveal']),
+});
+
+export const sceneFogOperationSchema = z.discriminatedUnion('kind', [
+  sceneFogOperationBaseSchema
+    .extend({
+      height: z.number().finite().positive().max(sceneBounds.height.max),
+      kind: z.literal('box'),
+      width: z.number().finite().positive().max(sceneBounds.width.max),
+      x: z.number().finite().min(0).max(sceneBounds.width.max),
+      y: z.number().finite().min(0).max(sceneBounds.height.max),
+    })
+    .strict(),
+  sceneFogOperationBaseSchema
+    .extend({
+      hardness: bounded(sceneBounds.drawingHardness),
+      kind: z.literal('brush'),
+      points: z
+        .array(sceneFogPointSchema)
+        .min(1)
+        .max(MAX_FOG_OPERATION_POINTS),
+      width: bounded(sceneBounds.fogBrushWidth),
+    })
+    .strict(),
+]);
+
+export const sceneFogSchema = z
+  .object({
+    base: z.enum(['clear', 'covered']),
+    color: z.string().regex(GRID_COLOR_PATTERN),
+    operations: z.array(sceneFogOperationSchema).max(MAX_SCENE_FOG_OPERATIONS),
+  })
+  .strict()
+  .refine(
+    (fog) =>
+      fog.operations.reduce(
+        (total, operation) =>
+          total + (operation.kind === 'brush' ? operation.points.length : 0),
+        0,
+      ) <= MAX_SCENE_FOG_POINTS,
+    `Scene fog can contain at most ${MAX_SCENE_FOG_POINTS} brush points.`,
+  )
+  .refine(
+    (fog) =>
+      new Set(fog.operations.map((operation) => operation.id)).size ===
+      fog.operations.length,
+    'Scene fog operation IDs must be unique.',
+  );
 
 export const sceneTextSchema = sceneTextTransformSchema
   .extend({
@@ -419,6 +481,7 @@ export const sceneRecordSchema = z
   .object({
     createdAt: z.string().datetime(),
     distance: bounded(sceneBounds.distance),
+    fog: sceneFogSchema,
     grid: sceneGridSchema,
     height: boundedInteger(sceneBounds.height),
     id: z.string().uuid(),
@@ -482,6 +545,15 @@ export const persistedSceneRecordSchema = z.preprocess((value) => {
     });
   return {
     ...record,
+    ...(record.fog === undefined
+      ? {
+          fog: {
+            base: 'clear',
+            color: DEFAULT_FOG_COLOR,
+            operations: [],
+          },
+        }
+      : {}),
     shapes,
     ...(record.texts === undefined
       ? { texts: { gm: [], map: [], token: [] } }
@@ -530,6 +602,9 @@ export const sceneObjectTransformSchema = z.union([
 ]);
 
 export type SceneGrid = z.infer<typeof sceneGridSchema>;
+export type SceneFogPoint = z.infer<typeof sceneFogPointSchema>;
+export type SceneFogOperation = z.infer<typeof sceneFogOperationSchema>;
+export type SceneFog = z.infer<typeof sceneFogSchema>;
 export type SceneGridType = SceneGrid['type'];
 export type SceneImageTransform = z.infer<typeof sceneImageTransformSchema>;
 export type SceneMapImage = z.infer<typeof sceneMapImageSchema>;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   createDefaultGrid,
+  createDefaultFog,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptyObjectOrderLayers,
@@ -24,6 +25,8 @@ import {
   type SceneDrawing,
   type SceneLayer,
   type SceneEditActor,
+  type SceneFog,
+  type SceneFogMutation,
   type SceneErrorCode,
   type SceneManifest,
   type SceneObjectState,
@@ -37,6 +40,7 @@ import {
   persistedSceneRecordSchema,
   sceneObjectStateSchema,
   sceneManifestSchema,
+  sceneFogSchema,
   sceneRecordSchema,
 } from '../shared/sceneSchema';
 import { fail } from '../shared/result';
@@ -133,6 +137,10 @@ interface SceneHistoryCommand {
     id: string;
     target: SceneObjectSnapshot;
   }>;
+  fog?: {
+    expected: SceneFog;
+    target: SceneFog;
+  };
   sceneId: string;
 }
 
@@ -718,6 +726,7 @@ export class SceneRepository {
       const scene: SceneRecord = {
         createdAt: timestamp,
         distance: DEFAULT_SCENE_DISTANCE,
+        fog: createDefaultFog(),
         grid: createDefaultGrid(),
         height: DEFAULT_SCENE_HEIGHT,
         id: this.createId(),
@@ -1527,7 +1536,10 @@ export class SceneRepository {
         if (
           command.changes.every(({ expected, id }) =>
             sameSnapshot(currentSnapshots.get(id) ?? null, expected),
-          )
+          ) &&
+          (!command.fog ||
+            JSON.stringify(command.fog.expected) ===
+              JSON.stringify(current.fog))
         ) {
           break;
         }
@@ -1597,6 +1609,9 @@ export class SceneRepository {
       const next: SceneRecord = {
         ...current,
         ...parsed.data,
+        ...(command.fog
+          ? { fog: structuredClone(command.fog.target) }
+          : {}),
         revision: current.revision + 1,
         updatedAt: this.now().toISOString(),
       };
@@ -1607,6 +1622,14 @@ export class SceneRepository {
           id,
           target: expected,
         })),
+        ...(command.fog
+          ? {
+              fog: {
+                expected: structuredClone(command.fog.target),
+                target: structuredClone(command.fog.expected),
+              },
+            }
+          : {}),
         sceneId,
       };
       const destinationStack = destination.get(key) ?? [];
@@ -1673,6 +1696,118 @@ export class SceneRepository {
       | { found?: unknown }
       | undefined;
     return row?.found === 1;
+  }
+
+  setFog(
+    sceneId: string,
+    mutation: SceneFogMutation,
+    expectedRevision: number,
+    operationId: string,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.mutate(async (manifest) => {
+      const current = manifest.scenes.find((scene) => scene.id === sceneId);
+      if (!current) {
+        return failure('not_found', 'The scene no longer exists.', sceneId);
+      }
+      const completedOperation: CompletedSceneOperation = {
+        actorKey: 'gm',
+        operationId,
+        sceneId,
+      };
+      try {
+        if (this.hasCompletedOperation(completedOperation)) {
+          return { ok: true, value: current };
+        }
+      } catch (error) {
+        this.warn('Failed to read durable fog operation state.', error);
+        return failure('storage_error', 'The fog could not be saved.', sceneId);
+      }
+      if (current.revision !== expectedRevision) {
+        return failure(
+          'conflict',
+          'The scene changed somewhere else. Reopen it and try again.',
+          sceneId,
+        );
+      }
+      const fog = structuredClone(current.fog);
+      if (mutation.kind === 'append') {
+        if (mutation.operation.id !== operationId) {
+          return failure(
+            'invalid_input',
+            'The fog operation identity is invalid.',
+            sceneId,
+          );
+        }
+        const operation = structuredClone(mutation.operation);
+        const outside = operation.kind === 'box'
+          ? operation.x + operation.width > current.width ||
+            operation.y + operation.height > current.height
+          : operation.points.some(
+              (point) =>
+                point.x < 0 ||
+                point.x > current.width ||
+                point.y < 0 ||
+                point.y > current.height,
+            );
+        if (outside) {
+          return failure(
+            'invalid_input',
+            'The fog operation is outside the scene.',
+            sceneId,
+          );
+        }
+        fog.operations.push(operation);
+      } else if (mutation.kind === 'clear-all') {
+        fog.base = 'clear';
+        fog.operations = [];
+      } else if (mutation.kind === 'cover-all') {
+        fog.base = 'covered';
+        fog.operations = [];
+      } else {
+        fog.color = mutation.color.toLowerCase();
+      }
+      const parsed = sceneFogSchema.safeParse(fog);
+      if (!parsed.success) {
+        return failure(
+          'invalid_input',
+          'The fog state is invalid or outside the supported safety bounds.',
+          sceneId,
+        );
+      }
+      if (JSON.stringify(parsed.data) === JSON.stringify(current.fog)) {
+        try {
+          this.rememberOperation(completedOperation);
+        } catch (error) {
+          this.warn('Failed to store durable fog operation state.', error);
+          return failure('storage_error', 'The fog could not be saved.', sceneId);
+        }
+        return { ok: true, value: current };
+      }
+      const next: SceneRecord = {
+        ...current,
+        fog: parsed.data,
+        revision: current.revision + 1,
+        updatedAt: this.now().toISOString(),
+      };
+      this.recordHistory({ kind: 'gm' }, {
+        changes: [],
+        fog: {
+          expected: structuredClone(next.fog),
+          target: structuredClone(current.fog),
+        },
+        sceneId,
+      });
+      return {
+        completedOperation,
+        manifest: {
+          ...manifest,
+          scenes: manifest.scenes.map((scene) =>
+            scene.id === sceneId ? next : scene,
+          ),
+        },
+        result: { ok: true, value: next },
+      };
+    });
   }
 
   private rememberOperation(operation: CompletedSceneOperation): void {

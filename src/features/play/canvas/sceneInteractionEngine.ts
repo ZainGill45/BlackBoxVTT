@@ -4,6 +4,7 @@ import type {
 import type {
   SceneDrawingPoint,
   SceneDrawingStyle,
+  SceneFogPoint,
   SceneObjectState,
   SceneShapeKind,
   SceneShapeStyle,
@@ -13,6 +14,24 @@ import type { ShapeSemanticHandle } from './shapeGeometry';
 
 export type SceneGesture =
   | { kind: 'idle' }
+  | {
+      current: SceneFogPoint;
+      kind: 'fog-box';
+      mode: 'hide' | 'reveal';
+      operationId: string;
+      pointerId: number;
+      start: SceneFogPoint;
+    }
+  | {
+      hardness: number;
+      kind: 'fog-brush';
+      mode: 'hide' | 'reveal';
+      operationId: string;
+      pointerId: number;
+      points: SceneFogPoint[];
+      sequence: number;
+      width: number;
+    }
   | {
       id: string;
       kind: 'shape';

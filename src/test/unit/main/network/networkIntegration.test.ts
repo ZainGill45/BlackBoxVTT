@@ -711,6 +711,67 @@ describe('drawings', () => {
 
 });
 
+describe('fog', () => {
+  it('streams GM brush snapshots over UDP before the same operation commits over TCP', async () => {
+    const operationId = '45454545-4545-4545-8545-454545454545';
+    const playerFogPreviews: unknown[] = [];
+    const observerFogPreviews: unknown[] = [];
+    player.on('fog-preview', (preview) => playerFogPreviews.push(preview));
+    observer.on('fog-preview', (preview) => observerFogPreviews.push(preview));
+    const preview = {
+      active: true,
+      campaignId,
+      hardness: 0.5,
+      mode: 'reveal' as const,
+      operationId,
+      points: [{ x: 100, y: 100 }, { x: 160, y: 120 }],
+      sceneId: presentedSceneId,
+      sequence: 1,
+      width: 70,
+    };
+
+    await host.sendFogPreview(preview);
+    await vi.waitFor(() => {
+      expect(playerFogPreviews).toEqual([preview]);
+      expect(observerFogPreviews).toEqual([preview]);
+    });
+    expect((await remoteScene(player))?.fog.operations).toEqual([]);
+
+    const current = (await sceneRepository.readManifest()).scenes.find(
+      (scene) => scene.id === presentedSceneId,
+    );
+    if (!current) {
+      throw new Error('Expected the host scene.');
+    }
+    const committed = await sceneRepository.setFog(
+      current.id,
+      {
+        kind: 'append',
+        operation: {
+          hardness: preview.hardness,
+          id: operationId,
+          kind: 'brush',
+          mode: preview.mode,
+          points: preview.points,
+          width: preview.width,
+        },
+      },
+      current.revision,
+      operationId,
+    );
+    expect(committed).toMatchObject({ ok: true });
+    await host.notifyScenePresented(campaignId);
+    await vi.waitFor(async () => {
+      expect((await remoteScene(player))?.fog.operations).toEqual([
+        expect.objectContaining({ id: operationId, kind: 'brush' }),
+      ]);
+      expect((await remoteScene(observer))?.fog.operations).toEqual([
+        expect.objectContaining({ id: operationId, kind: 'brush' }),
+      ]);
+    });
+  });
+});
+
 describe('text objects', () => {
   const textId = '12121212-1212-4212-8212-121212121212';
   const transformId = '13131313-1313-4313-8313-131313131313';

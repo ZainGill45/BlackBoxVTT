@@ -30,6 +30,13 @@ describe('createSceneApi', () => {
     await api.present({ campaignId, sceneId });
     await api.findDependents({ assetId, campaignId });
     await api.detachAsset({ assetId, campaignId });
+    await api.setFog({
+      campaignId,
+      expectedRevision: 3,
+      mutation: { kind: 'cover-all' },
+      operationId: '33333333-3333-4333-8333-333333333333',
+      sceneId,
+    });
 
     expect(channels).toEqual([
       sceneIpcChannels.list,
@@ -39,6 +46,7 @@ describe('createSceneApi', () => {
       sceneIpcChannels.present,
       sceneIpcChannels.findDependents,
       sceneIpcChannels.detachAsset,
+      sceneIpcChannels.setFog,
     ]);
     expect(invoke).toHaveBeenCalledWith(sceneIpcChannels.update, {
       campaignId,

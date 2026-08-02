@@ -1,15 +1,19 @@
 import {
   Brush,
+  BoxSelect,
   Circle,
   LogOut,
   PenTool,
   Power,
   Settings2,
+  Eye,
+  EyeOff,
   Square,
   Triangle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { IconButton } from '../../components/ui/IconButton';
+import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { IconTabs } from '../../components/ui/IconTabs';
 import { QuickActionButton } from '../../components/ui/QuickActionButton';
 import { ChatPanel } from './chat/ChatPanel';
@@ -26,6 +30,15 @@ import { ServerSettingsPanel } from './ServerSettingsPanel';
 import { PaintSettingsModal } from './PaintSettingsModal';
 import { TextSettingsModal } from './TextSettingsModal';
 import { ShapeSettingsModal } from './ShapeSettingsModal';
+import { FogSettingsModal } from './FogSettingsModal';
+import {
+  loadFogToolSettings,
+  saveFogToolSettings,
+  type FogMode,
+  type FogSubtool,
+  type FogToolSettings,
+} from './fogSettings';
+import { DEFAULT_FOG_COLOR } from '../../shared/scenes';
 import {
   loadPaintSettings,
   savePaintSettings,
@@ -104,6 +117,13 @@ export function PlayScreen({
   );
   const [shapeSettingsOpen, setShapeSettingsOpen] = useState(false);
   const [shapeSubtool, setShapeSubtool] = useState<ShapeSubtool>('sphere');
+  const [fogSettings, setFogSettings] = useState<FogToolSettings>(() =>
+    loadFogToolSettings(session),
+  );
+  const [fogSettingsOpen, setFogSettingsOpen] = useState(false);
+  const [fogMode, setFogMode] = useState<FogMode>('reveal');
+  const [fogSubtool, setFogSubtool] = useState<FogSubtool>('brush');
+  const [fogReset, setFogReset] = useState<'clear-all' | 'cover-all' | null>(null);
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
   const stageControls = useRef<MapStageControls>(null);
@@ -147,6 +167,10 @@ export function PlayScreen({
   useEffect(() => {
     saveShapeSettings(session, shapeSettings);
   }, [session, shapeSettings]);
+
+  useEffect(() => {
+    saveFogToolSettings(session, fogSettings);
+  }, [fogSettings, session]);
 
   useEffect(() => {
     const handlePaintWidthShortcut = (event: KeyboardEvent) => {
@@ -227,10 +251,14 @@ export function PlayScreen({
         onActiveLayerChange={handleLayerChange}
         onCommitImages={scenes.setImages}
         onCommitObjects={scenes.setObjects}
+        onCommitFog={scenes.setFog}
         onRedo={scenes.redo}
         onUndo={scenes.undo}
         paintSettings={paintSettings}
         paintSubtool={paintSubtool}
+        fogMode={fogMode}
+        fogSettings={fogSettings}
+        fogSubtool={fogSubtool}
         shapeSettings={shapeSettings}
         shapeSubtool={shapeSubtool}
         textSettings={textSettings}
@@ -296,6 +324,50 @@ export function PlayScreen({
                   <IconButton active={shapeSubtool === 'sphere'} aria-pressed={shapeSubtool === 'sphere'} icon={Circle} label="Sphere" onClick={() => setShapeSubtool('sphere')} />
                   <IconButton active={shapeSubtool === 'square'} aria-pressed={shapeSubtool === 'square'} icon={Square} label="Square" onClick={() => setShapeSubtool('square')} />
                   <IconButton active={shapeSubtool === 'cone'} aria-pressed={shapeSubtool === 'cone'} icon={Triangle} label="Cone" onClick={() => setShapeSubtool('cone')} />
+                </div>
+              ) : null}
+            </div>
+          ) : tool.id === 'fog' ? (
+            <div className={styles.toolWithRail} key={tool.id}>
+              <IconButton
+                active={activeTool === tool.id}
+                aria-pressed={activeTool === tool.id}
+                icon={tool.icon}
+                label={tool.label}
+                onClick={() => handleToolChange(tool.id)}
+              />
+              {activeTool === 'fog' ? (
+                <div aria-label="Fog tools" className={styles.toolRail} role="toolbar">
+                  <IconButton
+                    active={fogSettingsOpen}
+                    aria-pressed={fogSettingsOpen}
+                    icon={Settings2}
+                    label="Fog settings"
+                    onClick={() => setFogSettingsOpen(true)}
+                  />
+                  <IconButton
+                    active={fogMode === 'hide'}
+                    aria-pressed={fogMode === 'hide'}
+                    icon={fogMode === 'reveal' ? Eye : EyeOff}
+                    label={fogMode === 'reveal' ? 'Fog mode: Reveal' : 'Fog mode: Hide'}
+                    onClick={() =>
+                      setFogMode((current) => current === 'reveal' ? 'hide' : 'reveal')
+                    }
+                  />
+                  <IconButton
+                    active={fogSubtool === 'box'}
+                    aria-pressed={fogSubtool === 'box'}
+                    icon={BoxSelect}
+                    label="Box fog"
+                    onClick={() => setFogSubtool('box')}
+                  />
+                  <IconButton
+                    active={fogSubtool === 'brush'}
+                    aria-pressed={fogSubtool === 'brush'}
+                    icon={Brush}
+                    label="Brush fog"
+                    onClick={() => setFogSubtool('brush')}
+                  />
                 </div>
               ) : null}
             </div>
@@ -479,6 +551,52 @@ export function PlayScreen({
         settings={shapeSettings}
         onChange={setShapeSettings}
         onDismiss={() => setShapeSettingsOpen(false)}
+      />
+      <FogSettingsModal
+        key={fogSettingsOpen ? 'fog-open' : 'fog-closed'}
+        color={scenes.viewedScene?.fog.color ?? DEFAULT_FOG_COLOR}
+        isOpen={fogSettingsOpen}
+        settings={fogSettings}
+        onChange={setFogSettings}
+        onClearAll={() => {
+          setFogSettingsOpen(false);
+          setFogReset('clear-all');
+        }}
+        onColorChange={(color) => {
+          const scene = scenes.viewedScene;
+          if (scene) {
+            void scenes.setFog(
+              scene,
+              { color, kind: 'set-color' },
+              crypto.randomUUID(),
+            );
+          }
+        }}
+        onCoverAll={() => {
+          setFogSettingsOpen(false);
+          setFogReset('cover-all');
+        }}
+        onDismiss={() => setFogSettingsOpen(false)}
+      />
+      <ConfirmModal
+        cancelLabel="Cancel"
+        confirmLabel={fogReset === 'cover-all' ? 'Cover map' : 'Clear all fog'}
+        isOpen={fogReset !== null}
+        message={
+          fogReset === 'cover-all'
+            ? 'This replaces the current fog with complete map coverage.'
+            : 'This removes all fog coverage from the map.'
+        }
+        title={fogReset === 'cover-all' ? 'Cover map with fog?' : 'Clear all fog?'}
+        onCancel={() => setFogReset(null)}
+        onConfirm={() => {
+          const scene = scenes.viewedScene;
+          const action = fogReset;
+          setFogReset(null);
+          if (scene && action) {
+            void scenes.setFog(scene, { kind: action }, crypto.randomUUID());
+          }
+        }}
       />
     </section>
   );

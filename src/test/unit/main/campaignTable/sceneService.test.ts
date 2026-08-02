@@ -3,6 +3,7 @@ import { CampaignSceneService } from '../../../../main/campaignTable/sceneServic
 import type { SceneRepository } from '../../../../main/sceneRepository';
 import {
   createDefaultGrid,
+  createDefaultFog,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptySceneManifest,
@@ -23,6 +24,7 @@ function scene(): SceneRecord {
     createdAt: '2026-07-31T12:00:00.000Z',
     distance: 5,
     drawings: createEmptyDrawingLayers(),
+    fog: createDefaultFog(),
     grid: createDefaultGrid(),
     height: 100,
     id: sceneId,

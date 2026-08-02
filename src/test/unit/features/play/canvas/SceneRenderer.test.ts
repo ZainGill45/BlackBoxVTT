@@ -9,6 +9,7 @@ import type {
 } from '../../../../support/pixiStub';
 import {
   createDefaultGrid,
+  createDefaultFog,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptyShapeLayers,
@@ -17,6 +18,7 @@ import {
   MAX_SCENE_IMAGES,
   type SceneDrawing,
   type SceneDrawingStyle,
+  type SceneFogMutation,
   type SceneImage,
   type SceneObjectState,
   type SceneRecord,
@@ -75,6 +77,7 @@ const stubCreateImageBitmap = (() =>
 
 function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
   const drawings = overrides.drawings ?? createEmptyDrawingLayers();
+  const fog = overrides.fog ?? createDefaultFog();
   const images = overrides.images ?? createEmptyImageLayers();
   const shapes = overrides.shapes ?? createEmptyShapeLayers();
   const texts = overrides.texts ?? createEmptyTextLayers();
@@ -99,6 +102,7 @@ function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     width: 1920,
     ...overrides,
     drawings,
+    fog,
     images,
     shapes,
     texts,
@@ -389,7 +393,7 @@ describe('SceneRenderer', () => {
     const additionalImages = (renderer as unknown as {
       additionalImages: { sprite(id: string): Sprite | undefined };
     }).additionalImages;
-    expect(appStage.children).toHaveLength(11);
+    expect(appStage.children).toHaveLength(12);
     expect(additionalImages.sprite(tokenId)?.parent).toBe(tokenBand);
   });
 
@@ -471,6 +475,115 @@ describe('SceneRenderer', () => {
         points: [],
       }),
     );
+  });
+
+  it('streams brush fog snapshots but commits both fog tools only on release', async () => {
+    const current = scene();
+    const onFogPreview = vi.fn();
+    const onFogCommit = vi.fn(
+      async (mutation: SceneFogMutation, operationId: string) => {
+        void operationId;
+        return {
+          ...current,
+          fog: mutation.kind === 'append'
+            ? {
+                ...current.fog,
+                operations: [...current.fog.operations, mutation.operation],
+              }
+            : current.fog,
+          revision: current.revision + 1,
+        };
+      },
+    );
+    renderer.setScene(current, null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId: null,
+      editable: false,
+      fogBrushHardness: 0.4,
+      fogBrushWidth: 80,
+      fogEnabled: true,
+      fogMode: 'reveal',
+      fogSubtool: 'brush',
+      onFogCommit,
+      onFogPreview,
+    });
+
+    element.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 390,
+      clientY: 295,
+    }));
+    element.dispatchEvent(pointerEvent('pointermove', {
+      button: -1,
+      clientX: 450,
+      clientY: 325,
+    }));
+    expect(onFogCommit).not.toHaveBeenCalled();
+    expect(onFogPreview).toHaveBeenCalledWith(expect.objectContaining({
+      active: true,
+      hardness: 0.4,
+      mode: 'reveal',
+      width: 80,
+    }));
+    element.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 450,
+      clientY: 325,
+    }));
+
+    await vi.waitFor(() => expect(onFogCommit).toHaveBeenCalledTimes(1));
+    const [brushMutation, brushOperationId] = onFogCommit.mock.calls[0];
+    expect(brushMutation).toMatchObject({
+      kind: 'append',
+      operation: {
+        hardness: 0.4,
+        id: brushOperationId,
+        kind: 'brush',
+        mode: 'reveal',
+        width: 80,
+      },
+    });
+    if (brushMutation.kind !== 'append' || brushMutation.operation.kind !== 'brush') {
+      throw new Error('brush commit expected');
+    }
+    expect(brushMutation.operation.points.length).toBeGreaterThan(1);
+
+    const previewCount = onFogPreview.mock.calls.length;
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId: null,
+      editable: false,
+      fogEnabled: true,
+      fogMode: 'hide',
+      fogSubtool: 'box',
+      onFogCommit,
+      onFogPreview,
+    });
+    element.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 300,
+      clientY: 250,
+    }));
+    element.dispatchEvent(pointerEvent('pointermove', {
+      button: -1,
+      clientX: 500,
+      clientY: 350,
+    }));
+    expect(onFogCommit).toHaveBeenCalledTimes(1);
+    expect(onFogPreview).toHaveBeenCalledTimes(previewCount);
+    element.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 500,
+      clientY: 350,
+    }));
+
+    await vi.waitFor(() => expect(onFogCommit).toHaveBeenCalledTimes(2));
+    expect(onFogCommit.mock.calls[1][0]).toMatchObject({
+      kind: 'append',
+      operation: { kind: 'box', mode: 'hide' },
+    });
+    expect(onFogPreview).toHaveBeenCalledTimes(previewCount);
   });
 
   it('uses the default cursor for both paint tools', () => {
@@ -1379,14 +1492,15 @@ describe('SceneRenderer', () => {
 
     const appStage = (renderer as unknown as { app: { stage: Container } }).app
       .stage;
+    const gmBand = (renderer as unknown as { gmWorld: Container }).gmWorld;
     expect(appStage.children[2].alpha).toBe(1);
-    expect(appStage.children[3].alpha).toBe(0.5);
+    expect(gmBand.alpha).toBe(0.5);
 
     renderer.setInteraction({ activeLayer: 'gm', editable: true });
-    expect(appStage.children[3].alpha).toBe(1);
+    expect(gmBand.alpha).toBe(1);
 
     renderer.setInteraction({ activeLayer: 'map', editable: true });
-    expect(appStage.children[3].alpha).toBe(0.5);
+    expect(gmBand.alpha).toBe(0.5);
   });
 
   it('keeps unchanged sprites, textures, and camera state stable across additions and deletions', async () => {

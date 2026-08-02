@@ -99,6 +99,88 @@ test.describe('scene synchronization', () => {
     }
   });
 
+  test('streams brush fog continuously and delays box fog until commit', async () => {
+    await gm.window.getByRole('button', { name: 'Fog', exact: true }).click();
+    await gm.window.getByRole('button', { name: 'Fog mode: Reveal' }).click();
+    const before = await playerFrame();
+    const box = await stage(gm.window).boundingBox();
+    if (!box) {
+      throw new Error('The Game Master stage has no layout box.');
+    }
+    const region = {
+      height: 180,
+      width: 360,
+      x: centre.x - 180,
+      y: centre.y - 90,
+    };
+
+    await gm.window.mouse.move(box.x + centre.x - 140, box.y + centre.y);
+    await gm.window.mouse.down();
+    for (let step = 1; step <= 16; step += 1) {
+      await gm.window.mouse.move(
+        box.x + centre.x - 140 + step * 18,
+        box.y + centre.y,
+      );
+    }
+    await expect
+      .poll(
+        async () => pixelDifferenceRatioInRegion(
+          before,
+          await playerFrame(),
+          region,
+          4,
+        ),
+        { message: 'the player never rendered the live UDP fog brush' },
+      )
+      .toBeGreaterThan(0.01);
+    expect((await readScene(gm.window, CAMPAIGN)).fog.operations).toEqual([]);
+
+    await gm.window.mouse.up();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
+      .toEqual([
+        expect.objectContaining({ kind: 'brush', mode: 'hide' }),
+      ]);
+
+    await gm.window.getByRole('button', { name: 'Fog settings' }).click();
+    const settings = gm.window.getByRole('dialog', { name: 'Fog settings' });
+    await settings.getByRole('button', { name: 'Clear all fog' }).click();
+    const confirmation = gm.window.getByRole('dialog', {
+      name: 'Clear all fog?',
+    });
+    await confirmation.getByRole('button', { name: 'Clear all fog' }).click();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
+      .toEqual([]);
+    await expect
+      .poll(async () => pixelDifferenceRatio(before, await playerFrame()))
+      .toBeLessThan(VISIBLE_CHANGE);
+
+    await gm.window.getByRole('button', { name: 'Box fog' }).click();
+    const beforeBox = await playerFrame();
+    await gm.window.mouse.move(box.x + centre.x - 120, box.y + centre.y - 70);
+    await gm.window.mouse.down();
+    await gm.window.mouse.move(
+      box.x + centre.x + 120,
+      box.y + centre.y + 70,
+      { steps: 12 },
+    );
+    await player.window.waitForTimeout(500);
+    expect(pixelDifferenceRatio(beforeBox, await playerFrame()))
+      .toBeLessThan(VISIBLE_CHANGE);
+    expect((await readScene(gm.window, CAMPAIGN)).fog.operations).toEqual([]);
+
+    await gm.window.mouse.up();
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).fog.operations)
+      .toEqual([expect.objectContaining({ kind: 'box', mode: 'hide' })]);
+    await expect
+      .poll(async () => pixelDifferenceRatio(beforeBox, await playerFrame()), {
+        message: 'the committed TCP box fog never reached the player',
+      })
+      .toBeGreaterThan(0.01);
+  });
+
   test('mirrors an image the Game Master places on the token layer', async () => {
     await gm.window.getByRole('button', { name: 'Token layer' }).click();
     const before = await playerFrame();

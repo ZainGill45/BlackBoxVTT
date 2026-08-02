@@ -59,6 +59,10 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
       ipc.invoke(sceneIpcChannels.setObjects, input) as ReturnType<
         SceneApi['setObjects']
       >,
+    setFog: (input) =>
+      ipc.invoke(sceneIpcChannels.setFog, input) as ReturnType<
+        SceneApi['setFog']
+      >,
     trash: (input) =>
       ipc.invoke(sceneIpcChannels.trash, input) as ReturnType<
         SceneApi['trash']

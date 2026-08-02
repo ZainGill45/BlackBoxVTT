@@ -11,6 +11,7 @@ import {
   type SceneTransformPreviewStart,
   type SetSceneImagesInput,
   type SetSceneObjectsInput,
+  type SetSceneFogInput,
   type TrashSceneInput,
   type UpdateSceneInput,
 } from '../shared/scenes';
@@ -49,6 +50,7 @@ export interface CampaignSceneRuntime {
   setObjects(
     input: SetSceneObjectsInput,
   ): Promise<SceneRuntimeMutation<SceneRecord>>;
+  setFog(input: SetSceneFogInput): Promise<SceneRuntimeMutation<SceneRecord>>;
   trash(input: TrashSceneInput): Promise<SceneRuntimeMutation<null>>;
   undo(input: SceneHistoryInput): Promise<SceneRuntimeMutation<SceneRecord>>;
   update(input: UpdateSceneInput): Promise<SceneRuntimeMutation<SceneRecord>>;
@@ -131,6 +133,10 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
       changed: null,
       result: await this.transport.setObjects(input),
     };
+  }
+
+  setFog(): Promise<SceneRuntimeMutation<SceneRecord>> {
+    return this.readOnlyMutation();
   }
 
   trash(): Promise<SceneRuntimeMutation<null>> {
@@ -236,6 +242,19 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
         input.operationId,
         { kind: 'gm' },
         input.arrangement,
+      ),
+    );
+  }
+
+  setFog(
+    input: SetSceneFogInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>> {
+    return this.mutate(() =>
+      this.workspace.sceneRepository.setFog(
+        input.sceneId,
+        input.mutation,
+        input.expectedRevision,
+        input.operationId,
       ),
     );
   }

@@ -31,6 +31,7 @@ function setup() {
       listeners.set(event, listener);
     }),
     present: vi.fn(async () => ({ ok: true, value: null })),
+    setFog: vi.fn(async () => ({ ok: true, value: null })),
     trash: vi.fn(async () => ({ ok: true, value: null })),
     update: vi.fn(async () => ({ ok: true, value: null })),
   } as unknown as SceneManager;
@@ -58,6 +59,13 @@ describe('registerSceneIpcHandlers', () => {
       sceneId,
     });
     await invoke(sceneIpcChannels.present, { campaignId, sceneId: null });
+    await invoke(sceneIpcChannels.setFog, {
+      campaignId,
+      expectedRevision: 2,
+      mutation: { color: '#123456', kind: 'set-color' },
+      operationId: '22222222-2222-4222-8222-222222222222',
+      sceneId,
+    });
 
     expect(manager.list).toHaveBeenCalledWith(campaignId);
     expect(manager.update).toHaveBeenCalledWith({
@@ -69,6 +77,13 @@ describe('registerSceneIpcHandlers', () => {
     expect(manager.present).toHaveBeenCalledWith({
       campaignId,
       sceneId: null,
+    });
+    expect(manager.setFog).toHaveBeenCalledWith({
+      campaignId,
+      expectedRevision: 2,
+      mutation: { color: '#123456', kind: 'set-color' },
+      operationId: '22222222-2222-4222-8222-222222222222',
+      sceneId,
     });
 
     unregister();
@@ -94,12 +109,21 @@ describe('registerSceneIpcHandlers', () => {
       patch: { revision: 9 },
       sceneId,
     });
+    const badFog = await invoke(sceneIpcChannels.setFog, {
+      campaignId,
+      expectedRevision: 0,
+      mutation: { color: 'black', kind: 'set-color' },
+      operationId: '22222222-2222-4222-8222-222222222222',
+      sceneId,
+    });
 
     expect(badCampaign).toMatchObject({ error: { code: 'invalid_input' } });
     expect(badPatch).toMatchObject({ error: { code: 'invalid_input' } });
     expect(unknownField).toMatchObject({ error: { code: 'invalid_input' } });
+    expect(badFog).toMatchObject({ error: { code: 'invalid_input' } });
     expect(manager.list).not.toHaveBeenCalled();
     expect(manager.update).not.toHaveBeenCalled();
+    expect(manager.setFog).not.toHaveBeenCalled();
   });
 
   it('refuses requests from a web contents it does not own', async () => {

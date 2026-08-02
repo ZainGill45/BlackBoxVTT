@@ -226,6 +226,95 @@ describe('SceneRepository', () => {
     expect((await reopened.readManifest()).revision).toBe(manifestRevision);
   });
 
+  it('persists idempotent fog operations and includes them in GM history', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) {
+      throw new Error('setup failed');
+    }
+    const operationId = 'abababab-abab-4bab-8bab-abababababab';
+    const operation = {
+      hardness: 0.5,
+      id: operationId,
+      kind: 'brush' as const,
+      mode: 'hide' as const,
+      points: [{ x: 10, y: 20 }, { x: 30, y: 40 }],
+      width: 70,
+    };
+
+    const saved = await repository.setFog(
+      created.value.id,
+      { kind: 'append', operation },
+      created.value.revision,
+      operationId,
+    );
+    expect(saved).toMatchObject({
+      ok: true,
+      value: { fog: { operations: [operation] }, revision: 1 },
+    });
+
+    const retried = await createRepository().setFog(
+      created.value.id,
+      { kind: 'append', operation },
+      created.value.revision,
+      operationId,
+    );
+    expect(retried).toMatchObject({
+      ok: true,
+      value: { fog: { operations: [operation] }, revision: 1 },
+    });
+
+    const undone = await repository.undo(created.value.id, { kind: 'gm' });
+    expect(undone).toMatchObject({
+      ok: true,
+      value: { fog: { base: 'clear', operations: [] }, revision: 2 },
+    });
+    const redone = await repository.redo(created.value.id, { kind: 'gm' });
+    expect(redone).toMatchObject({
+      ok: true,
+      value: { fog: { operations: [operation] }, revision: 3 },
+    });
+    if (!redone.ok) {
+      throw new Error('redo failed');
+    }
+
+    const covered = await repository.setFog(
+      created.value.id,
+      { kind: 'cover-all' },
+      redone.value.revision,
+      'bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc',
+    );
+    expect(covered).toMatchObject({
+      ok: true,
+      value: { fog: { base: 'covered', operations: [] } },
+    });
+    if (!covered.ok) {
+      throw new Error('cover failed');
+    }
+    const recolored = await repository.setFog(
+      created.value.id,
+      { color: '#AbCdEf', kind: 'set-color' },
+      covered.value.revision,
+      'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd',
+    );
+    expect(recolored).toMatchObject({
+      ok: true,
+      value: { fog: { color: '#abcdef' } },
+    });
+    if (!recolored.ok) {
+      throw new Error('color failed');
+    }
+    expect(await repository.setFog(
+      created.value.id,
+      { kind: 'clear-all' },
+      recolored.value.revision,
+      'dededede-dede-4ede-8ede-dededededede',
+    )).toMatchObject({
+      ok: true,
+      value: { fog: { base: 'clear', color: '#abcdef', operations: [] } },
+    });
+  });
+
   it('merges partial grid patches and rejects stale revisions', async () => {
     const repository = createRepository();
     const created = await repository.create();
@@ -1168,6 +1257,7 @@ describe('SceneRepository', () => {
     const legacy = structuredClone(created.value) as Record<string, unknown>;
     delete legacy.texts;
     delete legacy.shapes;
+    delete legacy.fog;
     database.connection
       .prepare('UPDATE scenes SET record_json = ? WHERE id = ?')
       .run(JSON.stringify(legacy), created.value.id);
@@ -1178,6 +1268,11 @@ describe('SceneRepository', () => {
     expect((await repository.readManifest()).scenes[0].shapes).toEqual(
       createEmptyShapeLayers(),
     );
+    expect((await repository.readManifest()).scenes[0].fog).toEqual({
+      base: 'clear',
+      color: '#000000',
+      operations: [],
+    });
   });
 
   it('recovers from a malformed manifest instead of throwing', async () => {

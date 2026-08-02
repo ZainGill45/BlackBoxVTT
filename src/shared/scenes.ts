@@ -1,6 +1,7 @@
 import type { Result } from './result';
 import type {
   SceneDrawingLayers,
+  SceneFog,
   SceneGrid,
   SceneImageLayers,
   SceneObjectState,
@@ -21,6 +22,7 @@ import type {
   SceneTransformPreviewStart,
   SetSceneImagesInput,
   SetSceneObjectsInput,
+  SetSceneFogInput,
   TrashSceneInput,
   UpdateSceneInput,
 } from './sceneContracts';
@@ -37,6 +39,9 @@ export type {
   SceneDrawingPoint,
   SceneDrawingStyle,
   SceneDrawingTransform,
+  SceneFog,
+  SceneFogOperation,
+  SceneFogPoint,
   SceneGrid,
   SceneGridType,
   SceneImage,
@@ -65,6 +70,7 @@ export type {
 } from './sceneSchema';
 export * from './sceneContracts';
 import {
+  DEFAULT_FOG_COLOR,
   DEFAULT_GRID_COLOR,
   DEFAULT_GRID_LINE_THICKNESS,
   DEFAULT_GRID_OPACITY,
@@ -84,6 +90,7 @@ export const sceneIpcChannels = {
   previewStart: 'scenes:preview-start',
   previewUpdate: 'scenes:preview-update',
   setObjects: 'scenes:set-objects',
+  setFog: 'scenes:set-fog',
   setImages: 'scenes:set-images',
   undo: 'scenes:undo',
   redo: 'scenes:redo',
@@ -120,6 +127,7 @@ export interface SceneApi {
   setObjects(
     input: SetSceneObjectsInput,
   ): Promise<SceneResult<SceneRecord>>;
+  setFog(input: SetSceneFogInput): Promise<SceneResult<SceneRecord>>;
   setImages(input: SetSceneImagesInput): Promise<SceneResult<SceneRecord>>;
   undo(input: SceneHistoryInput): Promise<SceneResult<SceneRecord>>;
   redo(input: SceneHistoryInput): Promise<SceneResult<SceneRecord>>;
@@ -145,6 +153,14 @@ export function createEmptyShapeLayers(): SceneShapeLayers {
 
 export function createEmptyObjectOrderLayers(): SceneObjectOrderLayers {
   return { gm: [], map: [], token: [] };
+}
+
+export function createDefaultFog(): SceneFog {
+  return {
+    base: 'clear',
+    color: DEFAULT_FOG_COLOR,
+    operations: [],
+  };
 }
 
 export function createSceneObjectOrder(

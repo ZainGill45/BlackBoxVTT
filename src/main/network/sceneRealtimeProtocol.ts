@@ -1,19 +1,22 @@
 import {
   MAX_DRAWING_PREVIEW_POINTS,
+  MAX_FOG_PREVIEW_POINTS,
   type DrawingPreviewEvent,
   type DrawingPreviewUpdate,
+  type FogBrushPreviewEvent,
   type ShapePreviewEvent,
   type ShapePreviewUpdate,
 } from '../../shared/network';
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
+  sceneFogPointSchema,
   sceneDrawingTransformSchema,
   sceneImageTransformSchema,
   sceneShapePreviewSchema,
   sceneShapeTransformSchema,
 } from '../../shared/sceneSchema';
-import type { SceneTransformPreviewDelta } from '../../shared/scenes';
+import { sceneBounds, type SceneTransformPreviewDelta } from '../../shared/scenes';
 
 type ClientDrawingPreview = Omit<
   DrawingPreviewUpdate,
@@ -23,6 +26,7 @@ type ServerDrawingPreview = Omit<
   DrawingPreviewEvent,
   'campaignId' | 'reliable'
 >;
+type ServerFogPreview = Omit<FogBrushPreviewEvent, 'campaignId'>;
 type TransformPreview = Omit<SceneTransformPreviewDelta, 'campaignId'>;
 type ClientShapePreview = Omit<
   ShapePreviewUpdate,
@@ -117,6 +121,54 @@ export function decodeServerDrawingPreview(
     ...preview,
     layer: value.layer,
     sourceId: value.sourceId,
+  };
+}
+
+export function encodeServerFogPreview(input: ServerFogPreview): Buffer {
+  return Buffer.from(JSON.stringify(input), 'utf8');
+}
+
+export function decodeServerFogPreview(payload: Buffer): ServerFogPreview {
+  const value = parseObject(payload);
+  const rawPoints = Array.isArray(value.points) ? value.points : [];
+  const points = rawPoints
+        .map((point) => sceneFogPointSchema.safeParse(point))
+        .filter((result) => result.success)
+        .map((result) => result.data);
+  if (
+    typeof value.active !== 'boolean' ||
+    typeof value.hardness !== 'number' ||
+    !Number.isFinite(value.hardness) ||
+    value.hardness < 0 ||
+    value.hardness > 1 ||
+    (value.mode !== 'hide' && value.mode !== 'reveal') ||
+    typeof value.operationId !== 'string' ||
+    !UUID_PATTERN.test(value.operationId) ||
+    typeof value.sceneId !== 'string' ||
+    !UUID_PATTERN.test(value.sceneId) ||
+    typeof value.sequence !== 'number' ||
+    !Number.isInteger(value.sequence) ||
+    value.sequence < 0 ||
+    value.sequence > 0xffff_ffff ||
+    typeof value.width !== 'number' ||
+    !Number.isFinite(value.width) ||
+    value.width < sceneBounds.fogBrushWidth.min ||
+    value.width > sceneBounds.fogBrushWidth.max ||
+    rawPoints.length !== points.length ||
+    points.length > MAX_FOG_PREVIEW_POINTS ||
+    (value.active ? points.length === 0 : points.length !== 0)
+  ) {
+    throw new Error('Invalid fog preview.');
+  }
+  return {
+    active: value.active,
+    hardness: value.hardness,
+    mode: value.mode,
+    operationId: value.operationId,
+    points,
+    sceneId: value.sceneId,
+    sequence: value.sequence,
+    width: value.width,
   };
 }
 

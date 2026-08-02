@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 import type { AssetApi, AssetView } from '../../shared/assets';
 import {
   createDefaultGrid,
+  createDefaultFog,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createSceneObjectOrder,
@@ -23,6 +24,7 @@ export const testCampaignId = '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325';
 
 export function makeScene(overrides: Partial<SceneRecord> = {}): SceneRecord {
   const drawings = overrides.drawings ?? createEmptyDrawingLayers();
+  const fog = overrides.fog ?? createDefaultFog();
   const images = overrides.images ?? createEmptyImageLayers();
   const shapes = overrides.shapes ?? createEmptyShapeLayers();
   const texts = overrides.texts ?? createEmptyTextLayers();
@@ -47,6 +49,7 @@ export function makeScene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     width: DEFAULT_SCENE_WIDTH,
     ...overrides,
     drawings,
+    fog,
     images,
     shapes,
     texts,
@@ -205,6 +208,48 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
         const next = {
           ...current,
           ...state,
+          revision: current.revision + 1,
+        };
+        manifest = {
+          ...manifest,
+          scenes: manifest.scenes.map((scene) =>
+            scene.id === sceneId ? next : scene,
+          ),
+        };
+        publish();
+        return { ok: true as const, value: next };
+      },
+    ),
+    setFog: vi.fn(
+      async ({ expectedRevision, mutation, sceneId }) => {
+        const current = manifest.scenes.find((scene) => scene.id === sceneId);
+        if (!current) {
+          return {
+            error: { code: 'not_found' as const, message: 'Gone.' },
+            ok: false as const,
+          };
+        }
+        if (current.revision !== expectedRevision) {
+          return {
+            error: { code: 'conflict' as const, message: 'Stale.' },
+            ok: false as const,
+          };
+        }
+        const fog = mutation.kind === 'append'
+          ? {
+              ...current.fog,
+              operations: [...current.fog.operations, mutation.operation],
+            }
+          : mutation.kind === 'set-color'
+            ? { ...current.fog, color: mutation.color }
+            : {
+                ...current.fog,
+                base: mutation.kind === 'cover-all' ? 'covered' as const : 'clear' as const,
+                operations: [],
+              };
+        const next: SceneRecord = {
+          ...current,
+          fog,
           revision: current.revision + 1,
         };
         manifest = {

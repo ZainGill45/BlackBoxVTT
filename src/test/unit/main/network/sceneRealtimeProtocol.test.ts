@@ -3,10 +3,12 @@ import {
   decodeClientDrawingPreview,
   decodeClientShapePreview,
   decodeServerDrawingPreview,
+  decodeServerFogPreview,
   decodeServerShapePreview,
   decodeTransformPreview,
   encodeClientDrawingPreview,
   encodeServerDrawingPreview,
+  encodeServerFogPreview,
   encodeClientShapePreview,
   encodeServerShapePreview,
   encodeTransformPreview,
@@ -93,6 +95,30 @@ describe('scene realtime UDP codec', () => {
     expect(
       decodeTransformPreview(encodeTransformPreview(relative)),
     ).toEqual(relative);
+  });
+
+  it('round-trips self-contained GM fog snapshots and rejects malformed points', () => {
+    const preview = {
+      active: true,
+      hardness: 0.4,
+      mode: 'reveal' as const,
+      operationId: '77777777-7777-4777-8777-777777777777',
+      points: [{ x: 10, y: 20 }, { x: 30, y: 40 }],
+      sceneId: '88888888-8888-4888-8888-888888888888',
+      sequence: 9,
+      width: 70,
+    };
+    expect(decodeServerFogPreview(encodeServerFogPreview(preview))).toEqual(
+      preview,
+    );
+    expect(() => decodeServerFogPreview(Buffer.from(JSON.stringify({
+      ...preview,
+      points: [{ x: -1, y: 20 }],
+    })))).toThrow();
+    expect(() => decodeServerFogPreview(Buffer.from(JSON.stringify({
+      ...preview,
+      active: false,
+    })))).toThrow();
   });
 
   it('round-trips shape snapshots without accepting ownership authority', () => {

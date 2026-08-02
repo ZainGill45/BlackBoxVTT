@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NETWORK_PROTOCOL_VERSION } from '../../../../shared/network';
 import {
+  createDefaultFog,
   createDefaultGrid,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
@@ -104,6 +105,7 @@ describe('server.scene_presented', () => {
     createdAt: '2026-07-28T00:00:00.000Z',
     distance: 5,
     drawings: createEmptyDrawingLayers(),
+    fog: createDefaultFog(),
     grid: createDefaultGrid(),
     height: 1080,
     id: '11111111-1111-4111-8111-111111111111',

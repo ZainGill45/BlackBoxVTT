@@ -495,6 +495,75 @@ describe('PlayScreen', () => {
     expect(onLayerChange).toHaveBeenCalledWith('map');
   });
 
+  it('exposes the GM fog rail, local preview settings, and whole-map actions', async () => {
+    const user = userEvent.setup();
+    const currentScene = makeScene();
+    const sceneApi = createFakeSceneApi([currentScene]);
+    await sceneApi.present({
+      campaignId: gmSession.campaignId,
+      sceneId: currentScene.id,
+    });
+    renderPlayScreen({ sceneApi, session: gmSession });
+
+    await user.click(screen.getByRole('button', { name: 'Fog' }));
+    const rail = screen.getByRole('toolbar', { name: 'Fog tools' });
+    expect(
+      within(rail)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual([
+      'Fog settings',
+      'Fog mode: Reveal',
+      'Box fog',
+      'Brush fog',
+    ]);
+    await user.click(within(rail).getByRole('button', {
+      name: 'Fog mode: Reveal',
+    }));
+    expect(within(rail).getByRole('button', {
+      name: 'Fog mode: Hide',
+    })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(rail).getByRole('button', { name: 'Box fog' }));
+    expect(within(rail).getByRole('button', { name: 'Box fog' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await user.click(within(rail).getByRole('button', { name: 'Fog settings' }));
+    const dialog = screen.getByRole('dialog', { name: 'Fog settings' });
+    expect(within(dialog).getByLabelText('Fog color')).toHaveValue('#000000');
+    expect(within(dialog).getByLabelText('GM preview opacity')).toHaveValue(35);
+    expect(within(dialog).getByLabelText('Width')).toHaveValue(70);
+    expect(within(dialog).getByLabelText('Hardness')).toHaveValue(100);
+
+    const width = within(dialog).getByLabelText('Width');
+    await user.clear(width);
+    await user.type(width, '88{Enter}');
+    const opacity = within(dialog).getByLabelText('GM preview opacity');
+    await user.clear(opacity);
+    await user.type(opacity, '25{Enter}');
+    await waitFor(() => {
+      expect(
+        JSON.parse(
+          localStorage.getItem(
+            `blackboxvtt:fog:${gmSession.campaignId}:gm`,
+          ) ?? '{}',
+        ),
+      ).toMatchObject({ brushWidth: 88, gmOpacity: 0.25 });
+    });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cover map' }));
+    expect(screen.getByRole('dialog', { name: 'Cover map with fog?' }))
+      .toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cover map' }));
+    await waitFor(() => {
+      expect(sceneApi.setFog).toHaveBeenCalledWith(expect.objectContaining({
+        mutation: { kind: 'cover-all' },
+        sceneId: currentScene.id,
+      }));
+    });
+  });
+
   it('switches sidebar tabs with mouse and roving keyboard controls', async () => {
     const user = userEvent.setup();
     const onSidebarTabChange = vi.fn();

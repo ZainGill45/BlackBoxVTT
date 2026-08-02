@@ -26,6 +26,18 @@ const measurement = {
   updateSequence: 1,
 };
 
+const fogPreview = {
+  active: true,
+  campaignId,
+  hardness: 0.5,
+  mode: 'reveal' as const,
+  operationId: '55555555-5555-4555-8555-555555555555',
+  points: [{ x: 10, y: 20 }],
+  sceneId,
+  sequence: 1,
+  width: 70,
+};
+
 describe('network IPC sender authorization', () => {
   let handlers: Map<string, Handler>;
   let connect: ReturnType<typeof vi.fn>;
@@ -89,6 +101,7 @@ describe('network IPC live traffic', () => {
   let listeners: Map<string, (value: unknown) => void>;
   let sendMapPing: ReturnType<typeof vi.fn>;
   let sendMeasurementUpdate: ReturnType<typeof vi.fn>;
+  let sendFogPreview: ReturnType<typeof vi.fn>;
   let webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
@@ -96,6 +109,7 @@ describe('network IPC live traffic', () => {
     listeners = new Map();
     sendMapPing = vi.fn(async () => undefined);
     sendMeasurementUpdate = vi.fn(async () => undefined);
+    sendFogPreview = vi.fn(async () => undefined);
     webContents = { isDestroyed: () => false, send: vi.fn() };
     registerNetworkIpcHandlers(
       {
@@ -111,6 +125,7 @@ describe('network IPC live traffic', () => {
         }),
         sendMapPing,
         sendMeasurementUpdate,
+        sendFogPreview,
       } as unknown as NetworkManager,
       () => webContents as never,
     );
@@ -152,6 +167,20 @@ describe('network IPC live traffic', () => {
     expect(sendMeasurementUpdate).not.toHaveBeenCalled();
   });
 
+  it('validates and forwards only consistent outgoing fog snapshots', async () => {
+    await handlers.get(networkIpcChannels.sendFogPreview)?.(
+      { sender: webContents },
+      fogPreview,
+    );
+    await handlers.get(networkIpcChannels.sendFogPreview)?.(
+      { sender: webContents },
+      { ...fogPreview, active: false },
+    );
+
+    expect(sendFogPreview).toHaveBeenCalledTimes(1);
+    expect(sendFogPreview).toHaveBeenCalledWith(fogPreview);
+  });
+
   it('relays an incoming ping to the renderer', () => {
     listeners.get('map-ping')?.(ping);
 
@@ -167,6 +196,15 @@ describe('network IPC live traffic', () => {
     expect(webContents.send).toHaveBeenCalledWith(
       networkIpcChannels.measurementUpdate,
       measurement,
+    );
+  });
+
+  it('relays an incoming fog snapshot to the renderer', () => {
+    listeners.get('fog-preview')?.(fogPreview);
+
+    expect(webContents.send).toHaveBeenCalledWith(
+      networkIpcChannels.fogPreview,
+      fogPreview,
     );
   });
 });

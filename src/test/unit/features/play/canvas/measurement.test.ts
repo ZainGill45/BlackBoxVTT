@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createDefaultGrid,
+  createDefaultFog,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptyShapeLayers,
@@ -17,6 +18,7 @@ import {
 
 function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
   const drawings = createEmptyDrawingLayers();
+  const fog = overrides.fog ?? createDefaultFog();
   const images = createEmptyImageLayers();
   const shapes = createEmptyShapeLayers();
   const texts = overrides.texts ?? createEmptyTextLayers();
@@ -43,6 +45,7 @@ function scene(overrides: Partial<SceneRecord> = {}): SceneRecord {
     updatedAt: '',
     width: 400,
     ...overrides,
+    fog,
     texts,
   };
 }

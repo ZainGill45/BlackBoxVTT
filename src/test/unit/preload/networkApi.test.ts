@@ -47,6 +47,7 @@ describe('createNetworkApi surface', () => {
       'onChatEvent',
       'onClientStateChanged',
       'onDrawingPreview',
+      'onFogPreview',
       'onHostStatusChanged',
       'onMapPing',
       'onMeasurementUpdate',
@@ -59,6 +60,7 @@ describe('createNetworkApi surface', () => {
       'resetPassword',
       'sendChatMessage',
       'sendDrawingPreview',
+      'sendFogPreview',
       'sendMapPing',
       'sendMeasurementUpdate',
       'sendShapePreview',
@@ -109,6 +111,27 @@ describe('createNetworkApi requests', () => {
     expect(ipc.invoke).toHaveBeenCalledWith(
       networkIpcChannels.sendMeasurementUpdate,
       expect.objectContaining({ active: true, updateSequence: 1 }),
+    );
+  });
+
+  it('forwards a fog preview unchanged', async () => {
+    const preview = {
+      active: true,
+      campaignId,
+      hardness: 0.5,
+      mode: 'reveal' as const,
+      operationId: secondId,
+      points: [{ x: 100, y: 200 }],
+      sceneId,
+      sequence: 1,
+      width: 70,
+    };
+
+    await api.sendFogPreview(preview);
+
+    expect(ipc.invoke).toHaveBeenCalledWith(
+      networkIpcChannels.sendFogPreview,
+      preview,
     );
   });
 });
@@ -175,6 +198,22 @@ describe('createNetworkApi subscriptions', () => {
 
     expect(ipc.removeListener).toHaveBeenCalledWith(
       networkIpcChannels.measurementUpdate,
+      expect.any(Function),
+    );
+  });
+
+  it('delivers and unsubscribes fog previews', () => {
+    const listener = vi.fn();
+    const unsubscribe = api.onFogPreview(listener);
+
+    listeners.get(networkIpcChannels.fogPreview)?.({} as never, {
+      operationId: 'fog-operation',
+    });
+    expect(listener).toHaveBeenCalledWith({ operationId: 'fog-operation' });
+
+    unsubscribe();
+    expect(ipc.removeListener).toHaveBeenCalledWith(
+      networkIpcChannels.fogPreview,
       expect.any(Function),
     );
   });

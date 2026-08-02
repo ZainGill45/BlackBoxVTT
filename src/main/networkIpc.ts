@@ -13,6 +13,7 @@ import {
 import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
+  MAX_FOG_PREVIEW_POINTS,
   MAX_MEASUREMENT_POINTS,
   MIN_TRANSFORM_PREVIEW_RATE,
   networkIpcChannels,
@@ -21,9 +22,10 @@ import {
 import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
+  sceneFogPointSchema,
   sceneShapePreviewSchema,
 } from '../shared/sceneSchema';
-import { SCENE_LAYERS } from '../shared/scenes';
+import { SCENE_LAYERS, sceneBounds } from '../shared/scenes';
 import type { NetworkManager } from './network/networkManager';
 
 const campaignIdSchema = z
@@ -183,6 +185,7 @@ export function registerNetworkIpcHandlers(
       channel !== networkIpcChannels.chatEvent &&
       channel !== networkIpcChannels.clientStateChanged &&
       channel !== networkIpcChannels.drawingPreview &&
+      channel !== networkIpcChannels.fogPreview &&
       channel !== networkIpcChannels.mapPing &&
       channel !== networkIpcChannels.measurementUpdate &&
       channel !== networkIpcChannels.shapePreview &&
@@ -218,6 +221,31 @@ export function registerNetworkIpcHandlers(
     return parsed.success
       ? manager.getChatBootstrap(parsed.data.campaignId)
       : invalidInput();
+  });
+const fogPreviewSchema = campaignIdSchema
+  .extend({
+    active: z.boolean(),
+    hardness: z.number().finite().min(0).max(1),
+    mode: z.enum(['hide', 'reveal']),
+    operationId: z.string().uuid(),
+    points: z.array(sceneFogPointSchema).max(MAX_FOG_PREVIEW_POINTS),
+    sceneId: z.string().uuid(),
+    sequence: z.number().int().min(0).max(0xffff_ffff),
+    width: z
+      .number()
+      .finite()
+      .min(sceneBounds.fogBrushWidth.min)
+      .max(sceneBounds.fogBrushWidth.max),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (input.active === (input.points.length === 0)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'The fog preview lifecycle is inconsistent.',
+        path: ['points'],
+      });
+    }
   });
 
 const shapePreviewSchema = campaignIdSchema
@@ -356,6 +384,12 @@ const shapePreviewSchema = campaignIdSchema
       await manager.sendMeasurementUpdate(parsed.data);
     }
   });
+  handle(networkIpcChannels.sendFogPreview, async (input) => {
+    const parsed = fogPreviewSchema.safeParse(input);
+    if (parsed.success) {
+      await manager.sendFogPreview(parsed.data);
+    }
+  });
   handle(networkIpcChannels.sendShapePreview, async (input) => {
     const parsed = shapePreviewSchema.safeParse(input);
     if (parsed.success) {
@@ -381,6 +415,8 @@ const shapePreviewSchema = campaignIdSchema
     send(networkIpcChannels.mapPing, event);
   const onDrawingPreview = (event: unknown) =>
     send(networkIpcChannels.drawingPreview, event);
+  const onFogPreview = (event: unknown) =>
+    send(networkIpcChannels.fogPreview, event);
   const onMeasurementUpdate = (event: unknown) =>
     send(networkIpcChannels.measurementUpdate, event);
   const onShapePreview = (event: unknown) =>
@@ -396,6 +432,7 @@ const shapePreviewSchema = campaignIdSchema
   manager.on('client-state-changed', onClientState);
   manager.on('map-ping', onMapPing);
   manager.on('drawing-preview', onDrawingPreview);
+  manager.on('fog-preview', onFogPreview);
   manager.on('measurement-update', onMeasurementUpdate);
   manager.on('shape-preview', onShapePreview);
   manager.on('session-closed', onSessionClosed);
@@ -410,6 +447,7 @@ const shapePreviewSchema = campaignIdSchema
     manager.off('client-state-changed', onClientState);
     manager.off('map-ping', onMapPing);
     manager.off('drawing-preview', onDrawingPreview);
+    manager.off('fog-preview', onFogPreview);
     manager.off('measurement-update', onMeasurementUpdate);
     manager.off('shape-preview', onShapePreview);
     manager.off('session-closed', onSessionClosed);

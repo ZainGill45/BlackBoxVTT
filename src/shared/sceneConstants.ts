@@ -1,9 +1,12 @@
-export const SCENE_MANIFEST_SCHEMA_VERSION = 8 as const;
+export const SCENE_MANIFEST_SCHEMA_VERSION = 9 as const;
 export const CANONICAL_MAP_ID = 'canonical-map';
 export const MAX_SCENE_IMAGES = 2_048;
 export const MAX_SCENE_DRAWINGS = 1_024;
 export const MAX_SCENE_TEXTS = 1_024;
 export const MAX_SCENE_SHAPES = 1_024;
+export const MAX_SCENE_FOG_OPERATIONS = 1_024;
+export const MAX_SCENE_FOG_POINTS = 20_000;
+export const MAX_FOG_OPERATION_POINTS = 4_096;
 export const MAX_DRAWING_POINTS = 4_096;
 export const MAX_SCENE_DRAWING_POINTS = 20_000;
 export const MAX_TEXT_CHARACTERS = 2_048;
@@ -24,6 +27,7 @@ export const DEFAULT_DRAWING_COLOR = '#ffffff';
 export const DEFAULT_DRAWING_OPACITY = 1;
 export const DEFAULT_DRAWING_FILL_OPACITY = 0.25;
 export const DEFAULT_FREEFORM_HARDNESS = 1;
+export const DEFAULT_FOG_COLOR = '#000000';
 
 export const SCENE_LAYERS = ['map', 'token', 'gm'] as const;
 export type SceneLayer = (typeof SCENE_LAYERS)[number];
@@ -81,6 +85,7 @@ export const sceneBounds = {
   drawingScale: { max: 1_000, min: 0.001 },
   drawingHardness: { max: 1, min: 0 },
   drawingWidth: { max: 256, min: 1 },
+  fogBrushWidth: { max: 512, min: 1 },
   textFontSize: { max: 256, min: 8 },
   textStrokeWidth: { max: 32, min: 0 },
   shapeFontSize: { max: 256, min: 8 },

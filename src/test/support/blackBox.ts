@@ -188,6 +188,9 @@ const networkApi: NetworkApi = {
   onDrawingPreview() {
     return () => undefined;
   },
+  onFogPreview() {
+    return () => undefined;
+  },
   onChatEvent() {
     return () => undefined;
   },
@@ -234,6 +237,7 @@ const networkApi: NetworkApi = {
     return networkUnavailable();
   },
   async sendDrawingPreview() {},
+  async sendFogPreview() {},
   async sendMapPing() {},
   async sendMeasurementUpdate() {},
   async sendShapePreview() {},
@@ -269,6 +273,9 @@ const sceneApi: SceneApi = {
     return sceneUnavailable();
   },
   async setImages() {
+    return sceneUnavailable();
+  },
+  async setFog() {
     return sceneUnavailable();
   },
   async setObjects() {

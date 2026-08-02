@@ -12,6 +12,7 @@ import type {
   SceneTransformPreviewStart,
   SetSceneImagesInput,
   SetSceneObjectsInput,
+  SetSceneFogInput,
   TrashSceneInput,
   UpdateSceneInput,
 } from '../shared/scenes';
@@ -63,6 +64,10 @@ export class SceneManager extends EventEmitter {
 
   setObjects(input: SetSceneObjectsInput): Promise<SceneResult<SceneRecord>> {
     return this.mutate(input.campaignId, (scenes) => scenes.setObjects(input));
+  }
+
+  setFog(input: SetSceneFogInput): Promise<SceneResult<SceneRecord>> {
+    return this.mutate(input.campaignId, (scenes) => scenes.setFog(input));
   }
 
   undo(input: SceneHistoryInput): Promise<SceneResult<SceneRecord>> {

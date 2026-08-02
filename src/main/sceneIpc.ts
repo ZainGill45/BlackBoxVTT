@@ -11,6 +11,7 @@ import {
   sceneTransformPreviewStartSchema as previewStartSchema,
   setSceneImagesInputSchema as setImagesSchema,
   setSceneObjectsInputSchema as setObjectsSchema,
+  setSceneFogInputSchema as setFogSchema,
   trashSceneInputSchema as trashSchema,
   updateSceneInputSchema as updateSchema,
 } from '../shared/sceneContracts';
@@ -42,6 +43,7 @@ export function registerSceneIpcHandlers(
     sceneIpcChannels.redo,
     sceneIpcChannels.setImages,
     sceneIpcChannels.setObjects,
+    sceneIpcChannels.setFog,
     sceneIpcChannels.trash,
     sceneIpcChannels.undo,
     sceneIpcChannels.update,
@@ -74,6 +76,10 @@ export function registerSceneIpcHandlers(
   handle(sceneIpcChannels.setObjects, (input) => {
     const parsed = setObjectsSchema.safeParse(input);
     return parsed.success ? manager.setObjects(parsed.data) : invalid();
+  });
+  handle(sceneIpcChannels.setFog, (input) => {
+    const parsed = setFogSchema.safeParse(input);
+    return parsed.success ? manager.setFog(parsed.data) : invalid();
   });
   handle(sceneIpcChannels.undo, (input) => {
     const parsed = historySchema.safeParse(input);

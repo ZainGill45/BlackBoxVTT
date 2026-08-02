@@ -5,6 +5,7 @@ import {
   type SceneError,
   type SceneArrangement,
   type SceneManifest,
+  type SceneFogMutation,
   type ScenePatch,
   type SceneObjectState,
   type SceneApi,
@@ -35,6 +36,11 @@ export interface SceneStore {
     state: SceneObjectState,
     operationId: string,
     arrangement?: SceneArrangement,
+  ) => Promise<SceneRecord | null>;
+  setFog: (
+    scene: SceneRecord,
+    mutation: SceneFogMutation,
+    operationId: string,
   ) => Promise<SceneRecord | null>;
   undo: (scene: SceneRecord) => Promise<SceneRecord | null>;
   redo: (scene: SceneRecord) => Promise<SceneRecord | null>;
@@ -171,6 +177,25 @@ export function useScenes(
     [campaignId, run, sceneApi],
   );
 
+  const setFog = useCallback(
+    async (
+      scene: SceneRecord,
+      mutation: SceneFogMutation,
+      operationId: string,
+    ) => {
+      return run(() =>
+        sceneApi.setFog({
+          campaignId,
+          expectedRevision: scene.revision,
+          mutation,
+          operationId,
+          sceneId: scene.id,
+        }),
+      );
+    },
+    [campaignId, run, sceneApi],
+  );
+
   const undo = useCallback(
     (scene: SceneRecord) =>
       run(() => sceneApi.undo({ campaignId, sceneId: scene.id })),
@@ -232,6 +257,7 @@ export function useScenes(
     scenes: manifest.scenes,
     redo,
     setImages,
+    setFog,
     setObjects,
     trashScene,
     updateScene,

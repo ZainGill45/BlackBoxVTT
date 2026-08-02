@@ -90,6 +90,8 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
       subscribe(networkIpcChannels.chatEvent, listener),
     onDrawingPreview: (listener) =>
       subscribe(networkIpcChannels.drawingPreview, listener),
+    onFogPreview: (listener) =>
+      subscribe(networkIpcChannels.fogPreview, listener),
     onHostStatusChanged: (listener) =>
       subscribe(networkIpcChannels.hostStatusChanged, listener),
     onMapPing: (listener) =>
@@ -142,6 +144,11 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
     sendMeasurementUpdate: (input) =>
       ipc.invoke(
         networkIpcChannels.sendMeasurementUpdate,
+        input,
+      ) as Promise<void>,
+    sendFogPreview: (input) =>
+      ipc.invoke(
+        networkIpcChannels.sendFogPreview,
         input,
       ) as Promise<void>,
     sendShapePreview: (input) =>
