@@ -24,6 +24,7 @@ import {
 import { ConnectionHistoryRepository } from '../../../../main/network/connectionHistoryRepository';
 import { NetworkManager } from '../../../../main/network/networkManager';
 import { ServerConfigRepository } from '../../../../main/network/serverConfigRepository';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 /**
  * Real TLS, real sockets, real repositories — two NetworkManagers talking to a
@@ -285,6 +286,7 @@ describe('trust and authentication', () => {
       throw new Error('Expected a trust challenge.');
     }
     expect(connected.value.state).toBe('trust_required');
+    expect(connected.value.challenge.system).toEqual(TEST_CAMPAIGN_SYSTEM);
     attemptId = connected.value.challenge.attemptId;
   }, HANDSHAKE_TIMEOUT);
 
@@ -294,6 +296,7 @@ describe('trust and authentication', () => {
       throw new Error('Expected an authentication challenge.');
     }
     expect(authentication.value.users[0].username).toBe('Alice');
+    expect(authentication.value.system).toEqual(TEST_CAMPAIGN_SYSTEM);
     attemptId = authentication.value.attemptId;
   });
 
@@ -307,8 +310,15 @@ describe('trust and authentication', () => {
       }),
     ).resolves.toMatchObject({
       ok: true,
-      value: { campaignId, role: 'player', source: 'remote', username: 'Alice' },
+      value: {
+        campaignId,
+        role: 'player',
+        source: 'remote',
+        system: TEST_CAMPAIGN_SYSTEM,
+        username: 'Alice',
+      },
     });
+    expect((await joinedRuntime(player)).system).toEqual(TEST_CAMPAIGN_SYSTEM);
     expect(host.getHostStatus().connectedPlayerCount).toBe(1);
     host.on('measurement-update', (update) => hostMeasurements.push(update));
   }, HANDSHAKE_TIMEOUT);

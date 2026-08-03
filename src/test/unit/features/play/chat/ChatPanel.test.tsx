@@ -19,6 +19,7 @@ import type { NetworkApi } from '../../../../../shared/network';
 import type { PlaySession } from '../../../../../features/play/types';
 import { ChatPanel } from '../../../../../features/play/chat/ChatPanel';
 import type { ChatRollDefinition } from '../../../../../shared/chatRoll';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../../support/gameSystems';
 
 const playChatMessageSound = vi.hoisted(() => vi.fn());
 vi.mock(
@@ -39,6 +40,7 @@ const playerSession: PlaySession = {
   port: 30_000,
   role: 'player',
   source: 'remote',
+  system: TEST_CAMPAIGN_SYSTEM,
   userId: aliceId,
   username: 'Alice',
 };
@@ -48,6 +50,7 @@ const gmSession: PlaySession = {
   campaignName: 'Iron Meridian',
   role: 'gm',
   source: 'local',
+  system: TEST_CAMPAIGN_SYSTEM,
 };
 
 let applicationApi: ApplicationApi;

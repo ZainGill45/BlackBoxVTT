@@ -15,6 +15,7 @@ import {
   CAMPAIGN_DATABASE_FILENAME,
   CampaignDatabase,
 } from '../../../main/storage/campaignDatabase';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const firstId = '11111111-1111-4111-8111-111111111111';
 const secondId = '22222222-2222-4222-8222-222222222222';
@@ -56,6 +57,7 @@ describe('CampaignRepository', () => {
         id: firstId,
         name: 'Iron Meridian',
         schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+        system: TEST_CAMPAIGN_SYSTEM,
         updatedAt: createdAt.toISOString(),
       },
     });
@@ -100,6 +102,73 @@ describe('CampaignRepository', () => {
       },
       ok: false,
     });
+  });
+
+  it('rejects an unsupported bundled system before creating a campaign', async () => {
+    const rootDirectory = await createTemporaryRoot();
+    const repository = new CampaignRepository({
+      createId: () => firstId,
+      rootDirectory,
+      trashItem: vi.fn(),
+    });
+
+    await expect(
+      repository.create({ name: 'Iron Meridian', systemId: 'unknown' }),
+    ).resolves.toEqual({
+      error: {
+        code: 'unsupported_system',
+        message: 'The selected game system is not supported.',
+      },
+      ok: false,
+    });
+    await expect(access(rootDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('migrates a version 8 campaign to the default bundled system', async () => {
+    const rootDirectory = await createTemporaryRoot();
+    const repository = new CampaignRepository({
+      createId: () => firstId,
+      rootDirectory,
+      trashItem: vi.fn(),
+    });
+    const created = await repository.create({ name: 'Iron Meridian' });
+    expect(created.ok).toBe(true);
+    const directory = path.join(rootDirectory, firstId);
+    const previous = CampaignDatabase.open(directory);
+    previous.connection.exec(`
+      DROP TABLE campaign_system;
+      PRAGMA user_version = 8;
+    `);
+    previous.close();
+
+    const migrated = CampaignDatabase.open(directory);
+    expect(migrated.readSystem()).toEqual(TEST_CAMPAIGN_SYSTEM);
+    expect(
+      (migrated.connection.prepare('PRAGMA user_version').get() as {
+        user_version: number;
+      }).user_version,
+    ).toBe(9);
+    migrated.close();
+  });
+
+  it('refuses malformed campaign system settings', async () => {
+    const rootDirectory = await createTemporaryRoot();
+    const repository = new CampaignRepository({
+      createId: () => firstId,
+      rootDirectory,
+      trashItem: vi.fn(),
+    });
+    await repository.create({ name: 'Iron Meridian' });
+    const directory = path.join(rootDirectory, firstId);
+    const database = CampaignDatabase.open(directory);
+    database.connection
+      .prepare('UPDATE campaign_system SET settings_json = ? WHERE singleton = 1')
+      .run(JSON.stringify({ defaultRulesVersion: 'invalid' }));
+    database.close();
+
+    expect(() => CampaignDatabase.open(directory)).toThrow(
+      /unsupported or invalid/i,
+    );
   });
 
   it('sorts campaigns by updated time and then ID', async () => {

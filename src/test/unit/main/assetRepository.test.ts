@@ -9,6 +9,7 @@ import {
 import { AssetRepository } from '../../../main/assetRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const temporaryDirectories: string[] = [];
 const databases: CampaignDatabase[] = [];
@@ -28,6 +29,7 @@ async function createFixture() {
     id: '99999999-9999-4999-8999-999999999999',
     name: 'Iron Meridian',
     schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
   databases.push(database);

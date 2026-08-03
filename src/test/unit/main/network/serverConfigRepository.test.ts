@@ -9,6 +9,7 @@ import {
   CampaignDatabase,
 } from '../../../../main/storage/campaignDatabase';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../../shared/campaigns';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 const temporaryDirectories: string[] = [];
 const databases: CampaignDatabase[] = [];
@@ -23,6 +24,7 @@ async function createCampaignDatabase() {
     id: campaignId,
     name: 'Iron Meridian',
     schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
   databases.push(database);

@@ -191,6 +191,7 @@ export function App({
       campaignName: campaign.name,
       role: 'gm',
       source: 'local',
+      system: campaign.system,
     };
     setConnectionNotice(null);
     setServerSettings(createDefaultServerSettings());

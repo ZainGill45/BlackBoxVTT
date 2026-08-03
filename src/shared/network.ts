@@ -22,8 +22,9 @@ import type {
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
 } from './scenes';
+import type { CampaignSystemState } from './gameSystems';
 
-export const NETWORK_PROTOCOL_VERSION = 16 as const;
+export const NETWORK_PROTOCOL_VERSION = 17 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;
@@ -88,7 +89,8 @@ export type NetworkErrorCode =
   | 'storage_error'
   | 'transport_lost'
   | 'trust_rejected'
-  | 'udp_failed';
+  | 'udp_failed'
+  | 'unsupported_system';
 
 export interface NetworkError {
   code: NetworkErrorCode;
@@ -169,6 +171,7 @@ export interface TrustChallenge {
   kind: 'changed' | 'first_use';
   newFingerprint: string;
   oldFingerprint: string | null;
+  system: CampaignSystemState;
 }
 
 export interface AuthenticationUser {
@@ -181,6 +184,7 @@ export interface AuthenticationChallenge {
   attemptId: string;
   campaignId: string;
   campaignName: string;
+  system: CampaignSystemState;
   users: AuthenticationUser[];
 }
 
@@ -212,6 +216,7 @@ export interface RemotePlaySession {
   port: number;
   role: 'player';
   source: 'remote';
+  system: CampaignSystemState;
   userId: string;
   username: string;
 }

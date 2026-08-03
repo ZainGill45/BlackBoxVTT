@@ -22,12 +22,14 @@ import {
   DELETE_CONFIRMATION_TIMEOUT_MS,
 } from '../../../../features/connection/ConnectionScreen';
 import type { ConnectionScreenProps } from '../../../../features/connection/types';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 const shatteredCoast: CampaignSummary = {
   createdAt: '2026-07-25T18:00:00.000Z',
   id: '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325',
   name: 'Shattered Coast',
   schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+  system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-26T05:00:00.000Z',
 };
 
@@ -36,6 +38,7 @@ const emberfall: CampaignSummary = {
   id: '53b6d9e1-26ec-4fb6-bc89-6d7138160788',
   name: 'Emberfall',
   schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+  system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-25T05:00:00.000Z',
 };
 
@@ -77,6 +80,7 @@ function trustRequiredConnect(
         kind: 'first_use' as const,
         newFingerprint: 'AA:BB:CC',
         oldFingerprint: null,
+        system: TEST_CAMPAIGN_SYSTEM,
         ...challenge,
       },
     },
@@ -201,6 +205,7 @@ describe('ConnectionScreen', () => {
             kind: 'first_use' as const,
             newFingerprint: 'AA:BB:CC',
             oldFingerprint: null,
+            system: TEST_CAMPAIGN_SYSTEM,
           },
         },
       })),
@@ -210,6 +215,7 @@ describe('ConnectionScreen', () => {
           attemptId,
           campaignId: remoteCampaignId,
           campaignName: 'Remote Campaign',
+          system: TEST_CAMPAIGN_SYSTEM,
           users: [
             {
               hasSavedPassword: false,
@@ -228,6 +234,7 @@ describe('ConnectionScreen', () => {
           port: 30_000,
           role: 'player' as const,
           source: 'remote' as const,
+          system: TEST_CAMPAIGN_SYSTEM,
           userId: remoteUserId,
           username: 'Alice',
         },
@@ -470,6 +477,7 @@ describe('ConnectionScreen', () => {
             attemptId,
             campaignId,
             campaignName: 'Saved Campaign',
+            system: TEST_CAMPAIGN_SYSTEM,
             users: [
               { hasSavedPassword: true, id: userId, username: 'Alice' },
             ],
@@ -485,6 +493,7 @@ describe('ConnectionScreen', () => {
           port: 30_000,
           role: 'player' as const,
           source: 'remote' as const,
+          system: TEST_CAMPAIGN_SYSTEM,
           userId,
           username: 'Alice',
         },
@@ -539,6 +548,7 @@ describe('ConnectionScreen', () => {
         port: entry.port,
         role: 'player' as const,
         source: 'remote' as const,
+        system: TEST_CAMPAIGN_SYSTEM,
         userId,
         username: 'Alice',
       },
@@ -550,6 +560,7 @@ describe('ConnectionScreen', () => {
           attemptId: trustAttemptId,
           campaignId: entry.campaignId,
           campaignName: entry.campaignName,
+          system: TEST_CAMPAIGN_SYSTEM,
           users: [
             { hasSavedPassword: true, id: userId, username: 'Alice' },
           ],
@@ -628,6 +639,7 @@ describe('ConnectionScreen', () => {
             attemptId: trustAttemptId,
             campaignId: entry.campaignId,
             campaignName: entry.campaignName,
+            system: TEST_CAMPAIGN_SYSTEM,
             users: [
               { hasSavedPassword: true, id: userId, username: 'Alice' },
             ],
@@ -697,6 +709,7 @@ describe('ConnectionScreen', () => {
             attemptId: trustAttemptId,
             campaignId: entry.campaignId,
             campaignName: entry.campaignName,
+            system: TEST_CAMPAIGN_SYSTEM,
             users: [
               { hasSavedPassword: true, id: userId, username: 'Alice' },
             ],

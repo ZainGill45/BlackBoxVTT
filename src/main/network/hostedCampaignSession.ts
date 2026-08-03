@@ -27,6 +27,7 @@ import type {
   SceneTransformPreviewStart,
 } from '../../shared/scenes';
 import type { LocalCampaignWorkspace } from '../campaignWorkspace';
+import type { CampaignSystemState } from '../../shared/gameSystems';
 import type {
   CampaignNetworkSession,
   SessionChatHistoryInput,
@@ -115,6 +116,7 @@ interface InitializedHostedCampaignSessionOptions
 export class HostedCampaignSession implements CampaignNetworkSession {
   readonly campaignId: string;
   readonly kind = 'hosted' as const;
+  readonly system: CampaignSystemState;
   private chatSystemEvents: ChatParticipantEvent[] = [];
   private configuredPort: number;
   private readonly events: HostedCampaignSessionEvents;
@@ -136,6 +138,7 @@ export class HostedCampaignSession implements CampaignNetworkSession {
     workspace,
   }: InitializedHostedCampaignSessionOptions) {
     this.campaignId = workspace.manifest.id;
+    this.system = structuredClone(workspace.system);
     this.configuredPort = configuredPort;
     this.events = events;
     this.fetcher = fetcher;
@@ -143,6 +146,7 @@ export class HostedCampaignSession implements CampaignNetworkSession {
       assetRepository: workspace.assetRepository,
       campaignId: workspace.manifest.id,
       campaignName: workspace.manifest.name,
+      campaignSystem: this.system,
       chatRepository: workspace.chatRepository,
       configRepository: workspace.configRepository,
       identity,

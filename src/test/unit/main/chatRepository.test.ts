@@ -6,6 +6,7 @@ import type { ChatIdentity, ChatPrincipal } from '../../../shared/chat';
 import { ChatRepository } from '../../../main/chatRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const gm = { displayName: 'Game Master', kind: 'gm' } as const;
 const alice = {
@@ -35,6 +36,7 @@ async function createCampaignDatabase() {
     id: '44444444-4444-4444-8444-444444444444',
     name: 'Iron Meridian',
     schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
   databases.push(database);
@@ -111,6 +113,7 @@ describe('ChatRepository', () => {
         ON chat_messages (sender_key, sequence);
       CREATE INDEX chat_messages_recipient_sequence
         ON chat_messages (recipient_key, sequence);
+      DROP TABLE campaign_system;
       PRAGMA user_version = 7;
       COMMIT;
     `);
@@ -123,7 +126,8 @@ describe('ChatRepository', () => {
       (migrated.connection.prepare('PRAGMA user_version').get() as {
         user_version: number;
       }).user_version,
-    ).toBe(8);
+    ).toBe(9);
+    expect(migrated.readSystem()).toEqual(TEST_CAMPAIGN_SYSTEM);
     const migratedRepository = new ChatRepository({ database: migrated });
     const page = await migratedRepository.bootstrap(
       principal(alice),

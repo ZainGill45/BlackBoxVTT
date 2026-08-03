@@ -1,6 +1,7 @@
 import type { Result } from './result';
+import type { CampaignSystemState } from './gameSystems';
 
-export const CAMPAIGN_SCHEMA_VERSION = 1 as const;
+export const CAMPAIGN_SCHEMA_VERSION = 2 as const;
 
 export const campaignIpcChannels = {
   create: 'campaigns:create',
@@ -12,7 +13,8 @@ export type CampaignErrorCode =
   | 'duplicate_name'
   | 'invalid_name'
   | 'not_found'
-  | 'storage_error';
+  | 'storage_error'
+  | 'unsupported_system';
 
 export interface CampaignError {
   code: CampaignErrorCode;
@@ -24,6 +26,7 @@ export interface CampaignManifest {
   id: string;
   name: string;
   schemaVersion: typeof CAMPAIGN_SCHEMA_VERSION;
+  system: CampaignSystemState;
   updatedAt: string;
 }
 
@@ -31,6 +34,7 @@ export type CampaignSummary = CampaignManifest;
 
 export interface CreateCampaignInput {
   name: string;
+  systemId?: string;
 }
 
 export interface CampaignIdInput {

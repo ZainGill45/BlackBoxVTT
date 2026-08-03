@@ -17,6 +17,7 @@ import {
 import { createMockNetworkApi } from '../../../support/networkApi';
 import { createDefaultServerSettings } from '../../../../features/play/serverSettings';
 import type { PlayScreenProps } from '../../../../features/play/types';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 const playerSession: PlayScreenProps['session'] = {
   campaignId: '11111111-1111-4111-8111-111111111111',
@@ -25,6 +26,7 @@ const playerSession: PlayScreenProps['session'] = {
   port: 43_110,
   role: 'player',
   source: 'remote',
+  system: TEST_CAMPAIGN_SYSTEM,
   userId: '22222222-2222-4222-8222-222222222222',
   username: 'Alice',
 };
@@ -34,6 +36,7 @@ const gmSession: PlayScreenProps['session'] = {
   campaignName: 'Iron Meridian',
   role: 'gm',
   source: 'local',
+  system: TEST_CAMPAIGN_SYSTEM,
 };
 
 function renderPlayScreen(
@@ -608,7 +611,6 @@ describe('PlayScreen', () => {
 
     const tabs = [
       ['Scenes', 'scenes'],
-      ['Journal', 'journal'],
       ['Music', 'music'],
       ['Settings', 'settings'],
     ] as const;
@@ -625,6 +627,26 @@ describe('PlayScreen', () => {
       expect(panel.querySelector('h2')).not.toBeInTheDocument();
       expect(panel.querySelector('p')).not.toBeInTheDocument();
     }
+  });
+
+  it('opens the Journal collection shell for players and Game Masters', async () => {
+    const user = userEvent.setup();
+    renderPlayScreen();
+    await user.click(screen.getByRole('tab', { name: 'Journal' }));
+
+    expect(
+      screen.getByRole('searchbox', { name: 'Search journal' }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Add journal entry' }),
+    ).toBeEnabled();
+
+    cleanup();
+    renderPlayScreen({ session: gmSession });
+    await user.click(screen.getByRole('tab', { name: 'Journal' }));
+    expect(
+      screen.getByRole('searchbox', { name: 'Search journal' }),
+    ).toBeVisible();
   });
 
   it('renders management settings only for the local GM', async () => {

@@ -14,6 +14,7 @@ import type {
   CampaignWorkspaceRegistry,
   LocalCampaignWorkspace,
 } from './campaignWorkspace';
+import type { CampaignSystemState } from '../shared/gameSystems';
 
 export type {
   AssetRuntimeMutation,
@@ -31,6 +32,7 @@ export interface JoinedCampaignRuntime {
   readonly campaignId: string;
   readonly kind: 'joined';
   readonly scenes: CampaignSceneRuntime;
+  readonly system: CampaignSystemState;
 }
 
 export interface LocalCampaignRuntime {
@@ -38,6 +40,7 @@ export interface LocalCampaignRuntime {
   readonly campaignId: string;
   readonly kind: 'local';
   readonly scenes: CampaignSceneRuntime;
+  readonly system: CampaignSystemState;
   readonly workspace: LocalCampaignWorkspace;
 }
 
@@ -48,6 +51,7 @@ interface JoinedCampaignRegistration {
   readonly campaignId: string;
   readonly kind: 'joined';
   readonly scenes: JoinedSceneTransport;
+  readonly system: CampaignSystemState;
 }
 
 /** Resolves campaign data location once and owns stable capability adapters. */
@@ -67,6 +71,7 @@ export class CampaignRuntimeRegistry {
       campaignId: runtime.campaignId,
       kind: 'joined',
       scenes: createJoinedSceneRuntime(runtime.scenes),
+      system: structuredClone(runtime.system),
     });
   }
 
@@ -92,6 +97,7 @@ export class CampaignRuntimeRegistry {
       campaignId,
       kind: 'local',
       scenes: createLocalSceneRuntime(workspace),
+      system: structuredClone(workspace.system),
       workspace,
     };
     this.local.set(campaignId, runtime);

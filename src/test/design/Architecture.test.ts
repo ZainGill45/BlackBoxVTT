@@ -158,6 +158,50 @@ describe('architecture boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('keeps bundled systems process-neutral, isolated, and catalogued once', () => {
+    const systemFiles = files.filter((file) =>
+      label(file).startsWith('src/systems/'),
+    );
+    const processRoots = [
+      'src/app/',
+      'src/components/',
+      'src/features/',
+      'src/main/',
+      'src/preload/',
+    ];
+    const offenders: string[] = [];
+    for (const file of systemFiles) {
+      const sourceName = label(file);
+      const sourceSystem = sourceName.match(/^src\/systems\/([^/]+)\//)?.[1];
+      for (const dependency of imports.get(file) ?? []) {
+        const dependencyName = label(dependency);
+        if (processRoots.some((root) => dependencyName.startsWith(root))) {
+          offenders.push(`${sourceName} -> ${dependencyName}`);
+        }
+        const dependencySystem = dependencyName.match(
+          /^src\/systems\/([^/]+)\//,
+        )?.[1];
+        if (
+          sourceSystem &&
+          dependencySystem &&
+          sourceSystem !== dependencySystem
+        ) {
+          offenders.push(`${sourceName} -> ${dependencyName}`);
+        }
+      }
+    }
+    const directDefinitionImports = files
+      .filter((file) => !label(file).startsWith('src/systems/'))
+      .flatMap((file) =>
+        (imports.get(file) ?? [])
+          .filter((dependency) =>
+            /^src\/systems\/[^/]+\/definition\.ts$/u.test(label(dependency)),
+          )
+          .map((dependency) => `${label(file)} -> ${label(dependency)}`),
+      );
+    expect([...offenders, ...directDefinitionImports]).toEqual([]);
+  });
+
   it('does not make the main process depend on renderer modules', () => {
     const rendererRoots = ['src/app/', 'src/components/', 'src/features/'];
     const offenders = files

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const sourceRoot = resolve(process.cwd(), 'src');
 const tokensPath = join(sourceRoot, 'styles', 'tokens.css');
+const globalStylesPath = join(sourceRoot, 'styles', 'global.css');
 
 function collectFiles(directory: string, extension: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -20,6 +21,7 @@ function collectFiles(directory: string, extension: string): string[] {
 const cssFiles = collectFiles(sourceRoot, '.css');
 const cssSource = cssFiles.map((file) => readFileSync(file, 'utf8')).join('\n');
 const tokensSource = readFileSync(tokensPath, 'utf8');
+const globalStylesSource = readFileSync(globalStylesPath, 'utf8');
 
 describe('visual-system invariants', () => {
   it('uses one unconditional dark color scheme', () => {
@@ -64,6 +66,23 @@ describe('visual-system invariants', () => {
 
     for (const radius of radiusValues) {
       expect(radius).toBe('0');
+    }
+  });
+
+  it('hides scrollbars with one universal cross-browser rule', () => {
+    expect(globalStylesSource).toMatch(
+      /\*\s*\{[^}]*scrollbar-width:\s*none;[^}]*-ms-overflow-style:\s*none;[^}]*\}/is,
+    );
+    expect(globalStylesSource).toMatch(
+      /\*::-webkit-scrollbar\s*\{[^}]*display:\s*none;[^}]*\}/is,
+    );
+
+    for (const file of cssFiles.filter((file) => file !== globalStylesPath)) {
+      const source = readFileSync(file, 'utf8');
+      expect(
+        source,
+        `${relative(sourceRoot, file)} defines component-specific scrollbar hiding`,
+      ).not.toMatch(/scrollbar-width|-ms-overflow-style|::-webkit-scrollbar/i);
     }
   });
 

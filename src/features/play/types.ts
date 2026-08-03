@@ -7,6 +7,7 @@ import type {
 } from '../../shared/network';
 import type { AssetApi } from '../../shared/assets';
 import type { SceneApi } from '../../shared/scenes';
+import type { CampaignSystemState } from '../../shared/gameSystems';
 
 export type PlaySession =
   | {
@@ -14,6 +15,7 @@ export type PlaySession =
       campaignName: string;
       role: 'gm';
       source: 'local';
+      system: CampaignSystemState;
     }
   | {
       campaignId: string;
@@ -22,6 +24,7 @@ export type PlaySession =
       port: number;
       role: 'player';
       source: 'remote';
+      system: CampaignSystemState;
       userId: string;
       username: string;
     };

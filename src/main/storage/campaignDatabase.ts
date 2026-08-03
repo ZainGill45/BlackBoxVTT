@@ -17,15 +17,26 @@ import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MIN_TRANSFORM_PREVIEW_RATE,
 } from '../../shared/network';
+import type { CampaignSystemState } from '../../shared/gameSystems';
+import {
+  createDefaultCampaignSystemState,
+  parseCampaignSystemState,
+} from '../../systems/catalog';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
-export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 8;
+export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 9;
 
 interface CampaignMetadataRow {
   campaign_id: string;
   created_at: string;
   name: string;
   updated_at: string;
+}
+
+interface CampaignSystemRow {
+  schema_version: number;
+  settings_json: string;
+  system_id: string;
 }
 
 const UUID_PATTERN =
@@ -56,7 +67,7 @@ export class CampaignDatabase {
       connection.exec('PRAGMA journal_mode = WAL');
       connection.exec('PRAGMA synchronous = FULL');
       connection.exec('PRAGMA secure_delete = ON');
-      const version = Number(
+      let version = Number(
         (
           connection.prepare('PRAGMA user_version').get() as
             | { user_version?: unknown }
@@ -81,10 +92,24 @@ export class CampaignDatabase {
           );
         }
         this.initialize(initialManifest);
-      } else if (version === 7 && !initialManifest) {
-        this.migrateVersion7To8();
-      } else if (version !== CAMPAIGN_DATABASE_SCHEMA_VERSION || initialManifest) {
-        throw new Error(`Unsupported campaign schema version ${version}.`);
+      } else {
+        if (initialManifest) {
+          throw new Error(`Unsupported campaign schema version ${version}.`);
+        }
+        while (version < CAMPAIGN_DATABASE_SCHEMA_VERSION) {
+          if (version === 7) {
+            this.migrateVersion7To8();
+            version = 8;
+          } else if (version === 8) {
+            this.migrateVersion8To9();
+            version = 9;
+          } else {
+            throw new Error(`Unsupported campaign schema version ${version}.`);
+          }
+        }
+        if (version !== CAMPAIGN_DATABASE_SCHEMA_VERSION) {
+          throw new Error(`Unsupported campaign schema version ${version}.`);
+        }
       }
       this.validateSchema();
       this.readManifest();
@@ -136,8 +161,37 @@ export class CampaignDatabase {
       id: row.campaign_id,
       name: row.name,
       schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+      system: this.readSystem(),
       updatedAt: row.updated_at,
     };
+  }
+
+  readSystem(): CampaignSystemState {
+    const row = this.connection
+      .prepare(
+        `SELECT system_id, schema_version, settings_json
+         FROM campaign_system
+         WHERE singleton = 1`,
+      )
+      .get() as CampaignSystemRow | undefined;
+    if (!row) {
+      throw new Error('Campaign system metadata is missing.');
+    }
+    let settings: unknown;
+    try {
+      settings = JSON.parse(row.settings_json);
+    } catch {
+      throw new Error('Campaign system settings are invalid.');
+    }
+    const system = parseCampaignSystemState({
+      id: row.system_id,
+      schemaVersion: row.schema_version,
+      settings,
+    });
+    if (!system) {
+      throw new Error('Campaign game system is unsupported or invalid.');
+    }
+    return system;
   }
 
   touch(updatedAt: string): CampaignManifest {
@@ -159,6 +213,10 @@ export class CampaignDatabase {
   }
 
   private initialize(manifest: CampaignManifest): void {
+    const system = parseCampaignSystemState(manifest.system);
+    if (!system) {
+      throw new Error('Campaign game system is unsupported or invalid.');
+    }
     this.connection.exec('PRAGMA auto_vacuum = FULL');
     this.connection.exec('BEGIN IMMEDIATE');
     try {
@@ -169,6 +227,12 @@ export class CampaignDatabase {
           name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 64),
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE campaign_system (
+          singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+          system_id TEXT NOT NULL,
+          schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+          settings_json TEXT NOT NULL
         ) STRICT;
         CREATE TABLE campaign_server_settings (
           singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
@@ -276,6 +340,17 @@ export class CampaignDatabase {
         );
       this.connection
         .prepare(
+          `INSERT INTO campaign_system (
+             singleton, system_id, schema_version, settings_json
+           ) VALUES (1, ?, ?, ?)`,
+        )
+        .run(
+          system.id,
+          system.schemaVersion,
+          JSON.stringify(system.settings),
+        );
+      this.connection
+        .prepare(
           `INSERT INTO campaign_server_settings (
              singleton, port, transform_preview_rate,
              max_chat_message_characters
@@ -324,6 +399,12 @@ export class CampaignDatabase {
         'name',
         'created_at',
         'updated_at',
+      ],
+      campaign_system: [
+        'singleton',
+        'system_id',
+        'schema_version',
+        'settings_json',
       ],
       campaign_server_settings: [
         'singleton',
@@ -422,6 +503,7 @@ export class CampaignDatabase {
       'asset_manifest',
       'campaign_metadata',
       'campaign_server_settings',
+      'campaign_system',
       'scene_manifest',
     ]) {
       const row = this.connection
@@ -497,6 +579,42 @@ export class CampaignDatabase {
           ON chat_messages (sender_key, sequence);
         CREATE INDEX chat_messages_recipient_sequence
           ON chat_messages (recipient_key, sequence);
+        PRAGMA user_version = 8;
+        COMMIT;
+      `);
+    } catch (error) {
+      this.connection.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private migrateVersion8To9(): void {
+    const system = createDefaultCampaignSystemState();
+    if (!system) {
+      throw new Error('The default game system is unavailable.');
+    }
+    this.connection.exec('BEGIN IMMEDIATE');
+    try {
+      this.connection.exec(`
+        CREATE TABLE campaign_system (
+          singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+          system_id TEXT NOT NULL,
+          schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+          settings_json TEXT NOT NULL
+        ) STRICT;
+      `);
+      this.connection
+        .prepare(
+          `INSERT INTO campaign_system (
+             singleton, system_id, schema_version, settings_json
+           ) VALUES (1, ?, ?, ?)`,
+        )
+        .run(
+          system.id,
+          system.schemaVersion,
+          JSON.stringify(system.settings),
+        );
+      this.connection.exec(`
         PRAGMA user_version = ${CAMPAIGN_DATABASE_SCHEMA_VERSION};
         COMMIT;
       `);

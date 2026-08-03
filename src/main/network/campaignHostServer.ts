@@ -46,6 +46,7 @@ import { authenticatedAssetPolicy, type AssetPolicy } from '../assetPolicy';
 import { verifyPassword } from './passwords';
 import { LoginRateLimiter } from './loginRateLimiter';
 import type { CampaignIdentity } from './campaignIdentity';
+import type { CampaignSystemState } from '../../shared/gameSystems';
 import {
   FrameDecoder,
   parsePayload,
@@ -99,6 +100,7 @@ interface CampaignHostServerOptions {
   assetPolicy?: AssetPolicy;
   campaignId: string;
   campaignName: string;
+  campaignSystem: CampaignSystemState;
   chatRepository: ChatRepository;
   configRepository: ServerConfigRepository;
   identity: CampaignIdentity;
@@ -154,6 +156,7 @@ export class CampaignHostServer {
   private readonly assetTransfer: HostAssetTransfer;
   readonly campaignId: string;
   readonly campaignName: string;
+  readonly campaignSystem: CampaignSystemState;
   private readonly chat: CampaignChatService;
   private readonly chatRequests: HostChatRequestHandler;
   private readonly diceRoller: DiceRollExecutor;
@@ -203,6 +206,7 @@ export class CampaignHostServer {
     assetPolicy = authenticatedAssetPolicy,
     campaignId,
     campaignName,
+    campaignSystem,
     chatRepository,
     configRepository,
     identity,
@@ -224,6 +228,7 @@ export class CampaignHostServer {
     this.assetRepository = assetRepository;
     this.campaignId = campaignId;
     this.campaignName = campaignName;
+    this.campaignSystem = structuredClone(campaignSystem);
     this.configRepository = configRepository;
     this.diceRoller = new DiceRollExecutor();
     this.chat = new CampaignChatService({
@@ -839,6 +844,7 @@ export class CampaignHostServer {
       campaignId: this.campaignId,
       campaignName: this.campaignName,
       protocolVersion: NETWORK_PROTOCOL_VERSION,
+      system: this.campaignSystem,
     });
   }
 
@@ -1071,6 +1077,7 @@ export class CampaignHostServer {
             {
               campaignId: this.campaignId,
               campaignName: this.campaignName,
+              system: this.campaignSystem,
               updateRate: this.sceneRealtime.updateRate,
               userId: client.user.id,
               username: client.user.username,

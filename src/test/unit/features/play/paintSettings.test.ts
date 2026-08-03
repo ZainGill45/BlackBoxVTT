@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PlaySession } from '../../../../features/play/types';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 import {
   DEFAULT_PAINT_SETTINGS,
   drawingStyle,
@@ -16,6 +17,7 @@ const gm: PlaySession = {
   campaignName: 'Iron Keep',
   role: 'gm',
   source: 'local',
+  system: TEST_CAMPAIGN_SYSTEM,
 };
 const player: PlaySession = {
   campaignId,
@@ -24,6 +26,7 @@ const player: PlaySession = {
   port: 30_000,
   role: 'player',
   source: 'remote',
+  system: TEST_CAMPAIGN_SYSTEM,
   userId: '22222222-2222-4222-8222-222222222222',
   username: 'Alice',
 };

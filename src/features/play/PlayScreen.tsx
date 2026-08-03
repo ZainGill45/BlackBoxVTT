@@ -21,6 +21,7 @@ import { ScenePanel } from './scenes/ScenePanel';
 import { useAssetThumbnails } from './scenes/useAssetThumbnails';
 import { useScenes } from './scenes/useScenes';
 import { StoragePanel } from './StoragePanel';
+import { JournalPanel } from './JournalPanel';
 import {
   createDefaultServerSettings,
   OFFLINE_SERVER_STATUS,
@@ -148,6 +149,7 @@ export function PlayScreen({
   const showServerSettings =
     activeSidebarTab === 'settings' && session.role === 'gm';
   const showStorage = activeSidebarTab === 'storage';
+  const showJournal = activeSidebarTab === 'journal';
   const showChat = activeSidebarTab === 'chat';
   // Only the game master manages scenes; players just receive the presented one.
   const showScenes =
@@ -476,7 +478,7 @@ export function PlayScreen({
               role="tabpanel"
               aria-labelledby={`${activeSidebar.panelId}-tab`}
               className={
-                showServerSettings || showStorage || showScenes
+                showServerSettings || showStorage || showScenes || showJournal
                   ? styles.settingsPanelContent
                   : styles.sidebarPanelContent
               }
@@ -517,6 +519,8 @@ export function PlayScreen({
                   thumbnails={scenePreviews}
                   store={scenes}
                 />
+              ) : showJournal ? (
+                <JournalPanel />
               ) : (
                 <div
                   className={styles.sidebarPanelIcon}

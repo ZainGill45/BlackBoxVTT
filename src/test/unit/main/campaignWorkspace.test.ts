@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CampaignRepository } from '../../../main/campaignRepository';
 import { CampaignRuntimeRegistry } from '../../../main/campaignRuntime';
 import { CampaignWorkspaceRegistry } from '../../../main/campaignWorkspace';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const campaignId = '11111111-1111-4111-8111-111111111111';
 const directories: string[] = [];
@@ -88,6 +89,7 @@ describe('CampaignRuntimeRegistry', () => {
       },
       campaignId,
       kind: 'joined' as const,
+      system: TEST_CAMPAIGN_SYSTEM,
       scenes: {
         cancelTransform: vi.fn(async () => undefined),
         getActiveScene: vi.fn(() => null),
@@ -106,6 +108,7 @@ describe('CampaignRuntimeRegistry', () => {
       assets: { actor: joined.assets.actor },
       campaignId,
       kind: 'joined',
+      system: TEST_CAMPAIGN_SYSTEM,
     });
     await expect(resolved?.scenes.list()).resolves.toMatchObject({
       ok: true,
@@ -117,7 +120,10 @@ describe('CampaignRuntimeRegistry', () => {
     });
 
     runtimes.unregisterJoined(campaignId);
-    expect((await runtimes.resolve(campaignId))?.kind).toBe('local');
+    expect(await runtimes.resolve(campaignId)).toMatchObject({
+      kind: 'local',
+      system: TEST_CAMPAIGN_SYSTEM,
+    });
     await runtimes.closeAll();
   });
 });

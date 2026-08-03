@@ -11,6 +11,10 @@ import {
 import { fail } from '../shared/result';
 import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
+import {
+  createDefaultCampaignSystemState,
+  parseCampaignSystemState,
+} from '../systems/catalog';
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -60,6 +64,7 @@ export function isCampaignManifest(value: unknown): value is CampaignManifest {
     normalizeName(manifest.name) === manifest.name &&
     manifest.name.length >= 1 &&
     manifest.name.length <= 64 &&
+    parseCampaignSystemState(manifest.system) !== null &&
     isValidTimestamp(manifest.createdAt) &&
     isValidTimestamp(manifest.updatedAt)
   );
@@ -156,6 +161,20 @@ export class CampaignRepository {
           'Campaign name must be between 1 and 64 characters.',
         );
       }
+      const rawSystemId = (input as { systemId?: unknown }).systemId;
+      if (rawSystemId !== undefined && typeof rawSystemId !== 'string') {
+        return failure(
+          'unsupported_system',
+          'The selected game system is not supported.',
+        );
+      }
+      const system = createDefaultCampaignSystemState(rawSystemId);
+      if (!system) {
+        return failure(
+          'unsupported_system',
+          'The selected game system is not supported.',
+        );
+      }
 
       try {
         const campaigns = await this.readCampaigns();
@@ -179,6 +198,7 @@ export class CampaignRepository {
           id,
           name,
           schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+          system,
           updatedAt: timestamp,
         };
         const stagingDirectory = path.join(

@@ -243,6 +243,14 @@ const chatMessageSchema = z
   })
   .strict();
 
+const campaignSystemStateSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    schemaVersion: z.number().int().positive(),
+    settings: z.json(),
+  })
+  .strict();
+
 const chatParticipantEventSchema = z
   .object({
     eventId: z.string().uuid(),
@@ -498,6 +506,7 @@ export const protocolPayloadSchemas = {
       campaignId: z.string().uuid(),
       campaignName: z.string().min(1).max(64),
       protocolVersion: z.number().int(),
+      system: campaignSystemStateSchema,
     })
     .strict(),
   'server.ping': z.object({ nonce: z.string().min(1).max(128) }).strict(),
@@ -570,6 +579,7 @@ export const protocolPayloadSchemas = {
     .object({
       campaignId: z.string().uuid(),
       campaignName: z.string().min(1).max(64),
+      system: campaignSystemStateSchema,
       updateRate: z
         .number()
         .int()

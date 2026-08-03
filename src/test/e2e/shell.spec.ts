@@ -172,4 +172,20 @@ test.describe('application lifecycle', () => {
 
     await closed;
   });
+
+  test('opens the empty Journal collection shell', async () => {
+    const { window } = await apps.launch();
+    await createAndOpenCampaign(window, CAMPAIGN);
+
+    await window.getByRole('tab', { name: 'Journal' }).click();
+    await expect(
+      window.getByRole('searchbox', { name: 'Search journal' }),
+    ).toBeVisible();
+    const add = window.getByRole('button', { name: 'Add journal entry' });
+    await expect(add).toBeEnabled();
+    await add.click();
+    await expect(
+      window.locator('[data-sidebar-icon="journal"] svg'),
+    ).toBeVisible();
+  });
 });

@@ -14,6 +14,7 @@ import {
   MAX_TCP_MESSAGE_BYTES,
   parsePayload,
 } from '../../../../main/network/tcpProtocol';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 describe('TCP protocol framing', () => {
   const envelope = {
@@ -179,6 +180,40 @@ describe('chat protocol messages', () => {
             ],
           },
         },
+      }),
+    ).toThrow();
+  });
+});
+
+describe('campaign system protocol messages', () => {
+  it('requires system state in both handshake messages', () => {
+    const campaign = {
+      campaignId: '11111111-1111-4111-8111-111111111111',
+      campaignName: 'Iron Meridian',
+      system: TEST_CAMPAIGN_SYSTEM,
+    };
+    expect(
+      parsePayload('server.hello', {
+        ...campaign,
+        protocolVersion: NETWORK_PROTOCOL_VERSION,
+      }),
+    ).toEqual({
+      ...campaign,
+      protocolVersion: NETWORK_PROTOCOL_VERSION,
+    });
+    expect(
+      parsePayload('server.ready', {
+        ...campaign,
+        updateRate: 60,
+        userId: '22222222-2222-4222-8222-222222222222',
+        username: 'Alice',
+      }),
+    ).toMatchObject({ ...campaign, username: 'Alice' });
+    expect(() =>
+      parsePayload('server.hello', {
+        campaignId: campaign.campaignId,
+        campaignName: campaign.campaignName,
+        protocolVersion: NETWORK_PROTOCOL_VERSION,
       }),
     ).toThrow();
   });

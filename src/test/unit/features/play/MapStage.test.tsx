@@ -13,6 +13,7 @@ import {
   testCampaignId,
 } from '../../../support/scenes';
 import type { PlaySession } from '../../../../features/play/types';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 import { CANVAS_IMAGE_DRAG_TYPE } from '../../../../shared/assets';
 import { createEmptyImageLayers } from '../../../../shared/scenes';
 import { createFakeSceneRenderer } from '../../../support/sceneRenderer';
@@ -22,6 +23,7 @@ const session: PlaySession = {
   campaignName: 'Iron Meridian',
   role: 'gm',
   source: 'local',
+  system: TEST_CAMPAIGN_SYSTEM,
 };
 
 const stageApis = {
@@ -426,6 +428,7 @@ describe('MapStage', () => {
       port: 30_000,
       role: 'player',
       source: 'remote',
+      system: TEST_CAMPAIGN_SYSTEM,
       userId: '55555555-5555-4555-8555-555555555555',
       username: 'Alice',
     };

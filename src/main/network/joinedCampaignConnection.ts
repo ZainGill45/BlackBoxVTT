@@ -157,7 +157,10 @@ export class JoinedCampaignConnection {
     const result = await this.client.authenticate(input);
     if (result.ok) {
       this.registerRuntime(result.value);
-      this.activeSession = this.createSession(result.value.campaignId);
+      this.activeSession = this.createSession(
+        result.value.campaignId,
+        result.value.system,
+      );
     }
     return result;
   }
@@ -175,7 +178,10 @@ export class JoinedCampaignConnection {
     return this.assets.clearCachedCampaign(campaignId);
   }
 
-  private createSession(campaignId: string): CampaignNetworkSession {
+  private createSession(
+    campaignId: string,
+    system: RemotePlaySession['system'],
+  ): CampaignNetworkSession {
     return {
       campaignId,
       clearChatHistory: async () => ({
@@ -188,6 +194,7 @@ export class JoinedCampaignConnection {
       getChatBootstrap: () => this.getChatBootstrap(),
       getChatHistory: (input) => this.client.getChatHistory(input),
       kind: 'joined',
+      system: structuredClone(system),
       sendChatMessage: (input) => this.client.sendChatMessage(input),
       sendChatRoll: (input) => this.client.sendChatRoll(input),
       sendDrawingPreview: async (input) => {
@@ -231,6 +238,7 @@ export class JoinedCampaignConnection {
       campaignId,
       kind: 'joined',
       scenes: this.scenes.createTransport(campaignId),
+      system: session.system,
     });
   }
 

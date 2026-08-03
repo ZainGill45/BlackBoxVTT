@@ -2,6 +2,7 @@ import { createHash, X509Certificate } from 'node:crypto';
 import { open, stat } from 'node:fs/promises';
 import path from 'node:path';
 import tls, { type TLSSocket } from 'node:tls';
+import { isDeepStrictEqual } from 'node:util';
 import {
   CHAT_SEND_TIMEOUT_MS,
   type ChatBootstrap,
@@ -61,6 +62,8 @@ import type {
 } from './connectionHistoryRepository';
 import { parsePayload, ProtocolVersionMismatchError } from './tcpProtocol';
 import { deserializeUdpCredentials } from './udpProtocol';
+import type { CampaignSystemState } from '../../shared/gameSystems';
+import { parseCampaignSystemState } from '../../systems/catalog';
 
 const TCP_CONNECT_TIMEOUT_MS = 10_000;
 const UDP_ASSOCIATION_TIMEOUT_MS = 10_000;
@@ -89,6 +92,7 @@ interface ClientAttempt {
   id: string;
   pendingTrust: boolean;
   port: number;
+  system: CampaignSystemState;
 }
 
 
@@ -204,6 +208,14 @@ export class CampaignClient {
           'The saved endpoint now serves a different campaign.',
         );
       }
+      const system = parseCampaignSystemState(hello.system);
+      if (!system) {
+        channel.close();
+        return failure(
+          'unsupported_system',
+          'This build does not support the campaign game system.',
+        );
+      }
 
       const peer = socket.getPeerCertificate(true);
       if (!peer.raw) {
@@ -225,6 +237,7 @@ export class CampaignClient {
         id: crypto.randomUUID(),
         pendingTrust: history?.certificateFingerprint !== fingerprint,
         port: input.port,
+        system,
       };
       this.attempt = attempt;
 
@@ -241,6 +254,7 @@ export class CampaignClient {
               kind: history ? 'changed' : 'first_use',
               newFingerprint: fingerprint,
               oldFingerprint: history?.certificateFingerprint ?? null,
+              system: attempt.system,
             },
           },
         };
@@ -350,6 +364,14 @@ export class CampaignClient {
         UDP_ASSOCIATION_TIMEOUT_MS,
       );
       const ready = parsePayload('server.ready', readyEnvelope.payload);
+      const readySystem = parseCampaignSystemState(ready.system);
+      if (!readySystem || !isDeepStrictEqual(readySystem, attempt.system)) {
+        await this.disconnect();
+        return failure(
+          'unsupported_system',
+          'The campaign game system changed during authentication.',
+        );
+      }
       const session: RemotePlaySession = {
         campaignId: ready.campaignId,
         campaignName: ready.campaignName,
@@ -357,6 +379,7 @@ export class CampaignClient {
         port: attempt.port,
         role: 'player',
         source: 'remote',
+        system: readySystem,
         userId: ready.userId,
         username: ready.username,
       };
@@ -995,6 +1018,7 @@ export class CampaignClient {
       attemptId: attempt.id,
       campaignId: attempt.campaignId,
       campaignName: attempt.campaignName,
+      system: attempt.system,
       users: users.map((user) => ({
         ...user,
         hasSavedPassword:

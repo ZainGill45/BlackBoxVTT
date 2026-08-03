@@ -14,6 +14,7 @@ import type {
   MeasurementUpdate,
   ShapePreviewUpdate,
 } from '../../shared/network';
+import type { CampaignSystemState } from '../../shared/gameSystems';
 
 export type SessionChatHistoryInput = Omit<ChatHistoryInput, 'campaignId'>;
 export type SessionChatMessageInput = Omit<
@@ -39,6 +40,7 @@ export type SessionShapePreview = Omit<ShapePreviewUpdate, 'campaignId'>;
 export interface CampaignNetworkSession {
   readonly campaignId: string;
   readonly kind: 'hosted' | 'joined';
+  readonly system: CampaignSystemState;
   clearChatHistory(): Promise<ChatResult<ClearChatHistoryResult>>;
   getChatBootstrap(): Promise<ChatResult<ChatBootstrap>>;
   getChatHistory(

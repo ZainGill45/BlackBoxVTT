@@ -17,12 +17,14 @@ import type { AssetApi } from '../../../shared/assets';
 import type { NetworkApi, ServerSettingsView } from '../../../shared/network';
 import { createMockNetworkApi } from '../../support/networkApi';
 import { App } from '../../../app/App';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const createdCampaign: CampaignSummary = {
   createdAt: '2026-07-26T05:00:00.000Z',
   id: '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325',
   name: 'Iron Meridian',
   schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+  system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-26T05:00:00.000Z',
 };
 
@@ -33,6 +35,7 @@ const remoteSession = {
   port: 43_110,
   role: 'player' as const,
   source: 'remote' as const,
+  system: TEST_CAMPAIGN_SYSTEM,
   userId: '22222222-2222-4222-8222-222222222222',
   username: 'Alice',
 };
@@ -65,6 +68,7 @@ function createAuthenticatedNetworkApi(
           attemptId: '33333333-3333-4333-8333-333333333333',
           campaignId: remoteSession.campaignId,
           campaignName: remoteSession.campaignName,
+          system: TEST_CAMPAIGN_SYSTEM,
           users: [
             {
               hasSavedPassword: false,
@@ -246,6 +250,7 @@ describe('App campaign integration', () => {
             attemptId: '33333333-3333-4333-8333-333333333333',
             campaignId: remoteSession.campaignId,
             campaignName: remoteSession.campaignName,
+            system: TEST_CAMPAIGN_SYSTEM,
             users: [
               {
                 hasSavedPassword: connectionCount > 1,
@@ -361,6 +366,7 @@ describe('App campaign integration', () => {
             attemptId: '33333333-3333-4333-8333-333333333333',
             campaignId: remoteSession.campaignId,
             campaignName: remoteSession.campaignName,
+            system: TEST_CAMPAIGN_SYSTEM,
             users: [
               {
                 hasSavedPassword: true,

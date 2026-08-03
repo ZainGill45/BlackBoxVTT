@@ -4,10 +4,7 @@ import {
   FileAudio,
   FileImage,
   FileText,
-  Plus,
-  Search,
   Trash2,
-  X,
 } from 'lucide-react';
 import {
   useEffect,
@@ -18,10 +15,8 @@ import {
 } from 'react';
 import { Button } from '../../components/ui/Button';
 import { CanonicalLoader } from '../../components/ui/CanonicalLoader';
-import { Collapsible } from '../../components/ui/Collapsible';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { ErrorModal } from '../../components/ui/ErrorModal';
-import { IconButton } from '../../components/ui/IconButton';
 import type {
   AssetApi,
   AssetErrorEvent,
@@ -34,6 +29,10 @@ import { CANVAS_IMAGE_DRAG_TYPE } from '../../shared/assets';
 import type { SceneRecord } from '../../shared/scenes';
 import { useDeleteConfirmation } from '../connection/useDeleteConfirmation';
 import { AssetPreviewModal } from './AssetPreviewModal';
+import {
+  SidebarCollectionGroup,
+  SidebarCollectionPanel,
+} from './SidebarCollectionPanel';
 import styles from './StoragePanel.module.css';
 
 const GROUPS: Array<{ id: AssetKind; label: string }> = [
@@ -370,50 +369,27 @@ export function StoragePanel({
   };
 
   return (
-    <div className={styles.storagePanel}>
-      <div className={styles.toolbar}>
-        <label className={styles.search}>
-          <Search aria-hidden size="1rem" />
-          <span className="sr-only">Search campaign assets</span>
-          <input
-            type="search"
-            placeholder="Search assets"
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setQuery('');
-              }
-            }}
-          />
-          {query ? (
-            <button
-              type="button"
-              aria-label="Clear asset search"
-              onClick={() => setQuery('')}
-            >
-              <X aria-hidden size="1rem" />
-            </button>
-          ) : null}
-        </label>
-        <IconButton
-          icon={Plus}
-          label="Add campaign assets"
-          onClick={() => void importAssets()}
-        />
-      </div>
-
-      <div className={styles.groups}>
+    <>
+      <SidebarCollectionPanel
+        addLabel="Add campaign assets"
+        clearLabel="Clear asset search"
+        emptyIcon={Archive}
+        emptyIconId="storage"
+        onAdd={() => void importAssets()}
+        onQueryChange={setQuery}
+        query={query}
+        searchLabel="Search campaign assets"
+        searchPlaceholder="Search assets"
+        showEmpty={filtered.length === 0}
+      >
         {GROUPS.map((group) => {
           const entries = filtered.filter((asset) => asset.kind === group.id);
           if (entries.length === 0) {
             return null;
           }
           return (
-            <Collapsible
+            <SidebarCollectionGroup
               key={group.id}
-              className={styles.group}
-              contentClassName={styles.groupContent}
               expanded={normalizedQuery ? true : expanded[group.id]}
               label={group.label}
               onExpandedChange={(value) => {
@@ -480,16 +456,10 @@ export function StoragePanel({
                   />
                 ))}
               </ul>
-            </Collapsible>
+            </SidebarCollectionGroup>
           );
         })}
-
-        {filtered.length === 0 ? (
-          <div className={styles.emptyIcon} data-sidebar-icon="storage">
-            <Archive aria-hidden size="5rem" strokeWidth={1} />
-          </div>
-        ) : null}
-      </div>
+      </SidebarCollectionPanel>
 
       {importing ? (
         <CanonicalLoader
@@ -537,6 +507,6 @@ export function StoragePanel({
         title={error?.title ?? 'Campaign asset error'}
         onDismiss={() => setError(null)}
       />
-    </div>
+    </>
   );
 }

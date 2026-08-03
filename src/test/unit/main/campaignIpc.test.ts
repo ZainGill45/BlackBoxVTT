@@ -9,12 +9,14 @@ import {
   type CampaignIpcRegistrar,
   type CampaignRepositoryContract,
 } from '../../../main/campaignIpc';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const campaign: CampaignSummary = {
   createdAt: '2026-07-26T05:00:00.000Z',
   id: '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325',
   name: 'Shattered Coast',
   schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+  system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-26T05:00:00.000Z',
 };
 

@@ -1,4 +1,5 @@
 import type { CampaignManifest } from '../shared/campaigns';
+import type { CampaignSystemState } from '../shared/gameSystems';
 import { AssetRepository } from './assetRepository';
 import type { CampaignRepository } from './campaignRepository';
 import { ChatRepository } from './chatRepository';
@@ -16,6 +17,7 @@ export interface LocalCampaignWorkspace {
   readonly identityRepository: CampaignIdentityRepository;
   readonly manifest: CampaignManifest;
   readonly sceneRepository: SceneRepository;
+  readonly system: CampaignSystemState;
 }
 
 interface CampaignWorkspaceRegistryOptions {
@@ -118,6 +120,7 @@ export class CampaignWorkspaceRegistry {
         touchCampaign,
         warn: this.warn,
       }),
+      system: container.manifest.system,
     };
   }
 }

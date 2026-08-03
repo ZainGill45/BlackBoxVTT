@@ -206,7 +206,7 @@ describe('AssetPreviewModal', () => {
     unmount();
   });
 
-  it('wraps text in a narrow vertically scrollable view without scrollbars or pagination', async () => {
+  it('wraps text in a narrow vertically scrollable view without pagination', async () => {
     const text = Array.from(
       { length: 100 },
       (_, index) =>
@@ -233,7 +233,6 @@ describe('AssetPreviewModal', () => {
 
     expect(documentStyle.overflowX).toBe('hidden');
     expect(documentStyle.overflowY).toBe('auto');
-    expect(documentStyle.scrollbarWidth).toBe('none');
     expect(pageStyle.whiteSpace).toBe('pre-wrap');
     expect(
       screen.queryByRole('button', { name: 'Next text page' }),

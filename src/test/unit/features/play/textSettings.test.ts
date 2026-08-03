@@ -7,6 +7,7 @@ import {
   textSettingsStorageKey,
 } from '../../../../features/play/textSettings';
 import type { PlaySession } from '../../../../features/play/types';
+import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 const campaignId = '11111111-1111-4111-8111-111111111111';
 const gm: PlaySession = {
@@ -14,6 +15,7 @@ const gm: PlaySession = {
   campaignName: 'Iron Keep',
   role: 'gm',
   source: 'local',
+  system: TEST_CAMPAIGN_SYSTEM,
 };
 const player: PlaySession = {
   campaignId,
@@ -22,6 +24,7 @@ const player: PlaySession = {
   port: 30_000,
   role: 'player',
   source: 'remote',
+  system: TEST_CAMPAIGN_SYSTEM,
   userId: '22222222-2222-4222-8222-222222222222',
   username: 'Alice',
 };

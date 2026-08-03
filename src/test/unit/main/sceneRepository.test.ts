@@ -23,6 +23,7 @@ import {
 import { SceneRepository } from '../../../main/sceneRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
+import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 let directory = '';
 let database: CampaignDatabase;
@@ -138,6 +139,7 @@ beforeEach(async () => {
     id: '99999999-9999-4999-8999-999999999999',
     name: 'Iron Meridian',
     schemaVersion: CAMPAIGN_SCHEMA_VERSION,
+    system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
 });
