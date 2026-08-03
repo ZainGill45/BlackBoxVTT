@@ -10,6 +10,7 @@ import {
   MIN_MAX_CHAT_MESSAGE_CHARACTERS,
   chatUtf8ByteLength,
 } from '../shared/chat';
+import { chatRollDefinitionSchema } from '../shared/chatRoll';
 import {
   MAX_TRANSFORM_PREVIEW_RATE,
   MAX_DRAWING_PREVIEW_POINTS,
@@ -70,6 +71,11 @@ const sendChatMessageSchema = campaignIdSchema.extend({
       (content) => chatUtf8ByteLength(content) <= MAX_CHAT_MESSAGE_BYTES,
       'Chat content exceeds the encoded size limit.',
     ),
+  recipient: chatPrincipalSchema.nullable(),
+});
+const sendChatRollSchema = campaignIdSchema.extend({
+  clientMessageId: z.string().uuid(),
+  definition: chatRollDefinitionSchema,
   recipient: chatPrincipalSchema.nullable(),
 });
 const createUserSchema = campaignIdSchema.extend({
@@ -336,6 +342,10 @@ const shapePreviewSchema = campaignIdSchema
     return parsed.success
       ? manager.sendChatMessage(parsed.data)
       : invalidInput();
+  });
+  handle(networkIpcChannels.sendChatRoll, async (input) => {
+    const parsed = sendChatRollSchema.safeParse(input);
+    return parsed.success ? manager.sendChatRoll(parsed.data) : invalidInput();
   });
   handle(networkIpcChannels.clearChatHistory, async (input) => {
     const parsed = campaignIdSchema.safeParse(input);

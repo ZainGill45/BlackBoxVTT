@@ -10,7 +10,7 @@ import { CampaignWorkspaceRegistry } from '../../../../main/campaignWorkspace';
 import { AssetRepository } from '../../../../main/assetRepository';
 import { authenticatedAssetPolicy } from '../../../../main/assetPolicy';
 import { SceneRepository } from '../../../../main/sceneRepository';
-import type { ChatEvent } from '../../../../shared/chat';
+import type { ChatEvent, ChatMessage } from '../../../../shared/chat';
 import {
   createEmptyDrawingLayers,
   createEmptyImageLayers,
@@ -43,6 +43,10 @@ import { ServerConfigRepository } from '../../../../main/network/serverConfigRep
 const campaignId = '11111111-1111-4111-8111-111111111111';
 const userIdPattern = /^[0-9a-f-]{36}$/i;
 const HANDSHAKE_TIMEOUT = 20_000;
+
+function textPayload(message: ChatMessage): string {
+  return message.payload.kind === 'text' ? message.payload.text : '';
+}
 
 const secureStorage = {
   async decryptStringAsync(encrypted: Buffer) {
@@ -503,7 +507,7 @@ describe('chat delivery', () => {
       }),
     ).resolves.toMatchObject({
       ok: true,
-      value: { content: 'Public hello', sequence: 1 },
+      value: { payload: { kind: 'text', text: 'Public hello' }, sequence: 1 },
     });
     await vi.waitFor(() => {
       expect(
@@ -525,7 +529,10 @@ describe('chat delivery', () => {
       }),
     ).resolves.toMatchObject({
       ok: true,
-      value: { content: 'Private for Bob', recipient: { displayName: 'Bob' } },
+      value: {
+        payload: { kind: 'text', text: 'Private for Bob' },
+        recipient: { displayName: 'Bob' },
+      },
     });
     await vi.waitFor(() => {
       expect(
@@ -551,7 +558,10 @@ describe('chat delivery', () => {
       }),
     ).resolves.toMatchObject({
       ok: true,
-      value: { content: 'Private for Alice', recipient: { displayName: 'Alice' } },
+      value: {
+        payload: { kind: 'text', text: 'Private for Alice' },
+        recipient: { displayName: 'Alice' },
+      },
     });
     await vi.waitFor(() => {
       expect(
@@ -570,14 +580,14 @@ describe('chat delivery', () => {
       observer.getChatBootstrap(campaignId),
     ]);
     expect(
-      hostChat.ok && hostChat.value.messages.map((message) => message.content),
+      hostChat.ok && hostChat.value.messages.map(textPayload),
     ).toEqual(['Public hello', 'Private for Alice']);
     expect(
-      playerChat.ok && playerChat.value.messages.map((message) => message.content),
+      playerChat.ok && playerChat.value.messages.map(textPayload),
     ).toEqual(['Public hello', 'Private for Bob', 'Private for Alice']);
     expect(
       observerChat.ok &&
-        observerChat.value.messages.map((message) => message.content),
+        observerChat.value.messages.map(textPayload),
     ).toEqual(['Public hello', 'Private for Bob']);
   });
 
@@ -1527,7 +1537,10 @@ describe('chat for an absent player', () => {
         content: 'Waiting offline',
         recipient: { kind: 'player', userId: bobUserId },
       }),
-    ).resolves.toMatchObject({ ok: true, value: { content: 'Waiting offline' } });
+    ).resolves.toMatchObject({
+      ok: true,
+      value: { payload: { kind: 'text', text: 'Waiting offline' } },
+    });
   });
 
   it('replays the missed whisper when that player returns', async () => {
@@ -1553,7 +1566,7 @@ describe('chat for an absent player', () => {
     const offlineHistory = await observer.getChatBootstrap(campaignId);
     expect(
       offlineHistory.ok &&
-        offlineHistory.value.messages.map((message) => message.content),
+        offlineHistory.value.messages.map(textPayload),
     ).toContain('Waiting offline');
   }, HANDSHAKE_TIMEOUT);
 

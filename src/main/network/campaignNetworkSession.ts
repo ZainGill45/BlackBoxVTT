@@ -6,6 +6,7 @@ import type {
   ChatResult,
   ClearChatHistoryResult,
   SendChatMessageInput,
+  SendChatRollInput,
 } from '../../shared/chat';
 import type {
   DrawingPreviewUpdate,
@@ -19,6 +20,7 @@ export type SessionChatMessageInput = Omit<
   SendChatMessageInput,
   'campaignId'
 >;
+export type SessionChatRollInput = Omit<SendChatRollInput, 'campaignId'>;
 export type SessionDrawingPreview = Omit<
   DrawingPreviewUpdate,
   'campaignId'
@@ -45,6 +47,7 @@ export interface CampaignNetworkSession {
   sendChatMessage(
     input: SessionChatMessageInput,
   ): Promise<ChatResult<ChatMessage>>;
+  sendChatRoll(input: SessionChatRollInput): Promise<ChatResult<ChatMessage>>;
   sendDrawingPreview(input: SessionDrawingPreview): Promise<void>;
   sendMapPing(input: SessionMapPing): Promise<void>;
   sendMeasurementUpdate(input: SessionMeasurementUpdate): Promise<void>;

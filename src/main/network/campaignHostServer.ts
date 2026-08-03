@@ -13,6 +13,7 @@ import type {
   ChatResult,
   ClearChatHistoryResult,
   SendChatMessageInput,
+  SendChatRollInput,
 } from '../../shared/chat';
 import type {
   HostStatus,
@@ -34,6 +35,7 @@ import {
 } from '../../shared/scenes';
 import type { AssetRepository } from '../assetRepository';
 import type { ChatRepository } from '../chatRepository';
+import { DiceRollExecutor } from '../diceRollExecutor';
 import {
   CampaignChatService,
   GAME_MASTER_CHAT_IDENTITY,
@@ -154,6 +156,7 @@ export class CampaignHostServer {
   readonly campaignName: string;
   private readonly chat: CampaignChatService;
   private readonly chatRequests: HostChatRequestHandler;
+  private readonly diceRoller: DiceRollExecutor;
   private readonly sceneRealtime: HostSceneRealtime;
   private readonly scenes: CampaignSceneService;
   private readonly sceneRequests: HostSceneRequestHandler;
@@ -222,9 +225,11 @@ export class CampaignHostServer {
     this.campaignId = campaignId;
     this.campaignName = campaignName;
     this.configRepository = configRepository;
+    this.diceRoller = new DiceRollExecutor();
     this.chat = new CampaignChatService({
       chat: chatRepository,
       config: configRepository,
+      diceRoller: this.diceRoller,
     });
     this.scenes = new CampaignSceneService(sceneRepository);
     this.identity = identity;
@@ -341,6 +346,17 @@ export class CampaignHostServer {
     if (!result.ok) {
       return result;
     }
+    if (result.value.created) {
+      this.broadcastChatMessage(result.value.message);
+    }
+    return { ok: true, value: result.value.message };
+  }
+
+  async sendGmChatRoll(
+    input: Omit<SendChatRollInput, 'campaignId'>,
+  ): Promise<ChatResult<ChatMessage>> {
+    const result = await this.chat.sendRoll(GAME_MASTER_CHAT_IDENTITY, input);
+    if (!result.ok) return result;
     if (result.value.created) {
       this.broadcastChatMessage(result.value.message);
     }
@@ -572,6 +588,7 @@ export class CampaignHostServer {
     if (listener) {
       await this.closeListener(listener);
     }
+    await this.diceRoller.close();
     this.onStatusChanged();
   }
 

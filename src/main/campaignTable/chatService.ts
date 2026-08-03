@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type {
+import {
   ChatBootstrap,
   ChatHistoryInput,
   ChatHistoryPage,
@@ -10,7 +10,16 @@ import type {
   ChatResult,
   ClearChatHistoryResult,
   SendChatMessageInput,
+  SendChatRollInput,
+  chatPrincipalKey,
+  countChatGraphemes,
+  sameChatPrincipal,
 } from '../../shared/chat';
+import {
+  serializeChatRollDefinition,
+  type ChatRollCardV1,
+  type ChatRollDefinition,
+} from '../../shared/chatRoll';
 import type {
   ChatRepository,
   StoredChatSendResult,
@@ -22,7 +31,13 @@ import type {
 
 type ChatStore = Pick<
   ChatRepository,
-  'bootstrap' | 'clear' | 'currentGeneration' | 'history' | 'send'
+  | 'bootstrap'
+  | 'clear'
+  | 'currentGeneration'
+  | 'find'
+  | 'history'
+  | 'send'
+  | 'sendRoll'
 >;
 type ChatConfigurationStore = Pick<
   ServerConfigRepository,
@@ -33,7 +48,17 @@ interface CampaignChatServiceOptions {
   chat: ChatStore;
   config: ChatConfigurationStore;
   createId?: () => string;
+  diceRoller?: DiceRoller;
   now?: () => Date;
+}
+
+export interface DiceRoller {
+  roll(
+    actorKey: string,
+    clientMessageId: string,
+    definition: ChatRollDefinition,
+    signature: string,
+  ): Promise<ChatResult<ChatRollCardV1>>;
 }
 
 export const GAME_MASTER_CHAT_IDENTITY = {
@@ -55,17 +80,25 @@ export class CampaignChatService {
   private readonly chat: ChatStore;
   private readonly config: ChatConfigurationStore;
   private readonly createId: () => string;
+  private readonly diceRoller: DiceRoller;
   private readonly now: () => Date;
 
   constructor({
     chat,
     config,
     createId = randomUUID,
+    diceRoller = {
+      roll: async () => ({
+        error: { code: 'unavailable', message: 'The dice roller is unavailable.' },
+        ok: false,
+      }),
+    },
     now = () => new Date(),
   }: CampaignChatServiceOptions) {
     this.chat = chat;
     this.config = config;
     this.createId = createId;
+    this.diceRoller = diceRoller;
     this.now = now;
   }
 
@@ -132,6 +165,107 @@ export class CampaignChatService {
       });
     } catch {
       return this.storageFailure('Message could not be stored.');
+    }
+  }
+
+  async sendRoll(
+    sender: ChatIdentity,
+    input: Pick<
+      SendChatRollInput,
+      'clientMessageId' | 'definition' | 'recipient'
+    >,
+  ): Promise<ChatResult<StoredChatSendResult>> {
+    try {
+      return this.config.withChatConfiguration(async (configuration) => {
+        const recipient = this.resolveRecipient(
+          input.recipient,
+          configuration.users,
+        );
+        if (!recipient.ok) return recipient;
+
+        const existing = await this.chat.find(sender, input.clientMessageId);
+        if (!existing.ok) return existing;
+        if (existing.value) {
+          const message = existing.value;
+          const storedRecipient = message.recipient
+            ? message.recipient.kind === 'gm'
+              ? { kind: 'gm' as const }
+              : { kind: 'player' as const, userId: message.recipient.userId }
+            : null;
+          const matchesRecipient =
+            (storedRecipient === null && input.recipient === null) ||
+            (storedRecipient !== null &&
+              input.recipient !== null &&
+              sameChatPrincipal(storedRecipient, input.recipient));
+          const storedDefinition =
+            message.payload.kind === 'roll'
+              ? {
+                  category: message.payload.card.category,
+                  sections: message.payload.card.sections.map(
+                    ({ label, modifiers, notation, typeLabel }) => ({
+                      label,
+                      modifiers,
+                      notation,
+                      typeLabel,
+                    }),
+                  ),
+                  title: message.payload.card.title,
+                }
+              : null;
+          if (
+            !matchesRecipient ||
+            JSON.stringify(storedDefinition) !== JSON.stringify(input.definition)
+          ) {
+            return {
+              error: {
+                code: 'invalid_input',
+                message: 'Roll retry does not match the original request.',
+              },
+              ok: false,
+            };
+          }
+          return { ok: true, value: { created: false, message } };
+        }
+
+        if (
+          countChatGraphemes(serializeChatRollDefinition(input.definition)) >
+          configuration.maxMessageCharacters
+        ) {
+          return {
+            error: {
+              code: 'invalid_input',
+              message: `Message exceeds the campaign limit of ${configuration.maxMessageCharacters} characters.`,
+            },
+            ok: false,
+          };
+        }
+
+        const signature = JSON.stringify({
+          definition: input.definition,
+          recipient: input.recipient,
+        });
+        const rolled = await this.diceRoller.roll(
+          chatPrincipalKey(
+            sender.kind === 'gm'
+              ? { kind: 'gm' }
+              : { kind: 'player', userId: sender.userId },
+          ),
+          input.clientMessageId,
+          input.definition,
+          signature,
+        );
+        if (!rolled.ok) return rolled;
+        return this.chat.sendRoll({
+          card: rolled.value,
+          clientMessageId: input.clientMessageId,
+          definition: input.definition,
+          maxMessageCharacters: configuration.maxMessageCharacters,
+          recipient: recipient.value,
+          sender,
+        });
+      });
+    } catch {
+      return this.storageFailure('Roll could not be stored.');
     }
   }
 

@@ -189,6 +189,7 @@ export class JoinedCampaignConnection {
       getChatHistory: (input) => this.client.getChatHistory(input),
       kind: 'joined',
       sendChatMessage: (input) => this.client.sendChatMessage(input),
+      sendChatRoll: (input) => this.client.sendChatRoll(input),
       sendDrawingPreview: async (input) => {
         this.client.sendDrawingPreview(input);
       },

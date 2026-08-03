@@ -58,6 +58,7 @@ describe('createNetworkApi surface', () => {
       'openHost',
       'resetPassword',
       'sendChatMessage',
+      'sendChatRoll',
       'sendDrawingPreview',
       'sendMapPing',
       'sendMeasurementUpdate',

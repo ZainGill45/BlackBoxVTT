@@ -15,11 +15,19 @@ import {
   type ChatHistoryPage,
   type ChatIdentity,
   type ChatMessage,
+  type ChatMessagePayload,
   type ChatParticipantEvent,
   type ChatPrincipal,
   type ChatResult,
   type ClearChatHistoryResult,
 } from '../shared/chat';
+import {
+  chatRollCardSchema,
+  chatRollDefinitionSchema,
+  serializeChatRollDefinition,
+  type ChatRollCardV1,
+  type ChatRollDefinition,
+} from '../shared/chatRoll';
 import { fail } from '../shared/result';
 import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
@@ -37,7 +45,8 @@ interface ChatRepositoryOptions {
 interface StoredChatRow {
   accepted_at: string;
   client_message_id: string;
-  content: string;
+  message_kind: string;
+  payload_json: string;
   generation: string;
   id: string;
   recipient_kind: string | null;
@@ -52,6 +61,15 @@ interface StoredChatRow {
 interface SendStoredChatInput {
   clientMessageId: string;
   content: string;
+  maxMessageCharacters: number;
+  recipient: ChatIdentity | null;
+  sender: ChatIdentity;
+}
+
+interface SendStoredRollInput {
+  card: ChatRollCardV1;
+  clientMessageId: string;
+  definition: ChatRollDefinition;
   maxMessageCharacters: number;
   recipient: ChatIdentity | null;
   sender: ChatIdentity;
@@ -73,6 +91,31 @@ function identityPrincipal(identity: ChatIdentity): ChatPrincipal {
   return identity.kind === 'gm'
     ? { kind: 'gm' }
     : { kind: 'player', userId: identity.userId };
+}
+
+function sameRecipient(
+  left: ChatIdentity | null,
+  right: ChatIdentity | null,
+): boolean {
+  return (
+    (left === null && right === null) ||
+    (left !== null &&
+      right !== null &&
+      sameChatPrincipal(identityPrincipal(left), identityPrincipal(right)))
+  );
+}
+
+function definitionFromCard(card: ChatRollCardV1): ChatRollDefinition {
+  return {
+    category: card.category,
+    sections: card.sections.map(({ label, modifiers, notation, typeLabel }) => ({
+      label,
+      modifiers,
+      notation,
+      typeLabel,
+    })),
+    title: card.title,
+  };
 }
 
 function rowIdentity(
@@ -112,12 +155,56 @@ function rowToMessage(row: StoredChatRow): ChatMessage {
   ) {
     throw new Error('Chat database contains invalid message metadata.');
   }
+  let payload: ChatMessagePayload;
+  try {
+    if (chatUtf8ByteLength(row.payload_json) > MAX_CHAT_MESSAGE_BYTES) {
+      throw new Error('Stored chat payload exceeds its size limit.');
+    }
+    const parsed: unknown = JSON.parse(row.payload_json);
+    if (
+      row.message_kind === 'text' &&
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      Object.keys(parsed).length === 2 &&
+      (parsed as Record<string, unknown>).kind === 'text' &&
+      typeof (parsed as Record<string, unknown>).text === 'string'
+    ) {
+      const text = (parsed as { text: string }).text;
+      if (
+        text.length === 0 ||
+        normalizeChatContent(text) !== text ||
+        chatUtf8ByteLength(text) > MAX_CHAT_MESSAGE_BYTES
+      ) {
+        throw new Error('Stored text chat payload is invalid.');
+      }
+      payload = { kind: 'text', text };
+    } else if (
+      row.message_kind === 'roll' &&
+      parsed !== null &&
+      typeof parsed === 'object' &&
+      Object.keys(parsed).length === 2 &&
+      (parsed as Record<string, unknown>).kind === 'roll'
+    ) {
+      payload = {
+        card: chatRollCardSchema.parse(
+          (parsed as Record<string, unknown>).card,
+        ),
+        kind: 'roll',
+      };
+    } else {
+      throw new Error('Unknown chat message kind.');
+    }
+  } catch (error) {
+    throw new Error('Chat database contains an invalid message payload.', {
+      cause: error,
+    });
+  }
   return {
     acceptedAt: row.accepted_at,
     clientMessageId: row.client_message_id,
-    content: row.content,
     generation: row.generation,
     id: row.id,
+    payload,
     recipient: rowIdentity(
       row.recipient_kind,
       row.recipient_user_id,
@@ -290,7 +377,8 @@ export class ChatRepository {
             `SELECT
                sequence, id, client_message_id, generation, accepted_at,
                sender_kind, sender_user_id, sender_name,
-               recipient_kind, recipient_user_id, recipient_name, content
+               recipient_kind, recipient_user_id, recipient_name,
+               message_kind, payload_json
              FROM chat_messages
              WHERE sender_key = ? AND client_message_id = ?`,
           )
@@ -307,7 +395,11 @@ export class ChatRepository {
                 identityPrincipal(message.recipient),
                 identityPrincipal(input.recipient),
               ));
-          if (message.content !== content || !sameRecipient) {
+          if (
+            message.payload.kind !== 'text' ||
+            message.payload.text !== content ||
+            !sameRecipient
+          ) {
             database.exec('ROLLBACK');
             return chatFailure(
               'invalid_input',
@@ -330,8 +422,8 @@ export class ChatRepository {
                id, client_message_id, generation, accepted_at,
                sender_key, sender_kind, sender_user_id, sender_name,
                recipient_key, recipient_kind, recipient_user_id,
-               recipient_name, content
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               recipient_name, message_kind, payload_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             id,
@@ -348,7 +440,8 @@ export class ChatRepository {
               ? input.recipient.userId
               : null,
             input.recipient?.displayName ?? null,
-            content,
+            'text',
+            JSON.stringify({ kind: 'text', text: content }),
           );
         const sequence = Number(insert.lastInsertRowid);
         database.exec('COMMIT');
@@ -360,9 +453,9 @@ export class ChatRepository {
             message: {
               acceptedAt,
               clientMessageId: input.clientMessageId,
-              content,
               generation,
               id,
+              payload: { kind: 'text', text: content },
               recipient: input.recipient
                 ? structuredClone(input.recipient)
                 : null,
@@ -378,6 +471,160 @@ export class ChatRepository {
           // The transaction did not begin or already rolled back.
         }
         this.warn('Chat message could not be committed.', error);
+        return chatFailure('storage_error', 'Message could not be stored.');
+      }
+    });
+  }
+
+  find(
+    sender: ChatIdentity,
+    clientMessageId: string,
+  ): Promise<ChatResult<ChatMessage | null>> {
+    return this.mutations.run(async () => {
+      try {
+        const row = this.database.connection
+          .prepare(
+            `SELECT
+               sequence, id, client_message_id, generation, accepted_at,
+               sender_kind, sender_user_id, sender_name,
+               recipient_kind, recipient_user_id, recipient_name,
+               message_kind, payload_json
+             FROM chat_messages
+             WHERE sender_key = ? AND client_message_id = ?`,
+          )
+          .get(
+            chatPrincipalKey(identityPrincipal(sender)),
+            clientMessageId,
+          ) as StoredChatRow | undefined;
+        return { ok: true, value: row ? rowToMessage(row) : null };
+      } catch (error) {
+        this.warn('Chat idempotency lookup failed.', error);
+        return chatFailure('storage_error', 'Message could not be checked.');
+      }
+    });
+  }
+
+  sendRoll(input: SendStoredRollInput): Promise<ChatResult<StoredChatSendResult>> {
+    return this.mutations.run(async () => {
+      const definitionResult = chatRollDefinitionSchema.safeParse(input.definition);
+      const cardResult = chatRollCardSchema.safeParse(input.card);
+      if (!definitionResult.success || !cardResult.success) {
+        return chatFailure('invalid_input', 'Roll data is invalid.');
+      }
+      const definition = definitionResult.data;
+      const card = cardResult.data;
+      if (
+        JSON.stringify(definitionFromCard(card)) !== JSON.stringify(definition)
+      ) {
+        return chatFailure('invalid_input', 'Roll result does not match its definition.');
+      }
+      if (
+        countChatGraphemes(serializeChatRollDefinition(definition)) >
+        input.maxMessageCharacters
+      ) {
+        return chatFailure(
+          'invalid_input',
+          `Message exceeds the campaign limit of ${input.maxMessageCharacters} characters.`,
+        );
+      }
+      const payload: ChatMessagePayload = { card, kind: 'roll' };
+      const payloadJson = JSON.stringify(payload);
+      if (chatUtf8ByteLength(payloadJson) > MAX_CHAT_MESSAGE_BYTES) {
+        return chatFailure('invalid_input', 'Roll result exceeds the encoded size limit.');
+      }
+      if (
+        input.recipient &&
+        sameChatPrincipal(
+          identityPrincipal(input.sender),
+          identityPrincipal(input.recipient),
+        )
+      ) {
+        return chatFailure('recipient_not_found', 'You cannot whisper to yourself.');
+      }
+
+      const database = this.database.connection;
+      const senderKey = chatPrincipalKey(identityPrincipal(input.sender));
+      const recipientKey = input.recipient
+        ? chatPrincipalKey(identityPrincipal(input.recipient))
+        : null;
+      try {
+        database.exec('BEGIN IMMEDIATE');
+        const existing = database
+          .prepare(
+            `SELECT
+               sequence, id, client_message_id, generation, accepted_at,
+               sender_kind, sender_user_id, sender_name,
+               recipient_kind, recipient_user_id, recipient_name,
+               message_kind, payload_json
+             FROM chat_messages
+             WHERE sender_key = ? AND client_message_id = ?`,
+          )
+          .get(senderKey, input.clientMessageId) as StoredChatRow | undefined;
+        if (existing) {
+          const message = rowToMessage(existing);
+          if (
+            message.payload.kind !== 'roll' ||
+            JSON.stringify(definitionFromCard(message.payload.card)) !==
+              JSON.stringify(definition) ||
+            !sameRecipient(message.recipient, input.recipient)
+          ) {
+            database.exec('ROLLBACK');
+            return chatFailure(
+              'invalid_input',
+              'Message retry does not match the original send.',
+            );
+          }
+          database.exec('COMMIT');
+          return { ok: true, value: { created: false, message } };
+        }
+
+        const generation = this.getGeneration(database);
+        const id = this.createId();
+        const acceptedAt = this.now().toISOString();
+        const insert = database
+          .prepare(
+            `INSERT INTO chat_messages (
+               id, client_message_id, generation, accepted_at,
+               sender_key, sender_kind, sender_user_id, sender_name,
+               recipient_key, recipient_kind, recipient_user_id,
+               recipient_name, message_kind, payload_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'roll', ?)`,
+          )
+          .run(
+            id,
+            input.clientMessageId,
+            generation,
+            acceptedAt,
+            senderKey,
+            input.sender.kind,
+            input.sender.kind === 'player' ? input.sender.userId : null,
+            input.sender.displayName,
+            recipientKey,
+            input.recipient?.kind ?? null,
+            input.recipient?.kind === 'player' ? input.recipient.userId : null,
+            input.recipient?.displayName ?? null,
+            payloadJson,
+          );
+        const message: ChatMessage = {
+          acceptedAt,
+          clientMessageId: input.clientMessageId,
+          generation,
+          id,
+          payload: structuredClone(payload),
+          recipient: input.recipient ? structuredClone(input.recipient) : null,
+          sender: structuredClone(input.sender),
+          sequence: Number(insert.lastInsertRowid),
+        };
+        database.exec('COMMIT');
+        this.scheduleCampaignTouch();
+        return { ok: true, value: { created: true, message } };
+      } catch (error) {
+        try {
+          database.exec('ROLLBACK');
+        } catch {
+          // The transaction did not begin or already rolled back.
+        }
+        this.warn('Chat roll could not be committed.', error);
         return chatFailure('storage_error', 'Message could not be stored.');
       }
     });
@@ -476,7 +723,8 @@ export class ChatRepository {
       query = `SELECT
           sequence, id, client_message_id, generation, accepted_at,
           sender_kind, sender_user_id, sender_name,
-          recipient_kind, recipient_user_id, recipient_name, content
+          recipient_kind, recipient_user_id, recipient_name,
+          message_kind, payload_json
         FROM chat_messages
         WHERE ${visibility} AND sequence < ?
         ORDER BY sequence DESC
@@ -486,7 +734,8 @@ export class ChatRepository {
       query = `SELECT
           sequence, id, client_message_id, generation, accepted_at,
           sender_kind, sender_user_id, sender_name,
-          recipient_kind, recipient_user_id, recipient_name, content
+          recipient_kind, recipient_user_id, recipient_name,
+          message_kind, payload_json
         FROM chat_messages
         WHERE ${visibility} AND sequence > ?
         ORDER BY sequence ASC
@@ -497,7 +746,8 @@ export class ChatRepository {
       query = `SELECT
           sequence, id, client_message_id, generation, accepted_at,
           sender_kind, sender_user_id, sender_name,
-          recipient_kind, recipient_user_id, recipient_name, content
+          recipient_kind, recipient_user_id, recipient_name,
+          message_kind, payload_json
         FROM chat_messages
         WHERE ${visibility}
         ORDER BY sequence DESC

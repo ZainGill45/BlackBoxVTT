@@ -31,6 +31,7 @@ import type {
   CampaignNetworkSession,
   SessionChatHistoryInput,
   SessionChatMessageInput,
+  SessionChatRollInput,
   SessionDrawingPreview,
   SessionMapPing,
   SessionMeasurementUpdate,
@@ -330,6 +331,10 @@ export class HostedCampaignSession implements CampaignNetworkSession {
     input: SessionChatMessageInput,
   ): Promise<ChatResult<ChatMessage>> {
     return this.server.sendGmChat(input);
+  }
+
+  sendChatRoll(input: SessionChatRollInput): Promise<ChatResult<ChatMessage>> {
+    return this.server.sendGmChatRoll(input);
   }
 
   clearChatHistory(): Promise<ChatResult<ClearChatHistoryResult>> {

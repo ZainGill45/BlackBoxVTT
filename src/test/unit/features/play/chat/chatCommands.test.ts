@@ -136,4 +136,82 @@ describe('parseChatComposer', () => {
       parseChatComposer('/clear now', directory, { kind: 'gm' }, true),
     ).toEqual({ kind: 'error', message: 'Usage: /clear' });
   });
+
+  it('parses quick rolls, multiline cards, annotations, and escaping', () => {
+    expect(
+      parseChatComposer('/R 1d20+5', directory, { kind: 'gm' }, true),
+    ).toMatchObject({
+      definition: {
+        category: 'Roll',
+        sections: [{ label: '1d20+5', notation: '1d20+5' }],
+        title: null,
+      },
+      kind: 'roll',
+      recipient: null,
+    });
+
+    expect(
+      parseChatComposer(
+        '/roll Spell: Flame Blade\nAttack \\(Melee\\) (WIS +2) (Flat -1e0) [Fire]: 1d20\nDamage: 3d6',
+        directory,
+        { kind: 'gm' },
+        true,
+      ),
+    ).toMatchObject({
+      definition: {
+        category: 'Spell',
+        sections: [
+          {
+            label: 'Attack (Melee)',
+            modifiers: [
+              { label: 'WIS', value: 2 },
+              { label: 'Flat', value: -1 },
+            ],
+            notation: '1d20',
+            typeLabel: 'Fire',
+          },
+          { label: 'Damage', notation: '3d6' },
+        ],
+        title: 'Flame Blade',
+      },
+      kind: 'roll',
+    });
+  });
+
+  it('nests roll cards under the existing whisper recipient grammar', () => {
+    expect(
+      parseChatComposer(
+        '/w "Alice Smith" /roll Spell: Flame Blade\nDamage [Fire]: 3d6',
+        directory,
+        { kind: 'gm' },
+        true,
+      ),
+    ).toMatchObject({
+      definition: { category: 'Spell', title: 'Flame Blade' },
+      kind: 'roll',
+      recipient: { displayName: 'Alice Smith' },
+    });
+  });
+
+  it('keeps malformed roll definitions in the composer', () => {
+    expect(
+      parseChatComposer(
+        '/roll Attack\nDamage (WIS 2): 1d20',
+        directory,
+        { kind: 'gm' },
+        true,
+      ),
+    ).toMatchObject({ kind: 'error' });
+    expect(
+      parseChatComposer('/roll', directory, { kind: 'gm' }, true),
+    ).toMatchObject({ kind: 'error' });
+    expect(
+      parseChatComposer(
+        '/roll Attack\nDamage [Fire] (Flat +2): 1d20',
+        directory,
+        { kind: 'gm' },
+        true,
+      ),
+    ).toMatchObject({ kind: 'error' });
+  });
 });

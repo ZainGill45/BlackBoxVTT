@@ -4,11 +4,20 @@ import {
   type ChatIdentity,
   type ChatPrincipal,
 } from '../../../shared/chat';
+import {
+  parseRollCommand,
+  type ChatRollDefinition,
+} from '../../../shared/chatRoll';
 
 export type ParsedChatCommand =
   | { kind: 'clear' }
   | { kind: 'error'; message: string }
   | { kind: 'help' }
+  | {
+      definition: ChatRollDefinition;
+      kind: 'roll';
+      recipient: ChatIdentity | null;
+    }
   | {
       body: string;
       kind: 'send';
@@ -145,11 +154,20 @@ export function parseChatComposer(
         message: 'You cannot whisper to yourself.',
       };
     }
-    return {
-      body: whisper.body,
-      kind: 'send',
-      recipient,
-    };
+    if (/^\/(?:r|roll)(?:\s|$)/iu.test(whisper.body)) {
+      const roll = parseRollCommand(whisper.body);
+      return roll.ok
+        ? { definition: roll.definition, kind: 'roll', recipient }
+        : { kind: 'error', message: roll.message };
+    }
+    return { body: whisper.body, kind: 'send', recipient };
+  }
+
+  if (command === 'r' || command === 'roll') {
+    const roll = parseRollCommand(normalized);
+    return roll.ok
+      ? { definition: roll.definition, kind: 'roll', recipient: null }
+      : { kind: 'error', message: roll.message };
   }
 
   return {
@@ -157,4 +175,3 @@ export function parseChatComposer(
     message: 'Unknown command. Type /help for chat commands.',
   };
 }
-

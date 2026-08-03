@@ -98,6 +98,90 @@ describe('chat protocol messages', () => {
       }),
     ).toThrow(/encoded size/i);
   });
+
+  it('accepts only roll definitions from clients and validates recursive results from hosts', () => {
+    const definition = {
+      category: 'Roll',
+      sections: [
+        { label: '1d20', modifiers: [], notation: '1d20', typeLabel: null },
+      ],
+      title: null,
+    };
+    const request = {
+      clientMessageId: send.clientMessageId,
+      definition,
+      recipient: null,
+    };
+    expect(parsePayload('client.chat_roll', request)).toEqual(request);
+    expect(() =>
+      parsePayload('client.chat_roll', {
+        ...request,
+        sender: { kind: 'gm' },
+        total: 20,
+      }),
+    ).toThrow();
+
+    const message = {
+      acceptedAt: new Date().toISOString(),
+      clientMessageId: send.clientMessageId,
+      generation: '44444444-4444-4444-8444-444444444444',
+      id: '55555555-5555-4555-8555-555555555555',
+      payload: {
+        card: {
+          ...definition,
+          sections: [
+            {
+              ...definition.sections[0],
+              baseTotal: 20,
+              expression: [
+                {
+                  dieKind: 'standard',
+                  kind: 'die',
+                  max: 20,
+                  min: 1,
+                  notation: '1d20',
+                  results: [
+                    {
+                      calculationValue: 20,
+                      initialValue: 20,
+                      modifiers: [],
+                      useInTotal: true,
+                      value: 20,
+                    },
+                  ],
+                  sides: 20,
+                },
+              ],
+              total: 20,
+            },
+          ],
+          version: 1,
+        },
+        kind: 'roll',
+      },
+      recipient: null,
+      sender: { displayName: 'Game Master', kind: 'gm' },
+      sequence: 1,
+    };
+    expect(parsePayload('server.chat_roll_result', message)).toEqual(message);
+    expect(() =>
+      parsePayload('server.chat_roll_result', {
+        ...message,
+        payload: {
+          ...message.payload,
+          card: {
+            ...message.payload.card,
+            sections: [
+              {
+                ...message.payload.card.sections[0],
+                expression: [{ children: 'spoofed', kind: 'group' }],
+              },
+            ],
+          },
+        },
+      }),
+    ).toThrow();
+  });
 });
 
 describe('server.scene_presented', () => {

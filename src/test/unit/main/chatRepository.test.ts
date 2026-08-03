@@ -59,6 +59,96 @@ afterEach(async () => {
 });
 
 describe('ChatRepository', () => {
+  it('transactionally migrates schema 7 text messages and whispers to v1 payloads', async () => {
+    const { database, directory } = await createCampaignDatabase();
+    const repository = new ChatRepository({ database });
+    await repository.send({
+      clientMessageId: '10101010-1010-4010-8010-101010101010',
+      content: 'Public before migration',
+      maxMessageCharacters: 10_000,
+      recipient: null,
+      sender: gm,
+    });
+    await repository.send({
+      clientMessageId: '20202020-2020-4020-8020-202020202020',
+      content: 'Private before migration',
+      maxMessageCharacters: 10_000,
+      recipient: bob,
+      sender: alice,
+    });
+    await repository.close();
+
+    database.connection.exec(`
+      BEGIN IMMEDIATE;
+      ALTER TABLE chat_messages RENAME TO chat_messages_v8;
+      CREATE TABLE chat_messages_v7 (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE NOT NULL,
+        client_message_id TEXT NOT NULL,
+        generation TEXT NOT NULL,
+        accepted_at TEXT NOT NULL,
+        sender_key TEXT NOT NULL,
+        sender_kind TEXT NOT NULL,
+        sender_user_id TEXT,
+        sender_name TEXT NOT NULL,
+        recipient_key TEXT,
+        recipient_kind TEXT,
+        recipient_user_id TEXT,
+        recipient_name TEXT,
+        content TEXT NOT NULL,
+        UNIQUE (sender_key, client_message_id)
+      ) STRICT;
+      INSERT INTO chat_messages_v7
+      SELECT
+        sequence, id, client_message_id, generation, accepted_at,
+        sender_key, sender_kind, sender_user_id, sender_name,
+        recipient_key, recipient_kind, recipient_user_id, recipient_name,
+        json_extract(payload_json, '$.text')
+      FROM chat_messages_v8;
+      DROP TABLE chat_messages_v8;
+      ALTER TABLE chat_messages_v7 RENAME TO chat_messages;
+      CREATE INDEX chat_messages_sender_sequence
+        ON chat_messages (sender_key, sequence);
+      CREATE INDEX chat_messages_recipient_sequence
+        ON chat_messages (recipient_key, sequence);
+      PRAGMA user_version = 7;
+      COMMIT;
+    `);
+    database.close();
+    databases.splice(databases.indexOf(database), 1);
+
+    const migrated = CampaignDatabase.open(directory);
+    databases.push(migrated);
+    expect(
+      (migrated.connection.prepare('PRAGMA user_version').get() as {
+        user_version: number;
+      }).user_version,
+    ).toBe(8);
+    const migratedRepository = new ChatRepository({ database: migrated });
+    const page = await migratedRepository.bootstrap(
+      principal(alice),
+      [gm, alice, bob],
+      10_000,
+    );
+    expect(page).toMatchObject({
+      ok: true,
+      value: {
+        messages: [
+          {
+            clientMessageId: '10101010-1010-4010-8010-101010101010',
+            payload: { kind: 'text', text: 'Public before migration' },
+            sequence: 1,
+          },
+          {
+            clientMessageId: '20202020-2020-4020-8020-202020202020',
+            payload: { kind: 'text', text: 'Private before migration' },
+            sequence: 2,
+          },
+        ],
+      },
+    });
+  });
+
   it('persists public and participant-only whispers with immutable snapshots', async () => {
     const { database, directory } = await createCampaignDatabase();
     const repository = new ChatRepository({ database });
@@ -88,7 +178,10 @@ describe('ChatRepository', () => {
       ok: true,
       value: {
         created: true,
-        message: { content: 'Public\nmessage', sequence: 1 },
+        message: {
+          payload: { kind: 'text', text: 'Public\nmessage' },
+          sequence: 1,
+        },
       },
     });
     const retry = await repository.send({
@@ -130,20 +223,20 @@ describe('ChatRepository', () => {
       );
       return result.ok ? result.value.messages : [];
     };
-    expect((await read(gm)).map((message) => message.content)).toEqual([
+    expect((await read(gm)).map((message) => message.payload.kind === 'text' ? message.payload.text : '')).toEqual([
       'Public\nmessage',
       'Alice to GM',
     ]);
-    expect((await read(alice)).map((message) => message.content)).toEqual([
+    expect((await read(alice)).map((message) => message.payload.kind === 'text' ? message.payload.text : '')).toEqual([
       'Public\nmessage',
       'Alice to Bob',
       'Alice to GM',
     ]);
-    expect((await read(bob)).map((message) => message.content)).toEqual([
+    expect((await read(bob)).map((message) => message.payload.kind === 'text' ? message.payload.text : '')).toEqual([
       'Public\nmessage',
       'Alice to Bob',
     ]);
-    expect((await read(charlie)).map((message) => message.content)).toEqual([
+    expect((await read(charlie)).map((message) => message.payload.kind === 'text' ? message.payload.text : '')).toEqual([
       'Public\nmessage',
     ]);
     await reopened.close();
@@ -206,6 +299,71 @@ describe('ChatRepository', () => {
       ).toBeLessThanOrEqual(768 * 1024);
     }
     await repository.close();
+  });
+
+  it('stores immutable roll payloads, deduplicates retries, and fails closed on malformed trees', async () => {
+    const { database } = await createCampaignDatabase();
+    const repository = new ChatRepository({ database, warn: vi.fn() });
+    const definition = {
+      category: 'Roll',
+      sections: [
+        { label: '1d20', modifiers: [], notation: '1d20', typeLabel: null },
+      ],
+      title: null,
+    };
+    const card = {
+      ...definition,
+      sections: [
+        {
+          ...definition.sections[0],
+          baseTotal: 20,
+          expression: [{ kind: 'number' as const, value: 20 }],
+          total: 20,
+        },
+      ],
+      version: 1 as const,
+    };
+    const input = {
+      card,
+      clientMessageId: '30303030-3030-4030-8030-303030303030',
+      definition,
+      maxMessageCharacters: 10_000,
+      recipient: null,
+      sender: gm,
+    };
+    const first = await repository.sendRoll(input);
+    const retry = await repository.sendRoll(input);
+    expect(first).toMatchObject({ ok: true, value: { created: true } });
+    expect(retry).toMatchObject({
+      ok: true,
+      value: { created: false, message: { payload: { kind: 'roll' }, sequence: 1 } },
+    });
+    expect(
+      await repository.sendRoll({
+        ...input,
+        definition: {
+          ...definition,
+          sections: [{ ...definition.sections[0], notation: '1d12' }],
+        },
+      }),
+    ).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+
+    database.connection
+      .prepare(
+        `UPDATE chat_messages
+         SET payload_json = ?
+         WHERE client_message_id = ?`,
+      )
+      .run(
+        JSON.stringify({
+          card: { ...card, sections: [{ ...card.sections[0], expression: [{}] }] },
+          kind: 'roll',
+        }),
+        input.clientMessageId,
+      );
+    expect(
+      await repository.bootstrap({ kind: 'gm' }, [gm], 10_000),
+    ).toMatchObject({ error: { code: 'storage_error' }, ok: false });
   });
 
   it('returns 100-message pages and rotates the generation atomically on clear', async () => {

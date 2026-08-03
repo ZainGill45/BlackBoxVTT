@@ -9,6 +9,7 @@ import type {
   ClearChatHistoryInput,
   ClearChatHistoryResult,
   SendChatMessageInput,
+  SendChatRollInput,
   SetMaxChatMessageCharactersInput,
 } from './chat';
 import type {
@@ -22,7 +23,7 @@ import type {
   SceneTransformPreviewStart,
 } from './scenes';
 
-export const NETWORK_PROTOCOL_VERSION = 15 as const;
+export const NETWORK_PROTOCOL_VERSION = 16 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;
@@ -61,6 +62,7 @@ export const networkIpcChannels = {
   setTransformPreviewRate: 'network:set-transform-preview-rate',
   sendMapPing: 'network:send-map-ping',
   sendChatMessage: 'network:send-chat-message',
+  sendChatRoll: 'network:send-chat-roll',
   sendDrawingPreview: 'network:send-drawing-preview',
   sendMeasurementUpdate: 'network:send-measurement-update',
   sendShapePreview: 'network:send-shape-preview',
@@ -391,6 +393,7 @@ export interface NetworkApi {
   sendChatMessage(
     input: SendChatMessageInput,
   ): Promise<ChatResult<ChatMessage>>;
+  sendChatRoll(input: SendChatRollInput): Promise<ChatResult<ChatMessage>>;
   setMaxChatMessageCharacters(
     input: SetMaxChatMessageCharactersInput,
   ): Promise<NetworkResult<number>>;

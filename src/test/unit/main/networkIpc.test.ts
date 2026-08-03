@@ -88,6 +88,7 @@ describe('network IPC live traffic', () => {
   let handlers: Map<string, Handler>;
   let listeners: Map<string, (value: unknown) => void>;
   let sendMapPing: ReturnType<typeof vi.fn>;
+  let sendChatRoll: ReturnType<typeof vi.fn>;
   let sendMeasurementUpdate: ReturnType<typeof vi.fn>;
   let webContents: { isDestroyed: () => boolean; send: ReturnType<typeof vi.fn> };
 
@@ -95,6 +96,7 @@ describe('network IPC live traffic', () => {
     handlers = new Map();
     listeners = new Map();
     sendMapPing = vi.fn(async () => undefined);
+    sendChatRoll = vi.fn(async () => ({ ok: true as const, value: null }));
     sendMeasurementUpdate = vi.fn(async () => undefined);
     webContents = { isDestroyed: () => false, send: vi.fn() };
     registerNetworkIpcHandlers(
@@ -110,6 +112,7 @@ describe('network IPC live traffic', () => {
           listeners.set(name, listener);
         }),
         sendMapPing,
+        sendChatRoll,
         sendMeasurementUpdate,
       } as unknown as NetworkManager,
       () => webContents as never,
@@ -123,6 +126,33 @@ describe('network IPC live traffic', () => {
     );
 
     expect(sendMapPing).toHaveBeenCalledWith(ping);
+  });
+
+  it('validates roll definitions independently and rejects spoofed results', async () => {
+    const roll = {
+      campaignId,
+      clientMessageId: '55555555-5555-4555-8555-555555555555',
+      definition: {
+        category: 'Roll',
+        sections: [
+          { label: '1d20', modifiers: [], notation: '1d20', typeLabel: null },
+        ],
+        title: null,
+      },
+      recipient: null,
+    };
+    await handlers.get(networkIpcChannels.sendChatRoll)?.(
+      { sender: webContents },
+      roll,
+    );
+    expect(sendChatRoll).toHaveBeenCalledWith(roll);
+
+    sendChatRoll.mockClear();
+    await handlers.get(networkIpcChannels.sendChatRoll)?.(
+      { sender: webContents },
+      { ...roll, sender: { kind: 'gm' }, total: 20 },
+    );
+    expect(sendChatRoll).not.toHaveBeenCalled();
   });
 
   it('drops an outgoing ping with a non-finite coordinate', async () => {

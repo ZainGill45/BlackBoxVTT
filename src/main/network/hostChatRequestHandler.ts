@@ -13,7 +13,7 @@ import {
 
 type PlayerChatService = Pick<
   CampaignChatService,
-  'bootstrap' | 'history' | 'send'
+  'bootstrap' | 'history' | 'send' | 'sendRoll'
 >;
 
 interface HostChatRequestHandlerOptions {
@@ -86,6 +86,27 @@ export class HostChatRequestHandler {
       writeEnvelope(
         client.socket as unknown as Socket,
         'server.chat_send_result',
+        result.value.message,
+        envelope.requestId,
+      );
+      if (result.value.created) {
+        this.options.onMessageCreated(result.value.message, client);
+      }
+      return true;
+    }
+    if (envelope.type === 'client.chat_roll') {
+      const input = parsePayload('client.chat_roll', envelope.payload);
+      const result = await this.options.chat.sendRoll(
+        playerChatIdentity(client.user),
+        input,
+      );
+      if (!result.ok) {
+        this.sendError(client, result.error, envelope.requestId);
+        return true;
+      }
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.chat_roll_result',
         result.value.message,
         envelope.requestId,
       );

@@ -9,6 +9,7 @@ import type {
   ChatResult,
   ClearChatHistoryResult,
   SendChatMessageInput,
+  SendChatRollInput,
   SetMaxChatMessageCharactersInput,
 } from '../../shared/chat';
 import type {
@@ -343,6 +344,17 @@ export class NetworkManager extends EventEmitter {
       ? session.sendChatMessage({
           clientMessageId: input.clientMessageId,
           content: input.content,
+          recipient: input.recipient,
+        })
+      : this.inactiveChat();
+  }
+
+  async sendChatRoll(input: SendChatRollInput): Promise<ChatResult<ChatMessage>> {
+    const session = this.sessionFor(input.campaignId);
+    return session
+      ? session.sendChatRoll({
+          clientMessageId: input.clientMessageId,
+          definition: input.definition,
           recipient: input.recipient,
         })
       : this.inactiveChat();

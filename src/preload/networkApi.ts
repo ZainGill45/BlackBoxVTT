@@ -119,6 +119,11 @@ export function createNetworkApi(ipc: NetworkIpcRenderer): NetworkApi {
         networkIpcChannels.sendChatMessage,
         input,
       ) as ReturnType<NetworkApi['sendChatMessage']>,
+    sendChatRoll: (input) =>
+      ipc.invoke(
+        networkIpcChannels.sendChatRoll,
+        input,
+      ) as ReturnType<NetworkApi['sendChatRoll']>,
     setMaxChatMessageCharacters: (input) =>
       ipc.invoke(
         networkIpcChannels.setMaxChatMessageCharacters,

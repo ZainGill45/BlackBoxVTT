@@ -90,9 +90,9 @@ describe('host chat request handler', () => {
     const message: ChatMessage = {
       acceptedAt: '2026-07-31T12:00:00.000Z',
       clientMessageId: '55555555-5555-4555-8555-555555555555',
-      content: 'Hello',
       generation: '66666666-6666-4666-8666-666666666666',
       id: '77777777-7777-4777-8777-777777777777',
+      payload: { kind: 'text', text: 'Hello' },
       recipient: null,
       sender: { displayName: 'Alice', kind: 'player', userId },
       sequence: 1,
@@ -117,7 +117,7 @@ describe('host chat request handler', () => {
         client,
         envelope('client.chat_send', {
           clientMessageId: message.clientMessageId,
-          content: message.content,
+          content: 'Hello',
           recipient: null,
         }),
       ),
@@ -127,7 +127,7 @@ describe('host chat request handler', () => {
       { displayName: 'Alice', kind: 'player', userId },
       {
         clientMessageId: message.clientMessageId,
-        content: message.content,
+        content: 'Hello',
         recipient: null,
       },
     );
@@ -138,6 +138,74 @@ describe('host chat request handler', () => {
         requestId: 'request',
         type: 'server.chat_send_result',
       }),
+    ]);
+  });
+
+  it('applies the authenticated player identity to an authoritative roll request', async () => {
+    const definition = {
+      category: 'Roll',
+      sections: [
+        { label: '1d20', modifiers: [], notation: '1d20', typeLabel: null },
+      ],
+      title: null,
+    };
+    const message: ChatMessage = {
+      acceptedAt: '2026-07-31T12:00:00.000Z',
+      clientMessageId: '58585858-5858-4858-8858-585858585858',
+      generation: '68686868-6868-4868-8868-686868686868',
+      id: '78787878-7878-4878-8878-787878787878',
+      payload: {
+        card: {
+          ...definition,
+          sections: [
+            {
+              ...definition.sections[0],
+              baseTotal: 20,
+              expression: [{ kind: 'number', value: 20 }],
+              total: 20,
+            },
+          ],
+          version: 1,
+        },
+        kind: 'roll',
+      },
+      recipient: null,
+      sender: { displayName: 'Alice', kind: 'player', userId },
+      sequence: 1,
+    };
+    const sendRoll = vi.fn(async () => ({
+      ok: true as const,
+      value: { created: true, message },
+    }));
+    const onMessageCreated = vi.fn();
+    const handler = new HostChatRequestHandler({
+      chat: {
+        bootstrap: vi.fn(),
+        history: vi.fn(),
+        send: vi.fn(),
+        sendRoll,
+      } as unknown as CampaignChatService,
+      onMessageCreated,
+    });
+    const { client, writtenEnvelopes } = createClient();
+
+    await expect(
+      handler.handleRequest(
+        client,
+        envelope('client.chat_roll', {
+          clientMessageId: message.clientMessageId,
+          definition,
+          recipient: null,
+        }),
+      ),
+    ).resolves.toBe(true);
+    expect(sendRoll).toHaveBeenCalledWith(
+      { displayName: 'Alice', kind: 'player', userId },
+      { clientMessageId: message.clientMessageId, definition, recipient: null },
+    );
+    expect(onMessageCreated).toHaveBeenCalledWith(message, client);
+    expect(writtenEnvelopes()).toEqual([
+      expect.objectContaining({ type: 'server.chat_roll_result' }),
     ]);
   });
 });

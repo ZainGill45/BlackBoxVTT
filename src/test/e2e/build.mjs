@@ -63,6 +63,31 @@ async function buildMain() {
   });
 }
 
+async function buildDiceRollWorker() {
+  await build({
+    configFile: false,
+    root,
+    mode: 'production',
+    resolve: {
+      conditions: ['node'],
+      mainFields: ['module', 'jsnext:main', 'jsnext'],
+    },
+    build: {
+      copyPublicDir: false,
+      emptyOutDir: false,
+      lib: {
+        entry: path.join(root, 'src/main/diceRollWorker.ts'),
+        fileName: () => '[name].js',
+        formats: ['cjs'],
+      },
+      minify: false,
+      outDir: path.join(root, '.vite/build'),
+      rollupOptions: { external },
+      sourcemap: true,
+    },
+  });
+}
+
 async function buildPreload() {
   await build({
     configFile: false,
@@ -113,6 +138,7 @@ async function buildRenderer() {
 // emptyOutDir disabled, and concurrent writes there have no ordering guarantee.
 await buildMain();
 await buildPreload();
+await buildDiceRollWorker();
 await buildRenderer();
 
 console.log('E2E build complete: .vite/build + .vite/renderer/' + RENDERER_NAME);

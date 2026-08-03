@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { existsSync } from 'node:fs';
 import {
   CAMPAIGN_SCHEMA_VERSION,
@@ -19,7 +19,7 @@ import {
 } from '../../shared/network';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
-export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 7;
+export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 8;
 
 interface CampaignMetadataRow {
   campaign_id: string;
@@ -81,10 +81,9 @@ export class CampaignDatabase {
           );
         }
         this.initialize(initialManifest);
-      } else if (
-        version !== CAMPAIGN_DATABASE_SCHEMA_VERSION ||
-        initialManifest
-      ) {
+      } else if (version === 7 && !initialManifest) {
+        this.migrateVersion7To8();
+      } else if (version !== CAMPAIGN_DATABASE_SCHEMA_VERSION || initialManifest) {
         throw new Error(`Unsupported campaign schema version ${version}.`);
       }
       this.validateSchema();
@@ -215,7 +214,8 @@ export class CampaignDatabase {
           ),
           recipient_user_id TEXT,
           recipient_name TEXT,
-          content TEXT NOT NULL,
+          message_kind TEXT NOT NULL CHECK (message_kind IN ('text', 'roll')),
+          payload_json TEXT NOT NULL,
           UNIQUE (sender_key, client_message_id),
           CHECK (
             (recipient_key IS NULL AND recipient_kind IS NULL
@@ -357,7 +357,8 @@ export class CampaignDatabase {
         'recipient_kind',
         'recipient_user_id',
         'recipient_name',
-        'content',
+        'message_kind',
+        'payload_json',
       ],
       chat_metadata: ['key', 'value'],
       scene_manifest: ['singleton', 'active_scene_id', 'revision'],
@@ -429,6 +430,79 @@ export class CampaignDatabase {
       if (row?.count !== 1) {
         throw new Error(`Campaign database singleton ${table} is invalid.`);
       }
+    }
+  }
+
+  private migrateVersion7To8(): void {
+    this.connection.exec('BEGIN IMMEDIATE');
+    try {
+      this.connection.exec(`
+        ALTER TABLE chat_messages RENAME TO chat_messages_v7;
+        CREATE TABLE chat_messages (
+          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+          id TEXT UNIQUE NOT NULL,
+          client_message_id TEXT NOT NULL,
+          generation TEXT NOT NULL,
+          accepted_at TEXT NOT NULL,
+          sender_key TEXT NOT NULL,
+          sender_kind TEXT NOT NULL CHECK (sender_kind IN ('gm', 'player')),
+          sender_user_id TEXT,
+          sender_name TEXT NOT NULL,
+          recipient_key TEXT,
+          recipient_kind TEXT CHECK (
+            recipient_kind IS NULL OR recipient_kind IN ('gm', 'player')
+          ),
+          recipient_user_id TEXT,
+          recipient_name TEXT,
+          message_kind TEXT NOT NULL CHECK (message_kind IN ('text', 'roll')),
+          payload_json TEXT NOT NULL,
+          UNIQUE (sender_key, client_message_id),
+          CHECK (
+            (recipient_key IS NULL AND recipient_kind IS NULL
+              AND recipient_user_id IS NULL AND recipient_name IS NULL)
+            OR
+            (recipient_key IS NOT NULL AND recipient_kind IS NOT NULL
+              AND recipient_name IS NOT NULL)
+          )
+        ) STRICT;
+      `);
+      const rows = this.connection
+        .prepare('SELECT * FROM chat_messages_v7 ORDER BY sequence ASC')
+        .all() as Array<Record<string, unknown>>;
+      const insert = this.connection.prepare(`
+        INSERT INTO chat_messages (
+          sequence, id, client_message_id, generation, accepted_at,
+          sender_key, sender_kind, sender_user_id, sender_name,
+          recipient_key, recipient_kind, recipient_user_id, recipient_name,
+          message_kind, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'text', ?)
+      `);
+      for (const row of rows) {
+        if (typeof row.content !== 'string') {
+          throw new Error('Campaign chat migration found invalid text content.');
+        }
+        insert.run(
+          ...([
+            row.sequence, row.id, row.client_message_id, row.generation,
+            row.accepted_at, row.sender_key, row.sender_kind,
+            row.sender_user_id, row.sender_name, row.recipient_key,
+            row.recipient_kind, row.recipient_user_id, row.recipient_name,
+            JSON.stringify({ kind: 'text', text: row.content }),
+          ] as SQLInputValue[]),
+        );
+      }
+      this.connection.exec(`
+        DROP TABLE chat_messages_v7;
+        CREATE INDEX chat_messages_sender_sequence
+          ON chat_messages (sender_key, sequence);
+        CREATE INDEX chat_messages_recipient_sequence
+          ON chat_messages (recipient_key, sequence);
+        PRAGMA user_version = ${CAMPAIGN_DATABASE_SCHEMA_VERSION};
+        COMMIT;
+      `);
+    } catch (error) {
+      this.connection.exec('ROLLBACK');
+      throw error;
     }
   }
 }

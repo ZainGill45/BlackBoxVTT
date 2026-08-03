@@ -29,6 +29,10 @@ import {
   sceneShapePreviewSchema,
 } from '../../shared/sceneSchema';
 import { sceneArrangementSchema } from '../../shared/sceneContracts';
+import {
+  chatRollCardSchema,
+  chatRollDefinitionSchema,
+} from '../../shared/chatRoll';
 
 export const MAX_TCP_MESSAGE_BYTES = 1024 * 1024;
 
@@ -227,9 +231,12 @@ const chatMessageSchema = z
   .object({
     acceptedAt: z.string().datetime(),
     clientMessageId: z.string().uuid(),
-    content: chatContentSchema,
     generation: z.string().uuid(),
     id: z.string().uuid(),
+    payload: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('text'), text: chatContentSchema }).strict(),
+      z.object({ card: chatRollCardSchema, kind: z.literal('roll') }).strict(),
+    ]),
     recipient: chatIdentitySchema.nullable(),
     sender: chatIdentitySchema,
     sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -296,6 +303,13 @@ export const protocolPayloadSchemas = {
     .object({
       clientMessageId: z.string().uuid(),
       content: chatContentSchema,
+      recipient: chatPrincipalSchema.nullable(),
+    })
+    .strict(),
+  'client.chat_roll': z
+    .object({
+      clientMessageId: z.string().uuid(),
+      definition: chatRollDefinitionSchema,
       recipient: chatPrincipalSchema.nullable(),
     })
     .strict(),
@@ -441,6 +455,7 @@ export const protocolPayloadSchemas = {
   'server.chat_message': chatMessageSchema,
   'server.chat_participant_event': chatParticipantEventSchema,
   'server.chat_send_result': chatMessageSchema,
+  'server.chat_roll_result': chatMessageSchema,
   'server.asset_chunk': z
     .object({
       assetId: z.string().uuid(),

@@ -122,6 +122,9 @@ export function createMockNetworkApi(
     sendChatMessage: vi.fn(async () =>
       chatFailure<ChatMessage>('unavailable', 'Chat is unavailable.'),
     ),
+    sendChatRoll: vi.fn(async () =>
+      chatFailure<ChatMessage>('unavailable', 'Chat is unavailable.'),
+    ),
     setMaxChatMessageCharacters: vi.fn(async (input) =>
       success(input.maxMessageCharacters),
     ),

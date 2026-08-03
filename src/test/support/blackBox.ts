@@ -224,6 +224,9 @@ const networkApi: NetworkApi = {
   async sendChatMessage() {
     return chatUnavailable();
   },
+  async sendChatRoll() {
+    return chatUnavailable();
+  },
   async setMaxChatMessageCharacters() {
     return networkUnavailable();
   },

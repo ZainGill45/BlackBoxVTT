@@ -12,7 +12,9 @@ import {
   type ChatMessage,
   type ChatResult,
   type SendChatMessageInput,
+  type SendChatRollInput,
 } from '../../shared/chat';
+import { CHAT_ROLL_SEND_TIMEOUT_MS } from '../../shared/chatRoll';
 import {
   ASSET_CHUNK_BYTES,
   type AssetError,
@@ -554,6 +556,35 @@ export class CampaignClient {
         'timeout',
         'The host did not acknowledge this message.',
       );
+    }
+  }
+
+  async sendChatRoll(
+    input: Omit<SendChatRollInput, 'campaignId'>,
+  ): Promise<ChatResult<ChatMessage>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return chatFailure('unavailable', 'The campaign connection is not active.');
+    }
+    try {
+      const envelope = await active.request(
+        'client.chat_roll',
+        input,
+        ['server.chat_roll_result', 'server.chat_error'],
+        CHAT_ROLL_SEND_TIMEOUT_MS,
+      );
+      if (envelope.type === 'server.chat_error') {
+        return {
+          error: parsePayload('server.chat_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload('server.chat_roll_result', envelope.payload),
+      };
+    } catch {
+      return chatFailure('timeout', 'The host did not acknowledge this roll.');
     }
   }
 

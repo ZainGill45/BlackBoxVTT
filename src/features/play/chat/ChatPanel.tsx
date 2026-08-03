@@ -25,8 +25,21 @@ import {
   type ChatResult,
 } from '../../../shared/chat';
 import type { NetworkApi } from '../../../shared/network';
+import {
+  CHAT_ROLL_SEND_TIMEOUT_MS,
+  type ChatRollDefinition,
+} from '../../../shared/chatRoll';
 import type { PlaySession } from '../types';
 import { parseChatComposer } from './chatCommands';
+import { playChatMessageSound } from './chatMessageSound';
+import {
+  createChatSubmissionHistory,
+  exitChatSubmissionHistory,
+  recallNewerChatSubmission,
+  recallOlderChatSubmission,
+  recordChatSubmission,
+} from './chatSubmissionHistory';
+import { DiceRollCard, PendingDiceRollCard } from './DiceRollCard';
 import styles from './ChatPanel.module.css';
 
 interface ChatPanelProps {
@@ -36,15 +49,17 @@ interface ChatPanelProps {
   visible: boolean;
 }
 
-interface PendingChatRow {
-  body: string;
+type PendingChatRow = {
   clientMessageId: string;
   createdAt: string;
   error: string | null;
   generation: string;
   recipient: ChatIdentity | null;
   state: 'failed' | 'pending';
-}
+} & (
+  | { body: string; kind: 'text' }
+  | { definition: ChatRollDefinition; draft: string; kind: 'roll' }
+);
 
 interface HelpRow {
   id: string;
@@ -84,6 +99,21 @@ function viewerPrincipal(session: PlaySession): ChatPrincipal {
     ? { kind: 'gm' }
     : { kind: 'player', userId: session.userId };
 }
+
+function submissionHistoryScope(session: PlaySession): string {
+  return session.role === 'gm'
+    ? `${session.campaignId}:gm`
+    : `${session.campaignId}:player:${session.userId}`;
+}
+
+const historyExitNavigationKeys = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'End',
+  'Home',
+  'PageDown',
+  'PageUp',
+]);
 
 function mergeMessages(
   current: readonly ChatMessage[],
@@ -217,6 +247,8 @@ export function ChatPanel({
   const [clearing, setClearing] = useState(false);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const submissionHistoryRef = useRef(createChatSubmissionHistory());
+  const placeComposerCaretAtEndRef = useRef(false);
   const generationRef = useRef('');
   const messagesRef = useRef<ChatMessage[]>([]);
   const hasOlderRef = useRef(false);
@@ -226,12 +258,14 @@ export function ChatPanel({
   const requestBottomRef = useRef(false);
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
   const bootstrapQueueRef = useRef<ChatEvent[]>([]);
+  const soundedMessageIdsRef = useRef(new Set<string>());
   const bootstrappingRef = useRef(true);
   const composingRef = useRef(false);
   const loadingPageRef = useRef(false);
   const bootstrapRef = useRef<() => Promise<void>>(async () => undefined);
   const viewer = useMemo(() => viewerPrincipal(session), [session]);
   const sender = useMemo(() => messageIdentity(session), [session]);
+  const historyScope = submissionHistoryScope(session);
 
   const updateMessages = (
     update:
@@ -252,6 +286,14 @@ export function ChatPanel({
 
   const updateHasNewer = (value: boolean) => {
     hasNewerRef.current = value;
+  };
+
+  const soundNewMessage = (message: ChatMessage) => {
+    if (soundedMessageIdsRef.current.has(message.id)) {
+      return;
+    }
+    soundedMessageIdsRef.current.add(message.id);
+    playChatMessageSound();
   };
 
   const resetGeneration = (nextGeneration: string) => {
@@ -309,6 +351,7 @@ export function ChatPanel({
     if (event.message.generation !== generationRef.current) {
       return;
     }
+    soundNewMessage(event.message);
     if (hasNewerRef.current) {
       updateHasNewer(true);
       return;
@@ -355,6 +398,9 @@ export function ChatPanel({
       previousGeneration !== result.value.generation;
     generationRef.current = result.value.generation;
     setGeneration(result.value.generation);
+    for (const message of result.value.messages) {
+      soundedMessageIdsRef.current.add(message.id);
+    }
     updateMessages(result.value.messages);
     setSystemRows(result.value.systemEvents);
     setDirectory(result.value.directory);
@@ -393,6 +439,12 @@ export function ChatPanel({
       requestBottomRef.current = true;
     }
   }, [visible]);
+
+  useEffect(() => {
+    submissionHistoryRef.current = createChatSubmissionHistory();
+    soundedMessageIdsRef.current = new Set();
+    placeComposerCaretAtEndRef.current = false;
+  }, [historyScope]);
 
   useEffect(() => {
     const unsubscribe = networkApi.onChatEvent((event) => {
@@ -450,6 +502,10 @@ export function ChatPanel({
       textarea.scrollHeight,
       sixLineHeight,
     )}px`;
+    if (placeComposerCaretAtEndRef.current) {
+      placeComposerCaretAtEndRef.current = false;
+      textarea.setSelectionRange(draft.length, draft.length);
+    }
   }, [draft]);
 
   const loadPage = async (direction: 'newer' | 'older') => {
@@ -557,20 +613,28 @@ export function ChatPanel({
             },
             ok: false,
           }),
-        CHAT_SEND_TIMEOUT_MS,
+        pending.kind === 'roll'
+          ? CHAT_ROLL_SEND_TIMEOUT_MS
+          : CHAT_SEND_TIMEOUT_MS,
       );
     });
     let result: ChatResult<ChatMessage>;
     try {
-      result = await Promise.race([
-        networkApi.sendChatMessage({
-          campaignId: session.campaignId,
-          clientMessageId: pending.clientMessageId,
-          content: pending.body,
-          recipient: recipientPrincipal(pending.recipient),
-        }),
-        timeout,
-      ]);
+      const send =
+        pending.kind === 'roll'
+          ? networkApi.sendChatRoll({
+              campaignId: session.campaignId,
+              clientMessageId: pending.clientMessageId,
+              definition: pending.definition,
+              recipient: recipientPrincipal(pending.recipient),
+            })
+          : networkApi.sendChatMessage({
+              campaignId: session.campaignId,
+              clientMessageId: pending.clientMessageId,
+              content: pending.body,
+              recipient: recipientPrincipal(pending.recipient),
+            });
+      result = await Promise.race([send, timeout]);
     } catch {
       result = {
         error: {
@@ -586,6 +650,17 @@ export function ChatPanel({
       return;
     }
     if (!result.ok) {
+      if (pending.kind === 'roll' && result.error.code === 'invalid_input') {
+        setPendingRows((current) =>
+          current.filter(
+            (row) => row.clientMessageId !== pending.clientMessageId,
+          ),
+        );
+        setDraft((current) => current || pending.draft);
+        setComposerError(result.error.message);
+        composerRef.current?.focus();
+        return;
+      }
       setPendingRows((current) =>
         current.map((row) =>
           row.clientMessageId === pending.clientMessageId
@@ -599,6 +674,7 @@ export function ChatPanel({
       void bootstrapRef.current();
       return;
     }
+    soundNewMessage(result.value);
     if (hasNewerRef.current) {
       // A confirmed send belongs at the live edge. Reloading the newest page
       // avoids creating a sequence gap inside an older paged window.
@@ -652,6 +728,10 @@ export function ChatPanel({
       setComposerError(parsed.message);
       return;
     }
+    submissionHistoryRef.current = recordChatSubmission(
+      submissionHistoryRef.current,
+      draft,
+    );
     setComposerError(null);
     if (parsed.kind === 'help') {
       setDraft('');
@@ -680,15 +760,23 @@ export function ChatPanel({
       composerRef.current?.focus();
       return;
     }
-    const pending: PendingChatRow = {
-      body: parsed.body,
+    const common = {
       clientMessageId: createClientMessageId(),
       createdAt: new Date().toISOString(),
       error: null,
       generation,
       recipient: parsed.recipient,
-      state: 'pending',
+      state: 'pending' as const,
     };
+    const pending: PendingChatRow =
+      parsed.kind === 'roll'
+        ? {
+            ...common,
+            definition: parsed.definition,
+            draft: normalizeChatContent(draft),
+            kind: 'roll',
+          }
+        : { ...common, body: parsed.body, kind: 'text' };
     setPendingRows((current) => [...current, pending]);
     setDraft('');
     requestBottomRef.current = true;
@@ -699,11 +787,60 @@ export function ChatPanel({
   const handleComposerKeyDown = (
     event: KeyboardEvent<HTMLTextAreaElement>,
   ) => {
+    const isComposing =
+      event.nativeEvent.isComposing || composingRef.current;
+    if (isComposing) {
+      return;
+    }
+    const isPlainKey =
+      !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+    if (isPlainKey && event.key === 'ArrowUp') {
+      const navigation = recallOlderChatSubmission(
+        submissionHistoryRef.current,
+        draft,
+      );
+      if (navigation.handled && navigation.value !== null) {
+        event.preventDefault();
+        submissionHistoryRef.current = navigation.state;
+        setComposerError(null);
+        if (navigation.value === draft) {
+          event.currentTarget.setSelectionRange(draft.length, draft.length);
+        } else {
+          placeComposerCaretAtEndRef.current = true;
+          setDraft(navigation.value);
+        }
+        return;
+      }
+    }
+    if (isPlainKey && event.key === 'ArrowDown') {
+      const navigation = recallNewerChatSubmission(
+        submissionHistoryRef.current,
+      );
+      if (navigation.handled && navigation.value !== null) {
+        event.preventDefault();
+        submissionHistoryRef.current = navigation.state;
+        setComposerError(null);
+        placeComposerCaretAtEndRef.current = true;
+        setDraft(navigation.value);
+        return;
+      }
+    }
+    if (
+      submissionHistoryRef.current.cursor !== null &&
+      (historyExitNavigationKeys.has(event.key) ||
+        ((event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+          !isPlainKey) ||
+        ((event.ctrlKey || event.metaKey) &&
+          event.key.toLocaleLowerCase('en-US') === 'a'))
+    ) {
+      submissionHistoryRef.current = exitChatSubmissionHistory(
+        submissionHistoryRef.current,
+      );
+    }
     if (
       event.key === 'Enter' &&
       !event.shiftKey &&
-      !event.nativeEvent.isComposing &&
-      !composingRef.current
+      !isComposing
     ) {
       event.preventDefault();
       void handleSubmit();
@@ -820,6 +957,13 @@ export function ChatPanel({
               <code>/whisper &quot;Alice Smith&quot; message</code>.
             </li>
             <li>
+              Use <code>/r 1d20+5</code> for a quick roll.
+            </li>
+            <li>
+              Use <code>/roll Spell: Flame Blade</code>, then add lines such as{' '}
+              <code>Attack (WIS +2): 1d20</code> for a roll card.
+            </li>
+            <li>
               Start with <code>//</code> to send a literal leading slash.
             </li>
             {session.role === 'gm' ? (
@@ -844,7 +988,11 @@ export function ChatPanel({
               {messageDateFormatter.format(date)}
             </time>
           </div>
-          <div className={styles.messageBody}>{row.pending.body}</div>
+          {row.pending.kind === 'roll' ? (
+            <PendingDiceRollCard definition={row.pending.definition} />
+          ) : (
+            <div className={styles.messageBody}>{row.pending.body}</div>
+          )}
           <div className={styles.pendingStatus}>
             {row.pending.state === 'pending' ? (
               <span>Sending…</span>
@@ -874,11 +1022,15 @@ export function ChatPanel({
             {messageDateFormatter.format(date)}
           </time>
         </div>
-        <div className={styles.messageBody}>
-          <ChatText applicationApi={applicationApi}>
-            {row.message.content}
-          </ChatText>
-        </div>
+        {row.message.payload.kind === 'roll' ? (
+          <DiceRollCard card={row.message.payload.card} />
+        ) : (
+          <div className={styles.messageBody}>
+            <ChatText applicationApi={applicationApi}>
+              {row.message.payload.text}
+            </ChatText>
+          </div>
+        )}
       </article>
     );
   };
@@ -952,6 +1104,9 @@ export function ChatPanel({
             rows={1}
             value={draft}
             onChange={(event) => {
+              submissionHistoryRef.current = exitChatSubmissionHistory(
+                submissionHistoryRef.current,
+              );
               setDraft(event.currentTarget.value);
               setComposerError(null);
             }}
@@ -962,6 +1117,11 @@ export function ChatPanel({
               composingRef.current = true;
             }}
             onKeyDown={handleComposerKeyDown}
+            onPointerDown={() => {
+              submissionHistoryRef.current = exitChatSubmissionHistory(
+                submissionHistoryRef.current,
+              );
+            }}
           />
         </div>
         {composerError || limitError ? (

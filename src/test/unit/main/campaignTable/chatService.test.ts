@@ -12,7 +12,9 @@ import {
   CampaignChatService,
   GAME_MASTER_CHAT_IDENTITY,
   playerChatIdentity,
+  type DiceRoller,
 } from '../../../../main/campaignTable/chatService';
+import type { ChatRollCardV1 } from '../../../../shared/chatRoll';
 import type {
   ChatConfigurationSnapshot,
   ServerConfigRepository,
@@ -45,9 +47,9 @@ function message(
   return {
     acceptedAt: '2026-07-31T12:00:00.000Z',
     clientMessageId: 'client-message',
-    content: 'Hello',
     generation: 'generation',
     id: 'message',
+    payload: { kind: 'text', text: 'Hello' },
     recipient,
     sender,
     sequence: 1,
@@ -55,6 +57,7 @@ function message(
 }
 
 function createHarness(options?: {
+  diceRoller?: DiceRoller;
   loadError?: Error;
   sendResult?: StoredChatSendResult;
 }) {
@@ -100,12 +103,21 @@ function createHarness(options?: {
       message: defaultMessage,
     },
   }));
+  const find = vi.fn(
+    async (): Promise<{ ok: true; value: ChatMessage | null }> => ({
+      ok: true,
+      value: null,
+    }),
+  );
+  const sendRoll = vi.fn();
   const chat = {
     bootstrap,
     clear,
     currentGeneration,
+    find,
     history,
     send,
+    sendRoll,
   } as unknown as ChatRepository;
   const load = vi.fn(async () => {
     if (options?.loadError) {
@@ -138,6 +150,7 @@ function createHarness(options?: {
     chat,
     config,
     createId: () => 'event-id',
+    diceRoller: options?.diceRoller,
     now: () => new Date('2026-07-31T12:00:00.000Z'),
   });
 
@@ -145,9 +158,11 @@ function createHarness(options?: {
     bootstrap,
     clear,
     currentGeneration,
+    find,
     history,
     load,
     send,
+    sendRoll,
     service,
     users,
     withChatConfiguration,
@@ -285,5 +300,52 @@ describe('CampaignChatService', () => {
       },
       ok: false,
     });
+  });
+
+  it('returns an accepted durable roll retry without invoking the worker twice', async () => {
+    const definition = {
+      category: 'Roll',
+      sections: [
+        { label: '1d20', modifiers: [], notation: '1d20', typeLabel: null },
+      ],
+      title: null,
+    };
+    const card: ChatRollCardV1 = {
+      ...definition,
+      sections: [
+        {
+          ...definition.sections[0],
+          baseTotal: 20,
+          expression: [{ kind: 'number', value: 20 }],
+          total: 20,
+        },
+      ],
+      version: 1,
+    };
+    const diceRoller = { roll: vi.fn(async () => ({ ok: true as const, value: card })) };
+    const { find, sendRoll, service } = createHarness({ diceRoller });
+    const storedMessage: ChatMessage = {
+      ...message(GAME_MASTER_CHAT_IDENTITY, null),
+      clientMessageId: 'roll-id',
+      payload: { card, kind: 'roll' },
+    };
+    find
+      .mockResolvedValueOnce({ ok: true, value: null })
+      .mockResolvedValueOnce({ ok: true, value: storedMessage });
+    sendRoll.mockResolvedValue({
+      ok: true,
+      value: { created: true, message: storedMessage },
+    });
+    const input = { clientMessageId: 'roll-id', definition, recipient: null };
+
+    await expect(service.sendRoll(GAME_MASTER_CHAT_IDENTITY, input)).resolves.toMatchObject({
+      ok: true,
+    });
+    await expect(service.sendRoll(GAME_MASTER_CHAT_IDENTITY, input)).resolves.toEqual({
+      ok: true,
+      value: { created: false, message: storedMessage },
+    });
+    expect(diceRoller.roll).toHaveBeenCalledTimes(1);
+    expect(sendRoll).toHaveBeenCalledTimes(1);
   });
 });
