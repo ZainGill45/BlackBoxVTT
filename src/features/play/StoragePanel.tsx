@@ -27,6 +27,7 @@ import type {
 } from '../../shared/assets';
 import { CANVAS_IMAGE_DRAG_TYPE } from '../../shared/assets';
 import type { SceneRecord } from '../../shared/scenes';
+import type { JournalAssetDependent } from '../../shared/journal';
 import { useDeleteConfirmation } from '../connection/useDeleteConfirmation';
 import { AssetPreviewModal } from './AssetPreviewModal';
 import {
@@ -174,6 +175,8 @@ interface StoragePanelProps {
   onDetachFromScenes?: (assetId: string) => Promise<void>;
   /** Scenes that contain a canonical or additional placement of the asset. */
   onFindSceneDependents?: (assetId: string) => Promise<SceneRecord[]>;
+  onDetachFromJournal?: (assetId: string) => Promise<void>;
+  onFindJournalDependents?: (assetId: string) => Promise<JournalAssetDependent[]>;
 }
 
 export function StoragePanel({
@@ -182,6 +185,8 @@ export function StoragePanel({
   canDragImages = false,
   onDetachFromScenes,
   onFindSceneDependents,
+  onDetachFromJournal,
+  onFindJournalDependents,
 }: StoragePanelProps) {
   const [assets, setAssets] = useState<AssetView[]>([]);
   const [query, setQuery] = useState('');
@@ -197,6 +202,7 @@ export function StoragePanel({
   const [preview, setPreview] = useState<AssetPreview | null>(null);
   const [dependencyPrompt, setDependencyPrompt] = useState<{
     asset: AssetView;
+    journal: JournalAssetDependent[];
     scenes: SceneRecord[];
   } | null>(null);
   const previewButtonRef = useRef<HTMLElement | null>(null);
@@ -344,6 +350,7 @@ export function StoragePanel({
           return;
         }
         await onDetachFromScenes?.(asset.id);
+        await onDetachFromJournal?.(asset.id);
       });
   };
 
@@ -351,9 +358,12 @@ export function StoragePanel({
     if (!requestDelete(asset.id)) {
       return;
     }
-    const dependents = (await onFindSceneDependents?.(asset.id)) ?? [];
-    if (dependents.length > 0) {
-      setDependencyPrompt({ asset, scenes: dependents });
+    const [scenes, journal] = await Promise.all([
+      onFindSceneDependents?.(asset.id) ?? Promise.resolve([]),
+      onFindJournalDependents?.(asset.id) ?? Promise.resolve([]),
+    ]);
+    if (scenes.length > 0 || journal.length > 0) {
+      setDependencyPrompt({ asset, journal, scenes });
       return;
     }
     deleteAsset(asset);
@@ -480,12 +490,8 @@ export function StoragePanel({
       <ConfirmModal
         confirmLabel="Delete anyway"
         isOpen={dependencyPrompt !== null}
-        message={`${dependencyPrompt?.asset.displayName ?? 'This image'} is placed in ${
-          dependencyPrompt?.scenes.length === 1
-            ? '1 scene'
-            : `${dependencyPrompt?.scenes.length ?? 0} scenes`
-        }. Deleting it removes every placement too.`}
-        title="Delete an image that scenes use?"
+        message={`${dependencyPrompt?.asset.displayName ?? 'This image'} is used by ${dependencyPrompt?.scenes.length ?? 0} scene(s) and ${dependencyPrompt?.journal.length ?? 0} Journal page(s). Deleting it removes every placement too.`}
+        title="Delete an image that campaign content uses?"
         onCancel={() => setDependencyPrompt(null)}
         onConfirm={() => {
           if (dependencyPrompt) {
@@ -497,6 +503,9 @@ export function StoragePanel({
         <ul className={styles.dependentScenes}>
           {dependencyPrompt?.scenes.map((scene) => (
             <li key={scene.id}>{scene.name}</li>
+          ))}
+          {dependencyPrompt?.journal.map((page) => (
+            <li key={page.pageId}>{page.title} (Journal)</li>
           ))}
         </ul>
       </ConfirmModal>

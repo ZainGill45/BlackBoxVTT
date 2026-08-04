@@ -64,6 +64,26 @@ import { parsePayload, ProtocolVersionMismatchError } from './tcpProtocol';
 import { deserializeUdpCredentials } from './udpProtocol';
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import { parseCampaignSystemState } from '../../systems/catalog';
+import type {
+  DeleteJournalTargetInput,
+  JournalChangedEvent,
+  JournalAssetDependent,
+  JournalDeletePreview,
+  JournalDeleteResult,
+  JournalManifest,
+  JournalPage,
+  JournalPermissionSubject,
+  JournalResult,
+  MoveJournalEntryInput,
+  MoveJournalPageInput,
+  NoteEntry,
+  PageEditLease,
+  ReorderJournalEntriesInput,
+  ReorderJournalPagesInput,
+  UpdateJournalNotePermissionsInput,
+  UpdateJournalPagePermissionsInput,
+} from '../../shared/journal';
+import type { ProtocolMessageType } from './tcpProtocol';
 
 const TCP_CONNECT_TIMEOUT_MS = 10_000;
 const UDP_ASSOCIATION_TIMEOUT_MS = 10_000;
@@ -108,6 +128,7 @@ interface CampaignClientOptions {
     input: Omit<DrawingPreviewEvent, 'campaignId'>
   ) => void;
   onMapPing?: (input: Omit<MapPing, 'campaignId'>) => void;
+  onJournalChanged?: (event: Omit<JournalChangedEvent, 'campaignId'>) => void;
   onMeasurementUpdate?: (
     input: Omit<MeasurementEvent, 'campaignId'>
   ) => void;
@@ -135,6 +156,7 @@ export class CampaignClient {
     CampaignClientOptions['onChatEvent']
   >;
   private readonly onMapPing: NonNullable<CampaignClientOptions['onMapPing']>;
+  private readonly onJournalChanged: NonNullable<CampaignClientOptions['onJournalChanged']>;
   private readonly onMeasurementUpdate: NonNullable<
     CampaignClientOptions['onMeasurementUpdate']
   >;
@@ -157,6 +179,7 @@ export class CampaignClient {
     onAssetsChanged = () => undefined,
     onDrawingPreview = () => undefined,
     onMapPing = () => undefined,
+    onJournalChanged = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented = () => undefined,
     onShapePreview = () => undefined,
@@ -171,6 +194,7 @@ export class CampaignClient {
     this.onAssetsChanged = onAssetsChanged;
     this.onDrawingPreview = onDrawingPreview;
     this.onMapPing = onMapPing;
+    this.onJournalChanged = onJournalChanged;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
     this.onShapePreview = onShapePreview;
@@ -390,6 +414,7 @@ export class CampaignClient {
         onChatEvent: this.onChatEvent,
         onDrawingPreview: this.onDrawingPreview,
         onMapPing: this.onMapPing,
+        onJournalChanged: this.onJournalChanged,
         onMeasurementUpdate: this.onMeasurementUpdate,
         onScenePresented: this.onScenePresented,
         onShapePreview: this.onShapePreview,
@@ -924,6 +949,146 @@ export class CampaignClient {
       return;
     }
     active.sendTransformPreview(input);
+  }
+
+  listJournal(): Promise<JournalResult<JournalManifest>> {
+    return this.journalRequest('client.journal_list', {}, 'server.journal_manifest',
+      (payload) => parsePayload('server.journal_manifest', payload));
+  }
+
+  listJournalUsers(): Promise<JournalResult<JournalPermissionSubject[]>> {
+    return this.journalRequest('client.journal_list_users', {}, 'server.journal_users',
+      (payload) => parsePayload('server.journal_users', payload).users);
+  }
+
+  getJournalNote(entryId: string): Promise<JournalResult<NoteEntry>> {
+    return this.journalRequest('client.journal_get_note', { entryId }, 'server.journal_note',
+      (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  getJournalPage(entryId: string, pageId: string): Promise<JournalResult<JournalPage>> {
+    return this.journalRequest('client.journal_get_page', { entryId, pageId }, 'server.journal_page',
+      (payload) => parsePayload('server.journal_page', payload));
+  }
+
+  findJournalAssetDependents(assetId: string): Promise<JournalResult<JournalAssetDependent[]>> {
+    return this.journalRequest('client.journal_find_asset_dependents', { assetId }, 'server.journal_asset_dependents',
+      (payload) => parsePayload('server.journal_asset_dependents', payload).dependents);
+  }
+
+  detachJournalAsset(assetId: string): Promise<JournalResult<null>> {
+    return this.journalRequest('client.journal_detach_asset', { assetId }, 'server.journal_release_result', () => null);
+  }
+
+  createJournalNote(): Promise<JournalResult<NoteEntry>> {
+    return this.journalRequest('client.journal_create_note', {}, 'server.journal_note',
+      (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  updateJournalNote(entryId: string, name: string, nameStyle: NoteEntry['nameStyle'], expectedRevision: number): Promise<JournalResult<NoteEntry>> {
+    return this.journalRequest('client.journal_update_note', { entryId, expectedRevision, name, nameStyle }, 'server.journal_note',
+      (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  updateJournalNotePermissions(input: Omit<UpdateJournalNotePermissionsInput, 'campaignId'>): Promise<JournalResult<NoteEntry>> {
+    return this.journalRequest('client.journal_update_note_permissions', input, 'server.journal_note',
+      (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  createJournalPage(entryId: string, expectedEntryRevision: number): Promise<JournalResult<JournalPage>> {
+    return this.journalRequest('client.journal_create_page', { entryId, expectedEntryRevision }, 'server.journal_page',
+      (payload) => parsePayload('server.journal_page', payload));
+  }
+
+  updateJournalPage(
+    entryId: string,
+    pageId: string,
+    leaseId: string,
+    title: string,
+    titleStyle: JournalPage['titleStyle'],
+    content: JournalPage['content'],
+    expectedRevision: number,
+  ): Promise<JournalResult<JournalPage>> {
+    return this.journalRequest(
+      'client.journal_update_page',
+      { content, entryId, expectedRevision, leaseId, pageId, title, titleStyle },
+      'server.journal_page',
+      (payload) => parsePayload('server.journal_page', payload),
+    );
+  }
+
+  updateJournalPagePermissions(input: Omit<UpdateJournalPagePermissionsInput, 'campaignId'>): Promise<JournalResult<JournalPage>> {
+    return this.journalRequest('client.journal_update_page_permissions', input, 'server.journal_page',
+      (payload) => parsePayload('server.journal_page', payload));
+  }
+
+  acquireJournalLease(entryId: string, pageId: string): Promise<JournalResult<PageEditLease>> {
+    return this.journalRequest('client.journal_acquire_lease', { entryId, pageId }, 'server.journal_lease',
+      (payload) => parsePayload('server.journal_lease', payload));
+  }
+
+  renewJournalLease(entryId: string, pageId: string, leaseId: string): Promise<JournalResult<PageEditLease>> {
+    return this.journalRequest('client.journal_renew_lease', { entryId, leaseId, pageId }, 'server.journal_lease',
+      (payload) => parsePayload('server.journal_lease', payload));
+  }
+
+  releaseJournalLease(entryId: string, pageId: string, leaseId: string): Promise<JournalResult<null>> {
+    return this.journalRequest('client.journal_release_lease', { entryId, leaseId, pageId }, 'server.journal_release_result',
+      () => null);
+  }
+
+  moveJournalNote(input: Omit<MoveJournalEntryInput, 'campaignId'>): Promise<JournalResult<JournalManifest>> {
+    return this.journalRequest('client.journal_move_note', input, 'server.journal_manifest',
+      (payload) => parsePayload('server.journal_manifest', payload));
+  }
+
+  reorderJournalNotes(input: Omit<ReorderJournalEntriesInput, 'campaignId'>): Promise<JournalResult<JournalManifest>> {
+    return this.journalRequest('client.journal_reorder_notes', input, 'server.journal_manifest',
+      (payload) => parsePayload('server.journal_manifest', payload));
+  }
+
+  moveJournalPage(input: Omit<MoveJournalPageInput, 'campaignId'>): Promise<JournalResult<NoteEntry>> {
+    return this.journalRequest('client.journal_move_page', input, 'server.journal_note',
+      (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  reorderJournalPages(input: Omit<ReorderJournalPagesInput, 'campaignId'>): Promise<JournalResult<NoteEntry>> {
+    return this.journalRequest('client.journal_reorder_pages', input, 'server.journal_note',
+      (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  prepareJournalDelete(target: DeleteJournalTargetInput['target']): Promise<JournalResult<JournalDeletePreview>> {
+    return this.journalRequest('client.journal_prepare_delete', { target }, 'server.journal_delete_preview',
+      (payload) => parsePayload('server.journal_delete_preview', payload));
+  }
+
+  deleteJournalTarget(input: Omit<DeleteJournalTargetInput, 'campaignId'>): Promise<JournalResult<JournalDeleteResult>> {
+    const type = input.target.kind === 'note'
+      ? 'client.journal_delete_note' as const
+      : 'client.journal_delete_page' as const;
+    return this.journalRequest(type, input, 'server.journal_delete_result',
+      (payload) => parsePayload('server.journal_delete_result', payload));
+  }
+
+  private async journalRequest<T>(
+    type: ProtocolMessageType,
+    payload: unknown,
+    successType: ProtocolMessageType,
+    parseSuccess: (payload: unknown) => T,
+  ): Promise<JournalResult<T>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return { error: { code: 'unavailable', message: 'The campaign connection is not active.' }, ok: false };
+    }
+    try {
+      const envelope = await active.request(type, payload, [successType, 'server.journal_error']);
+      if (envelope.type === 'server.journal_error') {
+        return { error: parsePayload('server.journal_error', envelope.payload), ok: false };
+      }
+      return { ok: true, value: parseSuccess(envelope.payload) };
+    } catch {
+      return { error: { code: 'unavailable', message: 'The Journal request could not be completed.' }, ok: false };
+    }
   }
 
   private async assetMutation(

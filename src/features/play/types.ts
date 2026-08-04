@@ -8,6 +8,7 @@ import type {
 import type { AssetApi } from '../../shared/assets';
 import type { SceneApi } from '../../shared/scenes';
 import type { CampaignSystemState } from '../../shared/gameSystems';
+import type { JournalApi } from '../../shared/journal';
 
 export type PlaySession =
   | {
@@ -77,6 +78,7 @@ type CampaignServerSettings = ServerSettingsView;
 export interface PlayScreenProps {
   applicationApi: ApplicationApi;
   assetApi: AssetApi;
+  journalApi?: JournalApi;
   networkApi: NetworkApi;
   onExit: () => void;
   onLayerChange?: (id: PlayLayerId) => void;

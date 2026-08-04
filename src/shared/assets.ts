@@ -3,12 +3,15 @@ import type { Result } from './result';
 export const ASSET_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const MAX_ASSET_BYTES = 1024 ** 3;
 export const ASSET_CHUNK_BYTES = 512 * 1024;
+export const MAX_EMBEDDED_IMAGE_BYTES = 32 * 1024 * 1024;
 
 export const assetIpcChannels = {
   changed: 'assets:changed',
   error: 'assets:error',
   getPreview: 'assets:get-preview',
   list: 'assets:list',
+  importImageBytes: 'assets:import-image-bytes',
+  pickImages: 'assets:pick-images',
   pickAndImport: 'assets:pick-and-import',
   prepareRemote: 'assets:prepare-remote',
   progress: 'assets:progress',
@@ -139,6 +142,12 @@ export interface ReleaseAssetPreviewInput {
   token: string;
 }
 
+export interface ImportImageBytesInput extends AssetCampaignInput {
+  bytesBase64: string;
+  filename: string;
+  mimeType: 'image/gif' | 'image/jpeg' | 'image/png' | 'image/webp';
+}
+
 export interface AssetProgressEvent {
   assetId?: string;
   completedBytes: number;
@@ -163,12 +172,19 @@ export interface AssetErrorEvent extends AssetError {
 export interface AssetApi {
   getPreview(input: AssetPreviewInput): Promise<AssetResult<AssetPreview>>;
   list(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
+  importImageBytes(input: ImportImageBytesInput): Promise<AssetResult<AssetView[]>>;
   onChanged(listener: (event: AssetChangedEvent) => void): () => void;
   onError(listener: (event: AssetErrorEvent) => void): () => void;
   onProgress(listener: (event: AssetProgressEvent) => void): () => void;
   pickAndImport(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
+  pickImages(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
   prepareRemote(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
   releasePreview(input: ReleaseAssetPreviewInput): Promise<void>;
   rename(input: RenameAssetInput): Promise<AssetResult<AssetView>>;
   trash(input: TrashAssetInput): Promise<AssetResult<null>>;
 }
+
+export type JournalAssetApi = Pick<
+  AssetApi,
+  'getPreview' | 'importImageBytes' | 'list' | 'pickImages' | 'releasePreview'
+>;

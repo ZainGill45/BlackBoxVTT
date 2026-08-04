@@ -18,6 +18,7 @@ const spontaneousServerMessages = new Set<string>([
   'server.chat_limit_changed',
   'server.chat_message',
   'server.chat_participant_event',
+  'server.journal_changed',
   'server.map_ping',
   'server.scene_presented',
   'server.scene_transform_started',

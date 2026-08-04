@@ -68,11 +68,13 @@ function createApi(initial: AssetView[]) {
   }));
   const api: AssetApi = {
     getPreview: vi.fn(),
+    importImageBytes: vi.fn(),
     list: vi.fn(async () => ({ ok: true as const, value: initial })),
     onChanged: vi.fn(() => () => undefined),
     onError: vi.fn(() => () => undefined),
     onProgress: vi.fn(() => () => undefined),
     pickAndImport,
+    pickImages: vi.fn(),
     prepareRemote: vi.fn(),
     releasePreview: vi.fn(),
     rename,
@@ -213,9 +215,9 @@ describe('StoragePanel', () => {
     );
 
     const prompt = await screen.findByRole('dialog', {
-      name: 'Delete an image that scenes use?',
+      name: 'Delete an image that campaign content uses?',
     });
-    expect(prompt).toHaveTextContent('Map.png is placed in 2 scenes.');
+    expect(prompt).toHaveTextContent('Map.png is used by 2 scene(s) and 0 Journal page(s).');
     expect(within(prompt).getByText('Iron Keep')).toBeInTheDocument();
     expect(within(prompt).getByText('Sunken Vault')).toBeInTheDocument();
     expect(trash).not.toHaveBeenCalled();
@@ -230,7 +232,7 @@ describe('StoragePanel', () => {
     await user.click(
       within(
         await screen.findByRole('dialog', {
-          name: 'Delete an image that scenes use?',
+          name: 'Delete an image that campaign content uses?',
         }),
       ).getByRole('button', { name: 'Delete anyway' }),
     );
@@ -263,7 +265,7 @@ describe('StoragePanel', () => {
     await waitFor(() => expect(trash).toHaveBeenCalledOnce());
     expect(
       screen.queryByRole('dialog', {
-        name: 'Delete an image that scenes use?',
+        name: 'Delete an image that campaign content uses?',
       }),
     ).not.toBeInTheDocument();
   });

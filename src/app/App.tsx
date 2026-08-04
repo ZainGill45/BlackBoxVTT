@@ -29,12 +29,14 @@ import type {
   ServerSettingsView,
 } from '../shared/network';
 import type { SceneApi } from '../shared/scenes';
+import type { JournalApi } from '../shared/journal';
 import styles from './App.module.css';
 
 interface AppProps {
   applicationApi?: ApplicationApi;
   assetApi?: AssetApi;
   campaignApi?: CampaignApi;
+  journalApi?: JournalApi;
   networkApi?: NetworkApi;
   sceneApi?: SceneApi;
 }
@@ -51,6 +53,7 @@ export function App({
   applicationApi = window.blackBox.application,
   assetApi = window.blackBox.assets,
   campaignApi = window.blackBox.campaigns,
+  journalApi = window.blackBox.journal,
   networkApi = window.blackBox.network,
   sceneApi = window.blackBox.scenes,
 }: AppProps) {
@@ -328,6 +331,7 @@ export function App({
           applicationApi={applicationApi}
           assetApi={assetApi}
           networkApi={networkApi}
+          journalApi={journalApi}
           sceneApi={sceneApi}
           session={playSession}
           serverSettings={

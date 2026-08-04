@@ -10,11 +10,18 @@ import {
   type CampaignSceneRuntime,
   type JoinedSceneTransport,
 } from './campaignSceneRuntime';
+import {
+  createJoinedJournalRuntime,
+  createLocalJournalRuntime,
+  type CampaignJournalRuntime,
+  type JoinedJournalTransport,
+} from './campaignJournalRuntime';
 import type {
   CampaignWorkspaceRegistry,
   LocalCampaignWorkspace,
 } from './campaignWorkspace';
 import type { CampaignSystemState } from '../shared/gameSystems';
+import type { JournalResult } from '../shared/journal';
 
 export type {
   AssetRuntimeMutation,
@@ -26,11 +33,16 @@ export type {
   JoinedSceneTransport,
   SceneRuntimeMutation,
 } from './campaignSceneRuntime';
+export type {
+  CampaignJournalRuntime,
+  JoinedJournalTransport,
+} from './campaignJournalRuntime';
 
 export interface JoinedCampaignRuntime {
   readonly assets: CampaignAssetRuntime;
   readonly campaignId: string;
   readonly kind: 'joined';
+  readonly journal: CampaignJournalRuntime;
   readonly scenes: CampaignSceneRuntime;
   readonly system: CampaignSystemState;
 }
@@ -39,6 +51,7 @@ export interface LocalCampaignRuntime {
   readonly assets: CampaignAssetRuntime;
   readonly campaignId: string;
   readonly kind: 'local';
+  readonly journal: CampaignJournalRuntime;
   readonly scenes: CampaignSceneRuntime;
   readonly system: CampaignSystemState;
   readonly workspace: LocalCampaignWorkspace;
@@ -50,6 +63,7 @@ interface JoinedCampaignRegistration {
   readonly assets: JoinedAssetTransport;
   readonly campaignId: string;
   readonly kind: 'joined';
+  readonly journal?: JoinedJournalTransport;
   readonly scenes: JoinedSceneTransport;
   readonly system: CampaignSystemState;
 }
@@ -70,6 +84,7 @@ export class CampaignRuntimeRegistry {
       assets: createJoinedAssetRuntime(runtime.assets),
       campaignId: runtime.campaignId,
       kind: 'joined',
+      journal: createJoinedJournalRuntime(runtime.journal ?? unavailableJournalTransport()),
       scenes: createJoinedSceneRuntime(runtime.scenes),
       system: structuredClone(runtime.system),
     });
@@ -96,6 +111,7 @@ export class CampaignRuntimeRegistry {
       assets: createLocalAssetRuntime(workspace),
       campaignId,
       kind: 'local',
+      journal: createLocalJournalRuntime(workspace),
       scenes: createLocalSceneRuntime(workspace),
       system: structuredClone(workspace.system),
       workspace,
@@ -120,4 +136,34 @@ export class CampaignRuntimeRegistry {
     this.local.clear();
     return this.workspaces.closeAll();
   }
+}
+
+function unavailableJournalTransport(): JoinedJournalTransport {
+  const unavailable = <T>(): Promise<JournalResult<T>> => Promise.resolve({
+    error: { code: 'unavailable', message: 'The remote Journal is unavailable.' },
+    ok: false,
+  });
+  return {
+    acquireLease: unavailable,
+    createNote: unavailable,
+    createPage: unavailable,
+    deleteTarget: unavailable,
+    detachAsset: unavailable,
+    findAssetDependents: unavailable,
+    getNote: unavailable,
+    getPage: unavailable,
+    list: unavailable,
+    listUsers: unavailable,
+    moveNote: unavailable,
+    movePage: unavailable,
+    prepareDelete: unavailable,
+    releaseLease: unavailable,
+    reorderNotes: unavailable,
+    reorderPages: unavailable,
+    renewLease: unavailable,
+    updateNote: unavailable,
+    updateNotePermissions: unavailable,
+    updatePage: unavailable,
+    updatePagePermissions: unavailable,
+  };
 }

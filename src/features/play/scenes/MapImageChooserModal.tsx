@@ -13,6 +13,7 @@ export interface MapImageSelection {
 }
 
 interface MapImageChooserModalProps {
+  accessibleLabel?: string;
   assetApi?: AssetApi;
   campaignId: string;
   isOpen: boolean;
@@ -82,6 +83,7 @@ function ChoiceTile({
 }
 
 export function MapImageChooserModal({
+  accessibleLabel = 'Choose a map image',
   assetApi,
   campaignId,
   isOpen,
@@ -118,7 +120,7 @@ export function MapImageChooserModal({
 
   return (
     <Modal
-      accessibleLabel="Choose a map image"
+      accessibleLabel={accessibleLabel}
       className={styles.chooser}
       contentClassName={styles.content}
       isOpen={isOpen}

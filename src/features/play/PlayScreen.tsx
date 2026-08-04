@@ -81,6 +81,7 @@ function getSessionTitle(session: PlayScreenProps['session']) {
 export function PlayScreen({
   applicationApi,
   assetApi,
+  journalApi,
   networkApi,
   onExit,
   onCreateServerUser,
@@ -511,6 +512,13 @@ export function PlayScreen({
                   canDragImages={session.role === 'gm'}
                   onDetachFromScenes={scenes.detachAsset}
                   onFindSceneDependents={scenes.findDependents}
+                  onFindJournalDependents={journalApi ? async (assetId) => {
+                    const result = await journalApi.findAssetDependents({ assetId, campaignId: session.campaignId });
+                    return result.ok ? result.value : [];
+                  } : undefined}
+                  onDetachFromJournal={journalApi ? async (assetId) => {
+                    await journalApi.detachAsset({ assetId, campaignId: session.campaignId });
+                  } : undefined}
                 />
               ) : showScenes ? (
                 <ScenePanel
@@ -520,7 +528,12 @@ export function PlayScreen({
                   store={scenes}
                 />
               ) : showJournal ? (
-                <JournalPanel />
+                <JournalPanel
+                  assetApi={assetApi}
+                  campaignId={session.campaignId}
+                  journalApi={journalApi}
+                  role={session.role}
+                />
               ) : (
                 <div
                   className={styles.sidebarPanelIcon}

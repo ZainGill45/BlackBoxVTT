@@ -42,6 +42,7 @@ import {
 } from '../campaignTable/chatService';
 import { CampaignSceneService } from '../campaignTable/sceneService';
 import type { SceneRepository } from '../sceneRepository';
+import type { JournalRepository } from '../journalRepository';
 import { authenticatedAssetPolicy, type AssetPolicy } from '../assetPolicy';
 import { verifyPassword } from './passwords';
 import { LoginRateLimiter } from './loginRateLimiter';
@@ -70,6 +71,7 @@ import { HostAssetTransfer } from './hostAssetTransfer';
 import { HostChatRequestHandler } from './hostChatRequestHandler';
 import { HostSceneRealtime } from './hostSceneRealtime';
 import { HostSceneRequestHandler } from './hostSceneRequestHandler';
+import { HostJournalRequestHandler } from './hostJournalRequestHandler';
 import type { HostClient } from './hostClient';
 import { decodeClientMeasurement } from './measurementProtocol';
 import {
@@ -104,10 +106,16 @@ interface CampaignHostServerOptions {
   chatRepository: ChatRepository;
   configRepository: ServerConfigRepository;
   identity: CampaignIdentity;
+  journalRepository: JournalRepository;
   onMapPing?: (input: MapPing) => void;
   onChatEvent?: (event: ChatEvent) => void;
   onDrawingPreview?: (input: DrawingPreviewEvent) => void;
   onMeasurementUpdate?: (input: MeasurementEvent) => void;
+  onJournalChanged?: (event: {
+    entryId?: string;
+    pageId?: string;
+    type: 'content' | 'deleted' | 'permissions' | 'structure';
+  }) => void;
   onShapePreview?: (input: ShapePreviewEvent) => void;
   onSceneChanged?: () => void;
   onTransformCancelled?: (input: SceneTransformPreviewCancel) => void;
@@ -163,6 +171,8 @@ export class CampaignHostServer {
   private readonly sceneRealtime: HostSceneRealtime;
   private readonly scenes: CampaignSceneService;
   private readonly sceneRequests: HostSceneRequestHandler;
+  private readonly journalRequests: HostJournalRequestHandler;
+  private readonly journalRepository: JournalRepository;
   readonly configRepository: ServerConfigRepository;
   readonly identity: CampaignIdentity;
   private readonly clients = new Set<HostClient>();
@@ -181,6 +191,9 @@ export class CampaignHostServer {
   >;
   private readonly onMeasurementUpdate: NonNullable<
     CampaignHostServerOptions['onMeasurementUpdate']
+  >;
+  private readonly onJournalChanged: NonNullable<
+    CampaignHostServerOptions['onJournalChanged']
   >;
   private readonly onShapePreview: NonNullable<
     CampaignHostServerOptions['onShapePreview']
@@ -210,11 +223,13 @@ export class CampaignHostServer {
     chatRepository,
     configRepository,
     identity,
+    journalRepository,
     onAssetSyncError = () => undefined,
     onMapPing = () => undefined,
     onChatEvent = () => undefined,
     onDrawingPreview = () => undefined,
     onMeasurementUpdate = () => undefined,
+    onJournalChanged = () => undefined,
     onShapePreview = () => undefined,
     onSceneChanged = () => undefined,
     onStatusChanged,
@@ -238,10 +253,12 @@ export class CampaignHostServer {
     });
     this.scenes = new CampaignSceneService(sceneRepository);
     this.identity = identity;
+    this.journalRepository = journalRepository;
     this.onMapPing = onMapPing;
     this.onChatEvent = onChatEvent;
     this.onDrawingPreview = onDrawingPreview;
     this.onMeasurementUpdate = onMeasurementUpdate;
+    this.onJournalChanged = onJournalChanged;
     this.onShapePreview = onShapePreview;
     this.onSceneChanged = onSceneChanged;
     this.onStatusChanged = onStatusChanged;
@@ -305,6 +322,13 @@ export class CampaignHostServer {
       },
       scenes: this.scenes,
     });
+    this.journalRequests = new HostJournalRequestHandler(
+      journalRepository,
+      async (event) => {
+        this.onJournalChanged(event);
+        await this.broadcastJournalChanged(event);
+      },
+    );
   }
 
   get isOnline(): boolean {
@@ -905,6 +929,9 @@ export class CampaignHostServer {
       if (await this.sceneRequests.handleRequest(client, envelope)) {
         return;
       }
+      if (await this.journalRequests.handleRequest(client, envelope)) {
+        return;
+      }
       if (envelope.type === 'client.map_ping') {
         const input = parsePayload('client.map_ping', envelope.payload);
         await this.broadcastMapPing(
@@ -937,6 +964,35 @@ export class CampaignHostServer {
   /** Pushes the presented scene to every ready client. */
   async broadcastActiveScene(): Promise<void> {
     await this.sceneRealtime.broadcastActiveScene();
+  }
+
+  async broadcastJournalChanged(event: {
+    entryId?: string;
+    pageId?: string;
+    type: 'content' | 'deleted' | 'permissions' | 'structure';
+  }): Promise<void> {
+    for (const client of this.clients) {
+      if (client.state !== 'ready' || !client.user) continue;
+      const actor = {
+        kind: 'player' as const,
+        userId: client.user.id,
+        username: client.user.username,
+      };
+      const manifest = await this.journalRepository.list(actor);
+      const visibleEntry = manifest.ok
+        ? manifest.value.entries.find(({ id }) => id === event.entryId)
+        : undefined;
+      const visiblePage = visibleEntry?.pages.some(({ id }) => id === event.pageId);
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.journal_changed',
+        {
+          entryId: visibleEntry ? event.entryId : undefined,
+          pageId: visiblePage ? event.pageId : undefined,
+          type: event.type,
+        },
+      );
+    }
   }
 
   private async sendActiveScene(client: HostClient): Promise<void> {
@@ -1267,6 +1323,13 @@ export class CampaignHostServer {
       return;
     }
     this.sceneRealtime.removeClient(client);
+    if (disconnectedUser) {
+      this.journalRepository.releaseActorLeases({
+        kind: 'player',
+        userId: disconnectedUser.id,
+        username: disconnectedUser.username,
+      });
+    }
     clearTimeout(client.handshakeTimer);
     if (client.user && this.claimedUsers.get(client.user.id) === client) {
       this.claimedUsers.delete(client.user.id);

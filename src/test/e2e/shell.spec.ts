@@ -173,8 +173,9 @@ test.describe('application lifecycle', () => {
     await closed;
   });
 
-  test('opens the empty Journal collection shell', async () => {
-    const { window } = await apps.launch();
+  test('authors and restores a rich Journal note in one modal', async () => {
+    const first = await apps.launch();
+    let { window } = first;
     await createAndOpenCampaign(window, CAMPAIGN);
 
     await window.getByRole('tab', { name: 'Journal' }).click();
@@ -184,8 +185,169 @@ test.describe('application lifecycle', () => {
     const add = window.getByRole('button', { name: 'Add journal entry' });
     await expect(add).toBeEnabled();
     await add.click();
+
+    const noteModal = window.getByRole('dialog').filter({
+      has: window.getByRole('textbox', { name: 'Note name' }),
+    });
+    await expect(noteModal).toBeVisible();
+    await expect(window.getByRole('dialog')).toHaveCount(1);
     await expect(
-      window.locator('[data-sidebar-icon="journal"] svg'),
+      noteModal.getByRole('toolbar', { name: 'Rich text formatting toolbar' }),
     ).toBeVisible();
+    await expect(noteModal.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
+      'contenteditable',
+      'true',
+    );
+    await expect(noteModal.getByRole('button', { name: 'Close note' })).toHaveCount(0);
+    const modalBounds = await noteModal.boundingBox();
+    expect(modalBounds?.width).toBeLessThanOrEqual(1122);
+    expect(modalBounds?.height).toBeGreaterThanOrEqual(820);
+    expect(modalBounds?.height).toBeLessThanOrEqual(840);
+    const titleGeometry = await noteModal.getByLabel('Note name').evaluate((input) => {
+      const header = input.parentElement;
+      if (!header) throw new Error('The note title header is missing.');
+      const inputBounds = input.getBoundingClientRect();
+      return {
+        fontSize: Number.parseFloat(getComputedStyle(input).fontSize),
+        headerHeight: header.clientHeight,
+        headerWidth: header.clientWidth,
+        inputHeight: inputBounds.height,
+        inputWidth: inputBounds.width,
+      };
+    });
+    expect(titleGeometry.inputWidth).toBeCloseTo(titleGeometry.headerWidth, 0);
+    expect(titleGeometry.inputHeight).toBeCloseTo(titleGeometry.headerHeight, 0);
+    expect(titleGeometry.fontSize).toBeGreaterThanOrEqual(20);
+    await noteModal.getByLabel('Note name').fill('Campaign Chronicle');
+    await noteModal.getByLabel('Note name').focus();
+    await noteModal.getByRole('button', { name: 'Italic' }).click();
+    await noteModal.getByRole('combobox', { name: 'Font family' }).selectOption('lora');
+    await expect(noteModal.getByLabel('Note name')).toHaveCSS('font-style', 'italic');
+    await expect(noteModal.getByLabel('Note name')).toHaveCSS('font-family', /Lora Variable/);
+    await expect(noteModal.getByLabel('Text color')).toHaveValue('#f0f0f0');
+    await expect(noteModal.getByLabel('Highlight color')).toHaveCount(0);
+    await expect(noteModal.getByRole('button', { name: 'Undo' })).toHaveCount(0);
+    await expect(noteModal.getByRole('button', { name: 'Redo' })).toHaveCount(0);
+    const fontSelectAppearance = await noteModal
+      .getByRole('combobox', { name: 'Font family' })
+      .evaluate((element) => {
+        const select = element as HTMLSelectElement;
+        return {
+          appearance: getComputedStyle(select).appearance,
+          colorScheme: getComputedStyle(select).colorScheme,
+          optionBackground: getComputedStyle(select.options[0]).backgroundColor,
+          optionColor: getComputedStyle(select.options[0]).color,
+          width: select.getBoundingClientRect().width,
+        };
+      });
+    expect(fontSelectAppearance.appearance).toBe('none');
+    expect(fontSelectAppearance.colorScheme).toBe('dark');
+    expect(fontSelectAppearance.optionBackground).toBe('rgb(29, 29, 29)');
+    expect(fontSelectAppearance.optionColor).toBe('rgb(240, 240, 240)');
+    expect(fontSelectAppearance.width).toBeGreaterThan(100);
+    await noteModal.getByLabel('Page title').fill('Session Zero');
+    await noteModal.getByLabel('Page title').focus();
+    await noteModal.getByRole('button', { name: 'Underline' }).click();
+    await expect(noteModal.getByLabel('Page title')).toHaveCSS('text-decoration-line', 'underline');
+    const prose = noteModal.locator('.ProseMirror');
+    const titleToBodyGap = await noteModal.evaluate((modal) => {
+      const title = modal.querySelector<HTMLInputElement>('[aria-label="Page title"]');
+      const body = modal.querySelector<HTMLElement>('.ProseMirror');
+      if (!title || !body) throw new Error('The Journal page layout is incomplete.');
+      return body.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
+    });
+    expect(titleToBodyGap).toBeLessThanOrEqual(10);
+    await prose.fill('The brass key opens the western vault.');
+    await prose.press('Control+A');
+    await noteModal.getByRole('button', { name: 'Italic' }).click();
+    await expect(prose.locator('em')).toHaveCSS('font-style', 'italic');
+    await prose.press('End');
+
+    const pastedImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64').toString('base64');
+    await prose.evaluate((element, bytesBase64) => {
+      const bytes = Uint8Array.from(atob(bytesBase64), (value) => value.charCodeAt(0));
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([bytes], 'pasted-map.png', { type: 'image/png' }));
+      element.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: transfer,
+      }));
+    }, pastedImage);
+    const embeddedImages = noteModal.locator('figure img');
+    const embeddedImage = embeddedImages.first();
+    await expect(embeddedImage).toBeVisible();
+    await expect
+      .poll(() =>
+        embeddedImage.evaluate((image) =>
+          getComputedStyle(image.closest('figure')!).marginLeft,
+        ),
+      )
+      .toBe('0px');
+    await expect
+      .poll(() =>
+        embeddedImage.evaluate((image: HTMLImageElement) => image.naturalWidth),
+      )
+      .toBeGreaterThan(0);
+    const pageTitleTop = await noteModal.getByLabel('Page title').evaluate(
+      (input) => input.getBoundingClientRect().top,
+    );
+    await prose.evaluate((content) => {
+      if (content.parentElement) content.parentElement.scrollTop = 500;
+    });
+    await expect
+      .poll(() => noteModal.getByLabel('Page title').evaluate(
+        (input) => input.getBoundingClientRect().top,
+      ))
+      .toBeCloseTo(pageTitleTop, 0);
+    const embeddedSource = await embeddedImage.getAttribute('src');
+    await noteModal.getByRole('button', { name: 'Image' }).click();
+    const imageChooser = window.getByRole('dialog', {
+      name: 'Choose a Journal image',
+    });
+    await expect(imageChooser).toBeVisible();
+    await imageChooser.getByRole('button', { name: 'pasted-map.png' }).click();
+    await expect(embeddedImages).toHaveCount(2);
+    await prose.press('Control+A');
+    await noteModal.getByRole('button', { name: 'Bold' }).click();
+    await noteModal.getByLabel('Note name').blur();
+    await expect(noteModal.getByText('Saved', { exact: true })).toBeVisible();
+    await expect(embeddedImage).toHaveAttribute('src', embeddedSource!);
+    await window.mouse.click(10, 10);
+    await expect(noteModal).not.toBeVisible();
+    await window
+      .getByRole('button', { name: /Campaign Chronicle/ })
+      .click({ button: 'right' });
+    const deleteNote = window.getByRole('menuitem', { name: 'Delete Note' });
+    await expect(deleteNote).toHaveAttribute('aria-pressed', 'false');
+    expect(
+      await deleteNote.evaluate((button) => getComputedStyle(button).backgroundImage),
+    ).not.toBe('none');
+    await deleteNote.click();
+    const confirmDeleteNote = window.getByRole('menuitem', {
+      name: 'Confirm deletion of Campaign Chronicle',
+    });
+    await expect(confirmDeleteNote).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      await confirmDeleteNote.evaluate(
+        (button) => getComputedStyle(button).backgroundImage,
+      ),
+    ).toBe('none');
+    await window.getByRole('tab', { name: 'Storage' }).click();
+    await expect(window.getByLabel('Name for pasted-map.png')).toBeAttached();
+
+    await first.app.close();
+    const restarted = await apps.launchInto(first.userDataPath);
+    window = restarted.window;
+    await window.getByRole('tab', { name: 'Create Campaign' }).click();
+    await window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
+    await window.getByRole('tab', { name: 'Journal' }).click();
+    await window.getByRole('button', { name: /Campaign Chronicle/ }).click();
+    const restored = window.getByRole('dialog', { name: 'Campaign Chronicle' });
+    await expect(restored.getByLabel('Page title')).toHaveValue('Session Zero');
+    await expect(restored.getByLabel('Note name')).toHaveCSS('font-family', /Lora Variable/);
+    await expect(restored.getByLabel('Note name')).toHaveCSS('font-style', 'italic');
+    await expect(restored.getByLabel('Page title')).toHaveCSS('text-decoration-line', 'underline');
+    await expect(restored.getByText('The brass key opens the western vault.')).toBeVisible();
   });
 });

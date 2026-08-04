@@ -103,6 +103,7 @@ const observerMeasurements: unknown[] = [];
 const hostPings: unknown[] = [];
 const playerPings: unknown[] = [];
 const observerPings: unknown[] = [];
+const hostJournalEvents: unknown[] = [];
 const hostDrawingPreviews: unknown[] = [];
 const observerDrawingPreviews: unknown[] = [];
 
@@ -501,9 +502,93 @@ describe('a second player joining', () => {
     });
 
     host.on('chat-event', (event) => hostChatEvents.push(event));
+    host.on('journal-changed', (event) => hostJournalEvents.push(event));
     player.on('chat-event', (event) => playerChatEvents.push(event));
     observer.on('chat-event', (event) => observerChatEvents.push(event));
   }, HANDSHAKE_TIMEOUT);
+});
+
+describe('Journal over the network', () => {
+  let noteId: string;
+  let pageId: string;
+
+  it('keeps a newly created note private and rejects player parent creation', async () => {
+    const hostRuntime = await managerRuntimes.get(host)?.resolve(campaignId);
+    if (hostRuntime?.kind !== 'local') throw new Error('Expected a local host runtime.');
+    const created = await hostRuntime.journal.createNote();
+    if (!created.ok) throw new Error('Expected the Game Master to create a note.');
+    noteId = created.value.id;
+    pageId = created.value.pages[0]!.id;
+    await host.notifyJournalChanged({ campaignId, entryId: noteId, type: 'structure' });
+
+    await vi.waitFor(async () => {
+      expect(await (await joinedRuntime(player)).journal.list()).toMatchObject({
+        ok: true,
+        value: { entries: [] },
+      });
+    });
+    expect(await (await joinedRuntime(player)).journal.createNote()).toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+  });
+
+  it('projects a per-player edit grant without revealing the note to another player', async () => {
+    const hostRuntime = await managerRuntimes.get(host)?.resolve(campaignId);
+    if (hostRuntime?.kind !== 'local') throw new Error('Expected a local host runtime.');
+    const current = await hostRuntime.journal.getNote(noteId);
+    if (!current.ok) throw new Error('Expected the host note.');
+    const granted = await hostRuntime.journal.updateNotePermissions({
+      entryId: noteId,
+      expectedRevision: current.value.revision,
+      permissions: {
+        allPlayers: 'none',
+        overrides: [{ access: 'edit', userId: aliceUserId }],
+      },
+    });
+    expect(granted.ok).toBe(true);
+    await host.notifyJournalChanged({ campaignId, entryId: noteId, type: 'permissions' });
+
+    await vi.waitFor(async () => {
+      const alice = await (await joinedRuntime(player)).journal.list();
+      const bob = await (await joinedRuntime(observer)).journal.list();
+      expect(alice).toMatchObject({ ok: true, value: { entries: [{ id: noteId }] } });
+      expect(bob).toMatchObject({ ok: true, value: { entries: [] } });
+    });
+  });
+
+  it('accepts a leased player page save and invalidates the Game Master renderer', async () => {
+    const journal = (await joinedRuntime(player)).journal;
+    const lease = await journal.acquireLease(noteId, pageId);
+    if (!lease.ok) throw new Error('Expected the player page lease.');
+    const content = {
+      doc: {
+        content: [{ content: [{ text: 'Shared treasure', type: 'text' }], type: 'paragraph' }],
+        type: 'doc',
+      },
+      schemaVersion: 1 as const,
+    };
+    const saved = await journal.updatePage(
+      noteId,
+      pageId,
+      lease.value.leaseId,
+      'Player Notes',
+      lease.value.page.titleStyle,
+      content,
+      lease.value.page.revision,
+    );
+    expect(saved).toMatchObject({ ok: true, value: { title: 'Player Notes' } });
+
+    await vi.waitFor(async () => {
+      const hostRuntime = await managerRuntimes.get(host)?.resolve(campaignId);
+      const hostPage = await hostRuntime?.journal.getPage(noteId, pageId);
+      expect(hostPage).toMatchObject({ ok: true, value: { content, title: 'Player Notes' } });
+      expect(hostJournalEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ campaignId, entryId: noteId, pageId, type: 'content' }),
+      ]));
+    });
+    await journal.releaseLease(noteId, pageId, lease.value.leaseId);
+  });
 });
 
 describe('chat delivery', () => {

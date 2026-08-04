@@ -31,6 +31,7 @@ import {
   encodeClientMeasurement,
 } from './measurementProtocol';
 import { LatestSnapshotRateLimiter } from '../../shared/latestSnapshotRateLimiter';
+import type { JournalChangedEvent } from '../../shared/journal';
 import {
   decodeServerDrawingPreview,
   decodeServerShapePreview,
@@ -76,6 +77,7 @@ interface ClientNetworkSessionOptions {
     input: Omit<DrawingPreviewEvent, 'campaignId'>
   ) => void;
   onMapPing?: (input: Omit<MapPing, 'campaignId'>) => void;
+  onJournalChanged?: (event: Omit<JournalChangedEvent, 'campaignId'>) => void;
   onMeasurementUpdate?: (
     input: Omit<MeasurementEvent, 'campaignId'>
   ) => void;
@@ -106,6 +108,7 @@ export class ClientNetworkSession {
   >;
   private readonly onAssetsChanged: ClientNetworkSessionOptions['onAssetsChanged'];
   private readonly onMapPing: NonNullable<ClientNetworkSessionOptions['onMapPing']>;
+  private readonly onJournalChanged: NonNullable<ClientNetworkSessionOptions['onJournalChanged']>;
   private readonly onMeasurementUpdate: NonNullable<
     ClientNetworkSessionOptions['onMeasurementUpdate']
   >;
@@ -147,6 +150,7 @@ export class ClientNetworkSession {
     onDrawingPreview = () => undefined,
     onChatEvent = () => undefined,
     onMapPing = () => undefined,
+    onJournalChanged = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented,
     onShapePreview = () => undefined,
@@ -164,6 +168,7 @@ export class ClientNetworkSession {
     this.onDrawingPreview = onDrawingPreview;
     this.onChatEvent = onChatEvent;
     this.onMapPing = onMapPing;
+    this.onJournalChanged = onJournalChanged;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
     this.onShapePreview = onShapePreview;
@@ -391,6 +396,8 @@ export class ClientNetworkSession {
       this.onDrawingPreview(
         parsePayload('server.scene_drawing_preview', envelope.payload),
       );
+    } else if (envelope.type === 'server.journal_changed') {
+      this.onJournalChanged(parsePayload('server.journal_changed', envelope.payload));
     } else if (envelope.type === 'server.scene_shape_preview') {
       this.receiveShapePreview(
         parsePayload('server.scene_shape_preview', envelope.payload),

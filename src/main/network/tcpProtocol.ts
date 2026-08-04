@@ -33,8 +33,16 @@ import {
   chatRollCardSchema,
   chatRollDefinitionSchema,
 } from '../../shared/chatRoll';
+import {
+  JOURNAL_ENTRY_TYPE_NOTE,
+  JOURNAL_SCHEMA_VERSION,
+  isJournalTitleStyle,
+  isRichTextDocument,
+  type JournalTitleStyle,
+  type RichTextDocumentV1,
+} from '../../shared/journal';
 
-export const MAX_TCP_MESSAGE_BYTES = 1024 * 1024;
+export const MAX_TCP_MESSAGE_BYTES = 3 * 1024 * 1024;
 
 const envelopeSchema = z
   .object({
@@ -251,6 +259,78 @@ const campaignSystemStateSchema = z
   })
   .strict();
 
+const journalEntryAccessSchema = z.enum(['none', 'view', 'edit']);
+const journalPageAccessSchema = z.enum(['inherit', 'none', 'view', 'edit']);
+const journalPermissionsSchema = <T extends z.ZodTypeAny>(access: T) => z
+  .object({
+    allPlayers: access,
+    overrides: z.array(z.object({ access, userId: z.string().uuid() }).strict()).max(20),
+  })
+  .strict();
+const journalEntryCapabilitiesSchema = z.object({
+  delete: z.boolean(),
+  edit: z.boolean(),
+  managePages: z.boolean(),
+  managePermissions: z.boolean(),
+  reorder: z.boolean(),
+  view: z.boolean(),
+}).strict();
+const journalPageCapabilitiesSchema = z.object({
+  delete: z.boolean(),
+  edit: z.boolean(),
+  managePermissions: z.boolean(),
+  reorder: z.boolean(),
+  view: z.boolean(),
+}).strict();
+const journalTitleStyleSchema = z.custom<JournalTitleStyle>(isJournalTitleStyle);
+const journalPageSummarySchema = z.object({
+  capabilities: journalPageCapabilitiesSchema,
+  id: z.string().uuid(),
+  permissions: journalPermissionsSchema(journalPageAccessSchema).nullable(),
+  position: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
+  title: z.string().min(1).max(1024),
+  titleStyle: journalTitleStyleSchema,
+}).strict();
+const journalNoteSchema = z.object({
+  capabilities: journalEntryCapabilitiesSchema,
+  id: z.string().uuid(),
+  name: z.string().min(1).max(1024),
+  nameStyle: journalTitleStyleSchema,
+  pages: z.array(journalPageSummarySchema).max(1024),
+  permissions: journalPermissionsSchema(journalEntryAccessSchema).nullable(),
+  position: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
+  typeId: z.literal(JOURNAL_ENTRY_TYPE_NOTE),
+}).strict();
+const richTextDocumentSchema = z.custom<RichTextDocumentV1>(isRichTextDocument);
+const journalPageSchema = journalPageSummarySchema.extend({
+  content: richTextDocumentSchema,
+  entryId: z.string().uuid(),
+}).strict();
+const journalManifestSchema = z.object({
+  entries: z.array(journalNoteSchema).max(2048),
+  revision: z.number().int().nonnegative(),
+  schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
+}).strict();
+const journalLeaseSchema = z.object({
+  expiresAt: z.string().datetime(),
+  holderName: z.string().min(1).max(64),
+  leaseId: z.string().uuid(),
+  page: journalPageSchema,
+}).strict();
+const journalErrorSchema = z.object({
+  code: z.enum(['conflict', 'invalid_input', 'locked', 'not_found', 'permission_denied', 'storage_error', 'unavailable']),
+  entryId: z.string().uuid().optional(),
+  holderName: z.string().min(1).max(64).optional(),
+  message: z.string().min(1).max(1024),
+  pageId: z.string().uuid().optional(),
+}).strict();
+const journalDeleteTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict(),
+  z.object({ entryId: z.string().uuid(), kind: z.literal('page'), pageId: z.string().uuid() }).strict(),
+]);
+
 const chatParticipantEventSchema = z
   .object({
     eventId: z.string().uuid(),
@@ -299,6 +379,85 @@ export interface TcpEnvelope {
 }
 
 export const protocolPayloadSchemas = {
+  'client.journal_acquire_lease': z.object({ entryId: z.string().uuid(), pageId: z.string().uuid() }).strict(),
+  'client.journal_create_note': z.object({}).strict(),
+  'client.journal_create_page': z.object({
+    entryId: z.string().uuid(),
+    expectedEntryRevision: z.number().int().nonnegative(),
+  }).strict(),
+  'client.journal_delete_note': z.object({
+    cleanupAssetIds: z.array(z.string().uuid()).max(2048),
+    expectedRevision: z.number().int().nonnegative(),
+    target: z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict(),
+  }).strict(),
+  'client.journal_delete_page': z.object({
+    cleanupAssetIds: z.array(z.string().uuid()).max(2048),
+    expectedRevision: z.number().int().nonnegative(),
+    target: z.object({ entryId: z.string().uuid(), kind: z.literal('page'), pageId: z.string().uuid() }).strict(),
+  }).strict(),
+  'client.journal_detach_asset': z.object({ assetId: z.string().uuid() }).strict(),
+  'client.journal_find_asset_dependents': z.object({ assetId: z.string().uuid() }).strict(),
+  'client.journal_get_note': z.object({ entryId: z.string().uuid() }).strict(),
+  'client.journal_get_page': z.object({ entryId: z.string().uuid(), pageId: z.string().uuid() }).strict(),
+  'client.journal_list': z.object({}).strict(),
+  'client.journal_list_users': z.object({}).strict(),
+  'client.journal_move_note': z.object({
+    direction: z.enum(['up', 'down']),
+    entryId: z.string().uuid(),
+    expectedManifestRevision: z.number().int().nonnegative(),
+  }).strict(),
+  'client.journal_move_page': z.object({
+    direction: z.enum(['up', 'down']),
+    entryId: z.string().uuid(),
+    expectedEntryRevision: z.number().int().nonnegative(),
+    pageId: z.string().uuid(),
+  }).strict(),
+  'client.journal_prepare_delete': z.object({ target: journalDeleteTargetSchema }).strict(),
+  'client.journal_release_lease': z.object({
+    entryId: z.string().uuid(),
+    leaseId: z.string().uuid(),
+    pageId: z.string().uuid(),
+  }).strict(),
+  'client.journal_reorder_notes': z.object({
+    expectedManifestRevision: z.number().int().nonnegative(),
+    orderedEntryIds: z.array(z.string().uuid()).max(2048),
+  }).strict(),
+  'client.journal_reorder_pages': z.object({
+    entryId: z.string().uuid(),
+    expectedEntryRevision: z.number().int().nonnegative(),
+    orderedPageIds: z.array(z.string().uuid()).max(1024),
+  }).strict(),
+  'client.journal_renew_lease': z.object({
+    entryId: z.string().uuid(),
+    leaseId: z.string().uuid(),
+    pageId: z.string().uuid(),
+  }).strict(),
+  'client.journal_update_note': z.object({
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    name: z.string().max(1024),
+    nameStyle: journalTitleStyleSchema,
+  }).strict(),
+  'client.journal_update_note_permissions': z.object({
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    permissions: journalPermissionsSchema(journalEntryAccessSchema),
+  }).strict(),
+  'client.journal_update_page': z.object({
+    content: richTextDocumentSchema,
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    leaseId: z.string().uuid(),
+    pageId: z.string().uuid(),
+    title: z.string().max(1024),
+    titleStyle: journalTitleStyleSchema,
+  }).strict(),
+  'client.journal_update_page_permissions': z.object({
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    pageId: z.string().uuid(),
+    permissions: journalPermissionsSchema(journalPageAccessSchema),
+  }).strict(),
   'client.chat_bootstrap': z.object({}).strict(),
   'client.chat_history': z
     .object({
@@ -464,6 +623,33 @@ export const protocolPayloadSchemas = {
   'server.chat_participant_event': chatParticipantEventSchema,
   'server.chat_send_result': chatMessageSchema,
   'server.chat_roll_result': chatMessageSchema,
+  'server.journal_changed': z.object({
+    entryId: z.string().uuid().optional(),
+    pageId: z.string().uuid().optional(),
+    type: z.enum(['content', 'deleted', 'permissions', 'structure']),
+  }).strict(),
+  'server.journal_delete_preview': z.object({
+    assets: z.array(z.object({
+      cleanupAllowed: z.boolean(),
+      displayName: z.string().min(1).max(256),
+      id: z.string().uuid(),
+      reason: z.string().min(1).max(1024).optional(),
+    }).strict()).max(2048),
+    target: journalDeleteTargetSchema,
+  }).strict(),
+  'server.journal_delete_result': z.object({ cleanupFailures: z.array(z.string().uuid()).max(2048) }).strict(),
+  'server.journal_asset_dependents': z.object({
+    dependents: z.array(z.object({ entryId: z.string().uuid(), pageId: z.string().uuid(), title: z.string().min(1).max(1024) }).strict()).max(2048),
+  }).strict(),
+  'server.journal_error': journalErrorSchema,
+  'server.journal_lease': journalLeaseSchema,
+  'server.journal_manifest': journalManifestSchema,
+  'server.journal_note': journalNoteSchema,
+  'server.journal_page': journalPageSchema,
+  'server.journal_release_result': z.object({}).strict(),
+  'server.journal_users': z.object({
+    users: z.array(z.object({ id: z.string().uuid(), username: z.string().min(1).max(64) }).strict()).max(20),
+  }).strict(),
   'server.asset_chunk': z
     .object({
       assetId: z.string().uuid(),

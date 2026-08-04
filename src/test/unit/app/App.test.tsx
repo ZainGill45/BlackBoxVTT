@@ -92,11 +92,13 @@ function createMockAssetApi(
 ): AssetApi {
   return {
     getPreview: vi.fn(),
+    importImageBytes: vi.fn(),
     list: vi.fn(async () => ({ ok: true as const, value: [] })),
     onChanged: vi.fn(() => () => undefined),
     onError: vi.fn(() => () => undefined),
     onProgress: vi.fn(() => () => undefined),
     pickAndImport: vi.fn(),
+    pickImages: vi.fn(),
     prepareRemote: vi.fn(async () => ({ ok: true as const, value: [] })),
     releasePreview: vi.fn(),
     rename: vi.fn(),

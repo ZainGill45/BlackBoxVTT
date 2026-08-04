@@ -1,0 +1,145 @@
+.noteList {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.noteList li {
+  border: var(--border-width) solid transparent;
+}
+
+.noteList li[data-reordering='true'] {
+  opacity: 0.5;
+  border-color: var(--color-border-strong);
+}
+
+.noteList li > button {
+  display: grid;
+  width: 100%;
+  min-height: var(--control-height);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-2);
+  color: var(--color-text);
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border);
+  text-align: left;
+}
+
+.noteList li > button:hover,
+.noteList li > button:focus-visible {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-strong);
+}
+
+.noteList small {
+  color: var(--color-text-muted);
+}
+
+.reorderGhost {
+  position: fixed;
+  z-index: 1400;
+  padding: var(--space-2) var(--space-3);
+  pointer-events: none;
+  color: var(--color-text);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  box-shadow: var(--shadow-panel);
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 1500;
+  display: grid;
+  min-width: 13rem;
+  color: var(--color-text);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+}
+
+.contextItem {
+  width: 100%;
+  min-height: var(--control-height);
+  padding-inline: var(--space-2);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+.contextItem:hover:not(:disabled),
+.contextItem:focus-visible {
+  color: var(--color-text);
+  background: var(--color-overlay-hover);
+}
+
+.contextItem:disabled {
+  opacity: 0.45;
+}
+
+.contextDivider {
+  height: var(--border-width);
+  background: var(--color-border);
+}
+
+.contextDelete {
+  color: var(--color-delete-text);
+  background-color: var(--color-delete);
+  background-image:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem
+    );
+  border: var(--border-width) solid var(--color-delete-border);
+}
+
+.contextDelete:hover:not(:disabled),
+.contextDelete:focus-visible {
+  color: var(--color-delete-text);
+  background-color: var(--color-delete-hover);
+  border-color: var(--color-delete-border);
+}
+
+.contextDelete[aria-pressed='true'] {
+  color: var(--color-confirm-text);
+  background-color: var(--color-confirm);
+  background-image: none;
+  border-color: var(--color-confirm);
+}
+
+.contextDelete[aria-pressed='true']:hover:not(:disabled),
+.contextDelete[aria-pressed='true']:focus-visible {
+  color: var(--color-confirm-text);
+  background-color: var(--color-confirm-hover);
+  border-color: var(--color-confirm-hover);
+}
+
+.cleanupList {
+  display: grid;
+  max-height: 16rem;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  overflow: auto;
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border);
+}
+
+.cleanupList label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}

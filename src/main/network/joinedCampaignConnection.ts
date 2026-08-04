@@ -30,6 +30,8 @@ import { CampaignClient } from './campaignClient';
 import type { ConnectionHistoryRepository } from './connectionHistoryRepository';
 import { JoinedAssetSession } from './joinedAssetSession';
 import { JoinedSceneSession } from './joinedSceneSession';
+import type { JournalChangedEvent } from '../../shared/journal';
+import type { JoinedJournalTransport } from '../campaignJournalRuntime';
 
 export interface JoinedCampaignConnectionEvents {
   onAssetError: (event: AssetErrorEvent) => void;
@@ -39,6 +41,7 @@ export interface JoinedCampaignConnectionEvents {
   onClientStateChanged: (event: ClientStateEvent) => void;
   onDrawingPreview: (event: DrawingPreviewEvent) => void;
   onMapPing: (event: MapPing) => void;
+  onJournalChanged: (event: JournalChangedEvent) => void;
   onMeasurementUpdate: (event: MeasurementEvent) => void;
   onShapePreview: (event: ShapePreviewEvent) => void;
   onScenePresented: (campaignId: string) => void;
@@ -86,6 +89,10 @@ export class JoinedCampaignConnection {
         if (campaignId) {
           this.events.onMapPing({ ...input, campaignId });
         }
+      },
+      onJournalChanged: (input) => {
+        const campaignId = this.client.getSession()?.campaignId;
+        if (campaignId) this.events.onJournalChanged({ ...input, campaignId });
       },
       onMeasurementUpdate: (input) => {
         const campaignId = this.client.getSession()?.campaignId;
@@ -212,6 +219,33 @@ export class JoinedCampaignConnection {
     };
   }
 
+  private createJournalTransport(): JoinedJournalTransport {
+    return {
+      acquireLease: (entryId, pageId) => this.client.acquireJournalLease(entryId, pageId),
+      createNote: () => this.client.createJournalNote(),
+      createPage: (entryId, revision) => this.client.createJournalPage(entryId, revision),
+      deleteTarget: (input) => this.client.deleteJournalTarget(input),
+      detachAsset: (assetId) => this.client.detachJournalAsset(assetId),
+      findAssetDependents: (assetId) => this.client.findJournalAssetDependents(assetId),
+      getNote: (entryId) => this.client.getJournalNote(entryId),
+      getPage: (entryId, pageId) => this.client.getJournalPage(entryId, pageId),
+      list: () => this.client.listJournal(),
+      listUsers: () => this.client.listJournalUsers(),
+      moveNote: (input) => this.client.moveJournalNote(input),
+      movePage: (input) => this.client.moveJournalPage(input),
+      prepareDelete: (target) => this.client.prepareJournalDelete(target),
+      releaseLease: (entryId, pageId, leaseId) => this.client.releaseJournalLease(entryId, pageId, leaseId),
+      reorderNotes: (input) => this.client.reorderJournalNotes(input),
+      reorderPages: (input) => this.client.reorderJournalPages(input),
+      renewLease: (entryId, pageId, leaseId) => this.client.renewJournalLease(entryId, pageId, leaseId),
+      updateNote: (entryId, name, nameStyle, revision) => this.client.updateJournalNote(entryId, name, nameStyle, revision),
+      updateNotePermissions: (input) => this.client.updateJournalNotePermissions(input),
+      updatePage: (entryId, pageId, leaseId, title, titleStyle, content, revision) =>
+        this.client.updateJournalPage(entryId, pageId, leaseId, title, titleStyle, content, revision),
+      updatePagePermissions: (input) => this.client.updateJournalPagePermissions(input),
+    };
+  }
+
   private async getChatBootstrap(): Promise<ChatResult<ChatBootstrap>> {
     const result = await this.client.getChatBootstrap();
     if (!result.ok) {
@@ -237,6 +271,7 @@ export class JoinedCampaignConnection {
       assets: this.assets.createTransport(campaignId, userId),
       campaignId,
       kind: 'joined',
+      journal: this.createJournalTransport(),
       scenes: this.scenes.createTransport(campaignId),
       system: session.system,
     });

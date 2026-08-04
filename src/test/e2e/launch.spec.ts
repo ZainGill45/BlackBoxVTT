@@ -27,6 +27,7 @@ test.describe('application launch', () => {
       'application',
       'assets',
       'campaigns',
+      'journal',
       'network',
       'scenes',
     ]);

@@ -17,6 +17,8 @@ import { registerCampaignIpcHandlers } from './main/campaignIpc';
 import { CampaignRepository } from './main/campaignRepository';
 import { CampaignRuntimeRegistry } from './main/campaignRuntime';
 import { CampaignWorkspaceRegistry } from './main/campaignWorkspace';
+import { registerJournalIpcHandlers } from './main/journalIpc';
+import { JournalManager } from './main/journalManager';
 import { ConnectionHistoryRepository } from './main/network/connectionHistoryRepository';
 import { NetworkManager } from './main/network/networkManager';
 import { registerNetworkIpcHandlers } from './main/networkIpc';
@@ -64,6 +66,7 @@ let revealTimer: NodeJS.Timeout | null = null;
 let networkManager: NetworkManager | null = null;
 let assetManager: AssetManager | null = null;
 let sceneManager: SceneManager | null = null;
+let journalManager: JournalManager | null = null;
 const assetPreviewRegistry = new AssetPreviewRegistry();
 let shutdownComplete = false;
 let shutdownPromise: Promise<void> | null = null;
@@ -192,6 +195,18 @@ app.whenReady().then(() => {
   sceneManager = new SceneManager({
     runtimes,
   });
+  journalManager = new JournalManager(runtimes);
+  journalManager.on('local-changed', (event: {
+    campaignId: string;
+    entryId?: string;
+    pageId?: string;
+    type: 'content' | 'deleted' | 'permissions' | 'structure';
+  }) => {
+    void networkManager?.notifyJournalChanged(event);
+  });
+  networkManager.on('journal-changed', (event) =>
+    journalManager?.notifyRemoteChanged(event),
+  );
   assetManager.on('changed', (event: { campaignId?: string }) => {
     if (event.campaignId) {
       void networkManager?.notifyAssetsChanged(event.campaignId);
@@ -263,6 +278,12 @@ app.whenReady().then(() => {
     ipcMain,
     sceneManager,
     () => mainWindow?.webContents ?? null,
+  );
+  registerJournalIpcHandlers(
+    ipcMain,
+    journalManager,
+    (sender) => sender === mainWindow?.webContents,
+    () => (mainWindow?.webContents ? [mainWindow.webContents] : []),
   );
   registerApplicationIpcHandlers(
     ipcMain,

@@ -13,6 +13,7 @@ import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { CampaignRepository } from '../../../main/campaignRepository';
 import {
   CAMPAIGN_DATABASE_FILENAME,
+  CAMPAIGN_DATABASE_SCHEMA_VERSION,
   CampaignDatabase,
 } from '../../../main/storage/campaignDatabase';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
@@ -136,6 +137,11 @@ describe('CampaignRepository', () => {
     const directory = path.join(rootDirectory, firstId);
     const previous = CampaignDatabase.open(directory);
     previous.connection.exec(`
+      DROP TABLE journal_page_permissions;
+      DROP TABLE journal_pages;
+      DROP TABLE journal_entry_permissions;
+      DROP TABLE journal_entries;
+      DROP TABLE journal_manifest;
       DROP TABLE campaign_system;
       PRAGMA user_version = 8;
     `);
@@ -147,7 +153,7 @@ describe('CampaignRepository', () => {
       (migrated.connection.prepare('PRAGMA user_version').get() as {
         user_version: number;
       }).user_version,
-    ).toBe(9);
+    ).toBe(CAMPAIGN_DATABASE_SCHEMA_VERSION);
     migrated.close();
   });
 

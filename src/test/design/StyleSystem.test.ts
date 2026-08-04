@@ -155,7 +155,7 @@ describe('visual-system invariants', () => {
         expect(
           fontSize,
           `${relative(sourceRoot, file)} contains an off-scale font size`,
-        ).toMatch(/^var\(--font-size-(?:xs|sm|md|lg)\)$/);
+        ).toMatch(/^var\(--font-size-(?:xs|sm|md|lg|xl)\)$/);
       }
     }
   });

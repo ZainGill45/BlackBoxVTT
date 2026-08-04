@@ -3,6 +3,7 @@ import { createApplicationApi } from './preload/applicationApi';
 import { createAssetApi } from './preload/assetApi';
 import { createCampaignApi } from './preload/campaignApi';
 import { createNetworkApi } from './preload/networkApi';
+import { createJournalApi } from './preload/journalApi';
 import { createSceneApi } from './preload/sceneApi';
 
 contextBridge.exposeInMainWorld('blackBox', {
@@ -14,6 +15,7 @@ contextBridge.exposeInMainWorld('blackBox', {
   campaigns: createCampaignApi((channel, input) =>
     ipcRenderer.invoke(channel, input),
   ),
+  journal: createJournalApi(ipcRenderer),
   network: createNetworkApi(ipcRenderer),
   scenes: createSceneApi(ipcRenderer),
 });

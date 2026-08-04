@@ -2,6 +2,7 @@ import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import { z } from 'zod';
 import {
   assetIpcChannels,
+  MAX_EMBEDDED_IMAGE_BYTES,
   type AssetResult,
 } from '../shared/assets';
 import type { AssetManager } from './assetManager';
@@ -18,6 +19,11 @@ const trashSchema = assetSchema.extend({
   expectedRevision: z.number().int().nonnegative(),
 });
 const releaseSchema = z.object({ token: z.string().uuid() }).strict();
+const importImageSchema = campaignSchema.extend({
+  bytesBase64: z.string().max(Math.ceil((MAX_EMBEDDED_IMAGE_BYTES * 4) / 3) + 8),
+  filename: z.string().min(1).max(512),
+  mimeType: z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+});
 
 function invalid<T>(): AssetResult<T> {
   return {
@@ -36,8 +42,10 @@ export function registerAssetIpcHandlers(
 ) {
   const requestChannels = [
     assetIpcChannels.getPreview,
+    assetIpcChannels.importImageBytes,
     assetIpcChannels.list,
     assetIpcChannels.pickAndImport,
+    assetIpcChannels.pickImages,
     assetIpcChannels.prepareRemote,
     assetIpcChannels.releasePreview,
     assetIpcChannels.rename,
@@ -64,6 +72,14 @@ export function registerAssetIpcHandlers(
     return parsed.success
       ? manager.pickAndImport(parsed.data.campaignId)
       : invalid();
+  });
+  handle(assetIpcChannels.pickImages, (input) => {
+    const parsed = campaignSchema.safeParse(input);
+    return parsed.success ? manager.pickImages(parsed.data.campaignId) : invalid();
+  });
+  handle(assetIpcChannels.importImageBytes, (input) => {
+    const parsed = importImageSchema.safeParse(input);
+    return parsed.success ? manager.importImageBytes(parsed.data) : invalid();
   });
   handle(assetIpcChannels.prepareRemote, (input) => {
     const parsed = campaignSchema.safeParse(input);

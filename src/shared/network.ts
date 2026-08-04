@@ -24,7 +24,7 @@ import type {
 } from './scenes';
 import type { CampaignSystemState } from './gameSystems';
 
-export const NETWORK_PROTOCOL_VERSION = 17 as const;
+export const NETWORK_PROTOCOL_VERSION = 19 as const;
 export const DEFAULT_SERVER_PORT = 30_000;
 export const DEFAULT_TRANSFORM_PREVIEW_RATE = 60;
 export const MIN_TRANSFORM_PREVIEW_RATE = 32;

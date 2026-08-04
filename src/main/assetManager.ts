@@ -1,5 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { dialog, type BrowserWindow } from 'electron';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { authenticatedAssetPolicy, type AssetPolicy } from './assetPolicy';
 import type { AssetPreviewRegistry } from './assetPreviewRegistry';
 import type { CampaignRuntimeRegistry } from './campaignRuntime';
@@ -12,9 +15,11 @@ import type {
   AssetProgressEvent,
   AssetResult,
   AssetView,
+  ImportImageBytesInput,
   RenameAssetInput,
   TrashAssetInput,
 } from '../shared/assets';
+import { MAX_EMBEDDED_IMAGE_BYTES } from '../shared/assets';
 
 interface AssetManagerOptions {
   getWindow: () => BrowserWindow | null;
@@ -24,7 +29,7 @@ interface AssetManagerOptions {
 }
 
 function failure<T>(
-  code: 'not_found' | 'permission_denied' | 'storage_error' | 'unavailable',
+  code: 'invalid_input' | 'not_found' | 'permission_denied' | 'storage_error' | 'unavailable',
   message: string,
   assetId?: string,
 ): AssetResult<T> {
@@ -148,6 +153,53 @@ export class AssetManager extends EventEmitter {
     return outcome.result;
   }
 
+  async pickImages(campaignId: string): Promise<AssetResult<AssetView[]>> {
+    const runtime = await this.runtimes.resolve(campaignId);
+    const actor = runtime?.assets.actor ?? { id: `gm:${campaignId}`, role: 'gm' as const };
+    if (!this.policy.authorize({ action: 'import', subject: actor })) {
+      return failure('permission_denied', 'You cannot add campaign images.');
+    }
+    const window = this.getWindow();
+    if (!window || !runtime) return failure('storage_error', 'The image picker is unavailable.');
+    const { canceled, filePaths } = await dialog.showOpenDialog(window, {
+      filters: [{ extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'], name: 'Images' }],
+      properties: ['openFile', 'multiSelections'],
+      title: 'Add images to Storage',
+    });
+    if (canceled || filePaths.length === 0) return { ok: true, value: [] };
+    const outcome = await runtime.assets.importFiles(filePaths, this.policy, (event) => this.emitProgress(event));
+    if (outcome.changed) this.emitChanged(campaignId, outcome.changed);
+    return outcome.result;
+  }
+
+  async importImageBytes(input: ImportImageBytesInput): Promise<AssetResult<AssetView[]>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    if (!runtime || !this.policy.authorize({ action: 'import', subject: runtime.assets.actor })) {
+      return failure(runtime ? 'permission_denied' : 'not_found', runtime ? 'You cannot add campaign images.' : 'Campaign storage is unavailable.');
+    }
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(input.bytesBase64, 'base64');
+    } catch {
+      return failure('invalid_input', 'The pasted image data is invalid.');
+    }
+    if (bytes.length === 0 || bytes.length > MAX_EMBEDDED_IMAGE_BYTES || !this.matchesImageSignature(bytes, input.mimeType)) {
+      return failure('invalid_input', 'The pasted image is invalid or exceeds the 32 MiB limit.');
+    }
+    const extension = input.mimeType === 'image/jpeg' ? 'jpg' : input.mimeType.slice('image/'.length);
+    const directory = await mkdtemp(path.join(tmpdir(), 'blackbox-journal-image-'));
+    const filename = `${path.parse(input.filename).name.replace(/[^a-z0-9._-]/gi, '_').slice(0, 200) || 'Pasted Image'}.${extension}`;
+    const filePath = path.join(directory, filename);
+    try {
+      await writeFile(filePath, bytes, { flag: 'wx' });
+      const outcome = await runtime.assets.importFiles([filePath], this.policy, (event) => this.emitProgress(event));
+      if (outcome.changed) this.emitChanged(input.campaignId, outcome.changed);
+      return outcome.result;
+    } finally {
+      await rm(directory, { force: true, recursive: true }).catch(() => undefined);
+    }
+  }
+
   async rename(input: RenameAssetInput): Promise<AssetResult<AssetView>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     if (!runtime) {
@@ -250,5 +302,12 @@ export class AssetManager extends EventEmitter {
 
   private emitProgress(event: AssetProgressEvent): void {
     this.emit('progress', event);
+  }
+
+  private matchesImageSignature(bytes: Buffer, mimeType: ImportImageBytesInput['mimeType']): boolean {
+    if (mimeType === 'image/png') return bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    if (mimeType === 'image/jpeg') return bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    if (mimeType === 'image/gif') return ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'));
+    return bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP';
   }
 }

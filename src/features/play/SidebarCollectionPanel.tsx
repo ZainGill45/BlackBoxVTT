@@ -11,6 +11,7 @@ type SidebarCollectionIcon = ComponentType<{
 }>;
 
 interface SidebarCollectionPanelProps {
+  addDisabled?: boolean;
   addLabel: string;
   children?: ReactNode;
   clearLabel: string;
@@ -25,6 +26,7 @@ interface SidebarCollectionPanelProps {
 }
 
 export function SidebarCollectionPanel({
+  addDisabled = false,
   addLabel,
   children,
   clearLabel,
@@ -64,7 +66,7 @@ export function SidebarCollectionPanel({
             </button>
           ) : null}
         </label>
-        <IconButton icon={Plus} label={addLabel} onClick={onAdd} />
+        <IconButton disabled={addDisabled} icon={Plus} label={addLabel} onClick={onAdd} />
       </div>
 
       <div className={styles.groups}>

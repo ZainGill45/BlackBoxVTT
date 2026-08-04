@@ -31,6 +31,10 @@ export function createAssetApi(ipc: AssetIpcRenderer): AssetApi {
       >,
     list: (input) =>
       ipc.invoke(assetIpcChannels.list, input) as ReturnType<AssetApi['list']>,
+    importImageBytes: (input) =>
+      ipc.invoke(assetIpcChannels.importImageBytes, input) as ReturnType<
+        AssetApi['importImageBytes']
+      >,
     onChanged: (listener) =>
       subscribe(assetIpcChannels.changed, listener),
     onError: (listener) => subscribe(assetIpcChannels.error, listener),
@@ -38,6 +42,10 @@ export function createAssetApi(ipc: AssetIpcRenderer): AssetApi {
     pickAndImport: (input) =>
       ipc.invoke(assetIpcChannels.pickAndImport, input) as ReturnType<
         AssetApi['pickAndImport']
+      >,
+    pickImages: (input) =>
+      ipc.invoke(assetIpcChannels.pickImages, input) as ReturnType<
+        AssetApi['pickImages']
       >,
     prepareRemote: (input) =>
       ipc.invoke(assetIpcChannels.prepareRemote, input) as ReturnType<

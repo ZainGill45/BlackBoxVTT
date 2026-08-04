@@ -4,7 +4,10 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatIdentity, ChatPrincipal } from '../../../shared/chat';
 import { ChatRepository } from '../../../main/chatRepository';
-import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
+import {
+  CAMPAIGN_DATABASE_SCHEMA_VERSION,
+  CampaignDatabase,
+} from '../../../main/storage/campaignDatabase';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
@@ -114,6 +117,11 @@ describe('ChatRepository', () => {
       CREATE INDEX chat_messages_recipient_sequence
         ON chat_messages (recipient_key, sequence);
       DROP TABLE campaign_system;
+      DROP TABLE journal_page_permissions;
+      DROP TABLE journal_pages;
+      DROP TABLE journal_entry_permissions;
+      DROP TABLE journal_entries;
+      DROP TABLE journal_manifest;
       PRAGMA user_version = 7;
       COMMIT;
     `);
@@ -126,7 +134,7 @@ describe('ChatRepository', () => {
       (migrated.connection.prepare('PRAGMA user_version').get() as {
         user_version: number;
       }).user_version,
-    ).toBe(9);
+    ).toBe(CAMPAIGN_DATABASE_SCHEMA_VERSION);
     expect(migrated.readSystem()).toEqual(TEST_CAMPAIGN_SYSTEM);
     const migratedRepository = new ChatRepository({ database: migrated });
     const page = await migratedRepository.bootstrap(

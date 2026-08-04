@@ -105,6 +105,7 @@ export class NetworkManager extends EventEmitter {
         onDrawingPreview: (event) =>
           this.emit('drawing-preview', event),
         onMapPing: (event) => this.emit('map-ping', event),
+        onJournalChanged: (event) => this.emit('journal-changed', event),
         onMeasurementUpdate: (event) =>
           this.emit('measurement-update', event),
         onShapePreview: (event) =>
@@ -133,6 +134,7 @@ export class NetworkManager extends EventEmitter {
           onDrawingPreview: (event) =>
             this.emit('drawing-preview', event),
           onMapPing: (event) => this.emit('map-ping', event),
+          onJournalChanged: (event) => this.emit('journal-changed', event),
           onMeasurementUpdate: (event) =>
             this.emit('measurement-update', event),
           onShapePreview: (event) =>
@@ -169,6 +171,7 @@ export class NetworkManager extends EventEmitter {
     this.host = null;
     if (host) {
       await host.stop();
+      this.emit('campaign-closed', { campaignId: host.campaignId });
     }
     this.emitHostStatus();
   }
@@ -298,8 +301,10 @@ export class NetworkManager extends EventEmitter {
     return this.joined.cancel(attemptId);
   }
 
-  disconnect(): Promise<void> {
-    return this.joined.disconnect();
+  async disconnect(): Promise<void> {
+    const campaignId = this.joined.session?.campaignId;
+    await this.joined.disconnect();
+    if (campaignId) this.emit('campaign-closed', { campaignId });
   }
 
   listHistory(): Promise<NetworkResult<SavedConnection[]>> {
@@ -378,6 +383,15 @@ export class NetworkManager extends EventEmitter {
 
   async notifyScenePresented(campaignId: string): Promise<void> {
     await this.hostFor(campaignId)?.notifyScenePresented();
+  }
+
+  async notifyJournalChanged(event: {
+    campaignId: string;
+    entryId?: string;
+    pageId?: string;
+    type: 'content' | 'deleted' | 'permissions' | 'structure';
+  }): Promise<void> {
+    await this.hostFor(event.campaignId)?.notifyJournalChanged(event);
   }
 
   async sendMapPing(input: MapPing): Promise<void> {

@@ -4,6 +4,7 @@ import { AssetRepository } from './assetRepository';
 import type { CampaignRepository } from './campaignRepository';
 import { ChatRepository } from './chatRepository';
 import { CampaignIdentityRepository } from './network/campaignIdentity';
+import { JournalRepository } from './journalRepository';
 import { ServerConfigRepository } from './network/serverConfigRepository';
 import { SceneRepository } from './sceneRepository';
 import { CampaignDatabase } from './storage/campaignDatabase';
@@ -15,6 +16,7 @@ export interface LocalCampaignWorkspace {
   readonly database: CampaignDatabase;
   readonly directory: string;
   readonly identityRepository: CampaignIdentityRepository;
+  readonly journalRepository: JournalRepository;
   readonly manifest: CampaignManifest;
   readonly sceneRepository: SceneRepository;
   readonly system: CampaignSystemState;
@@ -95,12 +97,18 @@ export class CampaignWorkspaceRegistry {
     const touchCampaign = async () => {
       database.touch(new Date().toISOString());
     };
+    const assetRepository = new AssetRepository({
+      database,
+      touchCampaign,
+      trashItem: this.trashItem,
+    });
+    const sceneRepository = new SceneRepository({
+      database,
+      touchCampaign,
+      warn: this.warn,
+    });
     return {
-      assetRepository: new AssetRepository({
-        database,
-        touchCampaign,
-        trashItem: this.trashItem,
-      }),
+      assetRepository,
       chatRepository: new ChatRepository({
         database,
         touchCampaign,
@@ -114,12 +122,14 @@ export class CampaignWorkspaceRegistry {
         container.manifest.id,
         container.manifest.name,
       ),
-      manifest: container.manifest,
-      sceneRepository: new SceneRepository({
+      journalRepository: new JournalRepository({
+        assets: assetRepository,
         database,
+        scenes: sceneRepository,
         touchCampaign,
-        warn: this.warn,
       }),
+      manifest: container.manifest,
+      sceneRepository,
       system: container.manifest.system,
     };
   }

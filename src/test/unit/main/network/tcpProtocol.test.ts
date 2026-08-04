@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NETWORK_PROTOCOL_VERSION } from '../../../../shared/network';
+import { defaultJournalTitleStyle } from '../../../../shared/journal';
 import {
   createDefaultFog,
   createDefaultGrid,
@@ -216,6 +217,54 @@ describe('campaign system protocol messages', () => {
         protocolVersion: NETWORK_PROTOCOL_VERSION,
       }),
     ).toThrow();
+  });
+});
+
+describe('Journal protocol messages', () => {
+  it('keeps page mutations explicit and rejects actor or campaign spoofing', () => {
+    const input = {
+      content: { doc: { content: [{ type: 'paragraph' }], type: 'doc' }, schemaVersion: 1 },
+      entryId: '11111111-1111-4111-8111-111111111111',
+      expectedRevision: 2,
+      leaseId: '22222222-2222-4222-8222-222222222222',
+      pageId: '33333333-3333-4333-8333-333333333333',
+      title: 'Treasure',
+      titleStyle: defaultJournalTitleStyle(),
+    } as const;
+    expect(parsePayload('client.journal_update_page', input)).toEqual(input);
+    expect(() => parsePayload('client.journal_update_page', {
+      ...input,
+      actor: { kind: 'gm' },
+    })).toThrow();
+    expect(() => parsePayload('client.journal_update_page', {
+      ...input,
+      campaignId: '44444444-4444-4444-8444-444444444444',
+    })).toThrow();
+  });
+
+  it('rejects remote image nodes before they reach the host repository', () => {
+    expect(() => parsePayload('client.journal_update_page', {
+      content: {
+        doc: { content: [{ attrs: { src: 'https://example.com/map.png' }, type: 'image' }], type: 'doc' },
+        schemaVersion: 1,
+      },
+      entryId: '11111111-1111-4111-8111-111111111111',
+      expectedRevision: 0,
+      leaseId: '22222222-2222-4222-8222-222222222222',
+      pageId: '33333333-3333-4333-8333-333333333333',
+      title: 'Map',
+    })).toThrow();
+  });
+
+  it('does not let the explicit page-delete operation target a parent note', () => {
+    expect(() => parsePayload('client.journal_delete_page', {
+      cleanupAssetIds: [],
+      expectedRevision: 0,
+      target: {
+        entryId: '11111111-1111-4111-8111-111111111111',
+        kind: 'note',
+      },
+    })).toThrow();
   });
 });
 

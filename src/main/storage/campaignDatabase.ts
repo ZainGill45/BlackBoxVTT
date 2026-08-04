@@ -22,9 +22,20 @@ import {
   createDefaultCampaignSystemState,
   parseCampaignSystemState,
 } from '../../systems/catalog';
+import {
+  JOURNAL_ENTRY_TYPE_NOTE,
+  MAX_JOURNAL_ENTRIES,
+  MAX_JOURNAL_TITLE_GRAPHEMES,
+  MAX_NOTE_PAGES,
+  RICH_TEXT_SCHEMA_VERSION,
+  countGraphemes,
+  defaultJournalTitleStyle,
+  isJournalTitleStyle,
+  isRichTextDocument,
+} from '../../shared/journal';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
-export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 9;
+export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 11;
 
 interface CampaignMetadataRow {
   campaign_id: string;
@@ -103,6 +114,12 @@ export class CampaignDatabase {
           } else if (version === 8) {
             this.migrateVersion8To9();
             version = 9;
+          } else if (version === 9) {
+            this.migrateVersion9To10();
+            version = 10;
+          } else if (version === 10) {
+            this.migrateVersion10To11();
+            version = 11;
           } else {
             throw new Error(`Unsupported campaign schema version ${version}.`);
           }
@@ -258,6 +275,68 @@ export class CampaignDatabase {
           password_parallelization INTEGER NOT NULL,
           password_salt TEXT NOT NULL
         ) STRICT;
+        CREATE TABLE journal_manifest (
+          singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+          revision INTEGER NOT NULL CHECK (revision >= 0)
+        ) STRICT;
+        CREATE TABLE journal_entries (
+          id TEXT PRIMARY KEY NOT NULL,
+          type_id TEXT NOT NULL,
+          position INTEGER UNIQUE NOT NULL CHECK (position >= 0),
+          name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 256),
+          default_access TEXT NOT NULL CHECK (
+            default_access IN ('none', 'view', 'edit')
+          ),
+          revision INTEGER NOT NULL CHECK (revision >= 0),
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          updated_by TEXT NOT NULL,
+          name_style_json TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE journal_entry_permissions (
+          entry_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          access TEXT NOT NULL CHECK (access IN ('none', 'view', 'edit')),
+          PRIMARY KEY (entry_id, user_id),
+          FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX journal_entry_permissions_user
+          ON journal_entry_permissions (user_id, entry_id);
+        CREATE TABLE journal_pages (
+          id TEXT PRIMARY KEY NOT NULL,
+          entry_id TEXT NOT NULL,
+          position INTEGER NOT NULL CHECK (position >= 0),
+          title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
+          default_access TEXT NOT NULL CHECK (
+            default_access IN ('inherit', 'none', 'view', 'edit')
+          ),
+          content_schema_version INTEGER NOT NULL CHECK (
+            content_schema_version >= 1
+          ),
+          content_json TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 0),
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          updated_by TEXT NOT NULL,
+          title_style_json TEXT NOT NULL,
+          UNIQUE (entry_id, position),
+          FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE TABLE journal_page_permissions (
+          page_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          access TEXT NOT NULL CHECK (
+            access IN ('inherit', 'none', 'view', 'edit')
+          ),
+          PRIMARY KEY (page_id, user_id),
+          FOREIGN KEY (page_id) REFERENCES journal_pages(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX journal_page_permissions_user
+          ON journal_page_permissions (user_id, page_id);
         CREATE TABLE chat_metadata (
           key TEXT PRIMARY KEY NOT NULL,
           value TEXT NOT NULL
@@ -376,6 +455,10 @@ export class CampaignDatabase {
          VALUES (1, 0)`,
       );
       this.connection.exec(
+        `INSERT INTO journal_manifest (singleton, revision)
+         VALUES (1, 0)`,
+      );
+      this.connection.exec(
         `PRAGMA user_version = ${CAMPAIGN_DATABASE_SCHEMA_VERSION}`,
       );
       this.connection.exec('COMMIT');
@@ -424,6 +507,37 @@ export class CampaignDatabase {
         'password_parallelization',
         'password_salt',
       ],
+      journal_manifest: ['singleton', 'revision'],
+      journal_entries: [
+        'id',
+        'type_id',
+        'position',
+        'name',
+        'default_access',
+        'revision',
+        'created_at',
+        'created_by',
+        'updated_at',
+        'updated_by',
+        'name_style_json',
+      ],
+      journal_entry_permissions: ['entry_id', 'user_id', 'access'],
+      journal_pages: [
+        'id',
+        'entry_id',
+        'position',
+        'title',
+        'default_access',
+        'content_schema_version',
+        'content_json',
+        'revision',
+        'created_at',
+        'created_by',
+        'updated_at',
+        'updated_by',
+        'title_style_json',
+      ],
+      journal_page_permissions: ['page_id', 'user_id', 'access'],
       chat_messages: [
         'sequence',
         'id',
@@ -504,6 +618,7 @@ export class CampaignDatabase {
       'campaign_metadata',
       'campaign_server_settings',
       'campaign_system',
+      'journal_manifest',
       'scene_manifest',
     ]) {
       const row = this.connection
@@ -511,6 +626,54 @@ export class CampaignDatabase {
         .get() as { count?: unknown } | undefined;
       if (row?.count !== 1) {
         throw new Error(`Campaign database singleton ${table} is invalid.`);
+      }
+    }
+    const foreignKeyFailure = this.connection.prepare('PRAGMA foreign_key_check').get();
+    if (foreignKeyFailure) throw new Error('Campaign database foreign keys are invalid.');
+    this.validateJournalState();
+  }
+
+  private validateJournalState(): void {
+    const entries = this.connection.prepare(
+      `SELECT id, type_id, position, name, name_style_json, created_at, updated_at
+       FROM journal_entries ORDER BY position`,
+    ).all() as Array<Record<string, unknown>>;
+    if (entries.length > MAX_JOURNAL_ENTRIES) throw new Error('Campaign Journal exceeds its note limit.');
+    for (const [position, entry] of entries.entries()) {
+      let nameStyle: unknown;
+      try { nameStyle = JSON.parse(String(entry.name_style_json)); } catch { throw new Error('Campaign Journal note style is invalid.'); }
+      if (
+        typeof entry.id !== 'string' || !UUID_PATTERN.test(entry.id) ||
+        entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE || entry.position !== position ||
+        typeof entry.name !== 'string' || entry.name.normalize('NFKC').trim() !== entry.name ||
+        countGraphemes(entry.name) < 1 || countGraphemes(entry.name) > MAX_JOURNAL_TITLE_GRAPHEMES ||
+        !isJournalTitleStyle(nameStyle) ||
+        typeof entry.created_at !== 'string' || !validTimestamp(entry.created_at) ||
+        typeof entry.updated_at !== 'string' || !validTimestamp(entry.updated_at)
+      ) throw new Error('Campaign Journal contains a malformed note.');
+      const pages = this.connection.prepare(
+        `SELECT id, position, title, title_style_json, content_schema_version, content_json,
+                created_at, updated_at
+         FROM journal_pages WHERE entry_id = ? ORDER BY position`,
+      ).all(entry.id as string) as Array<Record<string, unknown>>;
+      if (pages.length < 1 || pages.length > MAX_NOTE_PAGES) {
+        throw new Error('Campaign Journal note has an invalid page count.');
+      }
+      for (const [pagePosition, page] of pages.entries()) {
+        let content: unknown;
+        let titleStyle: unknown;
+        try { content = JSON.parse(String(page.content_json)); } catch { throw new Error('Campaign Journal page content is invalid.'); }
+        try { titleStyle = JSON.parse(String(page.title_style_json)); } catch { throw new Error('Campaign Journal page style is invalid.'); }
+        if (
+          typeof page.id !== 'string' || !UUID_PATTERN.test(page.id) ||
+          page.position !== pagePosition ||
+          typeof page.title !== 'string' || page.title.normalize('NFKC').trim() !== page.title ||
+          countGraphemes(page.title) < 1 || countGraphemes(page.title) > MAX_JOURNAL_TITLE_GRAPHEMES ||
+          !isJournalTitleStyle(titleStyle) ||
+          page.content_schema_version !== RICH_TEXT_SCHEMA_VERSION || !isRichTextDocument(content) ||
+          typeof page.created_at !== 'string' || !validTimestamp(page.created_at) ||
+          typeof page.updated_at !== 'string' || !validTimestamp(page.updated_at)
+        ) throw new Error('Campaign Journal contains a malformed page.');
       }
     }
   }
@@ -615,7 +778,99 @@ export class CampaignDatabase {
           JSON.stringify(system.settings),
         );
       this.connection.exec(`
-        PRAGMA user_version = ${CAMPAIGN_DATABASE_SCHEMA_VERSION};
+        PRAGMA user_version = 9;
+        COMMIT;
+      `);
+    } catch (error) {
+      this.connection.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private migrateVersion9To10(): void {
+    this.connection.exec('BEGIN IMMEDIATE');
+    try {
+      this.connection.exec(`
+        CREATE TABLE journal_manifest (
+          singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+          revision INTEGER NOT NULL CHECK (revision >= 0)
+        ) STRICT;
+        CREATE TABLE journal_entries (
+          id TEXT PRIMARY KEY NOT NULL,
+          type_id TEXT NOT NULL,
+          position INTEGER UNIQUE NOT NULL CHECK (position >= 0),
+          name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 256),
+          default_access TEXT NOT NULL CHECK (
+            default_access IN ('none', 'view', 'edit')
+          ),
+          revision INTEGER NOT NULL CHECK (revision >= 0),
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          updated_by TEXT NOT NULL
+        ) STRICT;
+        CREATE TABLE journal_entry_permissions (
+          entry_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          access TEXT NOT NULL CHECK (access IN ('none', 'view', 'edit')),
+          PRIMARY KEY (entry_id, user_id),
+          FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX journal_entry_permissions_user
+          ON journal_entry_permissions (user_id, entry_id);
+        CREATE TABLE journal_pages (
+          id TEXT PRIMARY KEY NOT NULL,
+          entry_id TEXT NOT NULL,
+          position INTEGER NOT NULL CHECK (position >= 0),
+          title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
+          default_access TEXT NOT NULL CHECK (
+            default_access IN ('inherit', 'none', 'view', 'edit')
+          ),
+          content_schema_version INTEGER NOT NULL CHECK (
+            content_schema_version >= 1
+          ),
+          content_json TEXT NOT NULL,
+          revision INTEGER NOT NULL CHECK (revision >= 0),
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          updated_by TEXT NOT NULL,
+          UNIQUE (entry_id, position),
+          FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE TABLE journal_page_permissions (
+          page_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          access TEXT NOT NULL CHECK (
+            access IN ('inherit', 'none', 'view', 'edit')
+          ),
+          PRIMARY KEY (page_id, user_id),
+          FOREIGN KEY (page_id) REFERENCES journal_pages(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX journal_page_permissions_user
+          ON journal_page_permissions (user_id, page_id);
+        INSERT INTO journal_manifest (singleton, revision) VALUES (1, 0);
+        PRAGMA user_version = 10;
+        COMMIT;
+      `);
+    } catch (error) {
+      this.connection.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private migrateVersion10To11(): void {
+    const styleJson = JSON.stringify(defaultJournalTitleStyle()).replaceAll("'", "''");
+    this.connection.exec('BEGIN IMMEDIATE');
+    try {
+      this.connection.exec(`
+        ALTER TABLE journal_entries
+          ADD COLUMN name_style_json TEXT NOT NULL DEFAULT '${styleJson}';
+        ALTER TABLE journal_pages
+          ADD COLUMN title_style_json TEXT NOT NULL DEFAULT '${styleJson}';
+        PRAGMA user_version = 11;
         COMMIT;
       `);
     } catch (error) {

@@ -89,6 +89,12 @@ export interface HostedCampaignSessionEvents {
   onChatEvent: (event: ChatEvent) => void;
   onDrawingPreview: (event: DrawingPreviewEvent) => void;
   onMapPing: (event: MapPing) => void;
+  onJournalChanged: (event: {
+    campaignId: string;
+    entryId?: string;
+    pageId?: string;
+    type: 'content' | 'deleted' | 'permissions' | 'structure';
+  }) => void;
   onMeasurementUpdate: (event: MeasurementEvent) => void;
   onShapePreview: (event: ShapePreviewEvent) => void;
   onScenePresented: (campaignId: string) => void;
@@ -150,6 +156,7 @@ export class HostedCampaignSession implements CampaignNetworkSession {
       chatRepository: workspace.chatRepository,
       configRepository: workspace.configRepository,
       identity,
+      journalRepository: workspace.journalRepository,
       onAssetSyncError: (playerName, assetName, reason) => {
         this.events.onAssetError({
           campaignId: this.campaignId,
@@ -163,6 +170,10 @@ export class HostedCampaignSession implements CampaignNetworkSession {
       onDrawingPreview: this.events.onDrawingPreview,
       onMapPing: this.events.onMapPing,
       onMeasurementUpdate: this.events.onMeasurementUpdate,
+      onJournalChanged: (event) => this.events.onJournalChanged({
+        ...event,
+        campaignId: this.campaignId,
+      }),
       onShapePreview: this.events.onShapePreview,
       onSceneChanged: () =>
         this.events.onScenePresented(this.campaignId),
@@ -376,6 +387,14 @@ export class HostedCampaignSession implements CampaignNetworkSession {
 
   notifyScenePresented(): Promise<void> {
     return this.server.broadcastActiveScene();
+  }
+
+  notifyJournalChanged(event: {
+    entryId?: string;
+    pageId?: string;
+    type: 'content' | 'deleted' | 'permissions' | 'structure';
+  }): Promise<void> {
+    return this.server.broadcastJournalChanged(event);
   }
 
   notifyTransformStarted(input: SceneTransformPreviewStart): Promise<void> {

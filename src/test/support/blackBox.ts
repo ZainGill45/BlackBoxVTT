@@ -4,6 +4,7 @@ import type { AssetApi, AssetResult } from '../../shared/assets';
 import type { CampaignApi, CampaignResult } from '../../shared/campaigns';
 import type { ChatResult } from '../../shared/chat';
 import type { NetworkApi, NetworkResult } from '../../shared/network';
+import type { JournalApi, JournalResult } from '../../shared/journal';
 import {
   createEmptySceneManifest,
   type SceneApi,
@@ -69,6 +70,13 @@ function sceneUnavailable<T>(): SceneResult<T> {
   };
 }
 
+async function journalUnavailable<T>(): Promise<JournalResult<T>> {
+  return {
+    error: { code: 'unavailable', message: 'The Journal is unavailable outside Electron.' },
+    ok: false,
+  };
+}
+
 const applicationApi: ApplicationApi = {
   async openExternal() {
     return false;
@@ -84,6 +92,9 @@ const assetApi: AssetApi = {
   async list() {
     return assetUnavailable();
   },
+  async importImageBytes() {
+    return assetUnavailable();
+  },
   onChanged() {
     return () => undefined;
   },
@@ -94,6 +105,9 @@ const assetApi: AssetApi = {
     return () => undefined;
   },
   async pickAndImport() {
+    return assetUnavailable();
+  },
+  async pickImages() {
     return assetUnavailable();
   },
   async prepareRemote() {
@@ -291,11 +305,37 @@ const sceneApi: SceneApi = {
   },
 };
 
+const journalApi: JournalApi = {
+  acquireLease: journalUnavailable,
+  createNote: journalUnavailable,
+  createPage: journalUnavailable,
+  deleteTarget: journalUnavailable,
+  detachAsset: journalUnavailable,
+  findAssetDependents: journalUnavailable,
+  getNote: journalUnavailable,
+  getPage: journalUnavailable,
+  list: journalUnavailable,
+  listUsers: journalUnavailable,
+  moveNote: journalUnavailable,
+  movePage: journalUnavailable,
+  onChanged: () => () => undefined,
+  prepareDelete: journalUnavailable,
+  releaseLease: journalUnavailable,
+  reorderNotes: journalUnavailable,
+  reorderPages: journalUnavailable,
+  renewLease: journalUnavailable,
+  updateNote: journalUnavailable,
+  updateNotePermissions: journalUnavailable,
+  updatePage: journalUnavailable,
+  updatePagePermissions: journalUnavailable,
+};
+
 export function installBlackBoxStub(): void {
   window.blackBox = {
     application: applicationApi,
     assets: assetApi,
     campaigns: campaignApi,
+    journal: journalApi,
     network: networkApi,
     scenes: sceneApi,
   };
