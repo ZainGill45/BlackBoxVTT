@@ -45,8 +45,6 @@
 .selectControl {
   position: relative;
   display: grid;
-  width: 7rem;
-  min-width: 7rem;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
 }
