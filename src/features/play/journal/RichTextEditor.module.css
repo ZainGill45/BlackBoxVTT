@@ -2,14 +2,14 @@
   display: grid;
   height: 100%;
   min-height: 0;
-  grid-template-rows: auto minmax(8rem, 1fr);
+  grid-template-rows: minmax(8rem, 1fr);
   color: var(--color-text);
   background: var(--color-canvas);
   overflow: hidden;
 }
 
 .editor[data-toolbar='true'] {
-  grid-template-rows: auto auto minmax(8rem, 1fr);
+  grid-template-rows: auto minmax(8rem, 1fr);
 }
 
 .toolbar {
@@ -75,11 +75,6 @@
   pointer-events: none;
 }
 
-.fontSelect {
-  width: 8.75rem;
-  min-width: 8.75rem;
-}
-
 .toolbar input[type='color'] {
   width: 1.8rem;
   min-width: 1.8rem;
@@ -109,10 +104,14 @@
   border-color: var(--color-action);
 }
 
-.content {
+.document {
   min-height: 0;
-  padding: var(--space-2) var(--space-5) var(--space-8);
   overflow: auto;
+}
+
+.content {
+  padding-inline: var(--space-5);
+  padding-bottom: var(--space-4);
 }
 
 .content :global(.tiptap) {

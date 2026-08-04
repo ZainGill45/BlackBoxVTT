@@ -1,4 +1,4 @@
-import { Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -29,7 +29,10 @@ import {
   type JournalTitleStyle,
   type RichTextDocumentV1,
 } from '../../../shared/journal';
-import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../connection/useDeleteConfirmation';
+import {
+  DELETE_CONFIRMATION_TIMEOUT_MS,
+  useDeleteConfirmation,
+} from '../../connection/useDeleteConfirmation';
 import { MapImageChooserModal } from '../scenes/MapImageChooserModal';
 import type { AssetThumbnail } from '../scenes/useAssetThumbnails';
 import { RichTextEditor } from './RichTextEditor';
@@ -153,6 +156,10 @@ export function NoteModal({
     x: number;
     y: number;
   } | null>(null);
+  const {
+    pendingId: pendingDeleteId,
+    request: requestDeleteConfirmation,
+  } = useDeleteConfirmation();
 
   const currentRef = useRef(note);
   const currentRefreshRef = useRef(0);
@@ -853,19 +860,26 @@ export function NoteModal({
   const requestDelete = async (
     target: JournalDeleteTarget,
     revision: number,
-    alwaysConfirm = false,
   ) => {
     const result = await journalApi.prepareDelete({ campaignId, target });
     if (!result.ok) {
       setError(result.error.message);
       return;
     }
-    if (result.value.assets.length === 0 && !alwaysConfirm) {
+    if (result.value.assets.length === 0) {
       await deletePreparedTarget(result.value, revision, []);
       return;
     }
     setCleanupIds([]);
     setDeleteRequest({ preview: result.value, revision });
+  };
+
+  const requestNoteDelete = () => {
+    if (!requestDeleteConfirmation(currentRef.current.id)) return;
+    void requestDelete(
+      { entryId: currentRef.current.id, kind: 'note' },
+      currentRef.current.revision,
+    );
   };
 
   const confirmDelete = async () => {
@@ -1133,6 +1147,7 @@ export function NoteModal({
       : pageMessage ?? 'Saved';
   const selectedSummary = current.pages.find((item) => item.id === pageId);
   const canEditPage = Boolean(leaseId && page?.capabilities.edit);
+  const noteDeleteIsArmed = pendingDeleteId === current.id;
   const deleteTarget = deleteRequest?.preview.target;
   const titleFormatting = formattingTarget === 'note' && current.capabilities.edit
     ? {
@@ -1176,17 +1191,19 @@ export function NoteModal({
                 Edit Permissions
               </Button>
               <Button
+                aria-label={noteDeleteIsArmed
+                  ? `Confirm deletion of ${current.name}`
+                  : undefined}
+                aria-pressed={noteDeleteIsArmed}
                 disabled={!current.capabilities.delete}
-                onClick={() => void requestDelete(
-                  { entryId: current.id, kind: 'note' },
-                  current.revision,
-                  true,
-                )}
+                onClick={requestNoteDelete}
                 size="compact"
                 variant="danger"
               >
-                <Trash2 aria-hidden size="1rem" />
-                Delete Note
+                {noteDeleteIsArmed
+                  ? <Check aria-hidden size="1rem" />
+                  : <Trash2 aria-hidden size="1rem" />}
+                {noteDeleteIsArmed ? 'Confirm Delete' : 'Delete Note'}
               </Button>
             </div>
             <div className={styles.pageSearch}>

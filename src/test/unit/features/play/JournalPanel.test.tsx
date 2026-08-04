@@ -493,7 +493,7 @@ describe('JournalPanel', () => {
     ).map(([input]) => input.expectedPermissionRevision)).toEqual([0, 1]);
   });
 
-  it('places note actions above page search and confirms top-level note deletion', async () => {
+  it('places note actions above page search and directly deletes an unreferenced note after priming', async () => {
     const user = userEvent.setup();
     const prepareDelete = vi.fn(async () => ({
       ok: true as const,
@@ -530,20 +530,24 @@ describe('JournalPanel', () => {
     expect(screen.getByRole('dialog', { name: 'Edit Journal permissions' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
-    await user.click(screen.getByRole('button', { name: 'Delete Note' }));
+    expect(deleteNote).toHaveAttribute('aria-pressed', 'false');
+    await user.click(deleteNote);
+    expect(deleteNote).toHaveAttribute('aria-pressed', 'true');
+    expect(deleteNote).toHaveTextContent('Confirm Delete');
+    expect(prepareDelete).not.toHaveBeenCalled();
+
+    await user.click(deleteNote);
     expect(prepareDelete).toHaveBeenCalledWith({
       campaignId,
       target: { entryId: note.id, kind: 'note' },
     });
-    expect(await screen.findByRole('dialog', { name: 'Delete note' })).toBeVisible();
-    expect(deleteTarget).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(deleteTarget).toHaveBeenCalledWith({
       campaignId,
       cleanupAssetIds: [],
       expectedRevision: note.revision,
       target: { entryId: note.id, kind: 'note' },
     }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('arms note deletion and deletes directly when the note has no embedded images', async () => {
@@ -592,7 +596,7 @@ describe('JournalPanel', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
-  it('only opens a delete modal when embedded images need a cleanup choice', async () => {
+  it('opens the top note cleanup modal only when embedded images need a choice', async () => {
     const user = userEvent.setup();
     const prepareDelete = vi.fn(async () => ({
       ok: true as const,
@@ -617,16 +621,16 @@ describe('JournalPanel', () => {
       />,
     );
 
-    fireEvent.contextMenu(
+    await user.click(
       await screen.findByRole('button', { name: /Gathered Magic Items/ }),
     );
-    const deleteAction = screen.getByRole('menuitem', { name: 'Delete Note' });
+    const deleteAction = await screen.findByRole('button', { name: 'Delete Note' });
     await user.click(deleteAction);
     await user.click(deleteAction);
 
     expect(
       await screen.findByRole('dialog', {
-        name: 'Delete note with embedded images?',
+        name: 'Delete note',
       }),
     ).toBeVisible();
     expect(screen.getByText('treasure-map.png')).toBeVisible();

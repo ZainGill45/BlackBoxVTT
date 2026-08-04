@@ -1,17 +1,17 @@
 .modal {
-  width: min(70rem, calc(100dvw - var(--space-10) - var(--space-10)));
-  height: min(52rem, calc(100dvh - var(--space-2) - var(--space-2)));
-  max-width: calc(100dvw - var(--space-10) - var(--space-10));
-  max-height: calc(100dvh - var(--space-2) - var(--space-2));
+  width: min(84rem, calc(100dvw - var(--space-4)));
+  height: min(60rem, calc(100dvh - var(--space-4)));
+  max-width: calc(100dvw - var(--space-4));
+  max-height: calc(100dvh - var(--space-4));
 }
 
-.modal > div {
-  max-height: calc(100dvh - var(--space-2) - var(--space-2));
+.modal>div {
+  max-height: calc(100dvh - var(--space-4));
 }
 
 .modalContent {
   width: 100%;
-  height: min(52rem, calc(100dvh - var(--space-2) - var(--space-2)));
+  height: min(60rem, calc(100dvh - var(--space-4)));
   padding: 0;
   overflow: hidden;
 }
@@ -21,7 +21,7 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  grid-template-columns: clamp(13rem, 20vw, 17rem) minmax(0, 1fr);
+  grid-template-columns: clamp(18rem, 25%, 22rem) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     'sidebar note'
@@ -44,6 +44,7 @@
 
 .sidebarActions {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-1);
   padding: var(--space-2) var(--space-2) 0;
 }
@@ -52,7 +53,7 @@
   display: flex;
   width: 100%;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: var(--space-2);
 }
 
@@ -222,19 +223,16 @@
 }
 
 .pageTitle {
-  position: sticky;
-  z-index: 2;
-  top: 0;
   display: flex;
   width: 100%;
   min-height: var(--navigation-height);
   align-items: center;
   padding: 0 var(--space-5);
+  padding-top: var(--space-2);
   margin: 0;
   color: var(--color-text);
   background: var(--color-canvas);
   border: 0;
-  border-bottom: var(--border-width) solid var(--color-border);
   outline: 0;
   font-size: var(--font-size-xl);
   font-weight: var(--font-weight-semibold);
@@ -331,7 +329,7 @@
   text-align: left;
 }
 
-.permissionScopeList button + button {
+.permissionScopeList button+button {
   margin-top: var(--space-1);
 }
 
@@ -360,7 +358,7 @@
   overflow: auto;
 }
 
-.permissionScopeEditor > header {
+.permissionScopeEditor>header {
   display: grid;
   gap: var(--space-2);
   padding-bottom: var(--space-4);
@@ -390,7 +388,7 @@
   text-transform: uppercase;
 }
 
-.permissionMatrixRow + .permissionMatrixRow {
+.permissionMatrixRow+.permissionMatrixRow {
   border-top: var(--border-width) solid var(--color-border);
 }
 
@@ -555,7 +553,7 @@
 
 @media (max-width: 58rem) {
   .workspace {
-    grid-template-columns: 13rem minmax(0, 1fr);
+    grid-template-columns: clamp(14rem, 27%, 17rem) minmax(0, 1fr);
   }
 
   .permissionsModalHeader {

@@ -315,7 +315,7 @@ export function RichTextEditor({
             </select>
             <ChevronDown aria-hidden size="0.9rem" strokeWidth={1.7} />
           </label>
-          <label className={`${styles.selectControl} ${styles.fontSelect}`}>
+          <label className={styles.selectControl}>
             <span className="sr-only">Font family</span>
             <select aria-label="Font family" disabled={!editable && !titleTarget} value={selectedFont} onChange={(event) => {
               const value = event.currentTarget.value as JournalTitleStyle['fontFamily'];
@@ -352,8 +352,10 @@ export function RichTextEditor({
           {button('Code block', Code2, () => { editor.chain().focus().toggleCodeBlock().run(); }, editor.isActive('codeBlock'), titleTarget)}
           {button('Image', ImageIcon, () => onChooseImage?.((assetId) => editor.commands.insertContentAt(editor.state.selection.to, { type: 'assetImage', attrs: { assetId } })), false, titleTarget)}
         </div>
-      {contentHeader}
-      <EditorContent className={styles.content} editor={editor} onFocus={onBodyFocus} />
+      <div className={styles.document}>
+        {contentHeader}
+        <EditorContent className={styles.content} editor={editor} onFocus={onBodyFocus} />
+      </div>
     </div>
   );
 }
