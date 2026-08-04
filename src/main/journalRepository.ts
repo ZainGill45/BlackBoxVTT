@@ -72,20 +72,24 @@ interface EntryRow {
   updated_by: string;
 }
 
-interface PageRow {
-  content_json: string;
-  content_schema_version: number;
+interface PageSummaryRow {
   created_at: string;
   created_by: string;
   default_access: JournalPageAccessLevel;
   entry_id: string;
   id: string;
+  permission_revision: number;
   position: number;
   revision: number;
   title: string;
   title_style_json: string;
   updated_at: string;
   updated_by: string;
+}
+
+interface PageRow extends PageSummaryRow {
+  content_json: string;
+  content_schema_version: number;
 }
 
 interface PermissionRow<TAccess extends string> {
@@ -194,7 +198,7 @@ export class JournalRepository {
       }
       const entry = this.entry(entryId);
       if (!entry) return failure('not_found', 'The note no longer exists.', { entryId });
-      const projected = this.projectPage(actor, entry, row, this.pages(entryId).length);
+      const projected = this.projectPages(actor, entry).find(({ id }) => id === pageId);
       return projected
         ? { ok: true, value: { ...projected, content: this.content(row), entryId } }
         : failure('permission_denied', 'You cannot view this page.', { entryId, pageId });
@@ -244,9 +248,9 @@ export class JournalRepository {
           this.database.connection.prepare(
             `INSERT INTO journal_pages (
                id, entry_id, position, title, title_style_json, default_access,
-               content_schema_version, content_json, revision,
+               content_schema_version, content_json, revision, permission_revision,
                created_at, created_by, updated_at, updated_by
-             ) VALUES (?, ?, 0, 'New Page', ?, 'inherit', ?, ?, 0, ?, 'gm', ?, 'gm')`,
+             ) VALUES (?, ?, 0, 'New Page', ?, 'inherit', ?, ?, 0, 0, ?, 'gm', ?, 'gm')`,
           ).run(
             pageId,
             entryId,
@@ -372,9 +376,9 @@ export class JournalRepository {
           this.database.connection.prepare(
             `INSERT INTO journal_pages (
                id, entry_id, position, title, title_style_json, default_access,
-               content_schema_version, content_json, revision,
+               content_schema_version, content_json, revision, permission_revision,
                created_at, created_by, updated_at, updated_by
-             ) VALUES (?, ?, ?, 'New Page', ?, 'inherit', ?, ?, 0, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, 'New Page', ?, 'inherit', ?, ?, 0, 0, ?, ?, ?, ?)`,
           ).run(
             pageId,
             entryId,
@@ -422,7 +426,7 @@ export class JournalRepository {
         }
         const lease: ActiveLease = {
           actorKey: key,
-          expiresAt: Date.now() + JOURNAL_EDIT_LEASE_MS,
+          expiresAt: this.now().getTime() + JOURNAL_EDIT_LEASE_MS,
           holderName: actorName(actor),
           leaseId: this.createId(),
         };
@@ -453,7 +457,7 @@ export class JournalRepository {
           ? failure('permission_denied', 'You can no longer edit this page.', { entryId, pageId })
           : page;
       }
-      lease.expiresAt = Date.now() + JOURNAL_EDIT_LEASE_MS;
+      lease.expiresAt = this.now().getTime() + JOURNAL_EDIT_LEASE_MS;
       return { ok: true, value: this.toLease(lease, page.value) };
     });
   }
@@ -505,7 +509,7 @@ export class JournalRepository {
         if (!row || row.entry_id !== entryId || !entry) {
           return failure('not_found', 'The page no longer exists.', { entryId, pageId });
         }
-        const projected = this.projectPage(actor, entry, row, this.pages(entryId).length);
+        const projected = this.projectPages(actor, entry).find(({ id }) => id === pageId);
         if (!projected?.capabilities.edit) {
           this.leases.delete(pageId);
           return failure('permission_denied', 'You can no longer edit this page.', { entryId, pageId });
@@ -535,12 +539,13 @@ export class JournalRepository {
             key,
             pageId,
           );
+          this.replacePageAssets(pageId, extractJournalAssetIds(content));
           if (titleChanged) {
             this.bumpEntry(entryId, key, timestamp);
             this.bumpManifest();
           }
         });
-        lease.expiresAt = Date.now() + JOURNAL_EDIT_LEASE_MS;
+        lease.expiresAt = this.now().getTime() + JOURNAL_EDIT_LEASE_MS;
         await this.touchCampaign();
         return this.getPage(actor, entryId, pageId);
       } catch {
@@ -565,7 +570,7 @@ export class JournalRepository {
             pageId: input.pageId,
           });
         }
-        if (row.revision !== input.expectedRevision) {
+        if (row.permission_revision !== input.expectedPermissionRevision) {
           return failure('conflict', 'The page changed before permissions could be saved.', {
             entryId: input.entryId,
             pageId: input.pageId,
@@ -581,7 +586,7 @@ export class JournalRepository {
         this.transaction(() => {
           this.database.connection.prepare(
             `UPDATE journal_pages
-             SET default_access = ?, revision = revision + 1,
+             SET default_access = ?, permission_revision = permission_revision + 1,
                  updated_at = ?, updated_by = 'gm'
              WHERE id = ?`,
           ).run(input.permissions.allPlayers, timestamp, input.pageId);
@@ -764,9 +769,11 @@ export class JournalRepository {
         }
         await this.touchCampaign();
         const cleanupFailures: string[] = [];
+        const assetManifest = input.cleanupAssetIds.length > 0
+          ? await this.assets.readManifest()
+          : null;
         for (const assetId of input.cleanupAssetIds) {
-          const manifest = await this.assets.readManifest();
-          const asset = manifest.assets.find(({ id }) => id === assetId);
+          const asset = assetManifest?.assets.find(({ id }) => id === assetId);
           if (!asset) continue;
           const result = await this.assets.trashAsset(asset.id, asset.revision);
           if (!result.ok) cleanupFailures.push(asset.id);
@@ -782,15 +789,37 @@ export class JournalRepository {
     assetId: string,
     actor?: JournalActor,
   ): Promise<Array<{ entryId: string; pageId: string; title: string }>> {
-    const dependents: Array<{ entryId: string; pageId: string; title: string }> = [];
-    for (const page of this.allPages()) {
-      if (extractJournalAssetIds(this.content(page)).includes(assetId)) {
-        const entry = this.entry(page.entry_id);
-        if (actor && (!entry || !this.projectPage(actor, entry, page, this.pages(entry.id).length))) continue;
-        dependents.push({ entryId: page.entry_id, pageId: page.id, title: page.title });
-      }
+    const rows = this.database.connection.prepare(
+      `SELECT pages.entry_id, pages.id AS page_id, pages.title
+       FROM journal_page_assets AS references_
+       JOIN journal_pages AS pages ON pages.id = references_.page_id
+       WHERE references_.asset_id = ?
+       ORDER BY pages.entry_id, pages.position`,
+    ).all(assetId) as unknown as Array<{
+      entry_id: string;
+      page_id: string;
+      title: string;
+    }>;
+    if (!actor) {
+      return rows.map(({ entry_id, page_id, title }) => ({
+        entryId: entry_id,
+        pageId: page_id,
+        title,
+      }));
     }
-    return dependents;
+    const visibleByEntry = new Map<string, Set<string>>();
+    return rows.flatMap(({ entry_id, page_id, title }) => {
+      let visible = visibleByEntry.get(entry_id);
+      if (!visible) {
+        const entry = this.entry(entry_id);
+        const projected = entry ? this.projectEntry(actor, entry) : null;
+        visible = new Set(projected?.pages.map(({ id }) => id) ?? []);
+        visibleByEntry.set(entry_id, visible);
+      }
+      return visible.has(page_id)
+        ? [{ entryId: entry_id, pageId: page_id, title }]
+        : [];
+    });
   }
 
   detachAsset(assetId: string, actor: JournalActor = { kind: 'gm' }): Promise<JournalResult<null>> {
@@ -808,6 +837,7 @@ export class JournalRepository {
         }
         if (dependents.length === 0) return { ok: true, value: null };
         const timestamp = this.now().toISOString();
+        const key = actorKey(actor);
         this.transaction(() => {
           const touchedEntries = new Set<string>();
           for (const dependent of dependents) {
@@ -816,12 +846,15 @@ export class JournalRepository {
             this.database.connection.prepare(
               `UPDATE journal_pages
                SET content_json = ?, revision = revision + 1,
-                   updated_at = ?, updated_by = 'gm'
+                   updated_at = ?, updated_by = ?
                WHERE id = ?`,
-            ).run(JSON.stringify(content), timestamp, page.id);
+            ).run(JSON.stringify(content), timestamp, key, page.id);
+            this.database.connection.prepare(
+              'DELETE FROM journal_page_assets WHERE page_id = ? AND asset_id = ?',
+            ).run(page.id, assetId);
             touchedEntries.add(page.entry_id);
           }
-          for (const entryId of touchedEntries) this.bumpEntry(entryId, 'gm', timestamp);
+          for (const entryId of touchedEntries) this.bumpEntry(entryId, key, timestamp);
           this.bumpManifest();
         });
         await this.touchCampaign();
@@ -848,12 +881,8 @@ export class JournalRepository {
       throw new Error(`Unsupported Journal entry type ${entry.type_id}.`);
     }
     const access = this.entryAccess(actor, entry);
-    if (!accessAllowsView(access)) return null;
-    const pageRows = this.pages(entry.id);
-    const pages = pageRows.flatMap((page) => {
-      const projected = this.projectPage(actor, entry, page, pageRows.length);
-      return projected ? [projected] : [];
-    }).map((page, position) => ({ ...page, position }));
+    const pages = this.projectPages(actor, entry, access);
+    if (!accessAllowsView(access) && pages.length === 0) return null;
     const isGm = actor.kind === 'gm';
     return {
       capabilities: {
@@ -877,12 +906,13 @@ export class JournalRepository {
 
   private projectPage(
     actor: JournalActor,
-    entry: EntryRow,
-    page: PageRow,
+    page: PageSummaryRow,
     pageCount: number,
+    entryAccess: JournalAccessLevel,
+    overrideAccess: JournalPageAccessLevel | undefined,
+    permissions: JournalPermissionConfiguration<JournalPageAccessLevel> | null,
   ): JournalPageSummary | null {
-    const entryAccess = this.entryAccess(actor, entry);
-    const pageAccess = this.pageAccess(actor, page, entryAccess);
+    const pageAccess = this.pageAccess(actor, page, entryAccess, overrideAccess);
     if (!accessAllowsView(pageAccess)) return null;
     const isGm = actor.kind === 'gm';
     const structure = isGm || entryAccess === 'edit';
@@ -896,7 +926,8 @@ export class JournalRepository {
         view: true,
       },
       id: page.id,
-      permissions: isGm ? this.pagePermissionConfiguration(page) : null,
+      permissionRevision: page.permission_revision,
+      permissions,
       position: page.position,
       revision: page.revision,
       title: page.title,
@@ -915,16 +946,12 @@ export class JournalRepository {
 
   private pageAccess(
     actor: JournalActor,
-    page: PageRow,
+    page: PageSummaryRow,
     entryAccess: JournalAccessLevel,
+    overrideAccess?: JournalPageAccessLevel,
   ): JournalAccessLevel {
     if (actor.kind === 'gm') return 'edit';
-    if (!accessAllowsView(entryAccess)) return 'none';
-    const override = this.database.connection.prepare(
-      `SELECT access FROM journal_page_permissions
-       WHERE page_id = ? AND user_id = ?`,
-    ).get(page.id, actor.userId) as { access?: JournalPageAccessLevel } | undefined;
-    const pageAccess = override?.access ?? page.default_access;
+    const pageAccess = overrideAccess ?? page.default_access;
     return pageAccess === 'inherit' ? entryAccess : pageAccess;
   }
 
@@ -941,17 +968,58 @@ export class JournalRepository {
     };
   }
 
-  private pagePermissionConfiguration(
-    page: PageRow,
-  ): JournalPermissionConfiguration<JournalPageAccessLevel> {
-    return {
-      allPlayers: page.default_access,
-      overrides: (this.database.connection.prepare(
-        `SELECT user_id, access FROM journal_page_permissions
-         WHERE page_id = ? ORDER BY user_id`,
-      ).all(page.id) as unknown as PermissionRow<JournalPageAccessLevel>[])
-        .map(({ access, user_id }) => ({ access, userId: user_id })),
-    };
+  private projectPages(
+    actor: JournalActor,
+    entry: EntryRow,
+    entryAccess = this.entryAccess(actor, entry),
+  ): JournalPageSummary[] {
+    const rows = this.pages(entry.id);
+    const permissionRows = actor.kind === 'gm'
+      ? this.database.connection.prepare(
+          `SELECT permissions.page_id, permissions.user_id, permissions.access
+           FROM journal_page_permissions AS permissions
+           JOIN journal_pages AS pages ON pages.id = permissions.page_id
+           WHERE pages.entry_id = ?
+           ORDER BY permissions.page_id, permissions.user_id`,
+        ).all(entry.id)
+      : this.database.connection.prepare(
+          `SELECT permissions.page_id, permissions.user_id, permissions.access
+           FROM journal_page_permissions AS permissions
+           JOIN journal_pages AS pages ON pages.id = permissions.page_id
+           WHERE pages.entry_id = ? AND permissions.user_id = ?
+           ORDER BY permissions.page_id`,
+        ).all(entry.id, actor.userId);
+    const permissionsByPage = new Map<
+      string,
+      Array<PermissionRow<JournalPageAccessLevel>>
+    >();
+    for (const permission of permissionRows as unknown as Array<
+      PermissionRow<JournalPageAccessLevel> & { page_id: string }
+    >) {
+      const pagePermissions = permissionsByPage.get(permission.page_id) ?? [];
+      pagePermissions.push(permission);
+      permissionsByPage.set(permission.page_id, pagePermissions);
+    }
+    return rows.flatMap((page) => {
+      const pagePermissions = permissionsByPage.get(page.id) ?? [];
+      const projected = this.projectPage(
+        actor,
+        page,
+        rows.length,
+        entryAccess,
+        actor.kind === 'player' ? pagePermissions[0]?.access : undefined,
+        actor.kind === 'gm'
+          ? {
+              allPlayers: page.default_access,
+              overrides: pagePermissions.map(({ access, user_id }) => ({
+                access,
+                userId: user_id,
+              })),
+            }
+          : null,
+      );
+      return projected ? [projected] : [];
+    }).map((page, position) => ({ ...page, position }));
   }
 
   private content(row: PageRow): RichTextDocumentV1 {
@@ -986,28 +1054,19 @@ export class JournalRepository {
     ).get(entryId) as EntryRow | undefined) ?? null;
   }
 
-  private pages(entryId: string): PageRow[] {
+  private pages(entryId: string): PageSummaryRow[] {
     return this.database.connection.prepare(
       `SELECT id, entry_id, position, title, title_style_json, default_access,
-              content_schema_version, content_json, revision,
+               revision, permission_revision,
               created_at, created_by, updated_at, updated_by
        FROM journal_pages WHERE entry_id = ? ORDER BY position`,
-    ).all(entryId) as unknown as PageRow[];
-  }
-
-  private allPages(): PageRow[] {
-    return this.database.connection.prepare(
-      `SELECT id, entry_id, position, title, title_style_json, default_access,
-              content_schema_version, content_json, revision,
-              created_at, created_by, updated_at, updated_by
-       FROM journal_pages ORDER BY entry_id, position`,
-    ).all() as unknown as PageRow[];
+    ).all(entryId) as unknown as PageSummaryRow[];
   }
 
   private page(pageId: string): PageRow | null {
     return (this.database.connection.prepare(
       `SELECT id, entry_id, position, title, title_style_json, default_access,
-              content_schema_version, content_json, revision,
+               content_schema_version, content_json, revision, permission_revision,
               created_at, created_by, updated_at, updated_by
        FROM journal_pages WHERE id = ?`,
     ).get(pageId) as PageRow | undefined) ?? null;
@@ -1093,6 +1152,16 @@ export class JournalRepository {
     permissions.overrides.forEach(({ access, userId }) => insert.run(pageId, userId, access));
   }
 
+  private replacePageAssets(pageId: string, assetIds: readonly string[]): void {
+    this.database.connection.prepare(
+      'DELETE FROM journal_page_assets WHERE page_id = ?',
+    ).run(pageId);
+    const insert = this.database.connection.prepare(
+      'INSERT INTO journal_page_assets (page_id, asset_id) VALUES (?, ?)',
+    );
+    assetIds.forEach((assetId) => insert.run(pageId, assetId));
+  }
+
   private assetsExist(assetIds: string[]): boolean {
     const find = this.database.connection.prepare('SELECT 1 AS found FROM assets WHERE id = ?');
     return assetIds.every((assetId) =>
@@ -1102,7 +1171,7 @@ export class JournalRepository {
 
   private removeExpiredLease(pageId: string): void {
     const lease = this.leases.get(pageId);
-    if (lease && lease.expiresAt <= Date.now()) this.leases.delete(pageId);
+    if (lease && lease.expiresAt <= this.now().getTime()) this.leases.delete(pageId);
   }
 
   private activeLease(pageId: string): ActiveLease | null {
@@ -1136,12 +1205,10 @@ export class JournalRepository {
       !page ||
       !entry ||
       typeof user?.username !== 'string' ||
-      this.projectPage(
+      this.projectPages(
         { kind: 'player', userId, username: user.username },
         entry,
-        page,
-        this.pages(entry.id).length,
-      )?.capabilities.edit !== true
+      ).find(({ id }) => id === pageId)?.capabilities.edit !== true
     ) this.leases.delete(pageId);
   }
 
@@ -1169,12 +1236,9 @@ export class JournalRepository {
   }
 
   private reorderablePageIds(actor: JournalActor, entry: EntryRow): string[] {
-    const rows = this.pages(entry.id);
-    return rows.flatMap((page) =>
-      this.projectPage(actor, entry, page, rows.length)?.capabilities.reorder
-        ? [page.id]
-        : [],
-    );
+    return this.projectPages(actor, entry)
+      .filter(({ capabilities }) => capabilities.reorder)
+      .map(({ id }) => id);
   }
 
   private commitPageOrder(
@@ -1196,7 +1260,7 @@ export class JournalRepository {
       ).run(MAX_NOTE_PAGES + 1, entryId);
       const update = this.database.connection.prepare(
         `UPDATE journal_pages
-         SET position = ?, revision = revision + 1,
+         SET position = ?,
              updated_at = ?, updated_by = ?
          WHERE id = ?`,
       );
@@ -1239,17 +1303,28 @@ export class JournalRepository {
     if (!page || page.entry_id !== entry.id) {
       return failure('not_found', 'The page no longer exists.', { entryId: entry.id, pageId: target.pageId });
     }
-    const projected = this.projectPage(actor, entry, page, this.pages(entry.id).length);
+    const projected = this.projectPages(actor, entry).find(({ id }) => id === page.id);
     return projected?.capabilities.delete
       ? { ok: true, value: { revision: page.revision } }
       : failure('permission_denied', 'You cannot delete this page.', { entryId: entry.id, pageId: page.id });
   }
 
   private targetAssetIds(target: DeleteJournalTargetInput['target']): string[] {
-    const pages = target.kind === 'note'
-      ? this.pages(target.entryId)
-      : [this.page(target.pageId)].filter((page): page is PageRow => Boolean(page));
-    return [...new Set(pages.flatMap((page) => extractJournalAssetIds(this.content(page))))];
+    const rows = target.kind === 'note'
+      ? this.database.connection.prepare(
+          `SELECT DISTINCT references_.asset_id
+           FROM journal_page_assets AS references_
+           JOIN journal_pages AS pages ON pages.id = references_.page_id
+           WHERE pages.entry_id = ?
+           ORDER BY references_.asset_id`,
+        ).all(target.entryId)
+      : this.database.connection.prepare(
+          `SELECT asset_id
+           FROM journal_page_assets
+           WHERE page_id = ?
+           ORDER BY asset_id`,
+        ).all(target.pageId);
+    return (rows as Array<{ asset_id: string }>).map(({ asset_id }) => asset_id);
   }
 
   private async describeDeleteAssets(

@@ -17,7 +17,7 @@ test.describe('networked Journal permissions', () => {
 
   test.afterEach(() => apps.disposeAll());
 
-  test('grants player editing and revokes an open editor immediately', async () => {
+  test('grants one page from a private note and revokes an open editor immediately', async () => {
     const gm = await apps.launch();
     const player = await apps.launch();
     const port = await availablePort();
@@ -54,11 +54,14 @@ test.describe('networked Journal permissions', () => {
     const gmRow = gm.window.getByRole('button', { name: /Party Briefing/ });
     await gmRow.click({ button: 'right' });
     await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
-    await expect(gmNote).toBeVisible();
-    await gmNote
-      .getByRole('group', { name: 'Parent note' })
-      .getByLabel(USERNAME)
-      .selectOption('edit');
+    const permissions = gm.window.getByRole('dialog', {
+      name: 'Edit Journal permissions',
+    });
+    await expect(permissions).toBeVisible();
+    await permissions.getByRole('button', { name: /Shared Briefing/ }).click();
+    await permissions.getByLabel(`${USERNAME} permission`).selectOption('edit');
+    await permissions.getByRole('button', { name: 'Save changes' }).click();
+    await expect(permissions).not.toBeVisible();
     await expect(gmNote.getByText('Saved', { exact: true })).toBeVisible();
     await gm.window.mouse.click(10, 10);
     await expect(gmNote).not.toBeVisible();
@@ -84,13 +87,12 @@ test.describe('networked Journal permissions', () => {
     await expect(playerNote.getByText('Player revision')).toBeVisible();
     await gmRow.click({ button: 'right' });
     await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
-    const currentGmNote = gm.window.getByRole('dialog').filter({
-      has: gm.window.getByRole('textbox', { name: 'Note name' }),
+    const currentPermissions = gm.window.getByRole('dialog', {
+      name: 'Edit Journal permissions',
     });
-    await currentGmNote
-      .getByRole('group', { name: 'Parent note' })
-      .getByLabel(USERNAME)
-      .selectOption('none');
+    await currentPermissions.getByRole('button', { name: /Shared Briefing/ }).click();
+    await currentPermissions.getByLabel(`${USERNAME} permission`).selectOption('none');
+    await currentPermissions.getByRole('button', { name: 'Save changes' }).click();
 
     await expect(playerNote).not.toBeVisible();
     await expect(player.window.getByRole('button', { name: /Party Briefing/ })).toHaveCount(0);

@@ -80,6 +80,41 @@ describe('JournalRepository', () => {
     expect((await repository().list({ kind: 'gm' })).ok).toBe(true);
   });
 
+  it('migrates version 11 page revisions and embedded-asset references', async () => {
+    const journal = repository();
+    const created = await journal.createNote({ kind: 'gm' });
+    if (!created.ok) throw new Error('setup failed');
+    const pageId = created.value.pages[0]!.id;
+    const assetId = '77777777-7777-4777-8777-777777777777';
+    database.connection.prepare(
+      'UPDATE journal_pages SET content_json = ? WHERE id = ?',
+    ).run(JSON.stringify({
+      doc: {
+        content: [
+          { attrs: { assetId }, type: 'assetImage' },
+          { type: 'paragraph' },
+        ],
+        type: 'doc',
+      },
+      schemaVersion: 1,
+    }), pageId);
+    database.connection.exec(`
+      DROP TABLE journal_page_assets;
+      ALTER TABLE journal_pages DROP COLUMN permission_revision;
+      PRAGMA user_version = 11;
+    `);
+    database.close();
+
+    database = CampaignDatabase.open(directory);
+
+    expect(database.connection.prepare(
+      'SELECT permission_revision FROM journal_pages WHERE id = ?',
+    ).get(pageId)).toEqual({ permission_revision: 0 });
+    expect(database.connection.prepare(
+      'SELECT asset_id FROM journal_page_assets WHERE page_id = ?',
+    ).all(pageId)).toEqual([{ asset_id: assetId }]);
+  });
+
   it('refuses malformed persisted rich-text state on reopen', async () => {
     const journal = repository();
     const created = await journal.createNote({ kind: 'gm' });
@@ -91,7 +126,7 @@ describe('JournalRepository', () => {
     expect(() => CampaignDatabase.open(directory)).toThrow(/malformed page|content is invalid/u);
   });
 
-  it('applies the parent hard gate and page inheritance or overrides', async () => {
+  it('applies page inheritance and explicit overrides', async () => {
     const journal = repository();
     const created = await journal.createNote({ kind: 'gm' });
     if (!created.ok) throw new Error('setup failed');
@@ -106,7 +141,7 @@ describe('JournalRepository', () => {
     expect(playerNote).toMatchObject({ ok: true, value: { capabilities: { edit: true, managePermissions: false } } });
     const hiddenPage = await journal.updatePagePermissions({ kind: 'gm' }, {
       entryId: created.value.id,
-      expectedRevision: created.value.pages[0]!.revision,
+      expectedPermissionRevision: created.value.pages[0]!.permissionRevision,
       pageId,
       permissions: { allPlayers: 'none', overrides: [] },
     });
@@ -120,6 +155,34 @@ describe('JournalRepository', () => {
       permissions: { allPlayers: 'none', overrides: [] },
     });
     expect(await journal.getNote(player, created.value.id)).toMatchObject({ ok: false, error: { code: 'permission_denied' } });
+  });
+
+  it('lets a page grant access independently from a private note default', async () => {
+    const journal = repository();
+    const created = await journal.createNote({ kind: 'gm' });
+    if (!created.ok) throw new Error('setup failed');
+    const page = created.value.pages[0]!;
+    const sharedPage = await journal.updatePagePermissions({ kind: 'gm' }, {
+      entryId: created.value.id,
+      expectedPermissionRevision: page.permissionRevision,
+      pageId: page.id,
+      permissions: {
+        allPlayers: 'none',
+        overrides: [{ access: 'view', userId: playerId }],
+      },
+    });
+    expect(sharedPage.ok).toBe(true);
+    expect(await journal.getNote(player, created.value.id)).toMatchObject({
+      ok: true,
+      value: {
+        capabilities: { edit: false, managePages: false },
+        pages: [{ id: page.id, capabilities: { edit: false, view: true } }],
+      },
+    });
+    expect(await journal.getPage(player, created.value.id, page.id)).toMatchObject({
+      ok: true,
+      value: { id: page.id, position: 0 },
+    });
   });
 
   it('enforces page structure capabilities, last-page protection, and exclusive leases', async () => {
@@ -170,7 +233,7 @@ describe('JournalRepository', () => {
     const anchor = granted.value.pages[1]!;
     await journal.updatePagePermissions({ kind: 'gm' }, {
       entryId: note.id,
-      expectedRevision: anchor.revision,
+      expectedPermissionRevision: anchor.permissionRevision,
       pageId: anchor.id,
       permissions: { allPlayers: 'none', overrides: [] },
     });
@@ -183,7 +246,88 @@ describe('JournalRepository', () => {
       orderedPageIds: ordered,
     });
     expect(reordered.ok).toBe(true);
+    const visibleLast = await journal.getPage(
+      player,
+      note.id,
+      playerProjection.value.pages[0]!.id,
+    );
+    expect(visibleLast).toMatchObject({ ok: true, value: { position: 1 } });
     const gm = await journal.getNote({ kind: 'gm' }, note.id);
     expect(gm.ok && gm.value.pages[1]!.id).toBe(anchor.id);
+  });
+
+  it('does not invalidate an edit lease when pages are reordered or permissions change', async () => {
+    const journal = repository();
+    const created = await journal.createNote({ kind: 'gm' });
+    if (!created.ok) throw new Error('setup failed');
+    const made = await journal.createPage({ kind: 'gm' }, created.value.id, created.value.revision);
+    if (!made.ok) throw new Error('setup failed');
+    const current = await journal.getNote({ kind: 'gm' }, created.value.id);
+    if (!current.ok) throw new Error('setup failed');
+    const first = current.value.pages[0]!;
+    const lease = await journal.acquireLease({ kind: 'gm' }, current.value.id, first.id);
+    if (!lease.ok) throw new Error('setup failed');
+
+    const reordered = await journal.reorderPages({ kind: 'gm' }, {
+      entryId: current.value.id,
+      expectedEntryRevision: current.value.revision,
+      orderedPageIds: [...current.value.pages].reverse().map(({ id }) => id),
+    });
+    expect(reordered.ok).toBe(true);
+    const permissions = await journal.updatePagePermissions({ kind: 'gm' }, {
+      entryId: current.value.id,
+      expectedPermissionRevision: first.permissionRevision,
+      pageId: first.id,
+      permissions: { allPlayers: 'view', overrides: [] },
+    });
+    expect(permissions.ok).toBe(true);
+    const saved = await journal.updatePage(
+      { kind: 'gm' },
+      current.value.id,
+      first.id,
+      lease.value.leaseId,
+      'Still editable',
+      first.titleStyle,
+      emptyRichTextDocument(),
+      first.revision,
+    );
+    expect(saved).toMatchObject({ ok: true, value: { title: 'Still editable' } });
+  });
+
+  it('indexes embedded page assets transactionally', async () => {
+    const journal = repository();
+    const created = await journal.createNote({ kind: 'gm' });
+    if (!created.ok) throw new Error('setup failed');
+    const page = created.value.pages[0]!;
+    const assetId = '77777777-7777-4777-8777-777777777777';
+    database.connection.prepare(
+      'INSERT INTO assets (id, position, record_json) VALUES (?, 0, ?)',
+    ).run(assetId, '{}');
+    const lease = await journal.acquireLease({ kind: 'gm' }, created.value.id, page.id);
+    if (!lease.ok) throw new Error('setup failed');
+    const content = {
+      doc: {
+        content: [{ attrs: { assetId }, type: 'assetImage' as const }],
+        type: 'doc' as const,
+      },
+      schemaVersion: 1 as const,
+    };
+    const saved = await journal.updatePage(
+      { kind: 'gm' },
+      created.value.id,
+      page.id,
+      lease.value.leaseId,
+      page.title,
+      page.titleStyle,
+      content,
+      page.revision,
+    );
+    expect(saved.ok).toBe(true);
+    await expect(journal.findAssetDependents(assetId)).resolves.toEqual([
+      { entryId: created.value.id, pageId: page.id, title: page.title },
+    ]);
+    await journal.releaseLease({ kind: 'gm' }, page.id, lease.value.leaseId);
+    expect(await journal.detachAsset(assetId)).toEqual({ ok: true, value: null });
+    await expect(journal.findAssetDependents(assetId)).resolves.toEqual([]);
   });
 });

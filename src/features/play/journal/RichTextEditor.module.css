@@ -98,7 +98,8 @@
 }
 
 .selectControl:has(select:disabled),
-.toolbar button:disabled {
+.toolbar button:disabled,
+.toolbar input:disabled {
   opacity: 0.42;
 }
 

@@ -176,6 +176,7 @@ interface RichTextEditorProps {
   campaignId: string;
   content: RichTextDocumentV1;
   contentHeader?: ReactNode;
+  documentKey: string;
   editable: boolean;
   onBodyFocus?: () => void;
   onBlur?: () => void;
@@ -192,6 +193,7 @@ export function RichTextEditor({
   campaignId,
   content,
   contentHeader,
+  documentKey,
   editable,
   onBodyFocus,
   onBlur,
@@ -201,12 +203,14 @@ export function RichTextEditor({
 }: RichTextEditorProps) {
   const onBlurRef = useRef(onBlur);
   const onChangeRef = useRef(onChange);
+  const contentRef = useRef(content);
   const previewCache = useMemo(
     () => new JournalImagePreviewCache(assetApi, campaignId),
     [assetApi, campaignId],
   );
   onBlurRef.current = onBlur;
   onChangeRef.current = onChange;
+  contentRef.current = content;
   useEffect(() => () => previewCache.dispose(), [previewCache]);
   const insertImportedFiles = async (editor: ReturnType<typeof useEditor>, files: File[]) => {
     if (!editor) return;
@@ -259,10 +263,11 @@ export function RichTextEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const current = JSON.stringify(editor.getJSON());
-    const next = JSON.stringify(content.doc);
-    if (current !== next) editor.commands.setContent(content.doc as JSONContent, { emitUpdate: false });
-  }, [content, editor]);
+    const next = editor.schema.nodeFromJSON(contentRef.current.doc as JSONContent);
+    if (!editor.state.doc.eq(next)) {
+      editor.commands.setContent(contentRef.current.doc as JSONContent, { emitUpdate: false });
+    }
+  }, [documentKey, editor]);
 
   if (!editor) return <div className={styles.editor}>Loading editor…</div>;
   const button = (
@@ -275,7 +280,7 @@ export function RichTextEditor({
     <button
       aria-label={label}
       aria-pressed={active}
-      disabled={disabled}
+      disabled={disabled || (!editable && !titleFormatting)}
       title={label}
       type="button"
       onClick={action}
@@ -297,14 +302,12 @@ export function RichTextEditor({
   const selectedFont = titleStyle?.fontFamily ??
     journalFontValue(editor.getAttributes('textStyle').fontFamily);
   const titleTarget = Boolean(titleFormatting);
-  const showToolbar = editable || titleTarget;
   return (
-    <div className={styles.editor} data-editable={editable} data-toolbar={showToolbar}>
-      {showToolbar ? (
+    <div className={styles.editor} data-editable={editable} data-toolbar="true">
         <div className={styles.toolbar} aria-label="Rich text formatting toolbar" role="toolbar">
           <label className={styles.selectControl}>
             <span className="sr-only">Text format</span>
-            <select aria-label="Text format" disabled={titleTarget} value={editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p'} onChange={(event) => {
+            <select aria-label="Text format" disabled={titleTarget || !editable} value={editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p'} onChange={(event) => {
               if (event.currentTarget.value === 'p') editor.chain().focus().setParagraph().run();
               else editor.chain().focus().toggleHeading({ level: Number(event.currentTarget.value.slice(1)) as 1 | 2 | 3 }).run();
             }}>
@@ -314,7 +317,7 @@ export function RichTextEditor({
           </label>
           <label className={`${styles.selectControl} ${styles.fontSelect}`}>
             <span className="sr-only">Font family</span>
-            <select aria-label="Font family" value={selectedFont} onChange={(event) => {
+            <select aria-label="Font family" disabled={!editable && !titleTarget} value={selectedFont} onChange={(event) => {
               const value = event.currentTarget.value as JournalTitleStyle['fontFamily'];
               if (titleFormatting) changeTitleStyle((current) => ({ ...current, fontFamily: value }));
               else {
@@ -333,7 +336,7 @@ export function RichTextEditor({
           {button('Italic', Italic, () => titleFormatting ? changeTitleStyle((current) => ({ ...current, italic: !current.italic })) : void editor.chain().focus().toggleItalic().run(), titleStyle?.italic ?? editor.isActive('italic'))}
           {button('Underline', Underline, () => titleFormatting ? changeTitleStyle((current) => ({ ...current, underline: !current.underline })) : void editor.chain().focus().toggleUnderline().run(), titleStyle?.underline ?? editor.isActive('underline'))}
           {button('Strike', Strikethrough, () => titleFormatting ? changeTitleStyle((current) => ({ ...current, strike: !current.strike })) : void editor.chain().focus().toggleStrike().run(), titleStyle?.strike ?? editor.isActive('strike'))}
-          <input aria-label="Text color" type="color" value={selectedColor} onChange={(event) => titleFormatting ? changeTitleStyle((current) => ({ ...current, color: event.currentTarget.value })) : void editor.chain().focus().setColor(event.currentTarget.value).run()} />
+          <input aria-label="Text color" disabled={!editable && !titleTarget} type="color" value={selectedColor} onChange={(event) => titleFormatting ? changeTitleStyle((current) => ({ ...current, color: event.currentTarget.value })) : void editor.chain().focus().setColor(event.currentTarget.value).run()} />
           {button('Align left', AlignLeft, () => titleFormatting ? changeTitleStyle((current) => ({ ...current, alignment: 'left' })) : void editor.chain().focus().setTextAlign('left').run(), titleStyle?.alignment === 'left' || (!titleTarget && editor.isActive({ textAlign: 'left' })))}
           {button('Align center', AlignCenter, () => titleFormatting ? changeTitleStyle((current) => ({ ...current, alignment: 'center' })) : void editor.chain().focus().setTextAlign('center').run(), titleStyle?.alignment === 'center' || (!titleTarget && editor.isActive({ textAlign: 'center' })))}
           {button('Align right', AlignRight, () => titleFormatting ? changeTitleStyle((current) => ({ ...current, alignment: 'right' })) : void editor.chain().focus().setTextAlign('right').run(), titleStyle?.alignment === 'right' || (!titleTarget && editor.isActive({ textAlign: 'right' })))}
@@ -349,7 +352,6 @@ export function RichTextEditor({
           {button('Code block', Code2, () => { editor.chain().focus().toggleCodeBlock().run(); }, editor.isActive('codeBlock'), titleTarget)}
           {button('Image', ImageIcon, () => onChooseImage?.((assetId) => editor.commands.insertContentAt(editor.state.selection.to, { type: 'assetImage', attrs: { assetId } })), false, titleTarget)}
         </div>
-      ) : null}
       {contentHeader}
       <EditorContent className={styles.content} editor={editor} onFocus={onBodyFocus} />
     </div>

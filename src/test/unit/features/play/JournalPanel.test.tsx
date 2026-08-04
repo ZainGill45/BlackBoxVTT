@@ -23,6 +23,7 @@ const page: JournalPage = {
   content: emptyRichTextDocument(),
   entryId: '22222222-2222-4222-8222-222222222222',
   id: '33333333-3333-4333-8333-333333333333',
+  permissionRevision: 0,
   permissions: { allPlayers: 'inherit', overrides: [] },
   position: 0,
   revision: 0,
@@ -105,6 +106,97 @@ describe('JournalPanel', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close note' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the read-only note presentation aligned with the editable presentation', async () => {
+    const user = userEvent.setup();
+    const editable = render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi()}
+        role="gm"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: /Gathered Magic Items/ }));
+    const editableNoteName = await screen.findByRole('textbox', { name: 'Note name' });
+    const editablePageTitle = screen.getByRole('textbox', { name: 'Page title' });
+    const editableToolbar = screen.getByRole('toolbar', {
+      name: 'Rich text formatting toolbar',
+    });
+    const editableToolbarLabels = within(editableToolbar)
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+    const noteNameClass = editableNoteName.className;
+    const pageTitleClass = editablePageTitle.className;
+    editable.unmount();
+
+    const readOnlyPage: JournalPage = {
+      ...page,
+      capabilities: {
+        delete: false,
+        edit: false,
+        managePermissions: false,
+        reorder: false,
+        view: true,
+      },
+      permissions: null,
+    };
+    const readOnlyNote: JournalEntrySummary = {
+      ...note,
+      capabilities: {
+        delete: false,
+        edit: false,
+        managePages: false,
+        managePermissions: false,
+        reorder: false,
+        view: true,
+      },
+      pages: [readOnlyPage],
+      permissions: null,
+    };
+    const acquireLease = vi.fn();
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          acquireLease,
+          getNote: async () => ({ ok: true, value: readOnlyNote }),
+          getPage: async () => ({ ok: true, value: readOnlyPage }),
+          list: async () => ({
+            ok: true,
+            value: {
+              entries: [readOnlyNote],
+              revision: 0,
+              schemaVersion: JOURNAL_SCHEMA_VERSION,
+            },
+          }),
+        })}
+        role="player"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: /Gathered Magic Items/ }));
+
+    const readOnlyNoteName = await screen.findByRole('textbox', { name: 'Note name' });
+    const readOnlyPageTitle = screen.getByRole('textbox', { name: 'Page title' });
+    const readOnlyToolbar = screen.getByRole('toolbar', {
+      name: 'Rich text formatting toolbar',
+    });
+    expect(readOnlyNoteName).toHaveAttribute('readonly');
+    expect(readOnlyPageTitle).toHaveAttribute('readonly');
+    expect(readOnlyNoteName.className).toBe(noteNameClass);
+    expect(readOnlyPageTitle.className).toBe(pageTitleClass);
+    expect(
+      within(readOnlyToolbar)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label')),
+    ).toEqual(editableToolbarLabels);
+    expect(screen.getByRole('textbox', { name: 'Page content (read only)' }))
+      .toHaveAttribute('contenteditable', 'false');
+    expect(screen.getByRole('button', { name: 'Edit Permissions' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete Note' })).toBeDisabled();
+    expect(acquireLease).not.toHaveBeenCalled();
   });
 
   it('recovers edit access when a transient page lease clears', async () => {
@@ -257,16 +349,201 @@ describe('JournalPanel', () => {
 
   it('opens note and page permissions from the note context menu', async () => {
     const user = userEvent.setup();
-    render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi()} role="gm" />);
+    const updatePagePermissions = vi.fn(async (
+      input: Parameters<JournalApi['updatePagePermissions']>[0],
+    ) => ({
+      ok: true as const,
+      value: {
+        ...page,
+        permissionRevision: page.permissionRevision + 1,
+        permissions: input.permissions,
+      },
+    }));
+    render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi({ updatePagePermissions })} role="gm" />);
 
     fireEvent.contextMenu(await screen.findByRole('button', { name: /Gathered Magic Items/ }));
     expect(screen.getByRole('menuitem', { name: 'Delete Note' })).toBeVisible();
     await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
 
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    expect(screen.getByRole('group', { name: 'Parent note' })).toBeVisible();
-    expect(screen.getByRole('group', { name: 'Page: Tomb of Babylon' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Edit Journal permissions' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Note default/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Tomb of Babylon/ })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Edit permissions' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Tomb of Babylon/ }));
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'All players permission' }),
+      'view',
+    );
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(updatePagePermissions).toHaveBeenCalledWith({
+      campaignId,
+      entryId: note.id,
+      expectedPermissionRevision: page.permissionRevision,
+      pageId: page.id,
+      permissions: { allPlayers: 'view', overrides: [] },
+    }));
+  });
+
+  it('retries only the conflicted page after a partial permission save', async () => {
+    const user = userEvent.setup();
+    const secondPage: JournalPage = {
+      ...page,
+      id: '66666666-6666-4666-8666-666666666666',
+      position: 1,
+      title: 'Arcane Annex',
+    };
+    let currentNote: JournalEntrySummary = {
+      ...note,
+      pages: [page, secondPage],
+    };
+    let conflictSecondPage = true;
+    const updatePagePermissions = vi.fn(async (
+      input: Parameters<JournalApi['updatePagePermissions']>[0],
+    ): ReturnType<JournalApi['updatePagePermissions']> => {
+      const source = input.pageId === page.id ? page : secondPage;
+      if (input.pageId === secondPage.id && conflictSecondPage) {
+        conflictSecondPage = false;
+        currentNote = {
+          ...currentNote,
+          pages: currentNote.pages.map((summary) =>
+            summary.id === secondPage.id
+              ? { ...summary, permissionRevision: 1 }
+              : summary,
+          ),
+        };
+        return {
+          error: {
+            code: 'conflict',
+            entryId: note.id,
+            message: 'The page permissions changed before they could be saved.',
+            pageId: secondPage.id,
+          },
+          ok: false,
+        };
+      }
+      const value = {
+        ...source,
+        permissionRevision: input.expectedPermissionRevision + 1,
+        permissions: input.permissions,
+      };
+      currentNote = {
+        ...currentNote,
+        pages: currentNote.pages.map((summary) =>
+          summary.id === value.id
+            ? {
+                ...summary,
+                permissionRevision: value.permissionRevision,
+                permissions: value.permissions,
+              }
+            : summary,
+        ),
+      };
+      return { ok: true, value };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getNote: async () => ({ ok: true, value: currentNote }),
+          list: async () => ({
+            ok: true,
+            value: {
+              entries: [currentNote],
+              revision: 0,
+              schemaVersion: JOURNAL_SCHEMA_VERSION,
+            },
+          }),
+          updatePagePermissions,
+        })}
+        role="gm"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: /Gathered Magic Items/ }));
+    await user.click(await screen.findByRole('button', { name: 'Edit Permissions' }));
+    await user.click(screen.getByRole('button', { name: /Tomb of Babylon/ }));
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'All players permission' }),
+      'view',
+    );
+    await user.click(screen.getByRole('button', { name: /Arcane Annex/ }));
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'All players permission' }),
+      'edit',
+    );
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The page permissions changed before they could be saved.',
+    );
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Edit Journal permissions' }))
+        .not.toBeInTheDocument(),
+    );
+
+    expect(updatePagePermissions.mock.calls.filter(
+      ([input]) => input.pageId === page.id,
+    )).toHaveLength(1);
+    expect(updatePagePermissions.mock.calls.filter(
+      ([input]) => input.pageId === secondPage.id,
+    ).map(([input]) => input.expectedPermissionRevision)).toEqual([0, 1]);
+  });
+
+  it('places note actions above page search and confirms top-level note deletion', async () => {
+    const user = userEvent.setup();
+    const prepareDelete = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        assets: [],
+        target: { entryId: note.id, kind: 'note' as const },
+      },
+    }));
+    const deleteTarget = vi.fn(async () => ({
+      ok: true as const,
+      value: { cleanupFailures: [] },
+    }));
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({ deleteTarget, prepareDelete })}
+        role="gm"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: /Gathered Magic Items/ }));
+
+    const editPermissions = await screen.findByRole('button', {
+      name: 'Edit Permissions',
+    });
+    const deleteNote = screen.getByRole('button', { name: 'Delete Note' });
+    const pageSearch = screen.getByRole('searchbox', { name: 'Search pages' });
+    expect(editPermissions.compareDocumentPosition(pageSearch)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(deleteNote.compareDocumentPosition(pageSearch)
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    await user.click(editPermissions);
+    expect(screen.getByRole('dialog', { name: 'Edit Journal permissions' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await user.click(screen.getByRole('button', { name: 'Delete Note' }));
+    expect(prepareDelete).toHaveBeenCalledWith({
+      campaignId,
+      target: { entryId: note.id, kind: 'note' },
+    });
+    expect(await screen.findByRole('dialog', { name: 'Delete note' })).toBeVisible();
+    expect(deleteTarget).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(deleteTarget).toHaveBeenCalledWith({
+      campaignId,
+      cleanupAssetIds: [],
+      expectedRevision: note.revision,
+      target: { entryId: note.id, kind: 'note' },
+    }));
   });
 
   it('arms note deletion and deletes directly when the note has no embedded images', async () => {

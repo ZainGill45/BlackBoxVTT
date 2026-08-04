@@ -117,6 +117,7 @@ describe('ChatRepository', () => {
       CREATE INDEX chat_messages_recipient_sequence
         ON chat_messages (recipient_key, sequence);
       DROP TABLE campaign_system;
+      DROP TABLE journal_page_assets;
       DROP TABLE journal_page_permissions;
       DROP TABLE journal_pages;
       DROP TABLE journal_entry_permissions;

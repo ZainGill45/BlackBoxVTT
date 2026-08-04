@@ -137,6 +137,7 @@ describe('CampaignRepository', () => {
     const directory = path.join(rootDirectory, firstId);
     const previous = CampaignDatabase.open(directory);
     previous.connection.exec(`
+      DROP TABLE journal_page_assets;
       DROP TABLE journal_page_permissions;
       DROP TABLE journal_pages;
       DROP TABLE journal_entry_permissions;

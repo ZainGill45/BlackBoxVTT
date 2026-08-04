@@ -103,27 +103,50 @@ function ConnectedJournalPanel({
     y: number;
   } | null>(null);
   const menu = useRef<ContextMenuController | null>(null);
+  const refreshRequestRef = useRef(0);
   const rowsRef = useRef<HTMLUListElement>(null);
   const reorder = useRef<OrderedCollectionController | null>(null);
 
-  const refresh = useCallback(() => {
-    void journalApi.list({ campaignId }).then((result) => {
-      if (result.ok) setManifest(result.value);
-      else setError(result.error.message);
-    });
+  const refresh = useCallback(async () => {
+    const request = ++refreshRequestRef.current;
+    const result = await journalApi.list({ campaignId });
+    if (request !== refreshRequestRef.current) return;
+    if (result.ok) setManifest(result.value);
+    else setError(result.error.message);
   }, [campaignId, journalApi]);
 
+  const acceptUpdatedNote = useCallback((updated: JournalEntrySummary | null) => {
+    if (!updated) {
+      void refresh();
+      return;
+    }
+    setManifest((current) => current
+      ? {
+          ...current,
+          entries: current.entries.map((entry) =>
+            entry.id === updated.id ? updated : entry,
+          ),
+        }
+      : current);
+  }, [refresh]);
+
   useEffect(() => {
-    refresh();
+    let active = true;
     const remove = journalApi.onChanged((event) => {
-      if (event.campaignId === campaignId) refresh();
+      if (event.campaignId === campaignId) void refresh();
+    });
+    void Promise.resolve().then(() => {
+      if (active) return refresh();
     });
     if (role === 'gm') {
       void journalApi.listUsers({ campaignId }).then((result) => {
-        if (result.ok) setUsers(result.value);
+        if (active && result.ok) setUsers(result.value);
       });
     }
-    return remove;
+    return () => {
+      active = false;
+      remove();
+    };
   }, [campaignId, journalApi, refresh, role]);
 
   useEffect(() => {
@@ -515,7 +538,7 @@ function ConnectedJournalPanel({
           journalApi={journalApi}
           note={selected.note}
           onClose={() => setSelected(null)}
-          onUpdated={refresh}
+          onUpdated={acceptUpdatedNote}
           users={users}
         />
       ) : null}

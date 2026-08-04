@@ -30,12 +30,13 @@ import {
   RICH_TEXT_SCHEMA_VERSION,
   countGraphemes,
   defaultJournalTitleStyle,
+  extractJournalAssetIds,
   isJournalTitleStyle,
   isRichTextDocument,
 } from '../../shared/journal';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
-export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 11;
+export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 12;
 
 interface CampaignMetadataRow {
   campaign_id: string;
@@ -120,6 +121,9 @@ export class CampaignDatabase {
           } else if (version === 10) {
             this.migrateVersion10To11();
             version = 11;
+          } else if (version === 11) {
+            this.migrateVersion11To12();
+            version = 12;
           } else {
             throw new Error(`Unsupported campaign schema version ${version}.`);
           }
@@ -322,6 +326,7 @@ export class CampaignDatabase {
           updated_at TEXT NOT NULL,
           updated_by TEXT NOT NULL,
           title_style_json TEXT NOT NULL,
+          permission_revision INTEGER NOT NULL CHECK (permission_revision >= 0),
           UNIQUE (entry_id, position),
           FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
         ) STRICT;
@@ -337,6 +342,14 @@ export class CampaignDatabase {
         ) STRICT;
         CREATE INDEX journal_page_permissions_user
           ON journal_page_permissions (user_id, page_id);
+        CREATE TABLE journal_page_assets (
+          page_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          PRIMARY KEY (page_id, asset_id),
+          FOREIGN KEY (page_id) REFERENCES journal_pages(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX journal_page_assets_asset
+          ON journal_page_assets (asset_id, page_id);
         CREATE TABLE chat_metadata (
           key TEXT PRIMARY KEY NOT NULL,
           value TEXT NOT NULL
@@ -536,8 +549,10 @@ export class CampaignDatabase {
         'updated_at',
         'updated_by',
         'title_style_json',
+        'permission_revision',
       ],
       journal_page_permissions: ['page_id', 'user_id', 'access'],
+      journal_page_assets: ['page_id', 'asset_id'],
       chat_messages: [
         'sequence',
         'id',
@@ -653,7 +668,7 @@ export class CampaignDatabase {
       ) throw new Error('Campaign Journal contains a malformed note.');
       const pages = this.connection.prepare(
         `SELECT id, position, title, title_style_json, content_schema_version, content_json,
-                created_at, updated_at
+                revision, permission_revision, created_at, updated_at
          FROM journal_pages WHERE entry_id = ? ORDER BY position`,
       ).all(entry.id as string) as Array<Record<string, unknown>>;
       if (pages.length < 1 || pages.length > MAX_NOTE_PAGES) {
@@ -671,9 +686,19 @@ export class CampaignDatabase {
           countGraphemes(page.title) < 1 || countGraphemes(page.title) > MAX_JOURNAL_TITLE_GRAPHEMES ||
           !isJournalTitleStyle(titleStyle) ||
           page.content_schema_version !== RICH_TEXT_SCHEMA_VERSION || !isRichTextDocument(content) ||
+          !Number.isInteger(page.revision) || Number(page.revision) < 0 ||
+          !Number.isInteger(page.permission_revision) || Number(page.permission_revision) < 0 ||
           typeof page.created_at !== 'string' || !validTimestamp(page.created_at) ||
           typeof page.updated_at !== 'string' || !validTimestamp(page.updated_at)
         ) throw new Error('Campaign Journal contains a malformed page.');
+        const indexedAssetIds = (this.connection.prepare(
+          'SELECT asset_id FROM journal_page_assets WHERE page_id = ? ORDER BY asset_id',
+        ).all(page.id as string) as Array<{ asset_id: string }>).map(({ asset_id }) => asset_id);
+        const contentAssetIds = extractJournalAssetIds(content as Parameters<typeof extractJournalAssetIds>[0]).sort();
+        if (
+          indexedAssetIds.length !== contentAssetIds.length ||
+          indexedAssetIds.some((assetId, index) => assetId !== contentAssetIds[index])
+        ) throw new Error('Campaign Journal page asset references are invalid.');
       }
     }
   }
@@ -873,6 +898,45 @@ export class CampaignDatabase {
         PRAGMA user_version = 11;
         COMMIT;
       `);
+    } catch (error) {
+      this.connection.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private migrateVersion11To12(): void {
+    this.connection.exec('BEGIN IMMEDIATE');
+    try {
+      this.connection.exec(`
+        ALTER TABLE journal_pages
+          ADD COLUMN permission_revision INTEGER NOT NULL DEFAULT 0
+            CHECK (permission_revision >= 0);
+        CREATE TABLE journal_page_assets (
+          page_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          PRIMARY KEY (page_id, asset_id),
+          FOREIGN KEY (page_id) REFERENCES journal_pages(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX journal_page_assets_asset
+          ON journal_page_assets (asset_id, page_id);
+      `);
+      const pages = this.connection.prepare(
+        'SELECT id, content_json FROM journal_pages',
+      ).all() as Array<{ content_json: string; id: string }>;
+      const insert = this.connection.prepare(
+        'INSERT INTO journal_page_assets (page_id, asset_id) VALUES (?, ?)',
+      );
+      for (const page of pages) {
+        const content: unknown = JSON.parse(page.content_json);
+        if (!isRichTextDocument(content)) {
+          throw new Error('Campaign Journal page content is invalid.');
+        }
+        for (const assetId of extractJournalAssetIds(content)) {
+          insert.run(page.id, assetId);
+        }
+      }
+      this.connection.exec('PRAGMA user_version = 12');
+      this.connection.exec('COMMIT');
     } catch (error) {
       this.connection.exec('ROLLBACK');
       throw error;

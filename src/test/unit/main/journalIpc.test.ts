@@ -2,7 +2,13 @@ import type { IpcMain, WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import { registerJournalIpcHandlers } from '../../../main/journalIpc';
 import type { JournalManager } from '../../../main/journalManager';
-import { journalIpcChannels } from '../../../shared/journal';
+import {
+  defaultJournalTitleStyle,
+  journalIpcChannels,
+  MAX_JOURNAL_CLEANUP_ASSETS,
+  MAX_JOURNAL_PERMISSION_OVERRIDES,
+  MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
+} from '../../../shared/journal';
 
 const campaignId = '11111111-1111-4111-8111-111111111111';
 const entryId = '22222222-2222-4222-8222-222222222222';
@@ -62,6 +68,45 @@ describe('registerJournalIpcHandlers', () => {
       ...common,
       target: { entryId, kind: 'page', pageId },
     });
+  });
+
+  it('bounds renderer-controlled titles, permission rows, and cleanup lists', async () => {
+    const { invoke, manager } = setup();
+    const invalidTitle = await invoke(journalIpcChannels.updateNote, {
+      campaignId,
+      entryId,
+      expectedRevision: 0,
+      name: 'x'.repeat(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS + 1),
+      nameStyle: defaultJournalTitleStyle(),
+    });
+    expect(invalidTitle).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+
+    const invalidPermissions = await invoke(journalIpcChannels.updatePagePermissions, {
+      campaignId,
+      entryId,
+      expectedPermissionRevision: 0,
+      pageId,
+      permissions: {
+        allPlayers: 'inherit',
+        overrides: Array.from(
+          { length: MAX_JOURNAL_PERMISSION_OVERRIDES + 1 },
+          () => ({ access: 'view', userId: entryId }),
+        ),
+      },
+    });
+    expect(invalidPermissions).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+
+    const invalidCleanup = await invoke(journalIpcChannels.deleteNote, {
+      campaignId,
+      cleanupAssetIds: Array.from(
+        { length: MAX_JOURNAL_CLEANUP_ASSETS + 1 },
+        () => pageId,
+      ),
+      expectedRevision: 0,
+      target: { entryId, kind: 'note' },
+    });
+    expect(invalidCleanup).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+    expect(manager.deleteTarget).not.toHaveBeenCalled();
   });
 
   it('removes every invoke handler during teardown', () => {

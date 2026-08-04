@@ -9,7 +9,10 @@ export const JOURNAL_EDIT_LEASE_REFRESH_MS = 10_000;
 export const JOURNAL_AUTOSAVE_DELAY_MS = 750;
 export const MAX_JOURNAL_ENTRIES = 2_048;
 export const MAX_NOTE_PAGES = 1_024;
+export const MAX_JOURNAL_CLEANUP_ASSETS = 2_048;
+export const MAX_JOURNAL_PERMISSION_OVERRIDES = 20;
 export const MAX_JOURNAL_TITLE_GRAPHEMES = 128;
+export const MAX_JOURNAL_TITLE_INPUT_CODE_UNITS = 1_024;
 export const MAX_RICH_TEXT_BYTES = 2 * 1024 * 1024;
 export const MAX_RICH_TEXT_NODES = 50_000;
 export const MAX_RICH_TEXT_DEPTH = 32;
@@ -115,6 +118,7 @@ export interface JournalPageCapabilities {
 export interface JournalPageSummary {
   capabilities: JournalPageCapabilities;
   id: string;
+  permissionRevision: number;
   permissions: JournalPermissionConfiguration<JournalPageAccessLevel> | null;
   position: number;
   revision: number;
@@ -224,7 +228,7 @@ export interface UpdateJournalNotePermissionsInput extends JournalEntryInput {
 }
 
 export interface UpdateJournalPagePermissionsInput extends JournalPageInput {
-  expectedRevision: number;
+  expectedPermissionRevision: number;
   permissions: JournalPermissionConfiguration<JournalPageAccessLevel>;
 }
 
@@ -342,6 +346,12 @@ const MARK_TYPES = new Set([
   'textStyle',
   'underline',
 ]);
+const RICH_TEXT_DOCUMENT_KEYS = new Set(['doc', 'schemaVersion']);
+const RICH_TEXT_NODE_KEYS = new Set(['attrs', 'content', 'marks', 'text', 'type']);
+const RICH_TEXT_MARK_KEYS = new Set(['attrs', 'type']);
+const MAX_RICH_TEXT_ATTRIBUTE_DEPTH = 8;
+const MAX_RICH_TEXT_ATTRIBUTE_ENTRIES = 256;
+const MAX_RICH_TEXT_MARKS_PER_NODE = 64;
 
 export function emptyRichTextDocument(): RichTextDocumentV1 {
   return {
@@ -386,18 +396,25 @@ export function countGraphemes(value: string): number {
   return [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].length;
 }
 
-function isJsonValue(value: unknown): value is JsonValue {
+function isJsonValue(value: unknown, depth = 0): value is JsonValue {
   if (
     value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'string'
+    typeof value === 'boolean'
   ) return true;
+  if (typeof value === 'string') return value.length <= MAX_RICH_TEXT_BYTES;
   if (typeof value === 'number') return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
+  if (depth >= MAX_RICH_TEXT_ATTRIBUTE_DEPTH) return false;
+  if (Array.isArray(value)) {
+    return value.length <= MAX_RICH_TEXT_ATTRIBUTE_ENTRIES &&
+      value.every((item) => isJsonValue(item, depth + 1));
+  }
   return Boolean(
     value &&
       typeof value === 'object' &&
-      Object.values(value).every(isJsonValue),
+      Object.keys(value).length <= MAX_RICH_TEXT_ATTRIBUTE_ENTRIES &&
+      Object.entries(value).every(
+        ([key, item]) => key.length <= 128 && isJsonValue(item, depth + 1),
+      ),
   );
 }
 
@@ -406,7 +423,8 @@ function validAttributes(value: unknown): value is Record<string, JsonValue> {
     value &&
       typeof value === 'object' &&
       !Array.isArray(value) &&
-      Object.values(value).every(isJsonValue),
+      Object.keys(value).length <= MAX_RICH_TEXT_ATTRIBUTE_ENTRIES &&
+      Object.values(value).every((item) => isJsonValue(item)),
   );
 }
 
@@ -430,7 +448,10 @@ function validNodeAttributes(type: string, attrs: Record<string, JsonValue> | un
 export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<RichTextDocumentV1>;
-  if (candidate.schemaVersion !== RICH_TEXT_SCHEMA_VERSION) return false;
+  if (
+    candidate.schemaVersion !== RICH_TEXT_SCHEMA_VERSION ||
+    !Object.keys(candidate).every((key) => RICH_TEXT_DOCUMENT_KEYS.has(key))
+  ) return false;
   let count = 0;
   const visit = (node: unknown, depth: number): node is RichTextNodeV1 => {
     count += 1;
@@ -441,17 +462,23 @@ export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 
       typeof node !== 'object'
     ) return false;
     const item = node as Partial<RichTextNodeV1>;
-    if (typeof item.type !== 'string' || !NODE_TYPES.has(item.type)) return false;
+    if (
+      !Object.keys(item).every((key) => RICH_TEXT_NODE_KEYS.has(key)) ||
+      typeof item.type !== 'string' ||
+      !NODE_TYPES.has(item.type)
+    ) return false;
     if (item.attrs !== undefined && !validAttributes(item.attrs)) return false;
     if (!validNodeAttributes(item.type, item.attrs)) return false;
     if (item.text !== undefined && (item.type !== 'text' || typeof item.text !== 'string')) return false;
     if (
       item.marks !== undefined &&
       (!Array.isArray(item.marks) ||
+        item.marks.length > MAX_RICH_TEXT_MARKS_PER_NODE ||
         item.marks.some(
           (mark) =>
             !mark ||
             typeof mark !== 'object' ||
+            !Object.keys(mark).every((key) => RICH_TEXT_MARK_KEYS.has(key)) ||
             typeof mark.type !== 'string' ||
             !MARK_TYPES.has(mark.type) ||
             (mark.attrs !== undefined && !validAttributes(mark.attrs)) ||

@@ -49,6 +49,7 @@ describe('RichTextEditor images', () => {
         assetApi={assetApi}
         campaignId={testCampaignId}
         content={content}
+        documentKey="page:0"
         editable
       />,
     );
@@ -61,6 +62,7 @@ describe('RichTextEditor images', () => {
         assetApi={assetApi}
         campaignId={testCampaignId}
         content={content}
+        documentKey="page:0"
         editable={false}
       />,
     );

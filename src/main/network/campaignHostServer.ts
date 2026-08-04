@@ -978,10 +978,10 @@ export class CampaignHostServer {
         userId: client.user.id,
         username: client.user.username,
       };
-      const manifest = await this.journalRepository.list(actor);
-      const visibleEntry = manifest.ok
-        ? manifest.value.entries.find(({ id }) => id === event.entryId)
-        : undefined;
+      const note = event.entryId
+        ? await this.journalRepository.getNote(actor, event.entryId)
+        : null;
+      const visibleEntry = note?.ok ? note.value : undefined;
       const visiblePage = visibleEntry?.pages.some(({ id }) => id === event.pageId);
       writeEnvelope(
         client.socket as unknown as Socket,

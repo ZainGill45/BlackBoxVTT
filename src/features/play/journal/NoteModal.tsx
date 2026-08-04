@@ -1,4 +1,4 @@
-import { Plus, Search } from 'lucide-react';
+import { Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -19,13 +19,11 @@ import type { AssetApi } from '../../../shared/assets';
 import {
   JOURNAL_AUTOSAVE_DELAY_MS,
   JOURNAL_EDIT_LEASE_REFRESH_MS,
-  type JournalAccessLevel,
   type JournalApi,
   type JournalDeletePreview,
+  type JournalDeleteTarget,
   type JournalEntrySummary,
   type JournalPage,
-  type JournalPageAccessLevel,
-  type JournalPermissionConfiguration,
   type JournalPermissionSubject,
   type JournalResult,
   type JournalTitleStyle,
@@ -35,6 +33,10 @@ import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../connection/useDeleteConfir
 import { MapImageChooserModal } from '../scenes/MapImageChooserModal';
 import type { AssetThumbnail } from '../scenes/useAssetThumbnails';
 import { RichTextEditor } from './RichTextEditor';
+import {
+  JournalPermissionsModal,
+  type JournalPermissionDraft,
+} from './JournalPermissionsModal';
 import { journalTitleStyleProperties } from './titleStyles';
 import styles from './NoteModal.module.css';
 
@@ -48,7 +50,7 @@ interface NoteModalProps {
   journalApi: JournalApi;
   note: JournalEntrySummary;
   onClose: () => void;
-  onUpdated: () => void;
+  onUpdated: (note: JournalEntrySummary | null) => void;
   users: JournalPermissionSubject[];
 }
 
@@ -62,101 +64,46 @@ interface ActiveLease {
   pageId: string;
 }
 
-const JOURNAL_EDIT_LEASE_RETRY_MS = 500;
-const EMPTY_IMAGE_THUMBNAILS: ReadonlyMap<string, AssetThumbnail> = new Map();
-
-const ACCESS_LABELS: Record<string, string> = {
-  edit: 'Edit',
-  inherit: 'Inherit note',
-  none: 'No access',
-  view: 'View',
-};
-
-function PermissionEditor<TAccess extends string>({
-  configuration,
-  disabled = false,
-  legend,
-  levels,
-  onChange,
-  users,
-}: {
-  configuration: JournalPermissionConfiguration<TAccess>;
-  disabled?: boolean;
-  legend: string;
-  levels: readonly TAccess[];
-  onChange: (next: JournalPermissionConfiguration<TAccess>) => void;
-  users: JournalPermissionSubject[];
-}) {
-  const overrideFor = (userId: string) =>
-    configuration.overrides.find((item) => item.userId === userId)?.access;
-
-  return (
-    <fieldset className={styles.permissions} disabled={disabled}>
-      <legend>{legend}</legend>
-      <label>
-        <span>All players</span>
-        <select
-          value={configuration.allPlayers}
-          onChange={(event) =>
-            onChange({
-              ...configuration,
-              allPlayers: event.currentTarget.value as TAccess,
-            })
-          }
-        >
-          {levels.map((level) => (
-            <option key={level} value={level}>
-              {ACCESS_LABELS[level] ?? level}
-            </option>
-          ))}
-        </select>
-      </label>
-      {users.map((user) => (
-        <label key={user.id}>
-          <span>{user.username}</span>
-          <select
-            aria-label={user.username}
-            value={overrideFor(user.id) ?? 'use_default'}
-            onChange={(event) => {
-              const access = event.currentTarget.value;
-              const otherOverrides = configuration.overrides.filter(
-                (item) => item.userId !== user.id,
-              );
-              onChange({
-                ...configuration,
-                overrides:
-                  access === 'use_default'
-                    ? otherOverrides
-                    : [
-                        ...otherOverrides,
-                        { access: access as TAccess, userId: user.id },
-                      ],
-              });
-            }}
-          >
-            <option value="use_default">Use default</option>
-            {levels.map((level) => (
-              <option key={level} value={level}>
-                {ACCESS_LABELS[level] ?? level}
-              </option>
-            ))}
-          </select>
-        </label>
-      ))}
-    </fieldset>
+function samePermissions<TAccess extends string>(
+  left: { allPlayers: TAccess; overrides: Array<{ access: TAccess; userId: string }> },
+  right: { allPlayers: TAccess; overrides: Array<{ access: TAccess; userId: string }> },
+): boolean {
+  if (left.allPlayers !== right.allPlayers || left.overrides.length !== right.overrides.length) {
+    return false;
+  }
+  return left.overrides.every((override) =>
+    right.overrides.some(
+      (candidate) =>
+        candidate.userId === override.userId && candidate.access === override.access,
+    ),
   );
 }
+
+const JOURNAL_EDIT_LEASE_RETRY_MS = 500;
+const EMPTY_IMAGE_THUMBNAILS: ReadonlyMap<string, AssetThumbnail> = new Map();
 
 function pageSummary(page: JournalPage): JournalEntrySummary['pages'][number] {
   return {
     capabilities: page.capabilities,
     id: page.id,
+    permissionRevision: page.permissionRevision,
     permissions: page.permissions,
     position: page.position,
     revision: page.revision,
     title: page.title,
     titleStyle: page.titleStyle,
   };
+}
+
+function pageAccessLabel(
+  page: JournalEntrySummary['pages'][number],
+): string | null {
+  if (!page.capabilities.edit) return 'View only';
+  if (!page.permissions) return null;
+  if (page.permissions.overrides.length > 0) return 'Custom';
+  if (page.permissions.allPlayers === 'inherit') return 'Inherits';
+  if (page.permissions.allPlayers === 'none') return 'Private';
+  return page.permissions.allPlayers === 'edit' ? 'Shared edit' : 'Shared view';
 }
 
 export function NoteModal({
@@ -189,6 +136,7 @@ export function NoteModal({
   const [showPermissions, setShowPermissions] = useState(
     initialShowPermissions,
   );
+  const [permissionPageId, setPermissionPageId] = useState<string | undefined>();
   const [formattingTarget, setFormattingTarget] = useState<'body' | 'note' | 'page'>('body');
   const [chooser, setChooser] = useState<((assetId: string) => void) | null>(
     null,
@@ -207,6 +155,7 @@ export function NoteModal({
   } | null>(null);
 
   const currentRef = useRef(note);
+  const currentRefreshRef = useRef(0);
   const nameRef = useRef(note.name);
   const nameStyleRef = useRef(note.nameStyle);
   const pageIdRef = useRef(pageId);
@@ -231,7 +180,7 @@ export function NoteModal({
     (next: JournalEntrySummary) => {
       currentRef.current = next;
       setCurrent(next);
-      onUpdated();
+      onUpdated(next);
     },
     [onUpdated],
   );
@@ -257,11 +206,13 @@ export function NoteModal({
   }, []);
 
   const refreshCurrent = useCallback(async () => {
+    const request = ++currentRefreshRef.current;
     const previous = currentRef.current;
     const result = await journalApi.getNote({
       campaignId,
       entryId: previous.id,
     });
+    if (request !== currentRefreshRef.current) return currentRef.current;
     if (!result.ok) {
       onClose();
       return null;
@@ -281,7 +232,7 @@ export function NoteModal({
       setName(result.value.name);
       setNameStyle(result.value.nameStyle);
     }
-    onUpdated();
+    onUpdated(result.value);
     return result.value;
   }, [campaignId, journalApi, onClose, onUpdated]);
 
@@ -290,11 +241,13 @@ export function NoteModal({
       mutation: (
         active: JournalEntrySummary,
       ) => Promise<JournalResult<JournalEntrySummary>>,
+      onFailure?: (message: string) => void,
     ) => {
       const queued = noteMutationQueueRef.current.then(async () => {
         const result = await mutation(currentRef.current);
         if (!result.ok) {
-          setError(result.error.message);
+          if (onFailure) onFailure(result.error.message);
+          else setError(result.error.message);
           setNoteStatus('failed');
           return false;
         }
@@ -432,12 +385,10 @@ export function NoteModal({
       setPageStatus('failed');
       return false;
     }
-    const savedContent = JSON.stringify(activePage.content);
-    const draftContentJson = JSON.stringify(draftContent);
     if (
       draftTitle === activePage.title &&
       JSON.stringify(draftTitleStyle) === JSON.stringify(activePage.titleStyle) &&
-      draftContentJson === savedContent
+      draftContent === activePage.content
     ) {
       return true;
     }
@@ -471,7 +422,7 @@ export function NoteModal({
         const unchangedDuringSave =
           titleRef.current === draftTitle &&
           JSON.stringify(titleStyleRef.current) === JSON.stringify(draftTitleStyle) &&
-          JSON.stringify(contentRef.current) === draftContentJson;
+          contentRef.current === draftContent;
         pageRef.current = result.value;
         setPage(result.value);
         if (unchangedDuringSave) {
@@ -497,7 +448,7 @@ export function NoteModal({
         };
         currentRef.current = nextNote;
         setCurrent(nextNote);
-        onUpdated();
+        onUpdated(nextNote);
         setPageStatus(unchangedDuringSave ? 'saved' : 'dirty');
         if (titleChanged && !await refreshCurrent()) return false;
         return true;
@@ -517,6 +468,7 @@ export function NoteModal({
   useEffect(() => {
     let active = true;
     let retryTimer: number | null = null;
+    if (showPermissions) return () => { active = false; };
     const selectedPageId = pageId;
     pageIdRef.current = selectedPageId;
     pageRef.current = null;
@@ -613,7 +565,7 @@ export function NoteModal({
       active = false;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [acceptPage, campaignId, journalApi, pageId, pageLoadVersion]);
+  }, [acceptPage, campaignId, journalApi, pageId, pageLoadVersion, showPermissions]);
 
   useEffect(() => {
     if (!leaseId) return undefined;
@@ -643,7 +595,7 @@ export function NoteModal({
     if (
       title === activePage.title &&
       JSON.stringify(titleStyle) === JSON.stringify(activePage.titleStyle) &&
-      JSON.stringify(content) === JSON.stringify(activePage.content)
+      content === activePage.content
     ) {
       return undefined;
     }
@@ -719,15 +671,29 @@ export function NoteModal({
 
   const switchPage = useCallback(
     async (nextPageId: string) => {
-      if (nextPageId === pageIdRef.current || pageReorder) return;
-      if (!await savePage()) return;
+      if (pageReorder) return false;
+      if (nextPageId === pageIdRef.current) return true;
+      if (!await savePage()) return false;
       await releaseLease();
       pageIdRef.current = nextPageId;
       setPageId(nextPageId);
       setShowPermissions(false);
+      return true;
     },
     [pageReorder, releaseLease, savePage],
   );
+
+  const openPermissions = useCallback(async (nextPageId?: string) => {
+    if (!await saveName()) return;
+    if (nextPageId && nextPageId !== pageIdRef.current) {
+      if (!await switchPage(nextPageId)) return;
+    } else if (!await savePage()) {
+      return;
+    }
+    await releaseLease();
+    setPermissionPageId(nextPageId);
+    setShowPermissions(true);
+  }, [releaseLease, saveName, savePage, switchPage]);
 
   const close = useCallback(async () => {
     setCloseFailed(false);
@@ -762,69 +728,66 @@ export function NoteModal({
     await releaseLease();
   }, [onClose, releaseLease]);
 
-  const updateNotePermissions = (
-    permissions: JournalPermissionConfiguration<JournalAccessLevel>,
-  ) => {
+  const savePermissions = (draft: JournalPermissionDraft) => {
     setNoteStatus('saving');
-    const pending = (async () => {
-      if (!await saveName()) return false;
-      return queueNoteMutation((active) =>
-        journalApi.updateNotePermissions({
-          campaignId,
-          entryId: active.id,
-          expectedRevision: active.revision,
-          permissions,
-        }),
-      );
-    })();
-    pendingPermissionSavesRef.current.add(pending);
-    void pending.finally(() => {
-      pendingPermissionSavesRef.current.delete(pending);
-    });
-    return pending;
-  };
-
-  const updatePagePermissions = (
-    permissions: JournalPermissionConfiguration<JournalPageAccessLevel>,
-  ) => {
     setPageStatus('saving');
-    const pending = (async () => {
-      if (!pageRef.current || !await savePage()) return false;
-      const activePage = pageRef.current;
-      const result = await journalApi.updatePagePermissions({
-        campaignId,
-        entryId: currentRef.current.id,
-        expectedRevision: activePage.revision,
-        pageId: activePage.id,
-        permissions,
-      });
-      if (!result.ok) {
-        setError(result.error.message);
-        setPageStatus('failed');
-        return false;
+    const pending = (async (): Promise<string | null> => {
+      const currentPermissions = currentRef.current.permissions;
+      if (currentPermissions && !samePermissions(currentPermissions, draft.note)) {
+        let failureMessage = 'The note permissions could not be saved.';
+        const noteSaved = await queueNoteMutation((active) =>
+          journalApi.updateNotePermissions({
+            campaignId,
+            entryId: active.id,
+            expectedRevision: active.revision,
+            permissions: draft.note,
+          }),
+          (message) => { failureMessage = message; },
+        );
+        if (!noteSaved) {
+          await refreshCurrent();
+          setPageStatus('failed');
+          return failureMessage;
+        }
       }
-      if (pageIdRef.current === result.value.id) {
-        acceptPage(result.value);
-      } else {
-        const activeNote = currentRef.current;
-        const nextNote = {
-          ...activeNote,
-          pages: activeNote.pages.map((summary) =>
-            summary.id === result.value.id
-              ? pageSummary(result.value)
-              : summary,
+      for (const summary of currentRef.current.pages) {
+        const permissions = draft.pages[summary.id];
+        if (!permissions || !summary.permissions || samePermissions(summary.permissions, permissions)) {
+          continue;
+        }
+        const result = await journalApi.updatePagePermissions({
+          campaignId,
+          entryId: currentRef.current.id,
+          expectedPermissionRevision: summary.permissionRevision,
+          pageId: summary.id,
+          permissions,
+        });
+        if (!result.ok) {
+          const message = result.error.message;
+          await refreshCurrent();
+          setNoteStatus('failed');
+          setPageStatus('failed');
+          return message;
+        }
+        if (pageIdRef.current === result.value.id) acceptPage(result.value);
+        const active = currentRef.current;
+        acceptCurrent({
+          ...active,
+          pages: active.pages.map((page) =>
+            page.id === result.value.id ? pageSummary(result.value) : page,
           ),
-        };
-        currentRef.current = nextNote;
-        setCurrent(nextNote);
+        });
       }
+      const refreshed = await refreshCurrent();
+      if (!refreshed) return 'The updated permissions could not be reloaded.';
+      setNoteStatus('saved');
       setPageStatus('saved');
-      onUpdated();
-      return true;
+      return null;
     })();
-    pendingPermissionSavesRef.current.add(pending);
-    void pending.finally(() => {
-      pendingPermissionSavesRef.current.delete(pending);
+    const tracked = pending.then((failure) => failure === null);
+    pendingPermissionSavesRef.current.add(tracked);
+    void tracked.finally(() => {
+      pendingPermissionSavesRef.current.delete(tracked);
     });
     return pending;
   };
@@ -848,7 +811,7 @@ export function NoteModal({
     setShowPermissions(false);
   };
 
-  const deletePreparedPage = async (
+  const deletePreparedTarget = async (
     preview: JournalDeletePreview,
     revision: number,
     selectedCleanupIds: string[],
@@ -870,7 +833,12 @@ export function NoteModal({
     }
     const target = preview.target;
     setDeleteRequest(null);
-    if (target.kind !== 'page') return false;
+    if (target.kind === 'note') {
+      await releaseLease();
+      onClose();
+      onUpdated(null);
+      return true;
+    }
     const deletedSelectedPage = pageIdRef.current === target.pageId;
     const next = await refreshCurrent();
     if (next && deletedSelectedPage) {
@@ -883,16 +851,17 @@ export function NoteModal({
   };
 
   const requestDelete = async (
-    target: { entryId: string; kind: 'page'; pageId: string },
+    target: JournalDeleteTarget,
     revision: number,
+    alwaysConfirm = false,
   ) => {
     const result = await journalApi.prepareDelete({ campaignId, target });
     if (!result.ok) {
       setError(result.error.message);
       return;
     }
-    if (result.value.assets.length === 0) {
-      await deletePreparedPage(result.value, revision, []);
+    if (result.value.assets.length === 0 && !alwaysConfirm) {
+      await deletePreparedTarget(result.value, revision, []);
       return;
     }
     setCleanupIds([]);
@@ -901,7 +870,7 @@ export function NoteModal({
 
   const confirmDelete = async () => {
     if (!deleteRequest) return;
-    await deletePreparedPage(
+    await deletePreparedTarget(
       deleteRequest.preview,
       deleteRequest.revision,
       cleanupIds,
@@ -1081,9 +1050,7 @@ export function NoteModal({
       entries.push({
         kind: 'action',
         label: 'Edit Page Permissions',
-        onSelect: () => {
-          void switchPage(summary.id).then(() => setShowPermissions(true));
-        },
+        onSelect: () => void openPermissions(summary.id),
       });
     }
     if (summary.capabilities.delete) {
@@ -1129,11 +1096,16 @@ export function NoteModal({
         },
       );
     }
+    if (entries.length === 0) return;
     pageMenu.current?.open(
       event.clientX,
       event.clientY,
       `${summary.title} actions`,
       entries,
+      () =>
+        pageListRef.current
+          ?.querySelector<HTMLElement>(`[data-page-order-id="${summary.id}"] button`)
+          ?.focus(),
     );
   };
 
@@ -1189,11 +1161,34 @@ export function NoteModal({
         className={styles.modal}
         contentClassName={styles.modalContent}
         initialFocus="dialog"
-        isOpen
+        isOpen={!showPermissions && !deleteRequest}
         onDismiss={() => void close()}
       >
         <div className={styles.workspace}>
           <aside className={styles.sidebar}>
+            <div className={styles.sidebarActions}>
+              <Button
+                disabled={!current.capabilities.managePermissions}
+                onClick={() => void openPermissions()}
+                size="compact"
+              >
+                <ShieldCheck aria-hidden size="1rem" />
+                Edit Permissions
+              </Button>
+              <Button
+                disabled={!current.capabilities.delete}
+                onClick={() => void requestDelete(
+                  { entryId: current.id, kind: 'note' },
+                  current.revision,
+                  true,
+                )}
+                size="compact"
+                variant="danger"
+              >
+                <Trash2 aria-hidden size="1rem" />
+                Delete Note
+              </Button>
+            </div>
             <div className={styles.pageSearch}>
               <label>
                 <Search aria-hidden size="1rem" />
@@ -1227,7 +1222,11 @@ export function NoteModal({
                     type="button"
                   >
                     <span>{summary.title}</span>
-                    {!summary.capabilities.edit ? <small>View only</small> : null}
+                    <small>
+                      {summary.id === pageId && summary.capabilities.edit && !leaseId && pageMessage
+                        ? 'Locked'
+                        : pageAccessLabel(summary)}
+                    </small>
                   </button>
                 </li>
               ))}
@@ -1239,88 +1238,55 @@ export function NoteModal({
 
           <section className={styles.note}>
             <header className={styles.noteHeader}>
-              {current.capabilities.edit ? (
-                <input
-                  aria-label="Note name"
-                  className={styles.noteName}
-                  maxLength={128}
-                  style={journalTitleStyleProperties(nameStyle)}
-                  value={name}
-                  onBlur={() => void saveName()}
-                  onFocus={() => setFormattingTarget('note')}
-                  onChange={(event) => {
-                    nameRef.current = event.currentTarget.value;
-                    setName(event.currentTarget.value);
-                    setNoteStatus('dirty');
-                  }}
-                />
-              ) : (
-                <h2 style={journalTitleStyleProperties(current.nameStyle)}>{current.name}</h2>
-              )}
+              <input
+                aria-label="Note name"
+                className={styles.noteName}
+                maxLength={128}
+                readOnly={!current.capabilities.edit}
+                style={journalTitleStyleProperties(
+                  current.capabilities.edit ? nameStyle : current.nameStyle,
+                )}
+                value={current.capabilities.edit ? name : current.name}
+                onBlur={() => void saveName()}
+                onFocus={() => {
+                  if (current.capabilities.edit) setFormattingTarget('note');
+                }}
+                onChange={(event) => {
+                  if (!current.capabilities.edit) return;
+                  nameRef.current = event.currentTarget.value;
+                  setName(event.currentTarget.value);
+                  setNoteStatus('dirty');
+                }}
+              />
             </header>
 
-            {showPermissions ? (
-              <div className={styles.permissionsWorkspace}>
-                <header>
-                  <div>
-                    <span className={styles.eyebrow}>Access control</span>
-                    <h3>Note permissions</h3>
-                  </div>
-                  <Button onClick={() => setShowPermissions(false)}>
-                    Done
-                  </Button>
-                </header>
-                <div className={styles.permissionColumns}>
-                  {current.permissions ? (
-                    <PermissionEditor
-                      configuration={current.permissions}
-                      disabled={noteStatus === 'saving'}
-                      legend="Parent note"
-                      levels={['none', 'view', 'edit']}
-                      onChange={(next) => void updateNotePermissions(next)}
-                      users={users}
-                    />
-                  ) : null}
-                  {page?.permissions ? (
-                    <PermissionEditor
-                      configuration={page.permissions}
-                      disabled={pageStatus === 'saving'}
-                      legend={`Page: ${page.title}`}
-                      levels={['inherit', 'none', 'view', 'edit']}
-                      onChange={(next) => void updatePagePermissions(next)}
-                      users={users}
-                    />
-                  ) : null}
-                </div>
-                <p className={styles.permissionHelp}>
-                  Parent access gates every page. Page permissions can only
-                  narrow or extend access within that parent gate.
-                </p>
-              </div>
-            ) : page && content ? (
+            {page && content ? (
               <RichTextEditor
                 assetApi={assetApi}
                 campaignId={campaignId}
                 content={content}
+                documentKey={`${page.id}:${page.revision}`}
                 contentHeader={
-                  canEditPage ? (
-                    <input
-                      aria-label="Page title"
-                      className={styles.pageTitle}
-                      maxLength={128}
-                      style={journalTitleStyleProperties(titleStyle ?? page.titleStyle)}
-                      value={title}
-                      onBlur={() => void savePage()}
-                      onFocus={() => setFormattingTarget('page')}
-                      onChange={(event) => {
-                        titleRef.current = event.currentTarget.value;
-                        setTitle(event.currentTarget.value);
-                        setPageStatus('dirty');
-                      }}
-                    />
-                  ) : (
-                    <h3 className={styles.pageHeading} style={journalTitleStyleProperties(page.titleStyle)}>{page.title}</h3>
-                  )
+                  <input
+                    aria-label="Page title"
+                    className={styles.pageTitle}
+                    maxLength={128}
+                    readOnly={!canEditPage}
+                    style={journalTitleStyleProperties(
+                      canEditPage ? titleStyle ?? page.titleStyle : page.titleStyle,
+                    )}
+                    value={canEditPage ? title : page.title}
+                    onBlur={() => void savePage()}
+                    onFocus={() => {
+                      if (canEditPage) setFormattingTarget('page');
+                    }}
+                    onChange={(event) => {
+                      if (!canEditPage) return;
+                      titleRef.current = event.currentTarget.value;
+                      setTitle(event.currentTarget.value);
+                      setPageStatus('dirty');
+                    }}
+                  />
                 }
                 editable={canEditPage}
                 onBodyFocus={() => setFormattingTarget('body')}
@@ -1366,6 +1332,19 @@ export function NoteModal({
         </div>
       </Modal>
 
+      {showPermissions && current.permissions ? (
+        <JournalPermissionsModal
+          initialPageId={permissionPageId}
+          note={current}
+          onDismiss={() => {
+            setPermissionPageId(undefined);
+            setShowPermissions(false);
+          }}
+          onSave={savePermissions}
+          users={users}
+        />
+      ) : null}
+
       {pageReorder ? (
         <div
           className={styles.reorderGhost}
@@ -1391,13 +1370,17 @@ export function NoteModal({
       />
 
       <Modal
-        accessibleLabel="Delete page"
+        accessibleLabel={deleteTarget?.kind === 'note' ? 'Delete note' : 'Delete page'}
         isOpen={Boolean(deleteRequest)}
         onDismiss={() => setDeleteRequest(null)}
       >
-        <h2>Delete Page</h2>
+        <h2>{deleteTarget?.kind === 'note' ? 'Delete Note' : 'Delete Page'}</h2>
         <p>
-          {`Delete “${deleteTarget?.kind === 'page' ? current.pages.find((item) => item.id === deleteTarget.pageId)?.title ?? 'this page' : 'this page'}”? This cannot be undone.`}
+          {`Delete “${deleteTarget?.kind === 'note'
+            ? current.name
+            : deleteTarget?.kind === 'page'
+              ? current.pages.find((item) => item.id === deleteTarget.pageId)?.title ?? 'this page'
+              : 'this item'}”? This cannot be undone.`}
         </p>
         {deleteRequest?.preview.assets.length ? (
           <>

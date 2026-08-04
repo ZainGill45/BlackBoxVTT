@@ -4,6 +4,11 @@ import {
   isJournalTitleStyle,
   isRichTextDocument,
   journalIpcChannels,
+  MAX_JOURNAL_CLEANUP_ASSETS,
+  MAX_JOURNAL_ENTRIES,
+  MAX_JOURNAL_PERMISSION_OVERRIDES,
+  MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
+  MAX_NOTE_PAGES,
   type JournalResult,
 } from '../shared/journal';
 import type { JournalManager } from './journalManager';
@@ -18,7 +23,8 @@ const entryAccess = z.enum(['none', 'view', 'edit']);
 const pageAccess = z.enum(['inherit', 'none', 'view', 'edit']);
 const permissions = <T extends z.ZodTypeAny>(access: T) => z.object({
   allPlayers: access,
-  overrides: z.array(z.object({ access, userId: z.string().uuid() }).strict()).max(20),
+  overrides: z.array(z.object({ access, userId: z.string().uuid() }).strict())
+    .max(MAX_JOURNAL_PERMISSION_OVERRIDES),
 }).strict();
 const deleteNoteTarget = z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict();
 const deletePageTarget = z.object({ entryId: z.string().uuid(), kind: z.literal('page'), pageId: z.string().uuid() }).strict();
@@ -73,7 +79,11 @@ export function registerJournalIpcHandlers(
     return parsed.success ? manager.detachAsset(parsed.data) : invalid();
   });
   handle(journalIpcChannels.updateNote, (input) => {
-    const parsed = entry.extend({ expectedRevision: revision, name: z.string(), nameStyle: z.unknown() }).safeParse(input);
+    const parsed = entry.extend({
+      expectedRevision: revision,
+      name: z.string().max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
+      nameStyle: z.unknown(),
+    }).safeParse(input);
     return parsed.success && isJournalTitleStyle(parsed.data.nameStyle)
       ? manager.updateNote({ ...parsed.data, nameStyle: parsed.data.nameStyle })
       : invalid();
@@ -94,7 +104,7 @@ export function registerJournalIpcHandlers(
       content: z.unknown(),
       expectedRevision: revision,
       leaseId: z.string().uuid(),
-      title: z.string(),
+      title: z.string().max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
       titleStyle: z.unknown(),
     }).safeParse(input);
     return parsed.success && isRichTextDocument(parsed.data.content) && isJournalTitleStyle(parsed.data.titleStyle)
@@ -103,7 +113,7 @@ export function registerJournalIpcHandlers(
   });
   handle(journalIpcChannels.updatePagePermissions, (input) => {
     const parsed = page.extend({
-      expectedRevision: revision,
+      expectedPermissionRevision: revision,
       permissions: permissions(pageAccess),
     }).safeParse(input);
     return parsed.success ? manager.updatePagePermissions(parsed.data) : invalid();
@@ -125,7 +135,7 @@ export function registerJournalIpcHandlers(
     return parsed.success ? manager.moveNote(parsed.data) : invalid();
   });
   handle(journalIpcChannels.reorderNotes, (input) => {
-    const parsed = campaign.extend({ expectedManifestRevision: revision, orderedEntryIds: z.array(z.string().uuid()).max(2048) }).safeParse(input);
+    const parsed = campaign.extend({ expectedManifestRevision: revision, orderedEntryIds: z.array(z.string().uuid()).max(MAX_JOURNAL_ENTRIES) }).safeParse(input);
     return parsed.success ? manager.reorderNotes(parsed.data) : invalid();
   });
   handle(journalIpcChannels.movePage, (input) => {
@@ -133,7 +143,7 @@ export function registerJournalIpcHandlers(
     return parsed.success ? manager.movePage(parsed.data) : invalid();
   });
   handle(journalIpcChannels.reorderPages, (input) => {
-    const parsed = entry.extend({ expectedEntryRevision: revision, orderedPageIds: z.array(z.string().uuid()).max(1024) }).safeParse(input);
+    const parsed = entry.extend({ expectedEntryRevision: revision, orderedPageIds: z.array(z.string().uuid()).max(MAX_NOTE_PAGES) }).safeParse(input);
     return parsed.success ? manager.reorderPages(parsed.data) : invalid();
   });
   handle(journalIpcChannels.prepareDelete, (input) => {
@@ -141,13 +151,13 @@ export function registerJournalIpcHandlers(
     return parsed.success ? manager.prepareDelete(parsed.data) : invalid();
   });
   handle(journalIpcChannels.deleteNote, (input) => {
-    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()), expectedRevision: revision, target: deleteNoteTarget }).safeParse(input);
+    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deleteNoteTarget }).safeParse(input);
     return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
   });
   // Page and note deletion share the same explicit manager operation, but retain
   // separate IPC channels so neither becomes an open-ended command dispatcher.
   handle(journalIpcChannels.deletePage, (input) => {
-    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()), expectedRevision: revision, target: deletePageTarget }).safeParse(input);
+    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deletePageTarget }).safeParse(input);
     return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
   });
   const onChanged = (event: unknown) => {
