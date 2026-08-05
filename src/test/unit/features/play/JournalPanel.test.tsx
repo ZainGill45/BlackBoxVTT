@@ -611,7 +611,10 @@ describe('JournalPanel', () => {
         target: { entryId: note.id, kind: 'note' as const },
       },
     }));
-    const deleteTarget = vi.fn();
+    const deleteTarget = vi.fn(async () => ({
+      ok: true as const,
+      value: { cleanupFailures: [] },
+    }));
     render(
       <JournalPanel
         assetApi={createFakeAssetApi()}
@@ -630,11 +633,28 @@ describe('JournalPanel', () => {
 
     expect(
       await screen.findByRole('dialog', {
-        name: 'Delete note',
+        name: 'Delete note with embedded images?',
       }),
     ).toBeVisible();
     expect(screen.getByText('treasure-map.png')).toBeVisible();
     expect(deleteTarget).not.toHaveBeenCalled();
+
+    const cleanupCheckbox = screen.getByRole('checkbox', {
+      name: 'treasure-map.png',
+    });
+    await user.click(cleanupCheckbox);
+
+    expect(cleanupCheckbox).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Delete and clean up' }));
+
+    await waitFor(() =>
+      expect(deleteTarget).toHaveBeenCalledWith({
+        campaignId,
+        cleanupAssetIds: ['55555555-5555-4555-8555-555555555555'],
+        expectedRevision: note.revision,
+        target: { entryId: note.id, kind: 'note' },
+      }),
+    );
   });
 
   it('keeps a name draft when an older change refresh finishes', async () => {

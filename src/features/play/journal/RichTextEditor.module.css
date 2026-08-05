@@ -293,19 +293,15 @@
 
 .assetImage {
   display: grid;
-  width: 100%;
+  max-width: 100%;
   gap: var(--space-1);
   margin-block: var(--space-3);
   margin-inline: 0;
 }
 
-.assetImage[data-selected='true'] {
-  outline: var(--focus-outline);
-}
-
 .assetImage img {
   display: block;
-  width: 100%;
+  max-width: 100%;
   height: auto;
 }
 

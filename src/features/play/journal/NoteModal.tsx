@@ -8,6 +8,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { IconButton } from '../../../components/ui/IconButton';
 import { Modal } from '../../../components/ui/Modal';
 import {
@@ -1386,56 +1387,48 @@ export function NoteModal({
         thumbnails={EMPTY_IMAGE_THUMBNAILS}
       />
 
-      <Modal
-        accessibleLabel={deleteTarget?.kind === 'note' ? 'Delete note' : 'Delete page'}
+      <ConfirmModal
+        confirmLabel={cleanupIds.length ? 'Delete and clean up' : 'Delete'}
         isOpen={Boolean(deleteRequest)}
-        onDismiss={() => setDeleteRequest(null)}
-      >
-        <h2>{deleteTarget?.kind === 'note' ? 'Delete Note' : 'Delete Page'}</h2>
-        <p>
-          {`Delete “${deleteTarget?.kind === 'note'
+        message={`“${
+          deleteTarget?.kind === 'note'
             ? current.name
             : deleteTarget?.kind === 'page'
-              ? current.pages.find((item) => item.id === deleteTarget.pageId)?.title ?? 'this page'
-              : 'this item'}”? This cannot be undone.`}
-        </p>
-        {deleteRequest?.preview.assets.length ? (
-          <>
-            <p>
-              Select embedded Storage images to move to trash with the deleted
-              content. Unselected images stay in Storage.
-            </p>
-            <div className={styles.cleanupList}>
-              {deleteRequest.preview.assets.map((asset) => (
-                <label key={asset.id}>
-                  <input
-                    checked={cleanupIds.includes(asset.id)}
-                    disabled={!asset.cleanupAllowed}
-                    type="checkbox"
-                    onChange={(event) =>
-                      setCleanupIds((ids) =>
-                        event.currentTarget.checked
-                          ? [...ids, asset.id]
-                          : ids.filter((id) => id !== asset.id),
-                      )
-                    }
-                  />
-                  <span>
-                    {asset.displayName}
-                    {asset.reason ? ` — ${asset.reason}` : ''}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </>
-        ) : null}
-        <footer className={styles.promptActions}>
-          <Button onClick={() => setDeleteRequest(null)}>Cancel</Button>
-          <Button variant="danger" onClick={() => void confirmDelete()}>
-            {cleanupIds.length ? 'Delete and clean up' : 'Delete'}
-          </Button>
-        </footer>
-      </Modal>
+              ? current.pages.find((item) => item.id === deleteTarget.pageId)?.title ?? 'This page'
+              : 'This item'
+        }” contains embedded Storage images. Select any images that should also be moved to trash. Unselected images stay in Storage.`}
+        onCancel={() => setDeleteRequest(null)}
+        onConfirm={() => void confirmDelete()}
+        title={
+          deleteTarget?.kind === 'note'
+            ? 'Delete note with embedded images?'
+            : 'Delete page with embedded images?'
+        }
+      >
+        <div className={styles.cleanupList}>
+          {deleteRequest?.preview.assets.map((asset) => (
+            <label key={asset.id}>
+              <input
+                checked={cleanupIds.includes(asset.id)}
+                disabled={!asset.cleanupAllowed}
+                type="checkbox"
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
+                  setCleanupIds((ids) =>
+                    checked
+                      ? [...ids, asset.id]
+                      : ids.filter((id) => id !== asset.id),
+                  );
+                }}
+              />
+              <span>
+                {asset.displayName}
+                {asset.reason ? ` — ${asset.reason}` : ''}
+              </span>
+            </label>
+          ))}
+        </div>
+      </ConfirmModal>
 
       <Modal
         accessibleLabel="Journal error"

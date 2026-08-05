@@ -566,13 +566,14 @@ function ConnectedJournalPanel({
                 checked={cleanupIds.includes(asset.id)}
                 disabled={!asset.cleanupAllowed}
                 type="checkbox"
-                onChange={(event) =>
+                onChange={(event) => {
+                  const checked = event.currentTarget.checked;
                   setCleanupIds((ids) =>
-                    event.currentTarget.checked
+                    checked
                       ? [...ids, asset.id]
                       : ids.filter((id) => id !== asset.id),
-                  )
-                }
+                  );
+                }}
               />
               <span>
                 {asset.displayName}

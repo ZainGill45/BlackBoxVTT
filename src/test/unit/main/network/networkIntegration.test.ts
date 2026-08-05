@@ -281,13 +281,14 @@ describe('hosting a campaign', () => {
 describe('trust and authentication', () => {
   let attemptId: string;
 
-  it('challenges an unknown client to trust the certificate', async () => {
+  it('withholds account details until an unknown certificate is trusted', async () => {
     const connected = await player.connect({ host: '127.0.0.1', port });
     if (!connected.ok || connected.value.state !== 'trust_required') {
       throw new Error('Expected a trust challenge.');
     }
     expect(connected.value.state).toBe('trust_required');
     expect(connected.value.challenge.system).toEqual(TEST_CAMPAIGN_SYSTEM);
+    expect(connected.value.challenge).not.toHaveProperty('users');
     attemptId = connected.value.challenge.attemptId;
   }, HANDSHAKE_TIMEOUT);
 

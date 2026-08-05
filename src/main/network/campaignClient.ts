@@ -1201,6 +1201,10 @@ export class CampaignClient {
         maxVersion: 'TLSv1.3',
         minVersion: 'TLSv1.3',
         port,
+        // Campaign hosts use local self-signed identities, so public-CA
+        // validation cannot authenticate them. The client performs durable
+        // trust-on-first-use fingerprint validation before
+        // continueAfterTrust sends any client data or requests account data.
         rejectUnauthorized: false,
       });
       const timer = setTimeout(() => {
