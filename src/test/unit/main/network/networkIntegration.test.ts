@@ -590,6 +590,44 @@ describe('Journal over the network', () => {
     });
     await journal.releaseLease(noteId, pageId, lease.value.leaseId);
   });
+
+  it('runs the explicit Character lifecycle remotely without revealing private records', async () => {
+    const hostRuntime = await managerRuntimes.get(host)?.resolve(campaignId);
+    if (hostRuntime?.kind !== 'local') throw new Error('Expected a local host runtime.');
+    const created = await hostRuntime.journal.createEntry('dnd5e.character');
+    if (!created.ok || created.value.kind !== 'system') throw new Error('Expected the Game Master to create a Character.');
+    await host.notifyJournalChanged({ campaignId, entryId: created.value.id, type: 'structure' });
+
+    const remote = (await joinedRuntime(player)).journal;
+    await expect(remote.createEntry('dnd5e.character')).resolves.toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+    await expect(remote.getEntry(created.value.id)).resolves.toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+
+    const granted = await hostRuntime.journal.updateEntryPermissions({
+      entryId: created.value.id,
+      expectedRevision: created.value.revision,
+      permissions: { allPlayers: 'none', overrides: [{ access: 'edit', userId: aliceUserId }] },
+    });
+    if (!granted.ok) throw new Error('Expected the Character permission grant.');
+    await host.notifyJournalChanged({ campaignId, entryId: created.value.id, type: 'permissions' });
+
+    const visible = await remote.getEntry(created.value.id);
+    expect(visible).toMatchObject({
+      ok: true,
+      value: { data: {}, name: 'New Character', typeId: 'dnd5e.character' },
+    });
+    if (!visible.ok) throw new Error('Expected the remote Character.');
+    const renamed = await remote.renameEntry(created.value.id, 'Remote Hero', visible.value.revision);
+    expect(renamed).toMatchObject({ ok: true, value: { name: 'Remote Hero' } });
+    await expect((await joinedRuntime(observer)).journal.list()).resolves.not.toMatchObject({
+      value: { entries: expect.arrayContaining([expect.objectContaining({ id: created.value.id })]) },
+    });
+  });
 });
 
 describe('chat delivery', () => {

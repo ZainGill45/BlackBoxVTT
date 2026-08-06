@@ -9,6 +9,7 @@ import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
 import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { emptyRichTextDocument } from '../../../shared/journal';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
+import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
 
 const campaignId = '99999999-9999-4999-8999-999999999999';
 const playerId = '88888888-8888-4888-8888-888888888888';
@@ -80,6 +81,137 @@ describe('JournalRepository', () => {
     expect((await repository().list({ kind: 'gm' })).ok).toBe(true);
   });
 
+  it('persists the D&D-owned Character lifecycle and filters private access', async () => {
+    const journal = repository();
+    await expect(journal.createEntry(player, DND5E_CHARACTER_ENTRY_TYPE_ID)).resolves.toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+    const created = await journal.createEntry({ kind: 'gm' }, DND5E_CHARACTER_ENTRY_TYPE_ID);
+    expect(created).toMatchObject({
+      ok: true,
+      value: {
+        data: {},
+        dataVersion: 1,
+        groupId: 'dnd5e.characters',
+        kind: 'system',
+        name: 'New Character',
+        permissions: { allPlayers: 'none', overrides: [] },
+        typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+      },
+    });
+    if (!created.ok || created.value.kind !== 'system') throw new Error('setup failed');
+    expect(database.connection.prepare(
+      'SELECT COUNT(*) AS count FROM journal_pages WHERE entry_id = ?',
+    ).get(created.value.id)).toEqual({ count: 0 });
+    await expect(journal.list(player)).resolves.toMatchObject({ ok: true, value: { entries: [] } });
+
+    const granted = await journal.updateEntryPermissions({ kind: 'gm' }, {
+      entryId: created.value.id,
+      expectedRevision: created.value.revision,
+      permissions: { allPlayers: 'none', overrides: [{ access: 'edit', userId: playerId }] },
+    });
+    if (!granted.ok || granted.value.kind !== 'system') throw new Error('permission setup failed');
+    await expect(journal.list(player)).resolves.toMatchObject({
+      ok: true,
+      value: { entries: [{ capabilities: { edit: true, managePermissions: false }, name: 'New Character' }] },
+    });
+    const renamed = await journal.renameEntry(player, created.value.id, '  Aria Stone  ', granted.value.revision);
+    expect(renamed).toMatchObject({ ok: true, value: { name: 'Aria Stone' } });
+    expect(await journal.createEntry({ kind: 'gm' }, 'core.character')).toMatchObject({
+      error: { code: 'invalid_input' },
+      ok: false,
+    });
+
+    database.close();
+    database = CampaignDatabase.open(directory);
+    await expect(repository().getEntry({ kind: 'gm' }, created.value.id)).resolves.toMatchObject({
+      ok: true,
+      value: { data: {}, name: 'Aria Stone', typeId: DND5E_CHARACTER_ENTRY_TYPE_ID },
+    });
+  });
+
+  it('rejects malformed or foreign-system Journal entry data on reopen', async () => {
+    const created = await repository().createEntry({ kind: 'gm' }, DND5E_CHARACTER_ENTRY_TYPE_ID);
+    if (!created.ok) throw new Error('setup failed');
+    database.connection.prepare(
+      'UPDATE journal_entries SET data_json = ? WHERE id = ?',
+    ).run(JSON.stringify({ rulesVersion: '5e' }), created.value.id);
+    expect(() => CampaignDatabase.open(directory)).toThrow(/entry data|malformed/u);
+
+    database.connection.prepare(
+      'UPDATE journal_entries SET data_json = ?, type_id = ? WHERE id = ?',
+    ).run('{}', 'foreign.character', created.value.id);
+    expect(() => CampaignDatabase.open(directory)).toThrow(/malformed|unsupported|entry data/u);
+  });
+
+  it('reorders one Journal group through the canonical global positions', async () => {
+    const journal = repository();
+    const noteOne = await journal.createNote({ kind: 'gm' });
+    const characterOne = await journal.createEntry({ kind: 'gm' }, DND5E_CHARACTER_ENTRY_TYPE_ID);
+    const noteTwo = await journal.createNote({ kind: 'gm' });
+    const characterTwo = await journal.createEntry({ kind: 'gm' }, DND5E_CHARACTER_ENTRY_TYPE_ID);
+    if (!noteOne.ok || !characterOne.ok || !noteTwo.ok || !characterTwo.ok) throw new Error('setup failed');
+    const before = await journal.list({ kind: 'gm' });
+    if (!before.ok) throw new Error('manifest setup failed');
+    const moved = await journal.moveEntry({ kind: 'gm' }, {
+      direction: 'up',
+      entryId: characterTwo.value.id,
+      expectedManifestRevision: before.value.revision,
+    });
+    expect(moved).toMatchObject({
+      ok: true,
+      value: { entries: [
+        { id: noteOne.value.id },
+        { id: characterTwo.value.id },
+        { id: noteTwo.value.id },
+        { id: characterOne.value.id },
+      ] },
+    });
+    if (!moved.ok) throw new Error('move failed');
+    await expect(journal.reorderEntries({ kind: 'gm' }, {
+      expectedManifestRevision: before.value.revision,
+      groupId: 'core.notes',
+      orderedEntryIds: [noteTwo.value.id, noteOne.value.id],
+    })).resolves.toMatchObject({ error: { code: 'conflict' }, ok: false });
+    const reordered = await journal.reorderEntries({ kind: 'gm' }, {
+      expectedManifestRevision: moved.value.revision,
+      groupId: 'core.notes',
+      orderedEntryIds: [noteTwo.value.id, noteOne.value.id],
+    });
+    expect(reordered).toMatchObject({
+      ok: true,
+      value: { entries: [
+        { id: noteTwo.value.id },
+        { id: characterTwo.value.id },
+        { id: noteOne.value.id },
+        { id: characterOne.value.id },
+      ] },
+    });
+    database.close();
+    database = CampaignDatabase.open(directory);
+    await expect(repository().list({ kind: 'gm' })).resolves.toMatchObject(reordered);
+  });
+
+  it('migrates a schema-12 Note to versioned empty entry data', async () => {
+    const created = await repository().createNote({ kind: 'gm' });
+    if (!created.ok) throw new Error('setup failed');
+    database.connection.exec(`
+      ALTER TABLE journal_entries DROP COLUMN data_json;
+      ALTER TABLE journal_entries DROP COLUMN data_schema_version;
+      PRAGMA user_version = 12;
+    `);
+    database.close();
+    database = CampaignDatabase.open(directory);
+    expect(database.connection.prepare(
+      'SELECT data_schema_version, data_json FROM journal_entries WHERE id = ?',
+    ).get(created.value.id)).toEqual({ data_json: '{}', data_schema_version: 1 });
+    await expect(repository().getNote({ kind: 'gm' }, created.value.id)).resolves.toMatchObject({
+      ok: true,
+      value: { name: 'New Note', pages: [{ title: 'New Page' }] },
+    });
+  });
+
   it('migrates version 11 page revisions and embedded-asset references', async () => {
     const journal = repository();
     const created = await journal.createNote({ kind: 'gm' });
@@ -101,6 +233,8 @@ describe('JournalRepository', () => {
     database.connection.exec(`
       DROP TABLE journal_page_assets;
       ALTER TABLE journal_pages DROP COLUMN permission_revision;
+      ALTER TABLE journal_entries DROP COLUMN data_json;
+      ALTER TABLE journal_entries DROP COLUMN data_schema_version;
       PRAGMA user_version = 11;
     `);
     database.close();

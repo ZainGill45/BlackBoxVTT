@@ -8,6 +8,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { Checkbox } from '../../../components/ui/Checkbox';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { IconButton } from '../../../components/ui/IconButton';
 import { Modal } from '../../../components/ui/Modal';
@@ -23,7 +24,7 @@ import {
   type JournalApi,
   type JournalDeletePreview,
   type JournalDeleteTarget,
-  type JournalEntrySummary,
+  type NoteEntry,
   type JournalPage,
   type JournalPermissionSubject,
   type JournalResult,
@@ -52,9 +53,9 @@ interface NoteModalProps {
   initialPageId?: string;
   initialShowPermissions?: boolean;
   journalApi: JournalApi;
-  note: JournalEntrySummary;
+  note: NoteEntry;
   onClose: () => void;
-  onUpdated: (note: JournalEntrySummary | null) => void;
+  onUpdated: (note: NoteEntry | null) => void;
   users: JournalPermissionSubject[];
 }
 
@@ -86,7 +87,7 @@ function samePermissions<TAccess extends string>(
 const JOURNAL_EDIT_LEASE_RETRY_MS = 500;
 const EMPTY_IMAGE_THUMBNAILS: ReadonlyMap<string, AssetThumbnail> = new Map();
 
-function pageSummary(page: JournalPage): JournalEntrySummary['pages'][number] {
+function pageSummary(page: JournalPage): NoteEntry['pages'][number] {
   return {
     capabilities: page.capabilities,
     id: page.id,
@@ -100,7 +101,7 @@ function pageSummary(page: JournalPage): JournalEntrySummary['pages'][number] {
 }
 
 function pageAccessLabel(
-  page: JournalEntrySummary['pages'][number],
+  page: NoteEntry['pages'][number],
 ): string | null {
   if (!page.capabilities.edit) return 'View only';
   if (!page.permissions) return null;
@@ -141,7 +142,7 @@ export function NoteModal({
     initialShowPermissions,
   );
   const [permissionPageId, setPermissionPageId] = useState<string | undefined>();
-  const [formattingTarget, setFormattingTarget] = useState<'body' | 'note' | 'page'>('body');
+  const [formattingTarget, setFormattingTarget] = useState<'body' | 'note'>('body');
   const [chooser, setChooser] = useState<((assetId: string) => void) | null>(
     null,
   );
@@ -185,7 +186,7 @@ export function NoteModal({
   const releaseLeaseRef = useRef<() => Promise<void>>(async () => undefined);
 
   const acceptCurrent = useCallback(
-    (next: JournalEntrySummary) => {
+    (next: NoteEntry) => {
       currentRef.current = next;
       setCurrent(next);
       onUpdated(next);
@@ -247,8 +248,8 @@ export function NoteModal({
   const queueNoteMutation = useCallback(
     (
       mutation: (
-        active: JournalEntrySummary,
-      ) => Promise<JournalResult<JournalEntrySummary>>,
+        active: NoteEntry,
+      ) => Promise<JournalResult<NoteEntry>>,
       onFailure?: (message: string) => void,
     ) => {
       const queued = noteMutationQueueRef.current.then(async () => {
@@ -841,7 +842,7 @@ export function NoteModal({
     }
     const target = preview.target;
     setDeleteRequest(null);
-    if (target.kind === 'note') {
+    if (target.kind !== 'page') {
       await releaseLease();
       onClose();
       onUpdated(null);
@@ -893,7 +894,7 @@ export function NoteModal({
   };
 
   const beginPageReorder = (
-    summary: JournalEntrySummary['pages'][number],
+    summary: NoteEntry['pages'][number],
     event: MouseEvent,
   ) => {
     setSearch('');
@@ -1005,7 +1006,7 @@ export function NoteModal({
 
   const openPageContext = (
     event: MouseEvent,
-    summary: JournalEntrySummary['pages'][number],
+    summary: NoteEntry['pages'][number],
   ) => {
     event.preventDefault();
     let deleteArmedUntil = 0;
@@ -1159,16 +1160,7 @@ export function NoteModal({
         },
         style: nameStyle,
       }
-    : formattingTarget === 'page' && canEditPage && titleStyle
-      ? {
-          onChange: (next: JournalTitleStyle) => {
-            titleStyleRef.current = next;
-            setTitleStyle(next);
-            setPageStatus('dirty');
-          },
-          style: titleStyle,
-        }
-      : null;
+    : null;
 
   return (
     <>
@@ -1284,28 +1276,6 @@ export function NoteModal({
                 campaignId={campaignId}
                 content={content}
                 documentKey={`${page.id}:${page.revision}`}
-                contentHeader={
-                  <input
-                    aria-label="Page title"
-                    className={styles.pageTitle}
-                    maxLength={128}
-                    readOnly={!canEditPage}
-                    style={journalTitleStyleProperties(
-                      canEditPage ? titleStyle ?? page.titleStyle : page.titleStyle,
-                    )}
-                    value={canEditPage ? title : page.title}
-                    onBlur={() => void savePage()}
-                    onFocus={() => {
-                      if (canEditPage) setFormattingTarget('page');
-                    }}
-                    onChange={(event) => {
-                      if (!canEditPage) return;
-                      titleRef.current = event.currentTarget.value;
-                      setTitle(event.currentTarget.value);
-                      setPageStatus('dirty');
-                    }}
-                  />
-                }
                 editable={canEditPage}
                 onBodyFocus={() => setFormattingTarget('body')}
                 onBlur={() => void savePage()}
@@ -1407,25 +1377,24 @@ export function NoteModal({
       >
         <div className={styles.cleanupList}>
           {deleteRequest?.preview.assets.map((asset) => (
-            <label key={asset.id}>
-              <input
-                checked={cleanupIds.includes(asset.id)}
-                disabled={!asset.cleanupAllowed}
-                type="checkbox"
-                onChange={(event) => {
-                  const checked = event.currentTarget.checked;
-                  setCleanupIds((ids) =>
-                    checked
-                      ? [...ids, asset.id]
-                      : ids.filter((id) => id !== asset.id),
-                  );
-                }}
-              />
+            <Checkbox
+              key={asset.id}
+              checked={cleanupIds.includes(asset.id)}
+              disabled={!asset.cleanupAllowed}
+              onChange={(event) => {
+                const checked = event.currentTarget.checked;
+                setCleanupIds((ids) =>
+                  checked
+                    ? [...ids, asset.id]
+                    : ids.filter((id) => id !== asset.id),
+                );
+              }}
+            >
               <span>
                 {asset.displayName}
                 {asset.reason ? ` — ${asset.reason}` : ''}
               </span>
-            </label>
+            </Checkbox>
           ))}
         </div>
       </ConfirmModal>

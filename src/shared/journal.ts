@@ -1,7 +1,7 @@
 import type { Result } from './result';
 import type { JsonValue } from './gameSystems';
 
-export const JOURNAL_SCHEMA_VERSION = 2 as const;
+export const JOURNAL_SCHEMA_VERSION = 3 as const;
 export const RICH_TEXT_SCHEMA_VERSION = 1 as const;
 export const JOURNAL_ENTRY_TYPE_NOTE = 'core.note' as const;
 export const JOURNAL_EDIT_LEASE_MS = 30_000;
@@ -28,8 +28,30 @@ export const JOURNAL_FONT_FAMILIES = [
   'unifont',
 ] as const;
 
+export const JOURNAL_FONT_SIZES = [
+  '12px',
+  '14px',
+  '16px',
+  '18px',
+  '24px',
+  '32px',
+] as const;
+
+export const JOURNAL_LINE_LENGTHS = [
+  'narrow',
+  'compact',
+  'standard',
+  'comfortable',
+  'wide',
+  'extra-wide',
+  'full',
+] as const;
+
 export type JournalFontFamily = (typeof JOURNAL_FONT_FAMILIES)[number];
+export type JournalLineLength = (typeof JOURNAL_LINE_LENGTHS)[number];
 export type JournalTextAlignment = 'center' | 'default' | 'left' | 'right';
+
+export const DEFAULT_JOURNAL_LINE_LENGTH: JournalLineLength = 'wide';
 
 export interface JournalTitleStyle {
   alignment: JournalTextAlignment;
@@ -44,23 +66,30 @@ export interface JournalTitleStyle {
 export const journalIpcChannels = {
   acquireLease: 'journal:acquire-lease',
   changed: 'journal:changed',
+  createEntry: 'journal:create-entry',
   createNote: 'journal:create-note',
   createPage: 'journal:create-page',
+  deleteEntry: 'journal:delete-entry',
   deleteNote: 'journal:delete-note',
   deletePage: 'journal:delete-page',
   detachAsset: 'journal:detach-asset',
   findAssetDependents: 'journal:find-asset-dependents',
+  getEntry: 'journal:get-entry',
   getNote: 'journal:get-note',
   getPage: 'journal:get-page',
   list: 'journal:list',
   listUsers: 'journal:list-users',
+  moveEntry: 'journal:move-entry',
   moveNote: 'journal:move-note',
   movePage: 'journal:move-page',
   prepareDelete: 'journal:prepare-delete',
   releaseLease: 'journal:release-lease',
+  renameEntry: 'journal:rename-entry',
+  reorderEntries: 'journal:reorder-entries',
   reorderNotes: 'journal:reorder-notes',
   reorderPages: 'journal:reorder-pages',
   renewLease: 'journal:renew-lease',
+  updateEntryPermissions: 'journal:update-entry-permissions',
   updateNote: 'journal:update-note',
   updateNotePermissions: 'journal:update-note-permissions',
   updatePage: 'journal:update-page',
@@ -95,6 +124,7 @@ export interface RichTextNodeV1 {
 
 export interface RichTextDocumentV1 {
   doc: RichTextNodeV1;
+  lineLength?: JournalLineLength;
   schemaVersion: typeof RICH_TEXT_SCHEMA_VERSION;
 }
 
@@ -126,25 +156,43 @@ export interface JournalPageSummary {
   titleStyle: JournalTitleStyle;
 }
 
-export interface JournalEntrySummary {
+export interface JournalEntryBaseSummary {
   capabilities: JournalEntryCapabilities;
+  dataVersion: number;
+  groupId: string;
   id: string;
+  kind: 'note' | 'system';
   name: string;
-  nameStyle: JournalTitleStyle;
-  pages: JournalPageSummary[];
   permissions: JournalPermissionConfiguration<JournalAccessLevel> | null;
   position: number;
   revision: number;
+  typeId: string;
+}
+
+export interface NoteEntry extends JournalEntryBaseSummary {
+  kind: 'note';
+  nameStyle: JournalTitleStyle;
+  pages: JournalPageSummary[];
   typeId: typeof JOURNAL_ENTRY_TYPE_NOTE;
 }
+
+export interface SystemJournalEntrySummary extends JournalEntryBaseSummary {
+  kind: 'system';
+}
+
+export type JournalEntrySummary = NoteEntry | SystemJournalEntrySummary;
+
+export interface SystemJournalEntry extends SystemJournalEntrySummary {
+  data: JsonValue;
+}
+
+export type JournalEntry = NoteEntry | SystemJournalEntry;
 
 export interface JournalManifest {
   entries: JournalEntrySummary[];
   revision: number;
   schemaVersion: typeof JOURNAL_SCHEMA_VERSION;
 }
-
-export type NoteEntry = JournalEntrySummary;
 
 export interface JournalPage extends JournalPageSummary {
   content: RichTextDocumentV1;
@@ -200,6 +248,10 @@ export interface JournalEntryInput extends JournalCampaignInput {
   entryId: string;
 }
 
+export interface CreateJournalEntryInput extends JournalCampaignInput {
+  typeId: string;
+}
+
 export interface JournalPageInput extends JournalEntryInput {
   pageId: string;
 }
@@ -214,6 +266,11 @@ export interface UpdateJournalNoteInput extends JournalEntryInput {
   nameStyle: JournalTitleStyle;
 }
 
+export interface RenameJournalEntryInput extends JournalEntryInput {
+  expectedRevision: number;
+  name: string;
+}
+
 export interface UpdateJournalPageInput extends JournalPageInput {
   content: RichTextDocumentV1;
   expectedRevision: number;
@@ -226,6 +283,8 @@ export interface UpdateJournalNotePermissionsInput extends JournalEntryInput {
   expectedRevision: number;
   permissions: JournalPermissionConfiguration<JournalAccessLevel>;
 }
+
+export type UpdateJournalEntryPermissionsInput = UpdateJournalNotePermissionsInput;
 
 export interface UpdateJournalPagePermissionsInput extends JournalPageInput {
   expectedPermissionRevision: number;
@@ -247,6 +306,10 @@ export interface ReorderJournalEntriesInput extends JournalCampaignInput {
   orderedEntryIds: string[];
 }
 
+export interface ReorderJournalGroupInput extends ReorderJournalEntriesInput {
+  groupId: string;
+}
+
 export interface ReorderJournalPagesInput extends JournalEntryInput {
   expectedEntryRevision: number;
   orderedPageIds: string[];
@@ -257,6 +320,7 @@ export interface JournalLeaseInput extends JournalPageInput {
 }
 
 export type JournalDeleteTarget =
+  | { entryId: string; kind: 'entry' }
   | { entryId: string; kind: 'note' }
   | { entryId: string; kind: 'page'; pageId: string };
 
@@ -295,23 +359,29 @@ export interface JournalChangedEvent {
 
 export interface JournalApi {
   acquireLease(input: JournalPageInput): Promise<JournalResult<PageEditLease>>;
+  createEntry(input: CreateJournalEntryInput): Promise<JournalResult<JournalEntry>>;
   createNote(input: JournalCampaignInput): Promise<JournalResult<NoteEntry>>;
   createPage(input: CreateJournalPageInput): Promise<JournalResult<JournalPage>>;
   deleteTarget(input: DeleteJournalTargetInput): Promise<JournalResult<JournalDeleteResult>>;
   detachAsset(input: JournalAssetInput): Promise<JournalResult<null>>;
   findAssetDependents(input: JournalAssetInput): Promise<JournalResult<JournalAssetDependent[]>>;
+  getEntry(input: JournalEntryInput): Promise<JournalResult<JournalEntry>>;
   getNote(input: JournalEntryInput): Promise<JournalResult<NoteEntry>>;
   getPage(input: JournalPageInput): Promise<JournalResult<JournalPage>>;
   list(input: JournalCampaignInput): Promise<JournalResult<JournalManifest>>;
   listUsers(input: JournalCampaignInput): Promise<JournalResult<JournalPermissionSubject[]>>;
+  moveEntry(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>>;
   moveNote(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>>;
   movePage(input: MoveJournalPageInput): Promise<JournalResult<NoteEntry>>;
   onChanged(listener: (event: JournalChangedEvent) => void): () => void;
   prepareDelete(input: PrepareJournalDeleteInput): Promise<JournalResult<JournalDeletePreview>>;
   releaseLease(input: JournalLeaseInput): Promise<JournalResult<null>>;
+  renameEntry(input: RenameJournalEntryInput): Promise<JournalResult<JournalEntry>>;
+  reorderEntries(input: ReorderJournalGroupInput): Promise<JournalResult<JournalManifest>>;
   reorderNotes(input: ReorderJournalEntriesInput): Promise<JournalResult<JournalManifest>>;
   reorderPages(input: ReorderJournalPagesInput): Promise<JournalResult<NoteEntry>>;
   renewLease(input: JournalLeaseInput): Promise<JournalResult<PageEditLease>>;
+  updateEntryPermissions(input: UpdateJournalEntryPermissionsInput): Promise<JournalResult<JournalEntry>>;
   updateNote(input: UpdateJournalNoteInput): Promise<JournalResult<NoteEntry>>;
   updateNotePermissions(input: UpdateJournalNotePermissionsInput): Promise<JournalResult<NoteEntry>>;
   updatePage(input: UpdateJournalPageInput): Promise<JournalResult<JournalPage>>;
@@ -346,7 +416,7 @@ const MARK_TYPES = new Set([
   'textStyle',
   'underline',
 ]);
-const RICH_TEXT_DOCUMENT_KEYS = new Set(['doc', 'schemaVersion']);
+const RICH_TEXT_DOCUMENT_KEYS = new Set(['doc', 'lineLength', 'schemaVersion']);
 const RICH_TEXT_NODE_KEYS = new Set(['attrs', 'content', 'marks', 'text', 'type']);
 const RICH_TEXT_MARK_KEYS = new Set(['attrs', 'type']);
 const MAX_RICH_TEXT_ATTRIBUTE_DEPTH = 8;
@@ -356,6 +426,7 @@ const MAX_RICH_TEXT_MARKS_PER_NODE = 64;
 export function emptyRichTextDocument(): RichTextDocumentV1 {
   return {
     doc: { content: [{ type: 'paragraph' }], type: 'doc' },
+    lineLength: DEFAULT_JOURNAL_LINE_LENGTH,
     schemaVersion: RICH_TEXT_SCHEMA_VERSION,
   };
 }
@@ -432,6 +503,16 @@ function safeLink(href: unknown): boolean {
   return typeof href === 'string' && /^(https?:|mailto:)/iu.test(href);
 }
 
+function validMarkAttributes(
+  type: string,
+  attrs: Record<string, JsonValue> | undefined,
+): boolean {
+  if (type === 'link') return safeLink(attrs?.href);
+  if (type !== 'textStyle') return true;
+  return attrs?.fontSize == null ||
+    JOURNAL_FONT_SIZES.includes(attrs.fontSize as typeof JOURNAL_FONT_SIZES[number]);
+}
+
 function validNodeAttributes(type: string, attrs: Record<string, JsonValue> | undefined): boolean {
   if (type !== 'assetImage') return true;
   if (!attrs) return false;
@@ -450,6 +531,8 @@ export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 
   const candidate = value as Partial<RichTextDocumentV1>;
   if (
     candidate.schemaVersion !== RICH_TEXT_SCHEMA_VERSION ||
+    (candidate.lineLength !== undefined &&
+      !JOURNAL_LINE_LENGTHS.includes(candidate.lineLength)) ||
     !Object.keys(candidate).every((key) => RICH_TEXT_DOCUMENT_KEYS.has(key))
   ) return false;
   let count = 0;
@@ -482,7 +565,7 @@ export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 
             typeof mark.type !== 'string' ||
             !MARK_TYPES.has(mark.type) ||
             (mark.attrs !== undefined && !validAttributes(mark.attrs)) ||
-            (mark.type === 'link' && !safeLink(mark.attrs?.href)),
+            !validMarkAttributes(mark.type, mark.attrs),
         ))
     ) return false;
     return item.content === undefined ||
@@ -526,7 +609,7 @@ export function removeJournalAsset(
     };
   };
   return {
+    ...content,
     doc: filter(content.doc) ?? emptyRichTextDocument().doc,
-    schemaVersion: RICH_TEXT_SCHEMA_VERSION,
   };
 }

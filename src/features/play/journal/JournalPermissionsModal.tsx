@@ -3,7 +3,7 @@ import { Button } from '../../../components/ui/Button';
 import { Modal } from '../../../components/ui/Modal';
 import type {
   JournalAccessLevel,
-  JournalEntrySummary,
+  NoteEntry,
   JournalPageAccessLevel,
   JournalPermissionConfiguration,
   JournalPermissionSubject,
@@ -27,7 +27,7 @@ export interface JournalPermissionDraft {
 
 interface JournalPermissionsModalProps {
   initialPageId?: string;
-  note: JournalEntrySummary;
+  note: NoteEntry;
   onDismiss: () => void;
   onSave: (draft: JournalPermissionDraft) => Promise<string | null>;
   users: JournalPermissionSubject[];

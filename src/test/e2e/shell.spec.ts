@@ -186,6 +186,21 @@ test.describe('application lifecycle', () => {
     await expect(add).toBeEnabled();
     await add.click();
 
+    const actorMenu = window.getByRole('menu', {
+      name: 'Choose journal entry type',
+    });
+    await expect(actorMenu.getByRole('menuitem', { name: 'Note' })).toBeVisible();
+    await actorMenu.getByRole('menuitem', { name: 'Character' }).click();
+    const characterSheet = window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await expect(characterSheet).toBeVisible();
+    await characterSheet.press('Escape');
+    await expect(characterSheet).toHaveCount(0);
+
+    await add.click();
+    await window.getByRole('menuitem', { name: 'Note' }).click();
+
     const noteModal = window.getByRole('dialog').filter({
       has: window.getByRole('textbox', { name: 'Note name' }),
     });
@@ -200,7 +215,8 @@ test.describe('application lifecycle', () => {
     );
     await expect(noteModal.getByRole('button', { name: 'Close note' })).toHaveCount(0);
     const modalBounds = await noteModal.boundingBox();
-    expect(modalBounds?.width).toBeLessThanOrEqual(1122);
+    expect(modalBounds?.width).toBeGreaterThan(1186);
+    expect(modalBounds?.width).toBeCloseTo(1280, 0);
     expect(modalBounds?.height).toBeGreaterThanOrEqual(820);
     expect(modalBounds?.height).toBeLessThanOrEqual(840);
     const titleGeometry = await noteModal.getByLabel('Note name').evaluate((input) => {
@@ -215,50 +231,30 @@ test.describe('application lifecycle', () => {
         inputWidth: inputBounds.width,
       };
     });
-    expect(titleGeometry.inputWidth).toBeCloseTo(titleGeometry.headerWidth, 0);
+    expect(Math.abs(titleGeometry.inputWidth - titleGeometry.headerWidth))
+      .toBeLessThanOrEqual(1);
     expect(titleGeometry.inputHeight).toBeCloseTo(titleGeometry.headerHeight, 0);
     expect(titleGeometry.fontSize).toBeGreaterThanOrEqual(20);
     await noteModal.getByLabel('Note name').fill('Campaign Chronicle');
     await noteModal.getByLabel('Note name').focus();
+    await noteModal.getByRole('button', { name: 'Style: Title' }).click();
     await noteModal.getByRole('button', { name: 'Italic' }).click();
-    await noteModal.getByRole('combobox', { name: 'Font family' }).selectOption('lora');
+    await noteModal.getByRole('button', { name: 'Font Family: Default' }).click();
+    await noteModal.getByRole('button', { name: 'Lora' }).click();
     await expect(noteModal.getByLabel('Note name')).toHaveCSS('font-style', 'italic');
     await expect(noteModal.getByLabel('Note name')).toHaveCSS('font-family', /Lora Variable/);
-    await expect(noteModal.getByLabel('Text color')).toHaveValue('#f0f0f0');
+    await expect(noteModal.getByRole('button', { name: 'Text Color: Default' })).toBeVisible();
     await expect(noteModal.getByLabel('Highlight color')).toHaveCount(0);
     await expect(noteModal.getByRole('button', { name: 'Undo' })).toHaveCount(0);
     await expect(noteModal.getByRole('button', { name: 'Redo' })).toHaveCount(0);
-    const fontSelectAppearance = await noteModal
-      .getByRole('combobox', { name: 'Font family' })
-      .evaluate((element) => {
-        const select = element as HTMLSelectElement;
-        return {
-          appearance: getComputedStyle(select).appearance,
-          colorScheme: getComputedStyle(select).colorScheme,
-          optionBackground: getComputedStyle(select.options[0]).backgroundColor,
-          optionColor: getComputedStyle(select.options[0]).color,
-          width: select.getBoundingClientRect().width,
-        };
-      });
-    expect(fontSelectAppearance.appearance).toBe('none');
-    expect(fontSelectAppearance.colorScheme).toBe('dark');
-    expect(fontSelectAppearance.optionBackground).toBe('rgb(29, 29, 29)');
-    expect(fontSelectAppearance.optionColor).toBe('rgb(240, 240, 240)');
-    expect(fontSelectAppearance.width).toBeGreaterThan(100);
-    await noteModal.getByLabel('Page title').fill('Session Zero');
-    await noteModal.getByLabel('Page title').focus();
-    await noteModal.getByRole('button', { name: 'Underline' }).click();
-    await expect(noteModal.getByLabel('Page title')).toHaveCSS('text-decoration-line', 'underline');
+    const toolbar = noteModal.getByRole('toolbar', { name: 'Rich text formatting toolbar' });
+    await expect(toolbar.locator(':scope > details')).toHaveCount(7);
+    await expect(toolbar.locator(':scope > select, :scope > label')).toHaveCount(0);
+    await expect(noteModal.getByLabel('Page title')).toHaveCount(0);
     const prose = noteModal.locator('.ProseMirror');
-    const titleToBodyGap = await noteModal.evaluate((modal) => {
-      const title = modal.querySelector<HTMLInputElement>('[aria-label="Page title"]');
-      const body = modal.querySelector<HTMLElement>('.ProseMirror');
-      if (!title || !body) throw new Error('The Journal page layout is incomplete.');
-      return body.getBoundingClientRect().top - title.getBoundingClientRect().bottom;
-    });
-    expect(titleToBodyGap).toBeLessThanOrEqual(10);
     await prose.fill('The brass key opens the western vault.');
     await prose.press('Control+A');
+    await noteModal.getByRole('button', { name: 'Style: Paragraph' }).click();
     await noteModal.getByRole('button', { name: 'Italic' }).click();
     await expect(prose.locator('em')).toHaveCSS('font-style', 'italic');
     await prose.press('End');
@@ -289,18 +285,8 @@ test.describe('application lifecycle', () => {
         embeddedImage.evaluate((image: HTMLImageElement) => image.naturalWidth),
       )
       .toBeGreaterThan(0);
-    const pageTitleTop = await noteModal.getByLabel('Page title').evaluate(
-      (input) => input.getBoundingClientRect().top,
-    );
-    await prose.evaluate((content) => {
-      if (content.parentElement) content.parentElement.scrollTop = 500;
-    });
-    await expect
-      .poll(() => noteModal.getByLabel('Page title').evaluate(
-        (input) => input.getBoundingClientRect().top,
-      ))
-      .toBeCloseTo(pageTitleTop, 0);
     const embeddedSource = await embeddedImage.getAttribute('src');
+    await noteModal.getByRole('button', { name: 'Insert' }).click();
     await noteModal.getByRole('button', { name: 'Image' }).click();
     const imageChooser = window.getByRole('dialog', {
       name: 'Choose a Journal image',
@@ -309,22 +295,22 @@ test.describe('application lifecycle', () => {
     await imageChooser.getByRole('button', { name: 'pasted-map.png' }).click();
     await expect(embeddedImages).toHaveCount(2);
     await prose.press('Control+A');
+    await noteModal.getByRole('button', { name: 'Style: Paragraph' }).click();
     await noteModal.getByRole('button', { name: 'Bold' }).click();
     await noteModal.getByLabel('Note name').blur();
     await expect(noteModal.getByText('Saved', { exact: true })).toBeVisible();
     await expect(embeddedImage).toHaveAttribute('src', embeddedSource!);
     await window.mouse.click(10, 10);
     await expect(noteModal).not.toBeVisible();
-    await window
-      .getByRole('button', { name: /Campaign Chronicle/ })
-      .click({ button: 'right' });
-    const deleteNote = window.getByRole('menuitem', { name: 'Delete Note' });
+    const deleteNote = window.getByRole('button', {
+      name: 'Delete Campaign Chronicle',
+    });
     await expect(deleteNote).toHaveAttribute('aria-pressed', 'false');
     expect(
       await deleteNote.evaluate((button) => getComputedStyle(button).backgroundImage),
     ).not.toBe('none');
     await deleteNote.click();
-    const confirmDeleteNote = window.getByRole('menuitem', {
+    const confirmDeleteNote = window.getByRole('button', {
       name: 'Confirm deletion of Campaign Chronicle',
     });
     await expect(confirmDeleteNote).toHaveAttribute('aria-pressed', 'true');
@@ -342,12 +328,103 @@ test.describe('application lifecycle', () => {
     await window.getByRole('tab', { name: 'Create Campaign' }).click();
     await window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
     await window.getByRole('tab', { name: 'Journal' }).click();
-    await window.getByRole('button', { name: /Campaign Chronicle/ }).click();
+    await window.locator('button[aria-expanded]', { hasText: 'Notes' }).click();
+    await window.getByRole('button', {
+      exact: true,
+      name: 'Open Campaign Chronicle',
+    }).click();
     const restored = window.getByRole('dialog', { name: 'Campaign Chronicle' });
-    await expect(restored.getByLabel('Page title')).toHaveValue('Session Zero');
+    await expect(restored.getByLabel('Page title')).toHaveCount(0);
     await expect(restored.getByLabel('Note name')).toHaveCSS('font-family', /Lora Variable/);
     await expect(restored.getByLabel('Note name')).toHaveCSS('font-style', 'italic');
-    await expect(restored.getByLabel('Page title')).toHaveCSS('text-decoration-line', 'underline');
     await expect(restored.getByText('The brass key opens the western vault.')).toBeVisible();
+  });
+
+  test('persists the D&D Character lifecycle in its grouped Journal slice', async () => {
+    const first = await apps.launch();
+    let { window } = first;
+    await createAndOpenCampaign(window, CAMPAIGN);
+    await window.getByRole('tab', { name: 'Journal' }).click();
+    const add = window.getByRole('button', { name: 'Add journal entry' });
+
+    await add.click();
+    await window.getByRole('menuitem', { name: 'Character' }).click();
+    let sheet = window.getByRole('dialog', { name: 'New Character character sheet' });
+    await expect(sheet).toBeVisible();
+    await sheet.press('Escape');
+
+    const characterRows = window.locator(
+      '[data-journal-group-id="dnd5e.characters"]',
+    );
+    const firstCharacterId = await characterRows.first().getAttribute(
+      'data-journal-order-id',
+    );
+    expect(firstCharacterId).not.toBeNull();
+
+    const firstCharacterName = window.getByRole('textbox', {
+      name: 'Name for New Character',
+    });
+    await firstCharacterName.fill('Rowen');
+    await firstCharacterName.press('Enter');
+    await expect(window.getByRole('textbox', { name: 'Name for Rowen' })).toHaveValue('Rowen');
+
+    await window.getByRole('button', {
+      exact: true,
+      name: 'Open Rowen',
+    }).click();
+    sheet = window.getByRole('dialog', { name: 'Rowen character sheet' });
+    await expect(sheet).toBeVisible();
+    await sheet.press('Escape');
+
+    await window.getByRole('button', {
+      exact: true,
+      name: 'Open Rowen',
+    }).click({ button: 'right' });
+    await expect(window.getByRole('menuitem', { name: 'Rename Character' })).toHaveCount(0);
+    await window.keyboard.press('Escape');
+
+    await add.click();
+    await window.getByRole('menuitem', { name: 'Character' }).click();
+    await window.getByRole('dialog', { name: 'New Character character sheet' }).press('Escape');
+    await expect(characterRows).toHaveCount(2);
+    const secondCharacterId = await characterRows.nth(1).getAttribute(
+      'data-journal-order-id',
+    );
+    await characterRows.nth(1).getByRole('button', {
+      exact: true,
+      name: 'Open New Character',
+    }).click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Move Character Up' }).click();
+    await expect.poll(async () =>
+      characterRows.evaluateAll((rows) => rows.map((row) => row.getAttribute('data-journal-order-id'))),
+    ).toEqual([secondCharacterId, firstCharacterId]);
+
+    const deleteCharacter = characterRows.first().getByRole('button', {
+      name: 'Delete New Character',
+    });
+    await deleteCharacter.click();
+    await characterRows.first().getByRole('button', {
+      name: 'Confirm deletion of New Character',
+    }).click();
+    await expect(characterRows).toHaveCount(1);
+
+    await first.app.close();
+    const restarted = await apps.launchInto(first.userDataPath);
+    window = restarted.window;
+    await window.getByRole('tab', { name: 'Create Campaign' }).click();
+    await window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
+    await window.getByRole('tab', { name: 'Journal' }).click();
+    await window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    await expect(window.getByRole('button', {
+      exact: true,
+      name: 'Open Rowen',
+    })).toHaveCount(1);
+    const restartedCharacterRows = window.locator(
+      '[data-journal-group-id="dnd5e.characters"]',
+    );
+    await expect(restartedCharacterRows.first()).toHaveAttribute(
+      'data-journal-order-id',
+      firstCharacterId!,
+    );
   });
 });

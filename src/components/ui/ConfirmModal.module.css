@@ -1,6 +1,5 @@
 .content {
   display: grid;
-  max-width: 28rem;
   gap: var(--space-4);
 }
 
@@ -9,8 +8,16 @@
   margin: 0;
 }
 
+.content h2 {
+  text-align: center;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.actions > button {
+  flex-grow: 1;
 }

@@ -1,0 +1,17 @@
+.modal {
+  width: min(80rem, calc(100dvw - var(--space-8)));
+  height: min(52rem, calc(100dvh - var(--space-8)));
+  max-width: calc(100dvw - var(--space-8));
+  max-height: calc(100dvh - var(--space-8));
+}
+
+.modal > div {
+  max-height: calc(100dvh - var(--space-8));
+}
+
+.content {
+  width: 100%;
+  height: min(52rem, calc(100dvh - var(--space-8)));
+  padding: 0;
+  overflow: hidden;
+}

@@ -47,41 +47,6 @@
   outline-offset: 0;
 }
 
-.assetCopy {
-  display: grid;
-  min-width: 0;
-  gap: 0;
-  align-content: center;
-}
-
-.assetCopy input {
-  min-width: 0;
-  height: 1rem;
-  padding: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font: inherit;
-  font-weight: var(--font-weight-medium);
-  line-height: 1rem;
-  text-overflow: ellipsis;
-}
-
-.assetCopy input:focus {
-  background: transparent;
-  border: 0;
-  outline: 0;
-}
-
-.assetCopy span {
-  padding: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  line-height: 1rem;
-}
-
 .deleteButton {
   display: grid;
   width: var(--control-height);

@@ -1,0 +1,38 @@
+.copy {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+  align-content: center;
+}
+
+.copy input {
+  min-width: 0;
+  height: 1rem;
+  padding: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1rem;
+  text-overflow: ellipsis;
+}
+
+.copy input:focus {
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.copy span {
+  padding: 0;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

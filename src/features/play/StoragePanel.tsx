@@ -11,12 +11,12 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
 } from 'react';
 import { Button } from '../../components/ui/Button';
 import { CanonicalLoader } from '../../components/ui/CanonicalLoader';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
 import { ErrorModal } from '../../components/ui/ErrorModal';
+import { InlineRename } from '../../components/ui/InlineRename';
 import type {
   AssetApi,
   AssetErrorEvent,
@@ -77,29 +77,7 @@ function AssetRow({
   onRename: (displayName: string) => Promise<boolean>;
   canDrag: boolean;
 }) {
-  const [draft, setDraft] = useState(asset.displayName);
   const Icon = GROUP_ICONS[asset.kind];
-
-  const commit = async () => {
-    if (draft === asset.displayName) {
-      return;
-    }
-    const saved = await onRename(draft);
-    if (!saved) {
-      setDraft(asset.displayName);
-    }
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.currentTarget.blur();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      setDraft(asset.displayName);
-      event.currentTarget.blur();
-    }
-  };
 
   return (
     <li className={styles.assetRow} data-sync-state={asset.syncState}>
@@ -132,18 +110,14 @@ function AssetRow({
       >
         <Icon aria-hidden size="1.625rem" strokeWidth={1.4} />
       </button>
-      <div className={styles.assetCopy}>
-        <input
-          aria-label={`Name for ${asset.displayName}`}
-          disabled={!asset.capabilities.rename}
-          maxLength={256}
-          value={draft}
-          onBlur={() => void commit()}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onKeyDown={handleKeyDown}
-        />
-        <span>{`${asset.format.toUpperCase()} · ${formatBytes(asset.sizeBytes)}`}</span>
-      </div>
+      <InlineRename
+        accessibleLabel={`Name for ${asset.displayName}`}
+        detail={`${asset.format.toUpperCase()} · ${formatBytes(asset.sizeBytes)}`}
+        disabled={!asset.capabilities.rename}
+        maxLength={256}
+        onRename={onRename}
+        value={asset.displayName}
+      />
       <Button
         aria-label={
           deleteArmed

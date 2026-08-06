@@ -27,8 +27,9 @@ const permissions = <T extends z.ZodTypeAny>(access: T) => z.object({
     .max(MAX_JOURNAL_PERMISSION_OVERRIDES),
 }).strict();
 const deleteNoteTarget = z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict();
+const deleteEntryTarget = z.object({ entryId: z.string().uuid(), kind: z.literal('entry') }).strict();
 const deletePageTarget = z.object({ entryId: z.string().uuid(), kind: z.literal('page'), pageId: z.string().uuid() }).strict();
-const deleteTarget = z.discriminatedUnion('kind', [deleteNoteTarget, deletePageTarget]);
+const deleteTarget = z.discriminatedUnion('kind', [deleteEntryTarget, deleteNoteTarget, deletePageTarget]);
 
 function invalid<T>(): JournalResult<T> {
   return { error: { code: 'invalid_input', message: 'The Journal request contains invalid input.' }, ok: false };
@@ -62,6 +63,10 @@ export function registerJournalIpcHandlers(
     const parsed = entry.safeParse(input);
     return parsed.success ? manager.getNote(parsed.data) : invalid();
   });
+  handle(journalIpcChannels.getEntry, (input) => {
+    const parsed = entry.safeParse(input);
+    return parsed.success ? manager.getEntry(parsed.data) : invalid();
+  });
   handle(journalIpcChannels.getPage, (input) => {
     const parsed = page.safeParse(input);
     return parsed.success ? manager.getPage(parsed.data) : invalid();
@@ -69,6 +74,10 @@ export function registerJournalIpcHandlers(
   handle(journalIpcChannels.createNote, (input) => {
     const parsed = campaign.safeParse(input);
     return parsed.success ? manager.createNote(parsed.data.campaignId) : invalid();
+  });
+  handle(journalIpcChannels.createEntry, (input) => {
+    const parsed = campaign.extend({ typeId: z.string().min(1).max(128) }).safeParse(input);
+    return parsed.success ? manager.createEntry(parsed.data) : invalid();
   });
   handle(journalIpcChannels.findAssetDependents, (input) => {
     const parsed = asset.safeParse(input);
@@ -94,6 +103,20 @@ export function registerJournalIpcHandlers(
       permissions: permissions(entryAccess),
     }).safeParse(input);
     return parsed.success ? manager.updateNotePermissions(parsed.data) : invalid();
+  });
+  handle(journalIpcChannels.renameEntry, (input) => {
+    const parsed = entry.extend({
+      expectedRevision: revision,
+      name: z.string().max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
+    }).safeParse(input);
+    return parsed.success ? manager.renameEntry(parsed.data) : invalid();
+  });
+  handle(journalIpcChannels.updateEntryPermissions, (input) => {
+    const parsed = entry.extend({
+      expectedRevision: revision,
+      permissions: permissions(entryAccess),
+    }).safeParse(input);
+    return parsed.success ? manager.updateEntryPermissions(parsed.data) : invalid();
   });
   handle(journalIpcChannels.createPage, (input) => {
     const parsed = entry.extend({ expectedEntryRevision: revision }).safeParse(input);
@@ -134,9 +157,21 @@ export function registerJournalIpcHandlers(
     const parsed = entry.extend({ direction: z.enum(['up', 'down']), expectedManifestRevision: revision }).safeParse(input);
     return parsed.success ? manager.moveNote(parsed.data) : invalid();
   });
+  handle(journalIpcChannels.moveEntry, (input) => {
+    const parsed = entry.extend({ direction: z.enum(['up', 'down']), expectedManifestRevision: revision }).safeParse(input);
+    return parsed.success ? manager.moveEntry(parsed.data) : invalid();
+  });
   handle(journalIpcChannels.reorderNotes, (input) => {
     const parsed = campaign.extend({ expectedManifestRevision: revision, orderedEntryIds: z.array(z.string().uuid()).max(MAX_JOURNAL_ENTRIES) }).safeParse(input);
     return parsed.success ? manager.reorderNotes(parsed.data) : invalid();
+  });
+  handle(journalIpcChannels.reorderEntries, (input) => {
+    const parsed = campaign.extend({
+      expectedManifestRevision: revision,
+      groupId: z.string().min(1).max(128),
+      orderedEntryIds: z.array(z.string().uuid()).max(MAX_JOURNAL_ENTRIES),
+    }).safeParse(input);
+    return parsed.success ? manager.reorderEntries(parsed.data) : invalid();
   });
   handle(journalIpcChannels.movePage, (input) => {
     const parsed = page.extend({ direction: z.enum(['up', 'down']), expectedEntryRevision: revision }).safeParse(input);
@@ -152,6 +187,10 @@ export function registerJournalIpcHandlers(
   });
   handle(journalIpcChannels.deleteNote, (input) => {
     const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deleteNoteTarget }).safeParse(input);
+    return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
+  });
+  handle(journalIpcChannels.deleteEntry, (input) => {
+    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deleteEntryTarget }).safeParse(input);
     return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
   });
   // Page and note deletion share the same explicit manager operation, but retain

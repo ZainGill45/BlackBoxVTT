@@ -7,6 +7,7 @@ type SuccessType =
   | 'server.journal_asset_dependents'
   | 'server.journal_delete_preview'
   | 'server.journal_delete_result'
+  | 'server.journal_entry'
   | 'server.journal_lease'
   | 'server.journal_manifest'
   | 'server.journal_note'
@@ -41,6 +42,10 @@ export class HostJournalRequestHandler {
       const input = parsePayload('client.journal_get_note', envelope.payload);
       return this.respond(client, envelope, 'server.journal_note', await this.journal.getNote(actor, input.entryId));
     }
+    if (envelope.type === 'client.journal_get_entry') {
+      const input = parsePayload('client.journal_get_entry', envelope.payload);
+      return this.respond(client, envelope, 'server.journal_entry', await this.journal.getEntry(actor, input.entryId));
+    }
     if (envelope.type === 'client.journal_find_asset_dependents') {
       const input = parsePayload('client.journal_find_asset_dependents', envelope.payload);
       const value = await this.journal.findAssetDependents(input.assetId, actor);
@@ -62,6 +67,12 @@ export class HostJournalRequestHandler {
       await this.after(result.ok, { entryId: result.ok ? result.value.id : undefined, type: 'structure' });
       return this.respond(client, envelope, 'server.journal_note', result);
     }
+    if (envelope.type === 'client.journal_create_entry') {
+      const input = parsePayload('client.journal_create_entry', envelope.payload);
+      const result = await this.journal.createEntry(actor, input.typeId);
+      await this.after(result.ok, { entryId: result.ok ? result.value.id : undefined, type: 'structure' });
+      return this.respond(client, envelope, 'server.journal_entry', result);
+    }
     if (envelope.type === 'client.journal_update_note') {
       const input = parsePayload('client.journal_update_note', envelope.payload);
       const result = await this.journal.updateNote(actor, input.entryId, input.name, input.nameStyle, input.expectedRevision);
@@ -73,6 +84,18 @@ export class HostJournalRequestHandler {
       const result = await this.journal.updateNotePermissions(actor, input);
       await this.after(result.ok, { entryId: input.entryId, type: 'permissions' });
       return this.respond(client, envelope, 'server.journal_note', result);
+    }
+    if (envelope.type === 'client.journal_rename_entry') {
+      const input = parsePayload('client.journal_rename_entry', envelope.payload);
+      const result = await this.journal.renameEntry(actor, input.entryId, input.name, input.expectedRevision);
+      await this.after(result.ok, { entryId: input.entryId, type: 'structure' });
+      return this.respond(client, envelope, 'server.journal_entry', result);
+    }
+    if (envelope.type === 'client.journal_update_entry_permissions') {
+      const input = parsePayload('client.journal_update_entry_permissions', envelope.payload);
+      const result = await this.journal.updateEntryPermissions(actor, input);
+      await this.after(result.ok, { entryId: input.entryId, type: 'permissions' });
+      return this.respond(client, envelope, 'server.journal_entry', result);
     }
     if (envelope.type === 'client.journal_create_page') {
       const input = parsePayload('client.journal_create_page', envelope.payload);
@@ -111,9 +134,21 @@ export class HostJournalRequestHandler {
       await this.after(result.ok, { type: 'structure' });
       return this.respond(client, envelope, 'server.journal_manifest', result);
     }
+    if (envelope.type === 'client.journal_move_entry') {
+      const input = parsePayload('client.journal_move_entry', envelope.payload);
+      const result = await this.journal.moveEntry(actor, input);
+      await this.after(result.ok, { type: 'structure' });
+      return this.respond(client, envelope, 'server.journal_manifest', result);
+    }
     if (envelope.type === 'client.journal_reorder_notes') {
       const input = parsePayload('client.journal_reorder_notes', envelope.payload);
       const result = await this.journal.reorderNotes(actor, input);
+      await this.after(result.ok, { type: 'structure' });
+      return this.respond(client, envelope, 'server.journal_manifest', result);
+    }
+    if (envelope.type === 'client.journal_reorder_entries') {
+      const input = parsePayload('client.journal_reorder_entries', envelope.payload);
+      const result = await this.journal.reorderEntries(actor, input);
       await this.after(result.ok, { type: 'structure' });
       return this.respond(client, envelope, 'server.journal_manifest', result);
     }
@@ -133,10 +168,16 @@ export class HostJournalRequestHandler {
       const input = parsePayload('client.journal_prepare_delete', envelope.payload);
       return this.respond(client, envelope, 'server.journal_delete_preview', await this.journal.prepareDelete(actor, input.target));
     }
-    if (envelope.type === 'client.journal_delete_note' || envelope.type === 'client.journal_delete_page') {
-      const input = envelope.type === 'client.journal_delete_note'
-        ? parsePayload('client.journal_delete_note', envelope.payload)
-        : parsePayload('client.journal_delete_page', envelope.payload);
+    if (
+      envelope.type === 'client.journal_delete_entry' ||
+      envelope.type === 'client.journal_delete_note' ||
+      envelope.type === 'client.journal_delete_page'
+    ) {
+      const input = envelope.type === 'client.journal_delete_entry'
+        ? parsePayload('client.journal_delete_entry', envelope.payload)
+        : envelope.type === 'client.journal_delete_note'
+          ? parsePayload('client.journal_delete_note', envelope.payload)
+          : parsePayload('client.journal_delete_page', envelope.payload);
       const result = await this.journal.deleteTarget(actor, input);
       await this.after(result.ok, {
         entryId: input.target.entryId,

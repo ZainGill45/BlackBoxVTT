@@ -533,6 +533,7 @@ export function PlayScreen({
                   campaignId={session.campaignId}
                   journalApi={journalApi}
                   role={session.role}
+                  system={session.system}
                 />
               ) : (
                 <div

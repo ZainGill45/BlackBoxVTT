@@ -1,42 +1,57 @@
-.noteList {
+.entryList {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
-.noteList li {
-  border: var(--border-width) solid transparent;
+.entryRow {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.125rem;
+  padding: var(--space-1);
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-sm);
 }
 
-.noteList li[data-reordering='true'] {
+.entryRow[data-reordering='true'] {
   opacity: 0.5;
   border-color: var(--color-border-strong);
 }
 
-.noteList li > button {
+.entryIcon {
   display: grid;
-  width: 100%;
-  min-height: var(--control-height);
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  padding-inline: var(--space-2);
-  color: var(--color-text);
-  background: var(--color-surface-muted);
-  border: var(--border-width) solid var(--color-border);
-  text-align: left;
-}
-
-.noteList li > button:hover,
-.noteList li > button:focus-visible {
-  background: var(--color-surface-raised);
-  border-color: var(--color-border-strong);
-}
-
-.noteList small {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  place-items: center;
   color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
+.entryIcon:hover {
+  color: var(--color-text);
+}
+
+.entryIcon:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 0;
+}
+
+.deleteButton {
+  display: grid;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0;
+  place-items: center;
 }
 
 .reorderGhost {
@@ -136,10 +151,4 @@
   overflow: auto;
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border);
-}
-
-.cleanupList label {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
 }

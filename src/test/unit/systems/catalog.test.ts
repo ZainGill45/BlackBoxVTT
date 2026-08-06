@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   createDefaultCampaignSystemState,
   DEFAULT_GAME_SYSTEM_ID,
+  createDefaultJournalEntryData,
+  listJournalEntryTypeDefinitions,
   listGameSystemDefinitions,
   parseCampaignSystemState,
 } from '../../../systems/catalog';
@@ -57,5 +59,21 @@ describe('bundled game-system catalog', () => {
         settings: { defaultRulesVersion: 'invalid' },
       }),
     ).toBeNull();
+  });
+
+  it('combines the universal Note with D&D-owned Character metadata', () => {
+    const system = createDefaultCampaignSystemState()!;
+    const types = listJournalEntryTypeDefinitions(system);
+    expect(types.map(({ id }) => id)).toEqual(['core.note', 'dnd5e.character']);
+    expect(new Set(types.map(({ id }) => id)).size).toBe(types.length);
+    expect(types).toEqual(expect.arrayContaining([
+      expect.objectContaining({ groupLabel: 'Notes', id: 'core.note' }),
+      expect.objectContaining({ defaultName: 'New Character', groupLabel: 'Characters', id: 'dnd5e.character' }),
+    ]));
+    expect(createDefaultJournalEntryData(system, 'dnd5e.character')).toEqual({
+      data: {},
+      dataVersion: 1,
+    });
+    expect(createDefaultJournalEntryData(system, 'unknown')).toBeNull();
   });
 });

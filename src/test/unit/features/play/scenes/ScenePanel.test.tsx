@@ -128,6 +128,18 @@ describe('ScenePanel', () => {
     });
   });
 
+  it('cancels an inline scene rename with Escape', async () => {
+    const scene = makeScene();
+    const { sceneApi, user } = await renderPanel([scene]);
+    const input = screen.getByRole('textbox', { name: 'Name for Iron Keep' });
+
+    await user.clear(input);
+    await user.type(input, 'Unsaved scene{Escape}');
+
+    expect(input).toHaveValue('Iron Keep');
+    expect(sceneApi.update).not.toHaveBeenCalled();
+  });
+
   it('views a scene when the row itself is clicked', async () => {
     const other = makeScene({
       id: '55555555-5555-4555-8555-555555555555',

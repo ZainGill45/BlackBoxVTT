@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   emptyRichTextDocument,
   isRichTextDocument,
+  JOURNAL_LINE_LENGTHS,
   MAX_RICH_TEXT_BYTES,
 } from '../../shared/journal';
 
 describe('Journal rich text validation', () => {
   it('accepts the empty document and a local Storage image node', () => {
+    expect(emptyRichTextDocument()).toMatchObject({ lineLength: 'wide' });
     expect(isRichTextDocument(emptyRichTextDocument())).toBe(true);
     expect(isRichTextDocument({
       doc: {
@@ -61,5 +63,33 @@ describe('Journal rich text validation', () => {
       },
       schemaVersion: 1,
     })).toBe(false);
+  });
+
+  it('accepts supported text sizing and rejects unbounded sizing attributes', () => {
+    const documentWithSizing = (
+      attrs: Record<string, string | null>,
+      lineLength?: string,
+    ) => ({
+      doc: {
+        content: [{
+          content: [{ marks: [{ attrs, type: 'textStyle' }], text: 'Text', type: 'text' }],
+          type: 'paragraph',
+        }],
+        type: 'doc',
+      },
+      ...(lineLength ? { lineLength } : {}),
+      schemaVersion: 1,
+    });
+
+    for (const lineLength of JOURNAL_LINE_LENGTHS) {
+      expect(isRichTextDocument(documentWithSizing({
+        color: null,
+        fontFamily: null,
+        fontSize: '24px',
+      }, lineLength))).toBe(true);
+    }
+    expect(isRichTextDocument(documentWithSizing({ fontSize: null }, 'full'))).toBe(true);
+    expect(isRichTextDocument(documentWithSizing({ fontSize: '999px' }))).toBe(false);
+    expect(isRichTextDocument(documentWithSizing({}, 'endless'))).toBe(false);
   });
 });

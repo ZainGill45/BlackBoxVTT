@@ -8,6 +8,8 @@ import type {
   JournalDeletePreview,
   JournalDeleteResult,
   JournalEntryInput,
+  JournalEntry,
+  CreateJournalEntryInput,
   JournalLeaseInput,
   JournalManifest,
   JournalPage,
@@ -20,9 +22,12 @@ import type {
   PageEditLease,
   PrepareJournalDeleteInput,
   ReorderJournalEntriesInput,
+  ReorderJournalGroupInput,
   ReorderJournalPagesInput,
   UpdateJournalNoteInput,
   UpdateJournalNotePermissionsInput,
+  UpdateJournalEntryPermissionsInput,
+  RenameJournalEntryInput,
   UpdateJournalPageInput,
   UpdateJournalPagePermissionsInput,
 } from '../shared/journal';
@@ -54,6 +59,11 @@ export class JournalManager extends EventEmitter {
     return runtime ? runtime.journal.getNote(input.entryId) : unavailable();
   }
 
+  async getEntry(input: JournalEntryInput): Promise<JournalResult<JournalEntry>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    return runtime ? runtime.journal.getEntry(input.entryId) : unavailable();
+  }
+
   async getPage(input: JournalPageInput): Promise<JournalResult<JournalPage>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     return runtime ? runtime.journal.getPage(input.entryId, input.pageId) : unavailable();
@@ -63,6 +73,33 @@ export class JournalManager extends EventEmitter {
     const runtime = await this.runtimes.resolve(campaignId);
     const result = runtime ? await runtime.journal.createNote() : unavailable<NoteEntry>();
     if (result.ok) this.changed({ campaignId, entryId: result.value.id, type: 'structure' });
+    return result;
+  }
+
+  async createEntry(input: CreateJournalEntryInput): Promise<JournalResult<JournalEntry>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    const result = runtime
+      ? await runtime.journal.createEntry(input.typeId)
+      : unavailable<JournalEntry>();
+    if (result.ok) this.changed({ campaignId: input.campaignId, entryId: result.value.id, type: 'structure' });
+    return result;
+  }
+
+  async renameEntry(input: RenameJournalEntryInput): Promise<JournalResult<JournalEntry>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    const result = runtime
+      ? await runtime.journal.renameEntry(input.entryId, input.name, input.expectedRevision)
+      : unavailable<JournalEntry>();
+    if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'structure' });
+    return result;
+  }
+
+  async updateEntryPermissions(input: UpdateJournalEntryPermissionsInput): Promise<JournalResult<JournalEntry>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    const result = runtime
+      ? await runtime.journal.updateEntryPermissions(input)
+      : unavailable<JournalEntry>();
+    if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'permissions' });
     return result;
   }
 
@@ -143,9 +180,23 @@ export class JournalManager extends EventEmitter {
     return result;
   }
 
+  async moveEntry(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    const result = runtime ? await runtime.journal.moveEntry(input) : unavailable<JournalManifest>();
+    if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
+    return result;
+  }
+
   async reorderNotes(input: ReorderJournalEntriesInput): Promise<JournalResult<JournalManifest>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     const result = runtime ? await runtime.journal.reorderNotes(input) : unavailable<JournalManifest>();
+    if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
+    return result;
+  }
+
+  async reorderEntries(input: ReorderJournalGroupInput): Promise<JournalResult<JournalManifest>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    const result = runtime ? await runtime.journal.reorderEntries(input) : unavailable<JournalManifest>();
     if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
     return result;
   }

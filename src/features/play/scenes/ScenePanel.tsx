@@ -11,13 +11,13 @@ import {
 } from 'lucide-react';
 import {
   useState,
-  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { ErrorModal } from '../../../components/ui/ErrorModal';
 import { IconButton } from '../../../components/ui/IconButton';
+import { InlineRename } from '../../../components/ui/InlineRename';
 import type { AssetApi } from '../../../shared/assets';
 import { describeScene, type SceneRecord } from '../../../shared/scenes';
 import { useDeleteConfirmation } from '../../connection/useDeleteConfirmation';
@@ -72,28 +72,6 @@ function SceneRow({
   previewUrl: string | undefined;
   scene: SceneRecord;
 }) {
-  const [draft, setDraft] = useState(scene.name);
-
-  const commit = async () => {
-    if (draft === scene.name) {
-      return;
-    }
-    if (!(await onRename(draft))) {
-      setDraft(scene.name);
-    }
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.currentTarget.blur();
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      setDraft(scene.name);
-      event.currentTarget.blur();
-    }
-  };
-
   // Clicking the row views the scene, except on the controls it contains.
   const handleRowClick = (event: MouseEvent<HTMLLIElement>) => {
     if (
@@ -120,18 +98,13 @@ function SceneRow({
       >
         <ScenePreview scene={scene} url={previewUrl} />
       </button>
-      <div className={styles.copy}>
-        <input
-          aria-label={`Name for ${scene.name}`}
-          maxLength={64}
-          value={draft}
-          onBlur={() => void commit()}
-          onChange={(event) => setDraft(event.currentTarget.value)}
-          onKeyDown={handleKeyDown}
-        />
-        {/* The Present button's pressed state already says which is live. */}
-        <span>{describeScene(scene)}</span>
-      </div>
+      <InlineRename
+        accessibleLabel={`Name for ${scene.name}`}
+        detail={describeScene(scene)}
+        maxLength={64}
+        onRename={onRename}
+        value={scene.name}
+      />
       <div className={styles.actions}>
         <IconButton
           active={isActive}

@@ -26,6 +26,35 @@ make those relationships clear in the code instead.
   are intentionally process-lifetime state: committed scene data survives a
   restart, but edit history and live leases do not.
 
+## Game systems and authored Journal content
+
+- BlackBox VTT does not bundle premade characters, monsters, items, spells, or
+  similar campaign content. The active game system supplies authoring
+  structure and behavior; the GM and players author the records they use.
+- Core Journal infrastructure must remain game-system neutral. It may own
+  generic record concerns such as identity, titles, hierarchy, ordering,
+  grouping mechanics, search, permissions, persistence, and synchronization,
+  but it must not define a particular game's record taxonomy or rules.
+- Core defines the universal Note entry available in every campaign. The
+  active bundled system contributes additional Journal entry types and groups
+  and owns those entries' schemas and defaults, editors and sheets, validation
+  and derived values, roll automation, searchable-field extraction, and
+  relationships to scene tokens or other authored entries.
+- D&D-specific concepts belong to the `dnd5e` system. Do not introduce
+  `core.character`, `core.monster`, `core.item`, `core.spell`, or equivalent
+  universal types. If the required system extension contract does not exist,
+  establish that contract instead of bypassing the system boundary.
+- Do not treat the core Note implementation as precedent for making additional
+  game-system concepts core types. Notes are universal; characters and other
+  rules-owned records are not.
+- The `dnd5e` system owns its 5e/5.5e behavior through system settings. Do not
+  invent per-character rules-version fields or overrides unless the product
+  explicitly introduces them.
+- A scene token may reference an authored system record, but core scene state
+  owns only system-neutral spatial and reference data. The active system owns
+  the distinction between a shared record definition and per-scene instance
+  state such as current health or conditions.
+
 ## Trust boundaries
 
 - Renderer IPC and remote network input are separate trust boundaries. Validate

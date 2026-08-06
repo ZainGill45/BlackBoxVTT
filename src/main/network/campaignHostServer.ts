@@ -978,11 +978,12 @@ export class CampaignHostServer {
         userId: client.user.id,
         username: client.user.username,
       };
-      const note = event.entryId
-        ? await this.journalRepository.getNote(actor, event.entryId)
+      const entry = event.entryId
+        ? await this.journalRepository.getEntry(actor, event.entryId)
         : null;
-      const visibleEntry = note?.ok ? note.value : undefined;
-      const visiblePage = visibleEntry?.pages.some(({ id }) => id === event.pageId);
+      const visibleEntry = entry?.ok ? entry.value : undefined;
+      const visiblePage = visibleEntry?.kind === 'note' &&
+        visibleEntry.pages.some(({ id }) => id === event.pageId);
       writeEnvelope(
         client.socket as unknown as Socket,
         'server.journal_changed',

@@ -301,7 +301,10 @@ const journalPageSummarySchema = z.object({
 }).strict();
 const journalNoteSchema = z.object({
   capabilities: journalEntryCapabilitiesSchema,
+  dataVersion: z.number().int().positive(),
+  groupId: z.string().min(1).max(128),
   id: z.string().uuid(),
+  kind: z.literal('note'),
   name: z.string().min(1).max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
   nameStyle: journalTitleStyleSchema,
   pages: z.array(journalPageSummarySchema).max(MAX_NOTE_PAGES),
@@ -310,13 +313,33 @@ const journalNoteSchema = z.object({
   revision: z.number().int().nonnegative(),
   typeId: z.literal(JOURNAL_ENTRY_TYPE_NOTE),
 }).strict();
+const journalSystemEntrySummarySchema = z.object({
+  capabilities: journalEntryCapabilitiesSchema,
+  dataVersion: z.number().int().positive(),
+  groupId: z.string().min(1).max(128),
+  id: z.string().uuid(),
+  kind: z.literal('system'),
+  name: z.string().min(1).max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
+  permissions: journalPermissionsSchema(journalEntryAccessSchema).nullable(),
+  position: z.number().int().nonnegative(),
+  revision: z.number().int().nonnegative(),
+  typeId: z.string().min(1).max(128).refine((value) => value !== JOURNAL_ENTRY_TYPE_NOTE),
+}).strict();
+const journalEntrySummarySchema = z.discriminatedUnion('kind', [
+  journalNoteSchema,
+  journalSystemEntrySummarySchema,
+]);
+const journalEntrySchema = z.discriminatedUnion('kind', [
+  journalNoteSchema,
+  journalSystemEntrySummarySchema.extend({ data: z.json() }).strict(),
+]);
 const richTextDocumentSchema = z.custom<RichTextDocumentV1>(isRichTextDocument);
 const journalPageSchema = journalPageSummarySchema.extend({
   content: richTextDocumentSchema,
   entryId: z.string().uuid(),
 }).strict();
 const journalManifestSchema = z.object({
-  entries: z.array(journalNoteSchema).max(MAX_JOURNAL_ENTRIES),
+  entries: z.array(journalEntrySummarySchema).max(MAX_JOURNAL_ENTRIES),
   revision: z.number().int().nonnegative(),
   schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
 }).strict();
@@ -334,6 +357,7 @@ const journalErrorSchema = z.object({
   pageId: z.string().uuid().optional(),
 }).strict();
 const journalDeleteTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ entryId: z.string().uuid(), kind: z.literal('entry') }).strict(),
   z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict(),
   z.object({ entryId: z.string().uuid(), kind: z.literal('page'), pageId: z.string().uuid() }).strict(),
 ]);
@@ -387,6 +411,7 @@ export interface TcpEnvelope {
 
 export const protocolPayloadSchemas = {
   'client.journal_acquire_lease': z.object({ entryId: z.string().uuid(), pageId: z.string().uuid() }).strict(),
+  'client.journal_create_entry': z.object({ typeId: z.string().min(1).max(128) }).strict(),
   'client.journal_create_note': z.object({}).strict(),
   'client.journal_create_page': z.object({
     entryId: z.string().uuid(),
@@ -397,6 +422,11 @@ export const protocolPayloadSchemas = {
     expectedRevision: z.number().int().nonnegative(),
     target: z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict(),
   }).strict(),
+  'client.journal_delete_entry': z.object({
+    cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS),
+    expectedRevision: z.number().int().nonnegative(),
+    target: z.object({ entryId: z.string().uuid(), kind: z.literal('entry') }).strict(),
+  }).strict(),
   'client.journal_delete_page': z.object({
     cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS),
     expectedRevision: z.number().int().nonnegative(),
@@ -405,10 +435,16 @@ export const protocolPayloadSchemas = {
   'client.journal_detach_asset': z.object({ assetId: z.string().uuid() }).strict(),
   'client.journal_find_asset_dependents': z.object({ assetId: z.string().uuid() }).strict(),
   'client.journal_get_note': z.object({ entryId: z.string().uuid() }).strict(),
+  'client.journal_get_entry': z.object({ entryId: z.string().uuid() }).strict(),
   'client.journal_get_page': z.object({ entryId: z.string().uuid(), pageId: z.string().uuid() }).strict(),
   'client.journal_list': z.object({}).strict(),
   'client.journal_list_users': z.object({}).strict(),
   'client.journal_move_note': z.object({
+    direction: z.enum(['up', 'down']),
+    entryId: z.string().uuid(),
+    expectedManifestRevision: z.number().int().nonnegative(),
+  }).strict(),
+  'client.journal_move_entry': z.object({
     direction: z.enum(['up', 'down']),
     entryId: z.string().uuid(),
     expectedManifestRevision: z.number().int().nonnegative(),
@@ -429,6 +465,11 @@ export const protocolPayloadSchemas = {
     expectedManifestRevision: z.number().int().nonnegative(),
     orderedEntryIds: z.array(z.string().uuid()).max(MAX_JOURNAL_ENTRIES),
   }).strict(),
+  'client.journal_reorder_entries': z.object({
+    expectedManifestRevision: z.number().int().nonnegative(),
+    groupId: z.string().min(1).max(128),
+    orderedEntryIds: z.array(z.string().uuid()).max(MAX_JOURNAL_ENTRIES),
+  }).strict(),
   'client.journal_reorder_pages': z.object({
     entryId: z.string().uuid(),
     expectedEntryRevision: z.number().int().nonnegative(),
@@ -439,6 +480,11 @@ export const protocolPayloadSchemas = {
     leaseId: z.string().uuid(),
     pageId: z.string().uuid(),
   }).strict(),
+  'client.journal_rename_entry': z.object({
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    name: z.string().max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
+  }).strict(),
   'client.journal_update_note': z.object({
     entryId: z.string().uuid(),
     expectedRevision: z.number().int().nonnegative(),
@@ -446,6 +492,11 @@ export const protocolPayloadSchemas = {
     nameStyle: journalTitleStyleSchema,
   }).strict(),
   'client.journal_update_note_permissions': z.object({
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
+    permissions: journalPermissionsSchema(journalEntryAccessSchema),
+  }).strict(),
+  'client.journal_update_entry_permissions': z.object({
     entryId: z.string().uuid(),
     expectedRevision: z.number().int().nonnegative(),
     permissions: journalPermissionsSchema(journalEntryAccessSchema),
@@ -649,6 +700,7 @@ export const protocolPayloadSchemas = {
     dependents: z.array(z.object({ entryId: z.string().uuid(), pageId: z.string().uuid(), title: z.string().min(1).max(1024) }).strict()).max(2048),
   }).strict(),
   'server.journal_error': journalErrorSchema,
+  'server.journal_entry': journalEntrySchema,
   'server.journal_lease': journalLeaseSchema,
   'server.journal_manifest': journalManifestSchema,
   'server.journal_note': journalNoteSchema,

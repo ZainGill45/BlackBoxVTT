@@ -3,6 +3,13 @@ import type { AssetRepository } from './assetRepository';
 import type { SceneRepository } from './sceneRepository';
 import type { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
+import type { CampaignSystemState, JsonValue } from '../shared/gameSystems';
+import {
+  CORE_NOTE_GROUP_ID,
+  createDefaultJournalEntryData,
+  getJournalEntryTypeDefinition,
+  parseJournalEntryData,
+} from '../systems/catalog';
 import {
   JOURNAL_EDIT_LEASE_MS,
   JOURNAL_ENTRY_TYPE_NOTE,
@@ -20,6 +27,7 @@ import {
   normalizeJournalTitle,
   removeJournalAsset,
   type DeleteJournalTargetInput,
+  type JournalEntry,
   type JournalAccessLevel,
   type JournalDeleteAsset,
   type JournalDeletePreview,
@@ -39,6 +47,7 @@ import {
   type NoteEntry,
   type PageEditLease,
   type ReorderJournalEntriesInput,
+  type ReorderJournalGroupInput,
   type ReorderJournalPagesInput,
   type RichTextDocumentV1,
   type UpdateJournalNotePermissionsInput,
@@ -55,6 +64,7 @@ interface JournalRepositoryOptions {
   database: CampaignDatabase;
   now?: () => Date;
   scenes: SceneRepository;
+  system?: CampaignSystemState;
   touchCampaign: () => Promise<void>;
 }
 
@@ -62,6 +72,8 @@ interface EntryRow {
   created_at: string;
   created_by: string;
   default_access: JournalAccessLevel;
+  data_json: string;
+  data_schema_version: number;
   id: string;
   name: string;
   name_style_json: string;
@@ -144,6 +156,7 @@ export class JournalRepository {
   private readonly mutations = new MutationQueue();
   private readonly now: () => Date;
   private readonly scenes: SceneRepository;
+  private readonly system: CampaignSystemState;
   private readonly touchCampaign: () => Promise<void>;
 
   constructor({
@@ -152,6 +165,7 @@ export class JournalRepository {
     database,
     now = () => new Date(),
     scenes,
+    system,
     touchCampaign,
   }: JournalRepositoryOptions) {
     this.assets = assets;
@@ -159,6 +173,7 @@ export class JournalRepository {
     this.database = database;
     this.now = now;
     this.scenes = scenes;
+    this.system = structuredClone(system ?? database.readSystem());
     this.touchCampaign = touchCampaign;
   }
 
@@ -174,15 +189,28 @@ export class JournalRepository {
     actor: JournalActor,
     entryId: string,
   ): Promise<JournalResult<NoteEntry>> {
+    const result = await this.getEntry(actor, entryId);
+    if (!result.ok) return result;
+    return result.value.kind === 'note'
+      ? { ok: true, value: result.value }
+      : failure('not_found', 'The note no longer exists.', { entryId });
+  }
+
+  async getEntry(
+    actor: JournalActor,
+    entryId: string,
+  ): Promise<JournalResult<JournalEntry>> {
     try {
       const entry = this.entry(entryId);
-      if (!entry) return failure('not_found', 'The note no longer exists.', { entryId });
+      if (!entry) return failure('not_found', 'The Journal entry no longer exists.', { entryId });
       const projected = this.projectEntry(actor, entry);
-      return projected
-        ? { ok: true, value: projected }
-        : failure('permission_denied', 'You cannot view this note.', { entryId });
+      if (!projected) {
+        return failure('permission_denied', 'You cannot view this Journal entry.', { entryId });
+      }
+      if (projected.kind === 'note') return { ok: true, value: projected };
+      return { ok: true, value: { ...projected, data: this.entryData(entry) } };
     } catch {
-      return failure('storage_error', 'The note could not be loaded.', { entryId });
+      return failure('storage_error', 'The Journal entry could not be loaded.', { entryId });
     }
   }
 
@@ -224,48 +252,74 @@ export class JournalRepository {
   }
 
   createNote(actor: JournalActor): Promise<JournalResult<NoteEntry>> {
+    return this.createEntry(actor, JOURNAL_ENTRY_TYPE_NOTE).then((result) => {
+      if (!result.ok) return result;
+      return result.value.kind === 'note'
+        ? { ok: true, value: result.value }
+        : failure('storage_error', 'The note could not be created.');
+    });
+  }
+
+  createEntry(actor: JournalActor, typeId: string): Promise<JournalResult<JournalEntry>> {
     if (actor.kind !== 'gm') {
-      return Promise.resolve(failure('permission_denied', 'Only the Game Master can create notes.'));
+      return Promise.resolve(failure('permission_denied', 'Only the Game Master can create Journal entries.'));
     }
     return this.mutations.run(async () => {
       try {
+        const definition = getJournalEntryTypeDefinition(this.system, typeId);
+        const defaultData = createDefaultJournalEntryData(this.system, typeId);
+        if (!definition || !defaultData) {
+          return failure('invalid_input', 'This Journal entry type is not available for the campaign system.');
+        }
         const entries = this.entries();
         if (entries.length >= MAX_JOURNAL_ENTRIES) {
-          return failure('invalid_input', 'This campaign has reached its note limit.');
+          return failure('invalid_input', 'This campaign has reached its Journal entry limit.');
         }
         const entryId = this.createId();
-        const pageId = this.createId();
         const timestamp = this.now().toISOString();
-        const content = emptyRichTextDocument();
         const titleStyleJson = JSON.stringify(defaultJournalTitleStyle());
         this.transaction(() => {
           this.database.connection.prepare(
             `INSERT INTO journal_entries (
                id, type_id, position, name, name_style_json, default_access, revision,
-               created_at, created_by, updated_at, updated_by
-             ) VALUES (?, ?, ?, 'New Note', ?, 'none', 0, ?, 'gm', ?, 'gm')`,
-          ).run(entryId, JOURNAL_ENTRY_TYPE_NOTE, entries.length, titleStyleJson, timestamp, timestamp);
-          this.database.connection.prepare(
-            `INSERT INTO journal_pages (
-               id, entry_id, position, title, title_style_json, default_access,
-               content_schema_version, content_json, revision, permission_revision,
-               created_at, created_by, updated_at, updated_by
-             ) VALUES (?, ?, 0, 'New Page', ?, 'inherit', ?, ?, 0, 0, ?, 'gm', ?, 'gm')`,
+               created_at, created_by, updated_at, updated_by,
+               data_schema_version, data_json
+             ) VALUES (?, ?, ?, ?, ?, 'none', 0, ?, 'gm', ?, 'gm', ?, ?)`,
           ).run(
-            pageId,
             entryId,
+            typeId,
+            entries.length,
+            definition.defaultName,
             titleStyleJson,
-            RICH_TEXT_SCHEMA_VERSION,
-            JSON.stringify(content),
             timestamp,
             timestamp,
+            defaultData.dataVersion,
+            JSON.stringify(defaultData.data),
           );
+          if (typeId === JOURNAL_ENTRY_TYPE_NOTE) {
+            const pageId = this.createId();
+            this.database.connection.prepare(
+              `INSERT INTO journal_pages (
+                 id, entry_id, position, title, title_style_json, default_access,
+                 content_schema_version, content_json, revision, permission_revision,
+                 created_at, created_by, updated_at, updated_by
+               ) VALUES (?, ?, 0, 'New Page', ?, 'inherit', ?, ?, 0, 0, ?, 'gm', ?, 'gm')`,
+            ).run(
+              pageId,
+              entryId,
+              titleStyleJson,
+              RICH_TEXT_SCHEMA_VERSION,
+              JSON.stringify(emptyRichTextDocument()),
+              timestamp,
+              timestamp,
+            );
+          }
           this.bumpManifest();
         });
         await this.touchCampaign();
-        return (await this.getNote(actor, entryId)) as JournalResult<NoteEntry>;
+        return this.getEntry(actor, entryId);
       } catch {
-        return failure('storage_error', 'The note could not be created.');
+        return failure('storage_error', 'The Journal entry could not be created.');
       }
     });
   }
@@ -285,6 +339,9 @@ export class JournalRepository {
       try {
         const entry = this.entry(entryId);
         if (!entry) return failure('not_found', 'The note no longer exists.', { entryId });
+        if (entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE) {
+          return failure('not_found', 'The note no longer exists.', { entryId });
+        }
         const projected = this.projectEntry(actor, entry);
         if (!projected?.capabilities.edit) {
           return failure('permission_denied', 'You cannot rename this note.', { entryId });
@@ -312,6 +369,46 @@ export class JournalRepository {
     });
   }
 
+  renameEntry(
+    actor: JournalActor,
+    entryId: string,
+    nameInput: string,
+    expectedRevision: number,
+  ): Promise<JournalResult<JournalEntry>> {
+    return this.mutations.run(async () => {
+      const name = normalizeJournalTitle(nameInput);
+      if (!validTitle(name)) {
+        return failure('invalid_input', 'Journal entry names must contain 1 to 128 characters.', { entryId });
+      }
+      try {
+        const entry = this.entry(entryId);
+        if (!entry) return failure('not_found', 'The Journal entry no longer exists.', { entryId });
+        const projected = this.projectEntry(actor, entry);
+        if (!projected?.capabilities.edit) {
+          return failure('permission_denied', 'You cannot rename this Journal entry.', { entryId });
+        }
+        if (entry.revision !== expectedRevision) {
+          return failure('conflict', 'The Journal entry changed before it could be renamed.', { entryId });
+        }
+        if (entry.name !== name) {
+          const timestamp = this.now().toISOString();
+          this.transaction(() => {
+            this.database.connection.prepare(
+              `UPDATE journal_entries
+               SET name = ?, revision = revision + 1, updated_at = ?, updated_by = ?
+               WHERE id = ?`,
+            ).run(name, timestamp, actorKey(actor), entryId);
+            this.bumpManifest();
+          });
+          await this.touchCampaign();
+        }
+        return this.getEntry(actor, entryId);
+      } catch {
+        return failure('storage_error', 'The Journal entry could not be renamed.', { entryId });
+      }
+    });
+  }
+
   updateNotePermissions(
     actor: JournalActor,
     input: Omit<UpdateJournalNotePermissionsInput, 'campaignId'>,
@@ -323,6 +420,9 @@ export class JournalRepository {
       try {
         const entry = this.entry(input.entryId);
         if (!entry) return failure('not_found', 'The note no longer exists.', { entryId: input.entryId });
+        if (entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE) {
+          return failure('not_found', 'The note no longer exists.', { entryId: input.entryId });
+        }
         if (entry.revision !== input.expectedRevision) {
           return failure('conflict', 'The note changed before permissions could be saved.', { entryId: input.entryId });
         }
@@ -345,6 +445,43 @@ export class JournalRepository {
         return this.getNote(actor, input.entryId);
       } catch {
         return failure('storage_error', 'The note permissions could not be saved.', { entryId: input.entryId });
+      }
+    });
+  }
+
+  updateEntryPermissions(
+    actor: JournalActor,
+    input: Omit<UpdateJournalNotePermissionsInput, 'campaignId'>,
+  ): Promise<JournalResult<JournalEntry>> {
+    if (actor.kind !== 'gm') {
+      return Promise.resolve(failure('permission_denied', 'Only the Game Master can manage permissions.'));
+    }
+    return this.mutations.run(async () => {
+      try {
+        const entry = this.entry(input.entryId);
+        if (!entry) return failure('not_found', 'The Journal entry no longer exists.', { entryId: input.entryId });
+        if (entry.revision !== input.expectedRevision) {
+          return failure('conflict', 'The Journal entry changed before permissions could be saved.', { entryId: input.entryId });
+        }
+        if (!this.validPermissionConfiguration(input.permissions, ['none', 'view', 'edit'])) {
+          return failure('invalid_input', 'The Journal entry permissions are invalid.', { entryId: input.entryId });
+        }
+        const timestamp = this.now().toISOString();
+        this.transaction(() => {
+          this.database.connection.prepare(
+            `UPDATE journal_entries
+             SET default_access = ?, revision = revision + 1,
+                 updated_at = ?, updated_by = 'gm'
+             WHERE id = ?`,
+          ).run(input.permissions.allPlayers, timestamp, input.entryId);
+          this.replaceEntryOverrides(input.entryId, input.permissions);
+          this.bumpManifest();
+        });
+        if (entry.type_id === JOURNAL_ENTRY_TYPE_NOTE) this.revokeUnauthorizedLeases(input.entryId);
+        await this.touchCampaign();
+        return this.getEntry(actor, input.entryId);
+      } catch {
+        return failure('storage_error', 'The Journal entry permissions could not be saved.', { entryId: input.entryId });
       }
     });
   }
@@ -610,8 +747,15 @@ export class JournalRepository {
     actor: JournalActor,
     input: Omit<MoveJournalEntryInput, 'campaignId'>,
   ): Promise<JournalResult<JournalManifest>> {
+    return this.moveEntry(actor, input);
+  }
+
+  moveEntry(
+    actor: JournalActor,
+    input: Omit<MoveJournalEntryInput, 'campaignId'>,
+  ): Promise<JournalResult<JournalManifest>> {
     if (actor.kind !== 'gm') {
-      return Promise.resolve(failure('permission_denied', 'Only the Game Master can reorder notes.'));
+      return Promise.resolve(failure('permission_denied', 'Only the Game Master can reorder Journal entries.'));
     }
     return this.mutations.run(async () => {
       try {
@@ -619,17 +763,20 @@ export class JournalRepository {
         if (revision !== input.expectedManifestRevision) {
           return failure('conflict', 'The Journal order changed before it could be saved.');
         }
-        const ids = this.entries().map(({ id }) => id);
-        const index = ids.indexOf(input.entryId);
+        const rows = this.entries();
+        const entry = rows.find(({ id }) => id === input.entryId);
+        if (!entry) return failure('not_found', 'The Journal entry no longer exists.', { entryId: input.entryId });
+        const groupId = this.entryGroupId(entry);
+        const groupIds = rows.filter((row) => this.entryGroupId(row) === groupId).map(({ id }) => id);
+        const index = groupIds.indexOf(input.entryId);
         const target = input.direction === 'up' ? index - 1 : index + 1;
-        if (index < 0) return failure('not_found', 'The note no longer exists.', { entryId: input.entryId });
-        if (target < 0 || target >= ids.length) return { ok: true, value: this.projectManifest(actor) };
-        [ids[index], ids[target]] = [ids[target]!, ids[index]!];
-        this.commitEntryOrder(ids);
+        if (target < 0 || target >= groupIds.length) return { ok: true, value: this.projectManifest(actor) };
+        [groupIds[index], groupIds[target]] = [groupIds[target]!, groupIds[index]!];
+        this.commitEntryGroupOrder(rows, groupId, groupIds);
         await this.touchCampaign();
         return { ok: true, value: this.projectManifest(actor) };
       } catch {
-        return failure('storage_error', 'The note order could not be saved.');
+        return failure('storage_error', 'The Journal entry order could not be saved.');
       }
     });
   }
@@ -638,25 +785,38 @@ export class JournalRepository {
     actor: JournalActor,
     input: Omit<ReorderJournalEntriesInput, 'campaignId'>,
   ): Promise<JournalResult<JournalManifest>> {
+    return this.reorderEntries(actor, { ...input, groupId: CORE_NOTE_GROUP_ID });
+  }
+
+  reorderEntries(
+    actor: JournalActor,
+    input: Omit<ReorderJournalGroupInput, 'campaignId'>,
+  ): Promise<JournalResult<JournalManifest>> {
     if (actor.kind !== 'gm') {
-      return Promise.resolve(failure('permission_denied', 'Only the Game Master can reorder notes.'));
+      return Promise.resolve(failure('permission_denied', 'Only the Game Master can reorder Journal entries.'));
     }
     return this.mutations.run(async () => {
       try {
         if (this.manifestRevision() !== input.expectedManifestRevision) {
           return failure('conflict', 'The Journal order changed before it could be saved.');
         }
-        const current = this.entries().map(({ id }) => id);
+        const rows = this.entries();
+        if (!rows.some((row) => this.entryGroupId(row) === input.groupId)) {
+          return failure('invalid_input', 'The requested Journal group is invalid.');
+        }
+        const current = rows
+          .filter((row) => this.entryGroupId(row) === input.groupId)
+          .map(({ id }) => id);
         if (!this.sameIdSet(current, input.orderedEntryIds)) {
-          return failure('invalid_input', 'The requested note order is invalid.');
+          return failure('invalid_input', 'The requested Journal entry order is invalid.');
         }
         if (!sameIds(current, input.orderedEntryIds)) {
-          this.commitEntryOrder(input.orderedEntryIds);
+          this.commitEntryGroupOrder(rows, input.groupId, input.orderedEntryIds);
           await this.touchCampaign();
         }
         return { ok: true, value: this.projectManifest(actor) };
       } catch {
-        return failure('storage_error', 'The note order could not be saved.');
+        return failure('storage_error', 'The Journal entry order could not be saved.');
       }
     });
   }
@@ -813,7 +973,7 @@ export class JournalRepository {
       if (!visible) {
         const entry = this.entry(entry_id);
         const projected = entry ? this.projectEntry(actor, entry) : null;
-        visible = new Set(projected?.pages.map(({ id }) => id) ?? []);
+        visible = new Set(projected?.kind === 'note' ? projected.pages.map(({ id }) => id) : []);
         visibleByEntry.set(entry_id, visible);
       }
       return visible.has(page_id)
@@ -877,31 +1037,42 @@ export class JournalRepository {
   }
 
   private projectEntry(actor: JournalActor, entry: EntryRow): JournalEntrySummary | null {
-    if (entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE) {
-      throw new Error(`Unsupported Journal entry type ${entry.type_id}.`);
-    }
+    const definition = getJournalEntryTypeDefinition(this.system, entry.type_id);
+    if (!definition) throw new Error(`Unsupported Journal entry type ${entry.type_id}.`);
+    this.entryData(entry);
     const access = this.entryAccess(actor, entry);
-    const pages = this.projectPages(actor, entry, access);
-    if (!accessAllowsView(access) && pages.length === 0) return null;
     const isGm = actor.kind === 'gm';
-    return {
+    const base = {
       capabilities: {
         delete: isGm,
         edit: isGm || access === 'edit',
-        managePages: isGm || access === 'edit',
+        managePages: entry.type_id === JOURNAL_ENTRY_TYPE_NOTE && (isGm || access === 'edit'),
         managePermissions: isGm,
         reorder: isGm,
         view: true,
       },
+      dataVersion: entry.data_schema_version,
+      groupId: definition.groupId,
       id: entry.id,
       name: entry.name,
-      nameStyle: this.titleStyle(entry.name_style_json),
-      pages,
       permissions: isGm ? this.entryPermissionConfiguration(entry) : null,
       position: entry.position,
       revision: entry.revision,
-      typeId: JOURNAL_ENTRY_TYPE_NOTE,
+      typeId: entry.type_id,
     };
+    if (entry.type_id === JOURNAL_ENTRY_TYPE_NOTE) {
+      const pages = this.projectPages(actor, entry, access);
+      if (!accessAllowsView(access) && pages.length === 0) return null;
+      return {
+        ...base,
+        kind: 'note',
+        nameStyle: this.titleStyle(entry.name_style_json),
+        pages,
+        typeId: JOURNAL_ENTRY_TYPE_NOTE,
+      };
+    }
+    if (!accessAllowsView(access)) return null;
+    return { ...base, kind: 'system' };
   }
 
   private projectPage(
@@ -1038,10 +1209,34 @@ export class JournalRepository {
     return parsed;
   }
 
+  private entryData(row: EntryRow): JsonValue {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data_json);
+    } catch {
+      throw new Error('Journal entry data is invalid.');
+    }
+    const data = parseJournalEntryData(
+      this.system,
+      row.type_id,
+      row.data_schema_version,
+      parsed,
+    );
+    if (data === null) throw new Error('Journal entry data is invalid.');
+    return data;
+  }
+
+  private entryGroupId(row: EntryRow): string {
+    const definition = getJournalEntryTypeDefinition(this.system, row.type_id);
+    if (!definition) throw new Error(`Unsupported Journal entry type ${row.type_id}.`);
+    return definition.groupId;
+  }
+
   private entries(): EntryRow[] {
     return this.database.connection.prepare(
       `SELECT id, type_id, position, name, name_style_json, default_access, revision,
-              created_at, created_by, updated_at, updated_by
+              created_at, created_by, updated_at, updated_by,
+              data_schema_version, data_json
        FROM journal_entries ORDER BY position`,
     ).all() as unknown as EntryRow[];
   }
@@ -1049,7 +1244,8 @@ export class JournalRepository {
   private entry(entryId: string): EntryRow | null {
     return (this.database.connection.prepare(
       `SELECT id, type_id, position, name, name_style_json, default_access, revision,
-              created_at, created_by, updated_at, updated_by
+              created_at, created_by, updated_at, updated_by,
+              data_schema_version, data_json
        FROM journal_entries WHERE id = ?`,
     ).get(entryId) as EntryRow | undefined) ?? null;
   }
@@ -1235,6 +1431,18 @@ export class JournalRepository {
     });
   }
 
+  private commitEntryGroupOrder(
+    rows: readonly EntryRow[],
+    groupId: string,
+    orderedGroupIds: readonly string[],
+  ): void {
+    let cursor = 0;
+    const ids = rows.map((row) =>
+      this.entryGroupId(row) === groupId ? orderedGroupIds[cursor++]! : row.id,
+    );
+    this.commitEntryOrder(ids);
+  }
+
   private reorderablePageIds(actor: JournalActor, entry: EntryRow): string[] {
     return this.projectPages(actor, entry)
       .filter(({ capabilities }) => capabilities.reorder)
@@ -1294,7 +1502,7 @@ export class JournalRepository {
   ): JournalResult<{ revision: number }> {
     const entry = this.entry(target.entryId);
     if (!entry) return failure('not_found', 'The note no longer exists.', { entryId: target.entryId });
-    if (target.kind === 'note') {
+    if (target.kind === 'note' || target.kind === 'entry') {
       return actor.kind === 'gm'
         ? { ok: true, value: { revision: entry.revision } }
         : failure('permission_denied', 'Only the Game Master can delete notes.', { entryId: target.entryId });
@@ -1310,7 +1518,7 @@ export class JournalRepository {
   }
 
   private targetAssetIds(target: DeleteJournalTargetInput['target']): string[] {
-    const rows = target.kind === 'note'
+    const rows = target.kind === 'note' || target.kind === 'entry'
       ? this.database.connection.prepare(
           `SELECT DISTINCT references_.asset_id
            FROM journal_page_assets AS references_
@@ -1334,7 +1542,9 @@ export class JournalRepository {
   ): Promise<JournalDeleteAsset[]> {
     const manifest = await this.assets.readManifest();
     const deletingPages = new Set(
-      target.kind === 'note' ? this.pages(target.entryId).map(({ id }) => id) : [target.pageId],
+      target.kind === 'note' || target.kind === 'entry'
+        ? this.pages(target.entryId).map(({ id }) => id)
+        : [target.pageId],
     );
     const results: JournalDeleteAsset[] = [];
     for (const assetId of assetIds) {

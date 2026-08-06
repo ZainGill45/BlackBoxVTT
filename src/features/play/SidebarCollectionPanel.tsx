@@ -1,5 +1,9 @@
 import { Plus, Search, X } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
+import type {
+  ComponentType,
+  MouseEventHandler,
+  ReactNode,
+} from 'react';
 import { Collapsible } from '../../components/ui/Collapsible';
 import { IconButton } from '../../components/ui/IconButton';
 import styles from './SidebarCollectionPanel.module.css';
@@ -12,12 +16,13 @@ type SidebarCollectionIcon = ComponentType<{
 
 interface SidebarCollectionPanelProps {
   addDisabled?: boolean;
+  addHasPopup?: 'menu';
   addLabel: string;
   children?: ReactNode;
   clearLabel: string;
   emptyIcon: SidebarCollectionIcon;
   emptyIconId: string;
-  onAdd: () => void;
+  onAdd: MouseEventHandler<HTMLButtonElement>;
   onQueryChange: (query: string) => void;
   query: string;
   searchLabel: string;
@@ -27,6 +32,7 @@ interface SidebarCollectionPanelProps {
 
 export function SidebarCollectionPanel({
   addDisabled = false,
+  addHasPopup,
   addLabel,
   children,
   clearLabel,
@@ -66,7 +72,13 @@ export function SidebarCollectionPanel({
             </button>
           ) : null}
         </label>
-        <IconButton disabled={addDisabled} icon={Plus} label={addLabel} onClick={onAdd} />
+        <IconButton
+          aria-haspopup={addHasPopup}
+          disabled={addDisabled}
+          icon={Plus}
+          label={addLabel}
+          onClick={onAdd}
+        />
       </div>
 
       <div className={styles.groups}>

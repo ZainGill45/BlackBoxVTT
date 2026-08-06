@@ -70,6 +70,7 @@ import type {
   JournalAssetDependent,
   JournalDeletePreview,
   JournalDeleteResult,
+  JournalEntry,
   JournalManifest,
   JournalPage,
   JournalPermissionSubject,
@@ -79,8 +80,10 @@ import type {
   NoteEntry,
   PageEditLease,
   ReorderJournalEntriesInput,
+  ReorderJournalGroupInput,
   ReorderJournalPagesInput,
   UpdateJournalNotePermissionsInput,
+  UpdateJournalEntryPermissionsInput,
   UpdateJournalPagePermissionsInput,
 } from '../../shared/journal';
 import type { ProtocolMessageType } from './tcpProtocol';
@@ -966,6 +969,11 @@ export class CampaignClient {
       (payload) => parsePayload('server.journal_note', payload));
   }
 
+  getJournalEntry(entryId: string): Promise<JournalResult<JournalEntry>> {
+    return this.journalRequest('client.journal_get_entry', { entryId }, 'server.journal_entry',
+      (payload) => parsePayload('server.journal_entry', payload));
+  }
+
   getJournalPage(entryId: string, pageId: string): Promise<JournalResult<JournalPage>> {
     return this.journalRequest('client.journal_get_page', { entryId, pageId }, 'server.journal_page',
       (payload) => parsePayload('server.journal_page', payload));
@@ -983,6 +991,21 @@ export class CampaignClient {
   createJournalNote(): Promise<JournalResult<NoteEntry>> {
     return this.journalRequest('client.journal_create_note', {}, 'server.journal_note',
       (payload) => parsePayload('server.journal_note', payload));
+  }
+
+  createJournalEntry(typeId: string): Promise<JournalResult<JournalEntry>> {
+    return this.journalRequest('client.journal_create_entry', { typeId }, 'server.journal_entry',
+      (payload) => parsePayload('server.journal_entry', payload));
+  }
+
+  renameJournalEntry(entryId: string, name: string, expectedRevision: number): Promise<JournalResult<JournalEntry>> {
+    return this.journalRequest('client.journal_rename_entry', { entryId, expectedRevision, name }, 'server.journal_entry',
+      (payload) => parsePayload('server.journal_entry', payload));
+  }
+
+  updateJournalEntryPermissions(input: Omit<UpdateJournalEntryPermissionsInput, 'campaignId'>): Promise<JournalResult<JournalEntry>> {
+    return this.journalRequest('client.journal_update_entry_permissions', input, 'server.journal_entry',
+      (payload) => parsePayload('server.journal_entry', payload));
   }
 
   updateJournalNote(entryId: string, name: string, nameStyle: NoteEntry['nameStyle'], expectedRevision: number): Promise<JournalResult<NoteEntry>> {
@@ -1042,8 +1065,18 @@ export class CampaignClient {
       (payload) => parsePayload('server.journal_manifest', payload));
   }
 
+  moveJournalEntry(input: Omit<MoveJournalEntryInput, 'campaignId'>): Promise<JournalResult<JournalManifest>> {
+    return this.journalRequest('client.journal_move_entry', input, 'server.journal_manifest',
+      (payload) => parsePayload('server.journal_manifest', payload));
+  }
+
   reorderJournalNotes(input: Omit<ReorderJournalEntriesInput, 'campaignId'>): Promise<JournalResult<JournalManifest>> {
     return this.journalRequest('client.journal_reorder_notes', input, 'server.journal_manifest',
+      (payload) => parsePayload('server.journal_manifest', payload));
+  }
+
+  reorderJournalEntries(input: Omit<ReorderJournalGroupInput, 'campaignId'>): Promise<JournalResult<JournalManifest>> {
+    return this.journalRequest('client.journal_reorder_entries', input, 'server.journal_manifest',
       (payload) => parsePayload('server.journal_manifest', payload));
   }
 
@@ -1063,9 +1096,11 @@ export class CampaignClient {
   }
 
   deleteJournalTarget(input: Omit<DeleteJournalTargetInput, 'campaignId'>): Promise<JournalResult<JournalDeleteResult>> {
-    const type = input.target.kind === 'note'
-      ? 'client.journal_delete_note' as const
-      : 'client.journal_delete_page' as const;
+    const type = input.target.kind === 'entry'
+      ? 'client.journal_delete_entry' as const
+      : input.target.kind === 'note'
+        ? 'client.journal_delete_note' as const
+        : 'client.journal_delete_page' as const;
     return this.journalRequest(type, input, 'server.journal_delete_result',
       (payload) => parsePayload('server.journal_delete_result', payload));
   }

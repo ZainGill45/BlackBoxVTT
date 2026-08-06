@@ -158,7 +158,7 @@ describe('architecture boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps bundled systems process-neutral, isolated, and catalogued once', () => {
+  it('keeps system definitions process-neutral and renderer contributions isolated', () => {
     const systemFiles = files.filter((file) =>
       label(file).startsWith('src/systems/'),
     );
@@ -172,10 +172,15 @@ describe('architecture boundaries', () => {
     const offenders: string[] = [];
     for (const file of systemFiles) {
       const sourceName = label(file);
+      const isRendererContribution = sourceName.includes('/renderer/') ||
+        sourceName === 'src/systems/rendererRegistry.ts';
       const sourceSystem = sourceName.match(/^src\/systems\/([^/]+)\//)?.[1];
       for (const dependency of imports.get(file) ?? []) {
         const dependencyName = label(dependency);
-        if (processRoots.some((root) => dependencyName.startsWith(root))) {
+        if (
+          processRoots.some((root) => dependencyName.startsWith(root)) &&
+          !(isRendererContribution && dependencyName.startsWith('src/components/'))
+        ) {
           offenders.push(`${sourceName} -> ${dependencyName}`);
         }
         const dependencySystem = dependencyName.match(

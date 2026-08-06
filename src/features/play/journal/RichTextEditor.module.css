@@ -13,19 +13,20 @@
 }
 
 .toolbar {
-  display: flex;
-  flex-wrap: wrap;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(7, max-content);
   gap: var(--space-1);
   min-height: var(--control-height);
   align-items: center;
+  justify-content: center;
   padding: var(--space-2);
+  overflow: visible;
   background: var(--color-surface-muted);
   border-bottom: var(--border-width) solid var(--color-border-strong);
 }
 
-.toolbar button,
-.selectControl,
-.toolbar input {
+.menuControl>summary {
   min-height: 1.8rem;
   color: var(--color-text);
   background: var(--color-surface-raised);
@@ -34,72 +35,167 @@
   font-size: var(--font-size-xs);
 }
 
-.toolbar button {
-  display: grid;
-  width: 1.8rem;
-  min-width: 1.8rem;
-  padding: 0;
-  place-items: center;
-}
-
-.selectControl {
+.menuControl {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.selectControl select {
-  width: 100%;
-  height: 100%;
   min-width: 0;
-  padding: 0 1.7rem 0 var(--space-2);
-  color: inherit;
-  color-scheme: dark;
-  appearance: none;
-  background: transparent;
-  border: 0;
-  outline: 0;
 }
 
-.selectControl option {
-  color: var(--color-text);
-  background: var(--color-surface-raised);
+.menuControl>summary {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+  padding-right: var(--space-1);
+  cursor: pointer;
+  list-style: none;
+  white-space: nowrap;
 }
 
-.selectControl svg {
-  position: absolute;
-  right: var(--space-2);
-  pointer-events: none;
+.menuControl>summary svg {
+  flex: 0 0 auto;
 }
 
-.toolbar input[type='color'] {
-  width: 1.8rem;
-  min-width: 1.8rem;
-  padding: 0.2rem;
+.menuControl>summary::-webkit-details-marker {
+  display: none;
 }
 
-.toolbar button:hover,
-.selectControl:hover,
-.toolbar input:hover {
+.menuControl>summary svg {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.menuControl[open]>summary svg {
+  transform: rotate(180deg);
+}
+
+.menuControl>summary:hover,
+.menuControl[open]>summary {
   background: var(--color-overlay-hover);
   border-color: var(--color-border-strong);
 }
 
-.selectControl:focus-within {
+.menuControl>summary:focus-visible {
   border-color: var(--color-border-strong);
 }
 
-.selectControl:has(select:disabled),
-.toolbar button:disabled,
-.toolbar input:disabled {
+.menuControl>summary[aria-disabled='true'] {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.menuPanel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  display: grid;
+  min-width: 13rem;
+  padding: var(--space-1);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  box-shadow: var(--shadow-panel);
+}
+
+.menuControl:nth-last-child(-n+2) .menuPanel {
+  right: 0;
+  left: auto;
+}
+
+.menuItem {
+  position: relative;
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  text-align: left;
+}
+
+.menuItem::before {
+  position: absolute;
+  left: var(--space-2);
+  content: '';
+}
+
+.menuItem[aria-pressed='true']::before {
+  content: '✓';
+}
+
+.menuItemWithIcon {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1);
+  padding-left: var(--space-2);
+}
+
+.menuItemIcon {
+  position: static;
+  transform: none;
+}
+
+.menuItem:hover:not(:disabled),
+.menuItem:focus-visible {
+  color: var(--color-text);
+  background: var(--color-overlay-hover);
+}
+
+.menuItem[aria-pressed='true'] {
+  color: var(--color-action-contrast);
+  background: var(--color-action);
+}
+
+.menuItem:disabled {
   opacity: 0.42;
 }
 
-.toolbar button[aria-pressed='true'] {
-  color: var(--color-action-contrast);
-  background: var(--color-action);
-  border-color: var(--color-action);
+.menuDivider {
+  height: var(--border-width);
+  margin-block: var(--space-1);
+  background: var(--color-border);
+}
+
+.swatchGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+  padding: var(--space-1);
+}
+
+.swatchButton {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: var(--space-1);
+  place-items: center;
+  background: transparent;
+  border: var(--border-width) solid transparent;
+}
+
+.swatchButton:hover,
+.swatchButton:focus-visible,
+.swatchButton[aria-pressed='true'] {
+  background: var(--color-overlay-hover);
+  border-color: var(--color-border-strong);
+}
+
+.colorSwatch {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: var(--border-width) solid var(--color-border-strong);
+}
+
+.colorSwatch[data-default='true'] {
+  background:
+    linear-gradient(45deg, transparent 47%, var(--color-text-muted) 48% 52%, transparent 53%),
+    var(--color-surface-raised);
 }
 
 .document {
@@ -108,18 +204,47 @@
 }
 
 .content {
-  padding-inline: var(--space-5);
-  padding-bottom: var(--space-4);
+  padding: var(--space-4);
 }
 
 .content :global(.tiptap) {
+  width: 100%;
   min-height: 100%;
+  margin-inline: auto;
   color: var(--color-text);
   font-size: var(--font-size-md);
   font-synthesis: style;
   line-height: var(--line-height-standard);
   outline: none;
   overflow-wrap: anywhere;
+}
+
+.content[data-line-length='narrow'] :global(.tiptap) {
+  max-width: 40ch;
+}
+
+.content[data-line-length='compact'] :global(.tiptap) {
+  max-width: 50ch;
+}
+
+.content[data-line-length='standard'] :global(.tiptap) {
+  max-width: 65ch;
+}
+
+.content[data-line-length='comfortable'] :global(.tiptap) {
+  max-width: 72ch;
+}
+
+.content[data-line-length='wide'] :global(.tiptap) {
+  max-width: 80ch;
+}
+
+.content[data-line-length='extra-wide'] :global(.tiptap) {
+  max-width: 100ch;
+}
+
+.content[data-line-length='full'] :global(.tiptap) {
+  max-width: none;
 }
 
 .content :global(.tiptap em) {

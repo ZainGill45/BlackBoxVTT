@@ -126,6 +126,7 @@ export class CampaignWorkspaceRegistry {
         assets: assetRepository,
         database,
         scenes: sceneRepository,
+        system: container.manifest.system,
         touchCampaign,
       }),
       manifest: container.manifest,

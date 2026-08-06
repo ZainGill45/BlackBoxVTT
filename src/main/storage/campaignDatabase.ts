@@ -20,6 +20,8 @@ import {
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import {
   createDefaultCampaignSystemState,
+  getJournalEntryTypeDefinition,
+  parseJournalEntryData,
   parseCampaignSystemState,
 } from '../../systems/catalog';
 import {
@@ -36,7 +38,7 @@ import {
 } from '../../shared/journal';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
-export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 12;
+export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 13;
 
 interface CampaignMetadataRow {
   campaign_id: string;
@@ -124,6 +126,9 @@ export class CampaignDatabase {
           } else if (version === 11) {
             this.migrateVersion11To12();
             version = 12;
+          } else if (version === 12) {
+            this.migrateVersion12To13();
+            version = 13;
           } else {
             throw new Error(`Unsupported campaign schema version ${version}.`);
           }
@@ -296,7 +301,9 @@ export class CampaignDatabase {
           created_by TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           updated_by TEXT NOT NULL,
-          name_style_json TEXT NOT NULL
+          name_style_json TEXT NOT NULL,
+          data_schema_version INTEGER NOT NULL CHECK (data_schema_version >= 1),
+          data_json TEXT NOT NULL
         ) STRICT;
         CREATE TABLE journal_entry_permissions (
           entry_id TEXT NOT NULL,
@@ -533,6 +540,8 @@ export class CampaignDatabase {
         'updated_at',
         'updated_by',
         'name_style_json',
+        'data_schema_version',
+        'data_json',
       ],
       journal_entry_permissions: ['entry_id', 'user_id', 'access'],
       journal_pages: [
@@ -649,17 +658,27 @@ export class CampaignDatabase {
   }
 
   private validateJournalState(): void {
+    const system = this.readSystem();
     const entries = this.connection.prepare(
-      `SELECT id, type_id, position, name, name_style_json, created_at, updated_at
+      `SELECT id, type_id, position, name, name_style_json, data_schema_version,
+              data_json, created_at, updated_at
        FROM journal_entries ORDER BY position`,
     ).all() as Array<Record<string, unknown>>;
     if (entries.length > MAX_JOURNAL_ENTRIES) throw new Error('Campaign Journal exceeds its note limit.');
     for (const [position, entry] of entries.entries()) {
       let nameStyle: unknown;
+      let data: unknown;
       try { nameStyle = JSON.parse(String(entry.name_style_json)); } catch { throw new Error('Campaign Journal note style is invalid.'); }
+      try { data = JSON.parse(String(entry.data_json)); } catch { throw new Error('Campaign Journal entry data is invalid.'); }
+      const definition = typeof entry.type_id === 'string'
+        ? getJournalEntryTypeDefinition(system, entry.type_id)
+        : null;
+      const parsedData = typeof entry.type_id === 'string' && Number.isInteger(entry.data_schema_version)
+        ? parseJournalEntryData(system, entry.type_id, Number(entry.data_schema_version), data)
+        : null;
       if (
         typeof entry.id !== 'string' || !UUID_PATTERN.test(entry.id) ||
-        entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE || entry.position !== position ||
+        !definition || parsedData === null || entry.position !== position ||
         typeof entry.name !== 'string' || entry.name.normalize('NFKC').trim() !== entry.name ||
         countGraphemes(entry.name) < 1 || countGraphemes(entry.name) > MAX_JOURNAL_TITLE_GRAPHEMES ||
         !isJournalTitleStyle(nameStyle) ||
@@ -671,8 +690,11 @@ export class CampaignDatabase {
                 revision, permission_revision, created_at, updated_at
          FROM journal_pages WHERE entry_id = ? ORDER BY position`,
       ).all(entry.id as string) as Array<Record<string, unknown>>;
-      if (pages.length < 1 || pages.length > MAX_NOTE_PAGES) {
-        throw new Error('Campaign Journal note has an invalid page count.');
+      if (
+        (entry.type_id === JOURNAL_ENTRY_TYPE_NOTE && (pages.length < 1 || pages.length > MAX_NOTE_PAGES)) ||
+        (entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE && pages.length !== 0)
+      ) {
+        throw new Error('Campaign Journal entry has an invalid page count.');
       }
       for (const [pagePosition, page] of pages.entries()) {
         let content: unknown;
@@ -937,6 +959,24 @@ export class CampaignDatabase {
       }
       this.connection.exec('PRAGMA user_version = 12');
       this.connection.exec('COMMIT');
+    } catch (error) {
+      this.connection.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  private migrateVersion12To13(): void {
+    this.connection.exec('BEGIN IMMEDIATE');
+    try {
+      this.connection.exec(`
+        ALTER TABLE journal_entries
+          ADD COLUMN data_schema_version INTEGER NOT NULL DEFAULT 1
+            CHECK (data_schema_version >= 1);
+        ALTER TABLE journal_entries
+          ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}';
+        PRAGMA user_version = 13;
+        COMMIT;
+      `);
     } catch (error) {
       this.connection.exec('ROLLBACK');
       throw error;
