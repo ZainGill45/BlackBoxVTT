@@ -173,6 +173,12 @@ test.describe('application lifecycle', () => {
 
     await closed;
   });
+});
+
+test.describe('local Journal durability', () => {
+  const apps = new AppFixture();
+
+  test.afterEach(() => apps.disposeAll());
 
   test('authors and restores a rich Journal note in one modal', async () => {
     const first = await apps.launch();
@@ -215,27 +221,6 @@ test.describe('application lifecycle', () => {
       'true',
     );
     await expect(noteModal.getByRole('button', { name: 'Close note' })).toHaveCount(0);
-    const modalBounds = await noteModal.boundingBox();
-    expect(modalBounds?.width).toBeGreaterThan(1186);
-    expect(modalBounds?.width).toBeCloseTo(1280, 0);
-    expect(modalBounds?.height).toBeGreaterThanOrEqual(820);
-    expect(modalBounds?.height).toBeLessThanOrEqual(840);
-    const titleGeometry = await noteModal.getByLabel('Note name').evaluate((input) => {
-      const header = input.parentElement;
-      if (!header) throw new Error('The note title header is missing.');
-      const inputBounds = input.getBoundingClientRect();
-      return {
-        fontSize: Number.parseFloat(getComputedStyle(input).fontSize),
-        headerHeight: header.clientHeight,
-        headerWidth: header.clientWidth,
-        inputHeight: inputBounds.height,
-        inputWidth: inputBounds.width,
-      };
-    });
-    expect(Math.abs(titleGeometry.inputWidth - titleGeometry.headerWidth))
-      .toBeLessThanOrEqual(1);
-    expect(titleGeometry.inputHeight).toBeCloseTo(titleGeometry.headerHeight, 0);
-    expect(titleGeometry.fontSize).toBeGreaterThanOrEqual(20);
     await noteModal.getByLabel('Note name').fill('Campaign Chronicle');
     await noteModal.getByLabel('Note name').focus();
     await noteModal.getByRole('button', { name: 'Style: Title' }).click();
@@ -287,13 +272,6 @@ test.describe('application lifecycle', () => {
     await expect(embeddedImage).toBeVisible();
     await expect
       .poll(() =>
-        embeddedImage.evaluate((image) =>
-          getComputedStyle(image.closest('figure')!).marginLeft,
-        ),
-      )
-      .toBe('0px');
-    await expect
-      .poll(() =>
         embeddedImage.evaluate((image: HTMLImageElement) => image.naturalWidth),
       )
       .toBeGreaterThan(0);
@@ -317,19 +295,11 @@ test.describe('application lifecycle', () => {
       name: 'Delete Campaign Chronicle',
     });
     await expect(deleteNote).toHaveAttribute('aria-pressed', 'false');
-    expect(
-      await deleteNote.evaluate((button) => getComputedStyle(button).backgroundImage),
-    ).not.toBe('none');
     await deleteNote.click();
     const confirmDeleteNote = window.getByRole('button', {
       name: 'Confirm deletion of Campaign Chronicle',
     });
     await expect(confirmDeleteNote).toHaveAttribute('aria-pressed', 'true');
-    expect(
-      await confirmDeleteNote.evaluate(
-        (button) => getComputedStyle(button).backgroundImage,
-      ),
-    ).toBe('none');
     await window.getByRole('tab', { name: 'Storage' }).click();
     await expect(window.getByLabel('Name for pasted-map.png')).toBeAttached();
 
@@ -367,39 +337,10 @@ test.describe('application lifecycle', () => {
     let sheet = window.getByRole('dialog', { name: /character sheet$/ });
     await expect(sheet).toBeVisible();
     await expect(sheet).toHaveAccessibleName('New Character character sheet');
-    const sheetBounds = await sheet.boundingBox();
-    expect(sheetBounds).not.toBeNull();
-    expect(sheetBounds!.width / sheetBounds!.height).toBeGreaterThan(0.75);
-    expect(sheetBounds!.width / sheetBounds!.height).toBeLessThan(0.80);
-    const tokenBounds = await sheet.getByLabel('Character token').boundingBox();
-    const abilitiesBounds = await sheet.getByRole('region', { name: 'Abilities' }).boundingBox();
     const tabList = sheet.getByRole('tablist', { name: 'Character sheet sections' });
-    const tabBounds = await tabList.boundingBox();
-    const homeBounds = await sheet.getByRole('tabpanel').boundingBox();
-    expect(tokenBounds!.height / sheetBounds!.height).toBeGreaterThan(0.10);
-    expect(tokenBounds!.height / sheetBounds!.height).toBeLessThan(0.13);
-    expect(abilitiesBounds!.height / sheetBounds!.height).toBeGreaterThan(0.10);
-    expect(abilitiesBounds!.height / sheetBounds!.height).toBeLessThan(0.13);
-    expect(tabBounds!.height / sheetBounds!.height).toBeGreaterThan(0.025);
-    expect(tabBounds!.height / sheetBounds!.height).toBeLessThan(0.05);
-    expect(homeBounds!.height / sheetBounds!.height).toBeGreaterThan(0.66);
-    const tabCells = await Promise.all(
-      (await tabList.getByRole('tab').all()).map((tab) => tab.boundingBox()),
-    );
-    expect(Math.max(...tabCells.map((box) => box!.width)) - Math.min(...tabCells.map((box) => box!.width)))
-      .toBeLessThan(2);
-    expect(Math.abs(tabCells[0]!.x + tabCells[0]!.width - tabCells[1]!.x)).toBeLessThan(2);
-    expect(Math.abs(tabCells[1]!.x + tabCells[1]!.width - tabCells[2]!.x)).toBeLessThan(2);
-    expect(await tabList.getByRole('tab', { name: 'Home' }).evaluate((tab) => {
-      const style = tab.ownerDocument.defaultView!.getComputedStyle(tab);
-      return {
-        backgroundImage: style.backgroundImage,
-        boxShadow: style.boxShadow,
-      };
-    })).toEqual({
-      backgroundImage: expect.stringContaining('repeating-linear-gradient'),
-      boxShadow: 'none',
-    });
+    await expect(tabList.getByRole('tab')).toHaveCount(3);
+    await expect(tabList.getByRole('tab', { name: 'Home' }))
+      .toHaveAttribute('aria-selected', 'true');
     const headerFieldLabels = [
       'Name',
       'Class',
@@ -435,115 +376,18 @@ test.describe('application lifecycle', () => {
       Subclass: "The specialization chosen within the character's class.",
       Weight: "The character's weight.",
     } satisfies Record<(typeof headerFieldLabels)[number], string>;
-    const headerFieldBounds = Object.fromEntries(await Promise.all(
-      headerFieldLabels.map(async (label) => [
-        label,
-        (await sheet.getByRole(
-          dropdownFieldLabels.has(label) ? 'button' : 'textbox',
-          { exact: true, name: label },
-        )
-          .locator('..')
-          .boundingBox())!,
-      ] as const),
-    ));
     for (const label of headerFieldLabels) {
       await expect(sheet.getByRole(
         dropdownFieldLabels.has(label) ? 'button' : 'textbox',
         { exact: true, name: label },
       )).toHaveAttribute('title', headerFieldTitles[label]);
     }
-    const headerRowHeights = ['Name', 'Species', 'Weight']
-      .map((label) => headerFieldBounds[label].height);
-    expect(Math.max(...headerRowHeights) - Math.min(...headerRowHeights)).toBeLessThan(2);
     const nameInput = sheet.getByRole('textbox', { exact: true, name: 'Name' });
     await expect(nameInput).toHaveValue('New Character');
     await expect(nameInput).toHaveAttribute('placeholder', 'Name');
     const subclassInput = sheet.getByRole('textbox', { exact: true, name: 'Subclass' });
     await expect(subclassInput).toHaveAttribute('placeholder', 'Subclass');
-    const placeholderTypography = await subclassInput.evaluate((input) => {
-      const style = input.ownerDocument.defaultView!.getComputedStyle(input, '::placeholder');
-      return {
-        color: style.color,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        textTransform: style.textTransform,
-      };
-    });
-    expect(placeholderTypography.fontWeight).toBe('400');
-    expect(placeholderTypography.textTransform).toBe('none');
     const emptyClassDropdown = sheet.getByRole('button', { exact: true, name: 'Class' });
-    const emptyLevelDropdown = sheet.getByRole('button', { exact: true, name: 'Level' });
-    await expect(emptyClassDropdown.locator('svg')).toHaveCount(0);
-    await expect(emptyLevelDropdown.locator('svg')).toHaveCount(0);
-    expect(await emptyClassDropdown.evaluate((control) => {
-      const style = control.ownerDocument.defaultView!.getComputedStyle(control);
-      return {
-        color: style.color,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        textTransform: style.textTransform,
-      };
-    })).toEqual(placeholderTypography);
-    const sectionRatio = async (heading: string) => {
-      const bounds = await sheet.getByRole('heading', { name: heading }).locator('..').boundingBox();
-      return bounds!.height / homeBounds!.height;
-    };
-    expect(await sectionRatio('Important Statistics')).toBeGreaterThan(0.25);
-    expect(await sectionRatio('Important Statistics')).toBeLessThan(0.29);
-    const importantStatsPanel = sheet.getByRole('heading', { name: 'Important Statistics' })
-      .locator('..');
-    const importantStatsHeaderStyle = await sheet.getByRole('heading', { name: 'Important Statistics' })
-      .evaluate((heading) => {
-        const style = heading.ownerDocument.defaultView!.getComputedStyle(heading);
-        return {
-          backgroundColor: style.backgroundColor,
-          backgroundImage: style.backgroundImage,
-          borderBottomWidth: style.borderBottomWidth,
-          color: style.color,
-          fontSize: style.fontSize,
-          fontWeight: style.fontWeight,
-        };
-      });
-    const importantStatsPanelBackground = await importantStatsPanel.evaluate((panel) =>
-      panel.ownerDocument.defaultView!.getComputedStyle(panel).backgroundColor);
-    expect(importantStatsHeaderStyle.backgroundColor).not.toBe(importantStatsPanelBackground);
-    expect(importantStatsHeaderStyle.backgroundImage).toContain('linear-gradient');
-    expect(importantStatsHeaderStyle.borderBottomWidth).not.toBe('0px');
-    expect(Number.parseFloat(importantStatsHeaderStyle.fontSize)).toBeLessThanOrEqual(11);
-    expect(importantStatsHeaderStyle.fontWeight).toBe('500');
-    const matchingPanelHeadings = [
-      'Health',
-      'Resources',
-      'Actions',
-      'Inventory',
-      'Skills',
-      'Features',
-    ] as const;
-    for (const headingName of matchingPanelHeadings) {
-      const heading = sheet.getByRole('heading', { name: headingName });
-      const [headingBounds, panelBounds, headingStyle] = await Promise.all([
-        heading.boundingBox(),
-        heading.locator('..').boundingBox(),
-        heading.evaluate((element) => {
-          const style = element.ownerDocument.defaultView!.getComputedStyle(element);
-          return {
-            backgroundImage: style.backgroundImage,
-            borderBottomWidth: style.borderBottomWidth,
-            color: style.color,
-            fontSize: style.fontSize,
-            fontWeight: style.fontWeight,
-          };
-        }),
-      ]);
-      expect(headingBounds!.width / panelBounds!.width).toBeGreaterThan(0.99);
-      expect(headingStyle).toEqual({
-        backgroundImage: importantStatsHeaderStyle.backgroundImage,
-        borderBottomWidth: importantStatsHeaderStyle.borderBottomWidth,
-        color: importantStatsHeaderStyle.color,
-        fontSize: importantStatsHeaderStyle.fontSize,
-        fontWeight: importantStatsHeaderStyle.fontWeight,
-      });
-    }
     const importantStatDefaults = [
       ['Initiative', '0'],
       ['Armor Class', '10'],
@@ -552,159 +396,24 @@ test.describe('application lifecycle', () => {
       ['Proficiency Bonus', '+2'],
       ['Inspiration Count', '0'],
     ] as const;
-    const importantStatRows = await Promise.all(importantStatDefaults.map(async ([label]) => (
-      await sheet.getByLabel(label).locator('..').boundingBox()
-    )!));
     for (const [label, defaultValue] of importantStatDefaults) {
       await expect(sheet.getByLabel(label)).toHaveValue(defaultValue);
     }
-    expect(Math.max(...importantStatRows.map(({ x }) => x)) -
-      Math.min(...importantStatRows.map(({ x }) => x))).toBeLessThan(2);
-    expect(Math.max(...importantStatRows.map(({ width }) => width)) -
-      Math.min(...importantStatRows.map(({ width }) => width))).toBeLessThan(2);
-    const importantStatsBounds = await importantStatsPanel.boundingBox();
-    expect(importantStatRows[0].width / importantStatsBounds!.width).toBeGreaterThan(0.94);
-    expect(Math.min(...importantStatRows.map(({ height }) => height))).toBeGreaterThanOrEqual(27);
-    expect(Math.max(...importantStatRows.map(({ height }) => height))).toBeLessThanOrEqual(29);
-    for (let index = 1; index < importantStatRows.length; index += 1) {
-      expect(Math.abs(
-        importantStatRows[index].y -
-        (importantStatRows[index - 1].y + importantStatRows[index - 1].height),
-      )).toBeLessThan(1);
-    }
-    expect(await sheet.getByLabel('Initiative').locator('..').evaluate((row) => {
-      const style = row.ownerDocument.defaultView!.getComputedStyle(row);
-      const labelStyle = row.ownerDocument.defaultView!.getComputedStyle(row.querySelector('span')!);
-      return {
-        backgroundColor: style.backgroundColor,
-        borderLeftWidth: style.borderLeftWidth,
-        borderRightWidth: style.borderRightWidth,
-        borderTopWidth: style.borderTopWidth,
-        borderBottomWidth: style.borderBottomWidth,
-        labelFontSize: labelStyle.fontSize,
-      };
-    })).toEqual({
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      borderLeftWidth: '0px',
-      borderRightWidth: '0px',
-      borderTopWidth: '0px',
-      borderBottomWidth: '1px',
-      labelFontSize: '10px',
-    });
-    const initiativeRow = sheet.getByLabel('Initiative').locator('..');
-    await initiativeRow.hover();
-    await sheet.getByLabel('Initiative').focus();
-    expect(await initiativeRow.evaluate((row) => {
-      const style = row.ownerDocument.defaultView!.getComputedStyle(row);
-      return { backgroundColor: style.backgroundColor, boxShadow: style.boxShadow };
-    })).toEqual({ backgroundColor: 'rgba(0, 0, 0, 0)', boxShadow: 'none' });
-    expect(await sheet.getByLabel('Initiative').evaluate((input) => {
-      const style = input.ownerDocument.defaultView!.getComputedStyle(input);
-      return {
-        backgroundColor: style.backgroundColor,
-        borderWidth: style.borderWidth,
-        fontSize: style.fontSize,
-        textAlign: style.textAlign,
-      };
-    })).toEqual({
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      borderWidth: '0px',
-      fontSize: '11px',
-      textAlign: 'right',
-    });
     const skillsPanel = sheet.getByRole('heading', { name: 'Skills' }).locator('..');
     const skillTrainingControls = skillsPanel.locator('button[data-training]');
     await expect(skillTrainingControls).toHaveCount(18);
     expect(await skillTrainingControls.evaluateAll((controls) =>
       controls.map((control) => control.getAttribute('aria-label')),
     )).toEqual(DND5E_SKILLS.map(({ label }) => `${label} training: Untrained`));
-    const skillRows = await Promise.all(DND5E_SKILLS.map(async (skill) => {
+    for (const skill of DND5E_SKILLS) {
       const output = skillsPanel.getByLabel(`${skill.label} bonus and passive score`);
       await expect(output).toHaveText('0 / 10');
       const row = output.locator('..');
       await expect(row.getByText(skill.abbreviation, { exact: true })).toBeVisible();
-      return (await row.boundingBox())!;
-    }));
-    const skillsPanelBounds = await skillsPanel.boundingBox();
-    expect(Math.min(...skillRows.map(({ width }) => width)) / skillsPanelBounds!.width)
-      .toBeGreaterThan(0.98);
-    expect(Math.min(...skillRows.map(({ height }) => height))).toBeGreaterThan(27);
-    expect(Math.max(...skillRows.map(({ height }) => height))).toBeLessThan(29);
-    for (let index = 1; index < skillRows.length; index += 1) {
-      expect(Math.abs(
-        skillRows[index].y - (skillRows[index - 1].y + skillRows[index - 1].height),
-      )).toBeLessThan(1);
     }
     const addCustomSkill = skillsPanel.getByRole('button', { name: 'Add Custom Skill' });
     await expect(addCustomSkill).toBeEnabled();
-    const addCustomSkillBounds = await addCustomSkill.boundingBox();
-    const lastSkillRow = skillRows.at(-1)!;
-    expect(addCustomSkillBounds!.y).toBeGreaterThanOrEqual(
-      lastSkillRow.y + lastSkillRow.height,
-    );
-    expect(await addCustomSkill.evaluate((button) => {
-      const style = button.ownerDocument.defaultView!.getComputedStyle(button);
-      return {
-        backgroundColor: style.backgroundColor,
-        borderStyle: style.borderStyle,
-        fontSize: style.fontSize,
-        fontWeight: style.fontWeight,
-        textTransform: style.textTransform,
-      };
-    })).toEqual({
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      borderStyle: 'dashed',
-      fontSize: '10px',
-      fontWeight: '400',
-      textTransform: 'none',
-    });
-    await addCustomSkill.click();
-    await expect(skillTrainingControls).toHaveCount(18);
-    const skillRowStyle = await skillTrainingControls.first().locator('..').evaluate((row) => {
-      const view = row.ownerDocument.defaultView!;
-      const style = view.getComputedStyle(row);
-      const label = row.querySelector('span')!;
-      const text = label.querySelectorAll(':scope > span');
-      const output = row.querySelector('output')!;
-      return {
-        abilityFontSize: view.getComputedStyle(text[0]!).fontSize,
-        baselineOffset: Math.abs(
-          text[0]!.getBoundingClientRect().bottom - text[1]!.getBoundingClientRect().bottom,
-        ),
-        backgroundColor: style.backgroundColor,
-        borderBottomWidth: style.borderBottomWidth,
-        borderLeftWidth: style.borderLeftWidth,
-        borderRightWidth: style.borderRightWidth,
-        borderTopWidth: style.borderTopWidth,
-        labelAlignItems: view.getComputedStyle(label).alignItems,
-        nameFontSize: view.getComputedStyle(text[1]!).fontSize,
-        valueFontSize: view.getComputedStyle(output).fontSize,
-      };
-    });
-    expect(skillRowStyle).toMatchObject({
-      abilityFontSize: '9px',
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      borderBottomWidth: '1px',
-      borderLeftWidth: '0px',
-      borderRightWidth: '0px',
-      borderTopWidth: '0px',
-      labelAlignItems: 'baseline',
-      nameFontSize: '10px',
-      valueFontSize: '10px',
-    });
-    expect(skillRowStyle.baselineOffset).toBeLessThan(1);
-    const firstSkillRow = skillTrainingControls.first().locator('..');
-    await firstSkillRow.hover();
-    await skillTrainingControls.first().focus();
-    expect(await firstSkillRow.evaluate((row) => {
-      const style = row.ownerDocument.defaultView!.getComputedStyle(row);
-      return { backgroundColor: style.backgroundColor, boxShadow: style.boxShadow };
-    })).toEqual({ backgroundColor: 'rgba(0, 0, 0, 0)', boxShadow: 'none' });
     const healthPanel = sheet.getByRole('heading', { name: 'Health', exact: true }).locator('..');
-    const healthPanelBounds = await healthPanel.boundingBox();
-    expect(healthPanelBounds!.height).toBeGreaterThan(110);
-    expect(healthPanelBounds!.height).toBeLessThan(120);
-    expect(healthPanelBounds!.height / homeBounds!.height).toBeLessThan(0.2);
     const currentHitPoints = healthPanel.getByLabel('Current hit points');
     const maximumHitPoints = healthPanel.getByLabel('Maximum hit points');
     for (const [label, defaultValue] of [
@@ -717,41 +426,6 @@ test.describe('application lifecycle', () => {
     ] as const) {
       await expect(healthPanel.getByLabel(label)).toHaveValue(defaultValue);
     }
-    expect(await currentHitPoints.evaluate((input) => {
-      const style = input.ownerDocument.defaultView!.getComputedStyle(input);
-      return {
-        backgroundColor: style.backgroundColor,
-        borderWidth: style.borderWidth,
-        boxShadow: style.boxShadow,
-        fontSize: style.fontSize,
-      };
-    })).toEqual({
-      backgroundColor: 'rgba(0, 0, 0, 0)',
-      borderWidth: '0px',
-      boxShadow: 'none',
-      fontSize: '12px',
-    });
-    const healthQuadrants = await Promise.all([
-      currentHitPoints.locator('..').locator('..').boundingBox(),
-      healthPanel.getByLabel('Temporary hit points').locator('..').boundingBox(),
-      healthPanel.getByLabel('Current hit dice').locator('..').locator('..').boundingBox(),
-      healthPanel.getByRole('group', { name: 'Death save successes' })
-        .locator('..')
-        .locator('..')
-        .boundingBox(),
-    ]);
-    expect(
-      Math.max(...healthQuadrants.map((bounds) => bounds!.width)) -
-      Math.min(...healthQuadrants.map((bounds) => bounds!.width)),
-    ).toBeLessThan(1);
-    expect(
-      Math.max(...healthQuadrants.map((bounds) => bounds!.height)) -
-      Math.min(...healthQuadrants.map((bounds) => bounds!.height)),
-    ).toBeLessThan(1);
-    expect(Math.abs(
-      healthQuadrants[0]!.x + healthQuadrants[0]!.width -
-      (healthPanelBounds!.x + healthPanelBounds!.width / 2),
-    )).toBeLessThan(1);
     const deathSaveSuccesses = healthPanel.getByRole('group', {
       name: 'Death save successes',
     }).getByRole('button');
@@ -766,20 +440,6 @@ test.describe('application lifecycle', () => {
       'false',
       'false',
     ]);
-    const collapsedPanelBounds = await Promise.all([
-      'Actions',
-      'Inventory',
-      'Resources',
-      'Features',
-    ].map(async (name) => (
-      await sheet.getByRole('heading', { name }).locator('..').boundingBox()
-    )!));
-    expect(Math.min(...collapsedPanelBounds.map(({ height }) => height))).toBeGreaterThan(70);
-    expect(Math.max(...collapsedPanelBounds.map(({ height }) => height))).toBeLessThan(75);
-    expect(
-      Math.max(...collapsedPanelBounds.map(({ height }) => height)) -
-      Math.min(...collapsedPanelBounds.map(({ height }) => height)),
-    ).toBeLessThan(1);
     const panelAddButtons = [
       'Add Action',
       'Add Inventory Item',
@@ -788,7 +448,6 @@ test.describe('application lifecycle', () => {
     ].map((name) => sheet.getByRole('button', { name }));
     for (const button of panelAddButtons) {
       await expect(button).toBeEnabled();
-      await expect(button).toHaveCSS('border-style', 'dashed');
     }
     const abilityNames = [
       'Strength',
@@ -798,45 +457,6 @@ test.describe('application lifecycle', () => {
       'Wisdom',
       'Charisma',
     ] as const;
-    const abilityBoxes = await Promise.all(abilityNames.map(async (name) => (
-      await sheet.getByRole('article', { name: `${name} ability` }).boundingBox()
-    )!));
-    expect(Math.max(...abilityBoxes.map(({ y }) => y)) - Math.min(...abilityBoxes.map(({ y }) => y)))
-      .toBeLessThan(2);
-    const strengthBounds = abilityBoxes[0];
-    expect(Math.abs(tokenBounds!.x - strengthBounds!.x)).toBeLessThan(2);
-    expect(Math.abs(tokenBounds!.width - strengthBounds!.width)).toBeLessThan(2);
-    const classFieldBoxes = ['Name', 'Class', 'Subclass', 'Level', 'Experience']
-      .map((label) => headerFieldBounds[label]);
-    expect(
-      Math.max(...classFieldBoxes.map(({ width }) => width)) -
-      Math.min(...classFieldBoxes.map(({ width }) => width)),
-    ).toBeLessThan(2);
-    const detailFieldLabels = [
-      'Species',
-      'Lineage',
-      'Creature Type',
-      'Age',
-      'Height',
-      'Weight',
-      'Eyes',
-      'Skin',
-      'Hair',
-      'Size',
-    ] as const;
-    for (const [index, label] of detailFieldLabels.entries()) {
-      const abilityBounds = abilityBoxes[index % 5 + 1];
-      expect(Math.abs(headerFieldBounds[label].x - abilityBounds.x)).toBeLessThan(2);
-      expect(Math.abs(headerFieldBounds[label].width - abilityBounds.width)).toBeLessThan(2);
-    }
-    const detailFieldBoxes = detailFieldLabels.slice(0, 5)
-      .map((label) => headerFieldBounds[label]);
-    const horizontalGaps = [...classFieldBoxes, ...detailFieldBoxes].flatMap(
-      (_box, index, boxes) => index > 0
-        ? [boxes[index].x - (boxes[index - 1].x + boxes[index - 1].width)]
-        : [],
-    ).filter((gap) => gap > 0);
-    expect(Math.max(...horizontalGaps) - Math.min(...horizontalGaps)).toBeLessThan(2);
     const strengthModifier = sheet.getByLabel('Strength modifier');
     for (const ability of abilityNames) {
       await expect(sheet.getByLabel(`${ability} modifier`)).toHaveValue('0');
@@ -851,49 +471,6 @@ test.describe('application lifecycle', () => {
     const strengthCard = sheet.getByRole('article', { name: 'Strength ability' });
     await expect(strengthCard.getByText('Score', { exact: true })).toBeVisible();
     await expect(strengthCard.getByText('Throw', { exact: true })).toBeVisible();
-    const strengthHeading = strengthCard.getByRole('heading', { name: 'Strength' });
-    const strengthLabelBounds = await strengthHeading.boundingBox();
-    expect(Math.abs(
-      strengthLabelBounds!.x + strengthLabelBounds!.width / 2 -
-      (strengthBounds!.x + strengthBounds!.width / 2),
-    )).toBeLessThan(1);
-    const strengthHeadingStyle = await strengthHeading.evaluate((heading) => {
-      const style = heading.ownerDocument.defaultView!.getComputedStyle(heading);
-      return {
-        backgroundImage: style.backgroundImage,
-        borderBottomWidth: style.borderBottomWidth,
-        color: style.color,
-        fontSize: style.fontSize,
-      };
-    });
-    expect(strengthHeadingStyle.backgroundImage).toBe(importantStatsHeaderStyle.backgroundImage);
-    expect(strengthHeadingStyle.borderBottomWidth).toBe(importantStatsHeaderStyle.borderBottomWidth);
-    expect(strengthHeadingStyle.color).toBe(importantStatsHeaderStyle.color);
-    expect(strengthHeadingStyle.fontSize).toBe(importantStatsHeaderStyle.fontSize);
-    const strengthFooterBounds = await sheet.getByLabel('Strength score')
-      .locator('..')
-      .locator('..')
-      .boundingBox();
-    expect(strengthFooterBounds!.height / strengthBounds!.height).toBeGreaterThan(0.30);
-    expect(strengthFooterBounds!.height / strengthBounds!.height).toBeLessThan(0.34);
-    const scoreLabelBounds = await strengthCard.getByText('Score', { exact: true }).boundingBox();
-    const scoreInputBounds = await sheet.getByLabel('Strength score').boundingBox();
-    expect(scoreInputBounds!.y - (scoreLabelBounds!.y + scoreLabelBounds!.height))
-      .toBeGreaterThanOrEqual(1.5);
-    await strengthModifier.focus();
-    const strengthModifierMetrics = await strengthModifier.evaluate((input) => {
-      const view = input.ownerDocument.defaultView!;
-      const style = view.getComputedStyle(input);
-      return {
-        backgroundColor: style.backgroundColor,
-        borderWidth: style.borderWidth,
-        fontSize: Number.parseFloat(style.fontSize),
-        parentBoxShadow: view.getComputedStyle(input.parentElement!).boxShadow,
-      };
-    });
-    expect(strengthModifierMetrics.backgroundColor).toBe('rgba(0, 0, 0, 0)');
-    expect(strengthModifierMetrics.borderWidth).toBe('0px');
-    expect(strengthModifierMetrics.parentBoxShadow).toBe('none');
     const dexterityModifier = sheet.getByLabel('Dexterity modifier');
     const acrobaticsValues = sheet.getByLabel('Acrobatics bonus and passive score');
     const acrobaticsRow = acrobaticsValues.locator('..');
@@ -940,42 +517,16 @@ test.describe('application lifecycle', () => {
       'Warlock',
       'Wizard',
     ]);
-    await expect(classOptions.locator('svg')).toHaveCount(13);
-    const classIconNames = await classOptions.locator('svg').evaluateAll((icons) =>
-      icons.map((icon) => icon.getAttribute('class')));
-    expect(new Set(classIconNames).size).toBe(13);
     await classOptions.getByRole('button', { name: 'Fighter' }).click();
     const levelDropdown = sheet.getByRole('button', { exact: true, name: 'Level' });
     await levelDropdown.click();
     const levelOptions = sheet.getByRole('group', { name: 'Level options' });
     expect(await levelOptions.getByRole('button').allTextContents())
       .toEqual(Array.from({ length: 20 }, (_, index) => String(index + 1)));
-    await expect(levelOptions.locator('svg')).toHaveCount(20);
-    const levelIconNames = await levelOptions.locator('svg').evaluateAll((icons) =>
-      icons.map((icon) => icon.getAttribute('class')));
-    expect(new Set(levelIconNames).size).toBe(4);
     await levelOptions.getByRole('button', { exact: true, name: '7' }).click();
     await expect(sheet.getByLabel('Proficiency Bonus')).toHaveValue('+3');
     const strengthScore = sheet.getByLabel('Strength score');
     await strengthScore.fill('17');
-    const strengthScoreMetrics = await strengthScore.evaluate((input) => {
-      const view = input.ownerDocument.defaultView;
-      const lineHeight = Number.parseFloat(view!.getComputedStyle(input).lineHeight);
-      const style = view!.getComputedStyle(input);
-      return {
-        backgroundColor: style.backgroundColor,
-        borderWidth: style.borderWidth,
-        clientHeight: input.clientHeight,
-        fontSize: Number.parseFloat(style.fontSize),
-        lineHeight,
-      };
-    });
-    expect(strengthScoreMetrics.clientHeight).toBeGreaterThan(
-      Math.ceil(strengthScoreMetrics.lineHeight),
-    );
-    expect(strengthScoreMetrics.backgroundColor).toBe('rgba(0, 0, 0, 0)');
-    expect(strengthScoreMetrics.borderWidth).toBe('0px');
-    expect(strengthModifierMetrics.fontSize).toBeGreaterThan(strengthScoreMetrics.fontSize * 2);
     await strengthScore.blur();
     await expect(strengthModifier).toHaveValue('+3');
     await expect(sheet.getByLabel('Strength saving throw')).toHaveValue('+6');
@@ -994,13 +545,8 @@ test.describe('application lifecycle', () => {
     await sheet.getByLabel('Rage maximum').fill('3');
     await sheet.getByLabel('Rage maximum').blur();
     const rageCurrent = sheet.getByLabel('Rage current');
-    const rageValues = resourceList.locator('[data-resource-values]').first();
-    const compactValueBounds = await rageValues.boundingBox();
-    expect(compactValueBounds!.width).toBeLessThan(55);
-    const shortCurrentBounds = await rageCurrent.boundingBox();
     await rageCurrent.fill('-123456789');
-    const longCurrentBounds = await rageCurrent.boundingBox();
-    expect(longCurrentBounds!.width).toBeGreaterThan(shortCurrentBounds!.width + 30);
+    await expect(rageCurrent).toHaveValue('-123456789');
     await rageCurrent.fill('-2');
     await rageCurrent.blur();
     await sheet.getByRole('button', { name: 'Add Resource' }).click();
@@ -1012,10 +558,7 @@ test.describe('application lifecycle', () => {
     await sheet.getByLabel('Ki maximum').fill('4');
     await sheet.getByLabel('Ki maximum').blur();
     await kiName.click({ button: 'right' });
-    const resourceMenu = window.getByRole('menu', { name: 'Ki actions' });
-    const resourceMenuBounds = await resourceMenu.boundingBox();
-    expect(resourceMenuBounds!.width).toBeLessThan(300);
-    expect(resourceMenuBounds!.height).toBeLessThan(250);
+    await expect(window.getByRole('menu', { name: 'Ki actions' })).toBeVisible();
     await window.getByRole('menuitem', { name: 'Move Resource Up' }).click();
     await expect.poll(() => resourceList.locator('[data-resource-name]')
       .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)))

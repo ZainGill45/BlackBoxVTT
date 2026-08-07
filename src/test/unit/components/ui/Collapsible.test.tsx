@@ -18,13 +18,6 @@ beforeEach(() => {
   region = screen.getByRole('region', { hidden: true });
 });
 
-/** The icon stroke must stay square-cornered to match the visual system. */
-function expectSquareStroke(icon: Element | null) {
-  expect(icon).toHaveAttribute('stroke-linecap', 'butt');
-  expect(icon).toHaveAttribute('stroke-linejoin', 'miter');
-  expect(icon).toHaveAttribute('stroke-width', '1');
-}
-
 describe('Collapsible when closed', () => {
   it('reports itself collapsed to assistive technology', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
@@ -32,12 +25,6 @@ describe('Collapsible when closed', () => {
 
   it('hides its content region', () => {
     expect(region).not.toBeVisible();
-  });
-
-  it('shows the open affordance drawn with a square stroke', () => {
-    const icon = trigger.querySelector('[data-collapsible-icon="open"]');
-    expect(icon).toBeInTheDocument();
-    expectSquareStroke(icon?.querySelector('path') ?? null);
   });
 });
 
@@ -53,13 +40,6 @@ describe('Collapsible once opened', () => {
   it('reveals its content region', () => {
     expect(region).toBeVisible();
   });
-
-  it('shows the close affordance drawn with a square stroke', () => {
-    const icon = trigger.querySelector('[data-collapsible-icon="close"]');
-    expect(icon).toBeInTheDocument();
-    expectSquareStroke(icon?.querySelector('path') ?? null);
-  });
-
   it('notifies its owner of the change', () => {
     expect(onExpandedChange).toHaveBeenCalledWith(true);
   });

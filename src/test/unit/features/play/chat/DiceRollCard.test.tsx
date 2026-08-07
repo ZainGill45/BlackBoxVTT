@@ -49,25 +49,22 @@ function card(sides: number, value: number, total = value): ChatRollCard {
 
 describe('DiceRollCard', () => {
   it.each([
-    [20, 20, 20, 'd20', 'm32 3 18 7 11 17-4 21-16 13H23L7 48 3 27l11-17 18-7'],
-    [6, 6, 7, 'd6', 'M32 4 56 18v28L32 60 8 46V18L32 4Z'],
-    [4, 4, 15, 'd4', 'M32 6 58 55H6L32 6'],
-  ])('renders scalable reference geometry for d%s', (sides, value, total, shape, outline) => {
+    [20, 20, 20],
+    [6, 6, 7],
+    [4, 4, 15],
+  ])('renders an accessible total for d%s', (sides, value, total) => {
     render(<DiceRollCard card={card(sides, value, total)} />);
     const icon = screen.getByRole('img', { name: `Total ${total}` });
-    expect(icon).toHaveAttribute('viewBox', '0 0 64 64');
-    expect(icon).toHaveAttribute('data-shape', shape);
-    expect(icon.querySelector('path')?.getAttribute('d')).toContain(outline);
+    expect(icon).toHaveTextContent(String(total));
   });
 
-  it('fits exact negative, decimal, and long totals without replacing their value', () => {
+  it('preserves exact negative, decimal, and long totals', () => {
     render(<DiceRollCard card={card(6, 6, -123456.75)} />);
     const icon = screen.getByRole('img', { name: 'Total -123456.75' });
     expect(icon).toHaveTextContent('-123456.75');
-    expect(icon.querySelector('text')).toHaveAttribute('textLength', '48');
   });
 
-  it('colors active min and max results and boxes the section equation', () => {
+  it('labels active min and max results and excluded dice', () => {
     const fixture = card(4, 2, 14);
     fixture.sections[0] = {
       ...fixture.sections[0],
@@ -131,12 +128,10 @@ describe('DiceRollCard', () => {
       'neutral',
     ]);
     expect(results[3]).toHaveAttribute('data-included', 'false');
-    const heading = screen.getByText('4D4 + 4');
-    const detailBadge = screen.getByText('4d4').closest('span');
-    expect(heading.className).toBe(detailBadge?.className);
+    expect(screen.getByText('4D4 + 4')).toBeInTheDocument();
   });
 
-  it('boxes every dice term, operator, and literal value in the audit trail', () => {
+  it('reveals every dice term, operator, and literal value in the audit trail', () => {
     const fixture = card(4, 2, 36);
     const firstDice = {
       ...die(4, 2),
@@ -169,13 +164,10 @@ describe('DiceRollCard', () => {
         name: 'Show rolls for 4d4 + 4 + 2d8 + 10',
       }),
     );
-    const badgeClass = screen.getByText('4d4').closest('span')?.className;
-    expect(badgeClass).toBeTruthy();
-    expect(screen.getByText('2d8').closest('span')).toHaveClass(badgeClass!);
-    expect(screen.getByText('10')).toHaveClass(badgeClass!);
-    for (const operator of screen.getAllByText('+')) {
-      expect(operator).toHaveClass(badgeClass!);
-    }
+    expect(screen.getByText('4d4')).toBeInTheDocument();
+    expect(screen.getByText('2d8')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getAllByText('+')).toHaveLength(3);
   });
 
   it('shows titled multi-section equations and a static pending state', () => {

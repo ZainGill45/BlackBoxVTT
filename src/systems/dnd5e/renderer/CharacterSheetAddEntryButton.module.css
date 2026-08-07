@@ -7,7 +7,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 var(--space-2);
-  color: var(--color-text-muted);
+  color: var(--color-text);
   background: transparent;
   border: var(--border-width) dashed var(--color-border);
   cursor: pointer;

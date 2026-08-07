@@ -46,40 +46,16 @@ test.describe('networked Journal permissions', () => {
     await expect(formattedDraft).toHaveCSS('font-size', '24px');
     await gmNote.getByRole('button', { name: 'Line Length: Wide' }).click();
     await gmNote.getByRole('button', { name: 'Full' }).click();
-    const fullGeometry = await gmDraft.evaluate((element) => {
-      const bounds = element.getBoundingClientRect();
-      return {
-        left: bounds.left,
-        textAlign: getComputedStyle(element).textAlign,
-        width: bounds.width,
-      };
-    });
+    const fullWidth = await gmDraft.evaluate(
+      (element) => element.getBoundingClientRect().width,
+    );
     await gmNote.getByRole('button', { name: 'Line Length: Full' }).click();
     await gmNote.getByRole('button', { name: 'Narrow' }).click();
     await expect(gmDraft.locator('..')).toHaveAttribute('data-line-length', 'narrow');
-    const narrowGeometry = await gmDraft.evaluate((element) => {
-      const bounds = element.getBoundingClientRect();
-      const containerBounds = element.parentElement?.getBoundingClientRect();
-      return {
-        containerLeft: containerBounds?.left ?? 0,
-        containerRight: containerBounds?.right ?? 0,
-        left: bounds.left,
-        right: bounds.right,
-        textAlign: getComputedStyle(element).textAlign,
-        width: bounds.width,
-        container: containerBounds?.width ?? 0,
-      };
-    });
-    expect(narrowGeometry.width).toBeLessThan(narrowGeometry.container);
-    expect(narrowGeometry.width).toBeLessThan(fullGeometry.width);
-    expect(narrowGeometry.left).toBeGreaterThan(fullGeometry.left);
-    expect(
-      Math.abs(
-        (narrowGeometry.left - narrowGeometry.containerLeft) -
-        (narrowGeometry.containerRight - narrowGeometry.right),
-      ),
-    ).toBeLessThanOrEqual(1);
-    expect(narrowGeometry.textAlign).toBe(fullGeometry.textAlign);
+    const narrowWidth = await gmDraft.evaluate(
+      (element) => element.getBoundingClientRect().width,
+    );
+    expect(narrowWidth).toBeLessThan(fullWidth);
     await gmNote.getByLabel('Note name').fill('Party Briefing');
     await gmNote.getByLabel('Note name').blur();
     await expect(gm.window.getByRole('button', {
@@ -90,82 +66,6 @@ test.describe('networked Journal permissions', () => {
     await expect(
       gmNote.getByRole('toolbar', { name: 'Rich text formatting toolbar' }),
     ).toBeVisible();
-    const toolbarLayout = await gmNote
-      .getByRole('toolbar', { name: 'Rich text formatting toolbar' })
-      .evaluate((toolbar) => {
-        const childTops = Array.from(toolbar.children, (child) =>
-          child.getBoundingClientRect().top);
-        const clippedLabels = Array.from(
-          toolbar.querySelectorAll(':scope > details > summary > span'),
-          (label) => label.scrollWidth > label.clientWidth,
-        ).filter(Boolean).length;
-        const labels = Array.from(
-          toolbar.querySelectorAll<HTMLElement>(':scope > details > summary > span'),
-        );
-        const originalLabels = labels.map((label) => label.textContent ?? '');
-        const widestLabels = [
-          'Style: Unordered List',
-          'Alignment: Center',
-          'Font Family: Roboto Mono',
-          'Font Size: Default',
-          'Line Length: Comfortable',
-          'Insert',
-          'Text Color: Default',
-        ];
-        labels.forEach((label, index) => {
-          label.textContent = widestLabels[index] ?? label.textContent;
-        });
-        const widestLabelOverflow = toolbar.scrollWidth - toolbar.clientWidth;
-        labels.forEach((label, index) => {
-          label.textContent = originalLabels[index] ?? label.textContent;
-        });
-        const toolbarBounds = toolbar.getBoundingClientRect();
-        const firstControlBounds = toolbar.firstElementChild?.getBoundingClientRect();
-        const lastControlBounds = toolbar.lastElementChild?.getBoundingClientRect();
-        return {
-          centerOffset: firstControlBounds && lastControlBounds
-            ? Math.abs(
-              (firstControlBounds.left - toolbarBounds.left) -
-              (toolbarBounds.right - lastControlBounds.right),
-            )
-            : Number.POSITIVE_INFINITY,
-          clippedLabels,
-          overflow: toolbar.scrollWidth - toolbar.clientWidth,
-          rowSpread: Math.max(...childTops) - Math.min(...childTops),
-          widestLabelOverflow,
-        };
-      });
-    expect(toolbarLayout.clippedLabels).toBe(0);
-    expect(toolbarLayout.centerOffset).toBeLessThanOrEqual(1);
-    expect(toolbarLayout.rowSpread).toBeLessThan(2);
-    expect(toolbarLayout.overflow).toBeLessThanOrEqual(1);
-    expect(toolbarLayout.widestLabelOverflow).toBeLessThanOrEqual(1);
-    const sidebarActionLayout = await Promise.all([
-      gmNote.getByRole('button', { name: 'Edit permissions' }).evaluate((button) => {
-        const icon = button.querySelector('svg');
-        return {
-          iconFlexShrink: icon ? getComputedStyle(icon).flexShrink : null,
-          iconWidth: icon?.getBoundingClientRect().width ?? 0,
-          overflow: button.scrollWidth - button.clientWidth,
-          whiteSpace: getComputedStyle(button).whiteSpace,
-        };
-      }),
-      gmNote.getByRole('button', { name: 'Delete note' }).evaluate((button) => {
-        const icon = button.querySelector('svg');
-        return {
-          iconFlexShrink: icon ? getComputedStyle(icon).flexShrink : null,
-          iconWidth: icon?.getBoundingClientRect().width ?? 0,
-          overflow: button.scrollWidth - button.clientWidth,
-          whiteSpace: getComputedStyle(button).whiteSpace,
-        };
-      }),
-    ]);
-    for (const action of sidebarActionLayout) {
-      expect(action.overflow).toBeLessThanOrEqual(1);
-      expect(action.iconFlexShrink).toBe('0');
-      expect(action.iconWidth).toBeGreaterThanOrEqual(15.5);
-      expect(action.whiteSpace).toBe('nowrap');
-    }
     const styleControl = gmNote
       .getByRole('toolbar', { name: 'Rich text formatting toolbar' })
       .locator(':scope > details')
@@ -173,33 +73,13 @@ test.describe('networked Journal permissions', () => {
     await styleControl.locator('summary').click();
     const stylePanel = styleControl.getByRole('group');
     await expect(stylePanel.getByRole('button')).toHaveCount(12);
-    const stylePanelLayout = await stylePanel.evaluate((panel) => {
-      const dialog = panel.closest('[role="dialog"]');
-      const panelBounds = panel.getBoundingClientRect();
-      const dialogBounds = dialog?.getBoundingClientRect();
-      return {
-        bottomOverflow: dialogBounds ? panelBounds.bottom - dialogBounds.bottom : 0,
-        contentOverflow: panel.scrollHeight - panel.clientHeight,
-        overflowY: getComputedStyle(panel).overflowY,
-      };
-    });
-    expect(stylePanelLayout.bottomOverflow).toBeLessThanOrEqual(0);
-    expect(stylePanelLayout.contentOverflow).toBeLessThanOrEqual(1);
-    expect(stylePanelLayout.overflowY).toBe('visible');
     await styleControl.locator('summary').click();
     await gmDraft.focus();
     await gmNote.getByRole('button', { name: 'Insert' }).click();
     const insertPanel = gmNote.getByRole('group', { name: 'Insert options' });
     for (const label of ['Horizontal Rule', 'Table', 'Image']) {
       const insertAction = insertPanel.getByRole('button', { name: label });
-      await expect(insertAction.locator('svg')).toBeVisible();
-      const iconGap = await insertAction.evaluate((button) => {
-        const icon = button.querySelector('svg');
-        const text = button.querySelector('span');
-        if (!icon || !text) throw new Error('The Insert action layout is incomplete.');
-        return text.getBoundingClientRect().left - icon.getBoundingClientRect().right;
-      });
-      expect(iconGap).toBeGreaterThanOrEqual(3.5);
+      await expect(insertAction).toBeVisible();
     }
     await gmNote.getByRole('button', { name: 'Insert' }).click();
     await gmNote.getByRole('button', { name: 'Text Color: Default', exact: true }).click();

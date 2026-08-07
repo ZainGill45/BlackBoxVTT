@@ -33,7 +33,6 @@ describe('ContextMenuController', () => {
     );
     expect(root?.getAttribute('aria-label')).toBe('Canvas actions');
     expect(document.querySelector('[role="separator"]')).not.toBeNull();
-    expect(deleteButton?.className).toContain('danger');
     expect(document.activeElement).toBe(deleteButton);
 
     deleteButton?.click();

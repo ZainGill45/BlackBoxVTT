@@ -52,19 +52,6 @@ describe('Modal', () => {
     expect(dialog).not.toHaveAttribute('open');
   });
 
-  it('renders one content box without a visible heading or footer', () => {
-    renderModal();
-    const dialog = screen.getByRole('dialog', {
-      name: 'Trust this campaign',
-    });
-
-    expect(dialog.querySelector('header')).toBeNull();
-    expect(dialog.querySelector('footer')).toBeNull();
-    expect(
-      screen.queryByRole('heading', { name: 'Trust this campaign' }),
-    ).not.toBeInTheDocument();
-  });
-
   it('dismisses from Escape and backdrop clicks but not content clicks', () => {
     const onDismiss = vi.fn();
     renderModal({ onDismiss });

@@ -233,14 +233,13 @@ describe('ScenePanel', () => {
     expect(rowFor('Iron Keep').getByText('1750 × 1750')).toBeInTheDocument();
   });
 
-  it('labels the row actions with icons, not words', async () => {
+  it('gives every row action an accessible label', async () => {
     await renderPanel([makeScene()]);
 
     const row = rowFor('Iron Keep');
     for (const name of ['Present Iron Keep', 'Edit Iron Keep', 'Delete Iron Keep']) {
       const button = row.getByRole('button', { name });
-      expect(button).toHaveTextContent('');
-      expect(button.querySelector('svg')).toBeInTheDocument();
+      expect(button).toBeEnabled();
     }
   });
 

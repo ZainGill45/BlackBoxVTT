@@ -86,6 +86,32 @@ make those relationships clear in the code instead.
 
 ## Verification
 
+### Test design
+
+- Tests assert durable product behavior, data contracts, accessibility,
+  security boundaries, and user outcomes. They do not freeze incidental
+  presentation.
+- Do not assert exact CSS properties, CSS-module or utility class names, pixel
+  dimensions, element positions, bounding-box ratios, font metrics, colors,
+  borders, padding, margins, gradients, or icon/SVG implementations unless the
+  task explicitly establishes the detail as a durable product requirement.
+- Do not add golden-image or screenshot snapshots for ordinary application UI.
+  Screenshot and pixel comparisons are appropriate when they prove that
+  canvas/WebGL output appeared, disappeared, or changed, without treating a
+  particular design as canonical.
+- Authored visual data is behavior: tests may prove that a user's selected
+  font, color, text style, stroke, or similar authored setting is validated,
+  persisted, synchronized, and rendered. Tests may also enforce durable
+  usability constraints such as supported-viewport fit, clipping prevention,
+  focus reachability, and accessible state, but should prefer semantic or
+  relative assertions over exact presentation measurements.
+- Keep intentional visual-policy exceptions isolated under `src/test/design`
+  and explain the durable product requirement in the test. Do not hide visual
+  conformance assertions inside workflow, integration, or persistence tests.
+- When a design changes, delete assertions that described the old presentation
+  instead of mechanically updating expected pixels or CSS values. Reviewers
+  should reject new tests coupled to incidental visual implementation.
+
 - `npm test` runs the unit and integration suite.
 - `npm run typecheck` checks production and test contracts.
 - `npm run lint` also runs the design-rule suite.

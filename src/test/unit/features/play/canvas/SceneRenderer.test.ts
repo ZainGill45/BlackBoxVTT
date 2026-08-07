@@ -1685,62 +1685,6 @@ describe('SceneRenderer', () => {
     expect(additionalImages.sprite(secondId)).toBeUndefined();
   });
 
-  it('draws monochrome square resize handles and a circular rotation handle', () => {
-    const tokenId = '44444444-4444-4444-8444-444444444444';
-    renderer.setScene(
-      scene({
-        images: {
-          gm: [],
-          map: [],
-          token: [
-            {
-              ...placement,
-              height: 100,
-              id: tokenId,
-              rotation: 30,
-              width: 200,
-              x: 960,
-              y: 540,
-            },
-          ],
-        },
-      }),
-      null,
-    );
-    renderer.setInteraction({
-      activeLayer: 'token',
-      editable: true,
-      onCommit: async () => null,
-    });
-    renderer.selectImages([tokenId]);
-
-    const selection = (
-      renderer as unknown as {
-        selectionOverlay: { selection: Graphics };
-      }
-    ).selectionOverlay.selection;
-    expect(
-      selection.calls.filter((call) => call.op === 'rect'),
-    ).toHaveLength(4);
-    expect(
-      selection.calls.filter((call) => call.op === 'circle'),
-    ).toHaveLength(1);
-    expect(
-      selection.calls
-        .filter((call) => call.op === 'stroke')
-        .some((call) =>
-          (call.args[0] as { color?: number }).color === 0xeeeeee
-        ),
-    ).toBe(true);
-    const rotate = rotationHandle(rendererSelectionCorners());
-    expect(
-      Math.hypot(
-        rotate.handle.x - rotate.top.x,
-        rotate.handle.y - rotate.top.y,
-      ),
-    ).toBeCloseTo(44);
-  });
-
   it('uses an enlarged invisible resize target with rotation-aware cursor feedback', () => {
     const tokenId = '44444444-4444-4444-8444-444444444444';
     renderer.setScene(

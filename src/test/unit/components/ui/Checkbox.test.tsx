@@ -37,14 +37,4 @@ describe('Checkbox', () => {
     expect(checkbox).not.toBeChecked();
     expect(onChange).not.toHaveBeenCalled();
   });
-
-  it('draws the themed check with square strokes', () => {
-    render(<Checkbox defaultChecked>Selected image</Checkbox>);
-
-    const icon = document.querySelector('[data-checkbox-icon="check"]');
-    const path = icon?.querySelector('path');
-
-    expect(path).toHaveAttribute('stroke-linecap', 'butt');
-    expect(path).toHaveAttribute('stroke-linejoin', 'miter');
-  });
 });

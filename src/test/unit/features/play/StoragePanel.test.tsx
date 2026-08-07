@@ -270,18 +270,15 @@ describe('StoragePanel', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('keeps the large storage icon when no assets exist', async () => {
+  it('offers asset import when no assets exist', async () => {
     const { api } = createApi([]);
-    const { container } = render(
+    render(
       <StoragePanel
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
     );
     await waitFor(() => expect(api.list).toHaveBeenCalled());
-    expect(
-      container.querySelector('[data-sidebar-icon="storage"] svg'),
-    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add campaign assets' })).toBeVisible();
   });
 });

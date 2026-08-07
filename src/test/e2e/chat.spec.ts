@@ -134,89 +134,34 @@ test.describe('campaign chat', () => {
     await expect(chatLog(gm.window).getByText('Private route check')).toHaveCount(0);
   });
 
-  test('renders reference-scale d20, d6, and d4 roll-card geometry', async () => {
+  test('renders accessible d20, d6, and d4 totals', async () => {
     await sendChat(
       gm.window,
       '/roll Fixture: Reference Dice\nD20: 1d20*0+20\nD6: 1d6*0+7\nD4: 1d4*0+15',
     );
     const log = chatLog(gm.window);
-    const icons = [
-      ['d20', 'Total 20'],
-      ['d6', 'Total 7'],
-      ['d4', 'Total 15'],
-    ] as const;
-    for (const [shape, name] of icons) {
-      const icon = log.getByRole('img', { name });
-      await expect(icon).toBeVisible();
-      await expect(icon).toHaveAttribute('data-shape', shape);
-      await expect(icon).toHaveAttribute('viewBox', '0 0 64 64');
-      const box = await icon.boundingBox();
-      expect(box?.width).toBeGreaterThan(40);
-      expect(box?.width).toBeLessThan(72);
-      expect(Math.abs((box?.width ?? 0) - (box?.height ?? 0))).toBeLessThan(2);
+    for (const name of ['Total 20', 'Total 7', 'Total 15']) {
+      await expect(log.getByRole('img', { name })).toBeVisible();
     }
-    const crop = await log.screenshot();
-    expect(crop.byteLength).toBeGreaterThan(1_000);
+  });
 
+  test('reveals every term in a compound roll audit', async () => {
+    const log = chatLog(gm.window);
     await sendChat(gm.window, '/r 4d4 + 4 + 2d8 + 10');
     const heading = log.getByText('4D4 + 4 + 2D8 + 10', { exact: true });
     const revealAudit = log.getByRole('button', {
       name: 'Show rolls for 4d4 + 4 + 2d8 + 10',
     });
     await expect(revealAudit).toHaveText('Show Rolls');
-    expect(
-      await revealAudit.evaluate((element) => {
-        const style = getComputedStyle(element);
-        return [
-          style.alignItems,
-          style.alignSelf,
-          style.paddingTop,
-          style.paddingBottom,
-        ];
-      }),
-    ).toEqual(['center', 'flex-start', '0px', '0px']);
-    const sectionBody = heading.locator('xpath=../..');
-    const collapsedBodyBox = await sectionBody.boundingBox();
-    const collapsedHeadingBox = await heading.boundingBox();
-    const revealBox = await revealAudit.boundingBox();
-    expect(revealBox!.width).toBeLessThan(collapsedBodyBox!.width / 2);
-    expect(
-      Math.abs(
-        (collapsedHeadingBox!.y - collapsedBodyBox!.y) -
-          (collapsedBodyBox!.y + collapsedBodyBox!.height - revealBox!.y - revealBox!.height),
-      ),
-    ).toBeLessThan(1);
     await revealAudit.click();
-    const detailBadge = log.getByText('4d4', { exact: true }).locator('..');
     await expect(heading).toBeVisible();
-    await expect(detailBadge).toBeVisible();
-    expect(await heading.evaluate((element) => getComputedStyle(element).border)).toBe(
-      await detailBadge.evaluate((element) => getComputedStyle(element).border),
-    );
-    expect((await detailBadge.boundingBox())!.height).toBe(revealBox!.height);
-    const expandedBodyBox = await sectionBody.boundingBox();
-    const expandedHeadingBox = await heading.boundingBox();
-    const auditBox = await heading
-      .locator('xpath=../following-sibling::div[1]')
-      .boundingBox();
-    expect(
-      Math.abs(
-        (expandedHeadingBox!.y - expandedBodyBox!.y) -
-          (expandedBodyBox!.y + expandedBodyBox!.height - auditBox!.y - auditBox!.height),
-      ),
-    ).toBeLessThan(1);
     const auditTerms = heading.locator('xpath=../following-sibling::div[1]').locator(
       ':scope > span',
     );
-    await expect(auditTerms).toHaveCount(7);
-    expect(
-      await auditTerms.evaluateAll((elements) =>
-        elements.map((element) => getComputedStyle(element).borderStyle),
-      ),
-    ).toEqual(Array.from({ length: 7 }, () => 'solid'));
+    await expect(auditTerms).toContainText(['4d4', '+', '4', '+', '2d8', '+', '10']);
   });
 
-  test('keeps critical success and failure rails neutral', async () => {
+  test('shows critical success and failure details', async () => {
     await sendChat(
       gm.window,
       '/roll Critical Rails\nSuccess: 1d6cs>=1\nFailure: 1d6cf<=6',
@@ -230,11 +175,6 @@ test.describe('campaign chat', () => {
       await expect(section).toHaveAttribute('data-outcome', outcome);
       await section.getByRole('button', { name: /Show rolls/i }).click();
       await expect(section.getByText(flag, { exact: true })).toBeVisible();
-      const [railColor, neutralColor] = await section.evaluate((element) => [
-        getComputedStyle(element).borderLeftColor,
-        getComputedStyle(document.body).color,
-      ]);
-      expect(railColor).toBe(neutralColor);
     }
   });
 

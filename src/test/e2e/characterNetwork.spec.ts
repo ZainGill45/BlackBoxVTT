@@ -61,21 +61,6 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByRole('button', { name: 'Add Feature' }).click();
     await gmSheet.getByLabel('New Feature name').fill('Action Surge');
     await gmSheet.getByLabel('Action Surge name').blur();
-    const actionSurgeHeader = gmSheet.getByRole('button', {
-      exact: true,
-      name: 'Action Surge',
-    });
-    const [resourceRowBounds, featureHeaderBounds] = await Promise.all([
-      resourceName.locator('..').boundingBox(),
-      actionSurgeHeader.boundingBox(),
-    ]);
-    expect(Math.abs(resourceRowBounds!.height - featureHeaderBounds!.height))
-      .toBeLessThan(1);
-    expect(await actionSurgeHeader.evaluate((element) => (
-      window.getComputedStyle(element).fontSize
-    ))).toBe(await resourceName.evaluate((element) => (
-      window.getComputedStyle(element).fontSize
-    )));
     await gmSheet.getByRole('button', { name: 'Action Surge type' }).click();
     await gmSheet.getByRole('group', { name: 'Action Surge type options' })
       .getByRole('button', { name: 'Feature' })
@@ -84,18 +69,10 @@ test.describe('networked D&D character sheets', () => {
       exact: true,
     });
     await actionSurgeSource.fill('Class');
-    expect(await actionSurgeSource.evaluate((element) => {
-      const style = window.getComputedStyle(element);
-      return [style.borderBottomStyle, style.borderBottomWidth];
-    })).toEqual(['solid', '1px']);
     await actionSurgeSource.blur();
     await gmSheet.getByLabel('Action Surge source type').fill('Fighter');
     await gmSheet.getByLabel('Action Surge source type').blur();
     const actionSurgeDescription = gmSheet.getByLabel('Action Surge description');
-    await expect(actionSurgeDescription).toHaveAttribute('rows', '4');
-    expect(await actionSurgeDescription.evaluate((element) => (
-      window.getComputedStyle(element).resize
-    ))).toBe('vertical');
     await actionSurgeDescription.fill('Take one additional action.\nOnce per rest.');
     await actionSurgeDescription.blur();
 

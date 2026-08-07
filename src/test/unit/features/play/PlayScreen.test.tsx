@@ -605,27 +605,21 @@ describe('PlayScreen', () => {
     expect(onSidebarTabChange).toHaveBeenCalledWith('chat');
   });
 
-  it('renders icon-only placeholders for tabs without a feature', async () => {
+  it('opens placeholder panels for tabs without a feature', async () => {
     const user = userEvent.setup();
     renderPlayScreen();
 
-    const tabs = [
-      ['Scenes', 'scenes'],
-      ['Music', 'music'],
-      ['Settings', 'settings'],
-    ] as const;
+    const tabs = ['Scenes', 'Music', 'Settings'] as const;
 
-    for (const [label, id] of tabs) {
+    for (const label of tabs) {
       await user.click(screen.getByRole('tab', { name: label }));
 
       const panel = screen.getByRole('tabpanel', { name: label });
-      const icon = panel.querySelector(`[data-sidebar-icon="${id}"] svg`);
-
-      expect(icon).toHaveAttribute('width', '5rem');
-      expect(icon).toHaveAttribute('height', '5rem');
-      expect(icon).toHaveAttribute('aria-hidden', 'true');
-      expect(panel.querySelector('h2')).not.toBeInTheDocument();
-      expect(panel.querySelector('p')).not.toBeInTheDocument();
+      expect(panel).toBeVisible();
+      expect(screen.getByRole('tab', { name: label })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
     }
   });
 
@@ -676,11 +670,6 @@ describe('PlayScreen', () => {
     expect(
       screen.getByText('Server Online 4 Players Connected'),
     ).toBeInTheDocument();
-    expect(
-      screen
-        .getByRole('tabpanel', { name: 'Settings' })
-        .querySelector('[data-sidebar-icon="settings"]'),
-    ).not.toBeInTheDocument();
   });
 
   it('discards transient GM settings drafts after leaving the tab', async () => {
@@ -743,12 +732,10 @@ describe('PlayScreen', () => {
     await user.click(screen.getByRole('tab', { name: 'Scenes' }));
 
     const playerPanel = screen.getByRole('tabpanel', { name: 'Scenes' });
+    expect(playerPanel).toBeVisible();
     expect(
       within(playerPanel).queryByRole('searchbox'),
     ).not.toBeInTheDocument();
-    expect(
-      playerPanel.querySelector('[data-sidebar-icon="scenes"]'),
-    ).toBeInTheDocument();
   });
 
   it('centers the view on the presented scene from the quick action', async () => {

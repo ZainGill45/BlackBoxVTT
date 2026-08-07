@@ -93,20 +93,17 @@ function journalApi(overrides: Partial<JournalApi> = {}): JournalApi {
 describe('JournalPanel', () => {
   it('renders the empty searchable shell with an enabled no-op add control', async () => {
     const user = userEvent.setup();
-    const { container } = render(<JournalPanel />);
+    render(<JournalPanel />);
     const search = screen.getByRole('searchbox', { name: 'Search journal' });
     const add = screen.getByRole('button', { name: 'Add journal entry' });
 
     expect(add).toBeEnabled();
-    expect(
-      container.querySelector('[data-sidebar-icon="journal"] svg'),
-    ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Characters|Monsters|Items|Spells|Notes/ }))
       .not.toBeInTheDocument();
 
-    const beforeAdd = container.innerHTML;
     await user.click(add);
-    expect(container.innerHTML).toBe(beforeAdd);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     await user.type(search, 'goblin');
     expect(search).toHaveValue('goblin');
@@ -166,8 +163,6 @@ describe('JournalPanel', () => {
     const levelDropdown = within(characterSheet).getByRole('button', { name: 'Level' });
     expect(classDropdown).toBeVisible();
     expect(levelDropdown).toBeVisible();
-    expect(classDropdown.querySelector('svg')).not.toBeInTheDocument();
-    expect(levelDropdown.querySelector('svg')).not.toBeInTheDocument();
     expect(classDropdown).toHaveAttribute(
       'title',
       "The character's primary adventuring class.",
@@ -320,10 +315,6 @@ describe('JournalPanel', () => {
     const classOptionButtons = within(classOptions).getAllByRole('button');
     expect(classOptionButtons.map(({ textContent }) => textContent))
       .toEqual([...DND5E_5_5E_CLASSES]);
-    const classIconNames = classOptionButtons.map((option) =>
-      option.querySelector('svg')?.getAttribute('class'));
-    expect(classIconNames.every(Boolean)).toBe(true);
-    expect(new Set(classIconNames).size).toBe(DND5E_5_5E_CLASSES.length);
     await user.click(within(classOptions).getByRole('button', { name: 'Fighter' }));
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
       campaignId,
@@ -337,10 +328,6 @@ describe('JournalPanel', () => {
     const levelOptionButtons = within(levelOptions).getAllByRole('button');
     expect(levelOptionButtons.map(({ textContent }) => textContent))
       .toEqual(DND5E_CHARACTER_LEVELS);
-    const levelIconNames = levelOptionButtons.map((option) =>
-      option.querySelector('svg')?.getAttribute('class'));
-    expect(levelIconNames.every(Boolean)).toBe(true);
-    expect(new Set(levelIconNames).size).toBe(4);
     await user.click(within(levelOptions).getByRole('button', { name: '7' }));
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
       campaignId,
@@ -1272,7 +1259,7 @@ describe('JournalPanel', () => {
     expect(updateEntryData).not.toHaveBeenCalled();
   });
 
-  it('opens a character from its icon, renames it inline, and edits permissions', async () => {
+  it('opens a character from its row action, renames it inline, and edits permissions', async () => {
     const user = userEvent.setup();
     const playerId = '88888888-8888-4888-8888-888888888888';
     const renameEntry = vi.fn(async (
@@ -1428,14 +1415,12 @@ describe('JournalPanel', () => {
       'contenteditable',
       'true',
     );
-    expect(
-      screen.getByRole('button', { name: 'Add page' }).querySelector('.lucide-plus'),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add page' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Edit page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close note' })).not.toBeInTheDocument();
   });
 
-  it('renames a page inline and opens it from its document icon', async () => {
+  it('renames a page inline and opens it from its row action', async () => {
     const user = userEvent.setup();
     const secondPage: JournalPage = {
       ...page,
@@ -1513,7 +1498,7 @@ describe('JournalPanel', () => {
     const firstIcon = within(firstRow).getByRole('button', {
       name: 'Open Tomb of Babylon',
     });
-    expect(firstIcon.querySelector('.lucide-file-text')).toBeInTheDocument();
+    expect(firstIcon).toBeEnabled();
     expect(within(firstTitle.parentElement!).getByText('Inherits')).toBeVisible();
 
     const secondTitle = screen.getByRole('textbox', {
@@ -1656,7 +1641,7 @@ describe('JournalPanel', () => {
       .toBeDisabled();
   });
 
-  it('keeps the read-only note presentation aligned with the editable presentation', async () => {
+  it('exposes the same note controls read-only without acquiring an edit lease', async () => {
     const user = userEvent.setup();
     const editable = render(
       <JournalPanel
@@ -1668,14 +1653,13 @@ describe('JournalPanel', () => {
     );
     await expandNotes(user);
     await user.click(await screen.findByRole('button', { name: 'Open Gathered Magic Items' }));
-    const editableNoteName = await screen.findByRole('textbox', { name: 'Note name' });
+    await screen.findByRole('textbox', { name: 'Note name' });
     const editableToolbar = screen.getByRole('toolbar', {
       name: 'Rich text formatting toolbar',
     });
     const editableToolbarLabels = within(editableToolbar)
       .getAllByRole('button')
       .map((button) => button.getAttribute('aria-label'));
-    const noteNameClass = editableNoteName.className;
     expect(screen.queryByRole('textbox', { name: 'Page title' })).not.toBeInTheDocument();
     editable.unmount();
 
@@ -1731,7 +1715,6 @@ describe('JournalPanel', () => {
       name: 'Rich text formatting toolbar',
     });
     expect(readOnlyNoteName).toHaveAttribute('readonly');
-    expect(readOnlyNoteName.className).toBe(noteNameClass);
     expect(screen.queryByRole('textbox', { name: 'Page title' })).not.toBeInTheDocument();
     expect(
       within(readOnlyToolbar)

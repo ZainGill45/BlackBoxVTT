@@ -230,15 +230,6 @@ test.describe('stage camera and tools', () => {
     const editor = gm.window.getByLabel('New map text');
     await expect(editor).toBeVisible();
     await editor.fill('Iron Keep\n門楼 Привет');
-    const editorPaint = await editor.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return {
-        fill: style.getPropertyValue('-webkit-text-fill-color'),
-        strokeWidth: style.getPropertyValue('-webkit-text-stroke-width'),
-      };
-    });
-    expect(editorPaint.fill).toBe('rgba(0, 0, 0, 0)');
-    expect(editorPaint.strokeWidth).toBe('0px');
     await expect
       .poll(async () => pixelDifferenceRatio(settled, await canvas.screenshot()), {
         message: 'the local Pixi text preview never appeared while editing',

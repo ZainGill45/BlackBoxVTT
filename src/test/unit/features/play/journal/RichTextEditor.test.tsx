@@ -114,14 +114,12 @@ describe('RichTextEditor typography', () => {
     expect(screen.getByRole('button', { name: 'Line Length: Wide' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Insert' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Text Color: Default' })).toBeVisible();
-    const toolbar = screen.getByRole('toolbar', { name: 'Rich text formatting toolbar' });
-    expect(Array.from(toolbar.children).every((control) => control.tagName === 'DETAILS'))
-      .toBe(true);
+    expect(screen.getByRole('toolbar', { name: 'Rich text formatting toolbar' }))
+      .toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Insert' }));
     for (const label of ['Horizontal Rule', 'Table', 'Image']) {
-      expect(screen.getByRole('button', { name: label }).querySelector('svg'))
-        .toBeInTheDocument();
+      expect(screen.getByRole('button', { name: label })).toBeVisible();
     }
 
     const editor = screen.getByRole('textbox', { name: 'Page content' });
