@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent } from 'react';
+import { useRef, type CSSProperties, type KeyboardEvent } from 'react';
 import styles from './Tabs.module.css';
 
 export interface TabOption<T extends string> {
@@ -59,7 +59,12 @@ export function Tabs<T extends string>({
   };
 
   return (
-    <div className={styles.list} role="tablist" aria-label={ariaLabel}>
+    <div
+      className={styles.list}
+      role="tablist"
+      aria-label={ariaLabel}
+      style={{ '--tab-count': items.length } as CSSProperties}
+    >
       {items.map((item) => {
         const isActive = item.id === activeId;
 

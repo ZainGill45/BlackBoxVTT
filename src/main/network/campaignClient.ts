@@ -82,6 +82,7 @@ import type {
   ReorderJournalEntriesInput,
   ReorderJournalGroupInput,
   ReorderJournalPagesInput,
+  UpdateJournalEntryDataInput,
   UpdateJournalNotePermissionsInput,
   UpdateJournalEntryPermissionsInput,
   UpdateJournalPagePermissionsInput,
@@ -1000,6 +1001,11 @@ export class CampaignClient {
 
   renameJournalEntry(entryId: string, name: string, expectedRevision: number): Promise<JournalResult<JournalEntry>> {
     return this.journalRequest('client.journal_rename_entry', { entryId, expectedRevision, name }, 'server.journal_entry',
+      (payload) => parsePayload('server.journal_entry', payload));
+  }
+
+  updateJournalEntryData(input: Omit<UpdateJournalEntryDataInput, 'campaignId'>): Promise<JournalResult<JournalEntry>> {
+    return this.journalRequest('client.journal_update_entry_data', input, 'server.journal_entry',
       (payload) => parsePayload('server.journal_entry', payload));
   }
 

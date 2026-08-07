@@ -9,7 +9,6 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  ASSET_MANIFEST_SCHEMA_VERSION,
   type AssetManifest,
   type AssetProgressEvent,
   type AssetRecord,
@@ -25,7 +24,6 @@ interface CachedFileState {
 interface CacheIndex {
   files: Record<string, CachedFileState>;
   manifest: AssetManifest;
-  schemaVersion: 1;
 }
 
 interface PartialState {
@@ -60,13 +58,11 @@ export class AssetCacheSyncError extends Error {
 const emptyManifest = (): AssetManifest => ({
   assets: [],
   revision: 0,
-  schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
 });
 
 const emptyIndex = (): CacheIndex => ({
   files: {},
   manifest: emptyManifest(),
-  schemaVersion: 1,
 });
 
 async function hashFile(filePath: string): Promise<string> {
@@ -237,7 +233,6 @@ export class RemoteAssetCache {
         Object.entries(index.files).filter(([assetId]) => currentIds.has(assetId)),
       ),
       manifest,
-      schemaVersion: 1,
     };
     await this.writeIndex(index);
     onProgress({
@@ -418,14 +413,7 @@ export class RemoteAssetCache {
           ]),
         ),
         manifest,
-        schemaVersion: 1,
       };
-      if (
-        parsed.schemaVersion !== 1 ||
-        parsed.manifest.schemaVersion !== ASSET_MANIFEST_SCHEMA_VERSION
-      ) {
-        throw new Error('Cache index is incompatible.');
-      }
       return parsed;
     } catch {
       return emptyIndex();

@@ -2,8 +2,6 @@ import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export const APPLICATION_DATABASE_SCHEMA_VERSION = 2;
-
 export class ApplicationDatabase {
   readonly connection: DatabaseSync;
   readonly path: string;
@@ -24,33 +22,19 @@ export class ApplicationDatabase {
       connection.exec('PRAGMA journal_mode = WAL');
       connection.exec('PRAGMA synchronous = FULL');
       connection.exec('PRAGMA secure_delete = ON');
-      const version = Number(
+      const count = Number(
         (
-          connection.prepare('PRAGMA user_version').get() as
-            | { user_version?: unknown }
-            | undefined
-        )?.user_version ?? 0,
+          connection
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM sqlite_schema
+               WHERE name NOT LIKE 'sqlite_%'`,
+            )
+            .get() as { count?: unknown } | undefined
+        )?.count ?? 0,
       );
-      if (version === 0) {
-        const count = Number(
-          (
-            connection
-              .prepare(
-                `SELECT COUNT(*) AS count
-                 FROM sqlite_schema
-                 WHERE name NOT LIKE 'sqlite_%'`,
-              )
-              .get() as { count?: unknown } | undefined
-          )?.count ?? 0,
-        );
-        if (count !== 0) {
-          throw new Error(
-            'Unversioned application storage contains an unexpected schema.',
-          );
-        }
+      if (count === 0) {
         this.initialize();
-      } else if (version !== APPLICATION_DATABASE_SCHEMA_VERSION) {
-        throw new Error(`Unsupported application schema version ${version}.`);
       }
       this.validateSchema();
     } catch (error) {
@@ -106,9 +90,6 @@ export class ApplicationDatabase {
           PRIMARY KEY (campaign_id, asset_id)
         ) STRICT;
       `);
-      this.connection.exec(
-        `PRAGMA user_version = ${APPLICATION_DATABASE_SCHEMA_VERSION}`,
-      );
       this.connection.exec('COMMIT');
     } catch (error) {
       this.connection.exec('ROLLBACK');

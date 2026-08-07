@@ -648,7 +648,14 @@ function ConnectedJournalPanel({
       ) : null}
 
       {selectedSystemEntry ? (
-        <SystemJournalEntryModal entry={selectedSystemEntry} onDismiss={() => setSelectedSystemEntry(null)} />
+        <SystemJournalEntryModal
+          campaignId={campaignId}
+          entry={selectedSystemEntry}
+          journalApi={journalApi}
+          onDismiss={() => setSelectedSystemEntry(null)}
+          onUpdated={acceptUpdatedEntry}
+          system={system}
+        />
       ) : null}
 
       {editingPermissions?.permissions ? (

@@ -9,9 +9,29 @@ make those relationships clear in the code instead.
 
 - Observable behavior is preserved unless the task explicitly requests a
   product change.
-- Campaigns created before the SQLite-only storage design are intentionally
-  unsupported. Do not add importers, compatibility migrations, fallback reads,
-  or dual writes unless the user explicitly changes that policy.
+- Each release defines the sole canonical persistence and runtime data shape.
+  Data created by earlier releases or development builds is intentionally
+  unsupported. Do not add schema/data version ladders, upgrade migrations,
+  compatibility readers or writers, fallback reads, or dual writes. During
+  development, stale local data is deleted and recreated.
+- The explicit campaign archive import/conversion pipeline is the only
+  compatibility boundary. Archive formats are versioned at that boundary;
+  historical readers, conversion logic, fixtures, and reports stay localized
+  there. Import always constructs and validates a fresh canonical campaign and
+  commits it atomically rather than upgrading a live campaign in place.
+- A change to the canonical campaign persistence or authored-data shape is
+  incomplete until the archive pipeline has been reviewed and updated in the
+  same change. When the encoded archive shape changes, preserve a representative
+  fixture from the previous format, advance the archive format identifier,
+  update the current exporter, and add a direct previous-format-to-current
+  converter. Tests must prove that the untouched historical fixture imports
+  into a fresh current campaign and must assert the resulting import report.
+- Archive conversion is best-effort and explicit: preserve recognizable data,
+  apply current defaults where information is absent, and report every
+  adjustment, omission, or failure that matters to the user. Do not silently
+  discard authored content, rewrite historical fixtures to look current, chain
+  conversions through intermediate application schemas, or move compatibility
+  handling into normal runtime repositories and validators.
 - Each local campaign's authoritative structured state is in
   `campaign.sqlite`. Application-wide saved connections and remote-cache
   metadata are in `userData/data/application.sqlite`.

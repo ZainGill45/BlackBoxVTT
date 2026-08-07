@@ -8,7 +8,7 @@ import {
 } from '../shared/chat';
 import {
   chatRollCardSchema,
-  type ChatRollCardV1,
+  type ChatRollCard,
   type ChatRollDefinition,
 } from '../shared/chatRoll';
 
@@ -24,13 +24,13 @@ interface QueuedRoll {
   key: string;
   queueTimer: ReturnType<typeof setTimeout>;
   rejectAt: number;
-  resolve: (result: ChatResult<ChatRollCardV1>) => void;
+  resolve: (result: ChatResult<ChatRollCard>) => void;
   signature: string;
 }
 
 interface InFlightRoll {
   actorKey: string;
-  promise: Promise<ChatResult<ChatRollCardV1>>;
+  promise: Promise<ChatResult<ChatRollCard>>;
   signature: string;
 }
 
@@ -42,7 +42,7 @@ interface DiceRollExecutorOptions {
 function failure(
   code: ChatError['code'],
   message: string,
-): ChatResult<ChatRollCardV1> {
+): ChatResult<ChatRollCard> {
   return { error: { code, message }, ok: false };
 }
 
@@ -70,7 +70,7 @@ export class DiceRollExecutor {
     clientMessageId: string,
     definition: ChatRollDefinition,
     signature: string,
-  ): Promise<ChatResult<ChatRollCardV1>> {
+  ): Promise<ChatResult<ChatRollCard>> {
     const key = `${actorKey}:${clientMessageId}`;
     const existing = this.inFlight.get(key);
     if (existing) {
@@ -93,7 +93,7 @@ export class DiceRollExecutor {
       return Promise.resolve(failure('unavailable', 'The dice roller is busy.'));
     }
     let resolve!: QueuedRoll['resolve'];
-    const promise = new Promise<ChatResult<ChatRollCardV1>>((next) => {
+    const promise = new Promise<ChatResult<ChatRollCard>>((next) => {
       resolve = next;
     });
     this.inFlight.set(key, { actorKey, promise, signature });
@@ -138,7 +138,7 @@ export class DiceRollExecutor {
       return;
     }
     this.active = true;
-    let result: ChatResult<ChatRollCardV1>;
+    let result: ChatResult<ChatRollCard>;
     try {
       result = await this.execute(job);
     } catch {
@@ -159,11 +159,11 @@ export class DiceRollExecutor {
     this.inFlight.delete(job.key);
   }
 
-  private execute(job: QueuedRoll): Promise<ChatResult<ChatRollCardV1>> {
+  private execute(job: QueuedRoll): Promise<ChatResult<ChatRollCard>> {
     const worker = this.worker ?? this.startWorker();
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (result: ChatResult<ChatRollCardV1>, replace = false) => {
+      const finish = (result: ChatResult<ChatRollCard>, replace = false) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);

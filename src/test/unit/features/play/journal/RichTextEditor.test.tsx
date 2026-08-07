@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RichTextEditor } from '../../../../../features/play/journal/RichTextEditor';
 import {
-  RICH_TEXT_SCHEMA_VERSION,
   isRichTextDocument,
 } from '../../../../../shared/journal';
 import { createFakeAssetApi, testCampaignId } from '../../../../support/scenes';
@@ -22,7 +21,6 @@ const content = {
     ],
     type: 'doc' as const,
   },
-  schemaVersion: RICH_TEXT_SCHEMA_VERSION,
 };
 
 const originalFetch = globalThis.fetch;
@@ -102,7 +100,6 @@ describe('RichTextEditor typography', () => {
             }],
             type: 'doc',
           },
-          schemaVersion: RICH_TEXT_SCHEMA_VERSION,
         }}
         documentKey="page:toolbar-groups"
         editable
@@ -164,7 +161,6 @@ describe('RichTextEditor typography', () => {
         }],
         type: 'doc' as const,
       },
-      schemaVersion: RICH_TEXT_SCHEMA_VERSION,
     };
     render(
       <RichTextEditor

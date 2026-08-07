@@ -1,11 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
 import { existsSync } from 'node:fs';
-import {
-  CAMPAIGN_SCHEMA_VERSION,
-  type CampaignManifest,
-} from '../../shared/campaigns';
+import type { CampaignManifest } from '../../shared/campaigns';
 import {
   DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS,
   MAX_MAX_CHAT_MESSAGE_CHARACTERS,
@@ -19,7 +16,6 @@ import {
 } from '../../shared/network';
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import {
-  createDefaultCampaignSystemState,
   getJournalEntryTypeDefinition,
   parseJournalEntryData,
   parseCampaignSystemState,
@@ -29,16 +25,13 @@ import {
   MAX_JOURNAL_ENTRIES,
   MAX_JOURNAL_TITLE_GRAPHEMES,
   MAX_NOTE_PAGES,
-  RICH_TEXT_SCHEMA_VERSION,
   countGraphemes,
-  defaultJournalTitleStyle,
   extractJournalAssetIds,
   isJournalTitleStyle,
   isRichTextDocument,
 } from '../../shared/journal';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
-export const CAMPAIGN_DATABASE_SCHEMA_VERSION = 13;
 
 interface CampaignMetadataRow {
   campaign_id: string;
@@ -48,7 +41,6 @@ interface CampaignMetadataRow {
 }
 
 interface CampaignSystemRow {
-  schema_version: number;
   settings_json: string;
   system_id: string;
 }
@@ -81,61 +73,24 @@ export class CampaignDatabase {
       connection.exec('PRAGMA journal_mode = WAL');
       connection.exec('PRAGMA synchronous = FULL');
       connection.exec('PRAGMA secure_delete = ON');
-      let version = Number(
+      const count = Number(
         (
-          connection.prepare('PRAGMA user_version').get() as
-            | { user_version?: unknown }
-            | undefined
-        )?.user_version ?? 0,
+          connection
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM sqlite_schema
+               WHERE name NOT LIKE 'sqlite_%'`,
+            )
+            .get() as { count?: unknown } | undefined
+        )?.count ?? 0,
       );
-      if (version === 0) {
-        const count = Number(
-          (
-            connection
-              .prepare(
-                `SELECT COUNT(*) AS count
-                 FROM sqlite_schema
-                 WHERE name NOT LIKE 'sqlite_%'`,
-              )
-              .get() as { count?: unknown } | undefined
-          )?.count ?? 0,
-        );
-        if (count !== 0 || !initialManifest) {
-          throw new Error(
-            'Campaign database is unversioned or missing metadata.',
-          );
+      if (count === 0) {
+        if (!initialManifest) {
+          throw new Error('Campaign database is missing metadata.');
         }
         this.initialize(initialManifest);
-      } else {
-        if (initialManifest) {
-          throw new Error(`Unsupported campaign schema version ${version}.`);
-        }
-        while (version < CAMPAIGN_DATABASE_SCHEMA_VERSION) {
-          if (version === 7) {
-            this.migrateVersion7To8();
-            version = 8;
-          } else if (version === 8) {
-            this.migrateVersion8To9();
-            version = 9;
-          } else if (version === 9) {
-            this.migrateVersion9To10();
-            version = 10;
-          } else if (version === 10) {
-            this.migrateVersion10To11();
-            version = 11;
-          } else if (version === 11) {
-            this.migrateVersion11To12();
-            version = 12;
-          } else if (version === 12) {
-            this.migrateVersion12To13();
-            version = 13;
-          } else {
-            throw new Error(`Unsupported campaign schema version ${version}.`);
-          }
-        }
-        if (version !== CAMPAIGN_DATABASE_SCHEMA_VERSION) {
-          throw new Error(`Unsupported campaign schema version ${version}.`);
-        }
+      } else if (initialManifest) {
+        throw new Error('Campaign database already exists.');
       }
       this.validateSchema();
       this.readManifest();
@@ -186,7 +141,6 @@ export class CampaignDatabase {
       createdAt: row.created_at,
       id: row.campaign_id,
       name: row.name,
-      schemaVersion: CAMPAIGN_SCHEMA_VERSION,
       system: this.readSystem(),
       updatedAt: row.updated_at,
     };
@@ -195,7 +149,7 @@ export class CampaignDatabase {
   readSystem(): CampaignSystemState {
     const row = this.connection
       .prepare(
-        `SELECT system_id, schema_version, settings_json
+        `SELECT system_id, settings_json
          FROM campaign_system
          WHERE singleton = 1`,
       )
@@ -211,7 +165,6 @@ export class CampaignDatabase {
     }
     const system = parseCampaignSystemState({
       id: row.system_id,
-      schemaVersion: row.schema_version,
       settings,
     });
     if (!system) {
@@ -257,7 +210,6 @@ export class CampaignDatabase {
         CREATE TABLE campaign_system (
           singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
           system_id TEXT NOT NULL,
-          schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
           settings_json TEXT NOT NULL
         ) STRICT;
         CREATE TABLE campaign_server_settings (
@@ -302,7 +254,6 @@ export class CampaignDatabase {
           updated_at TEXT NOT NULL,
           updated_by TEXT NOT NULL,
           name_style_json TEXT NOT NULL,
-          data_schema_version INTEGER NOT NULL CHECK (data_schema_version >= 1),
           data_json TEXT NOT NULL
         ) STRICT;
         CREATE TABLE journal_entry_permissions (
@@ -322,9 +273,6 @@ export class CampaignDatabase {
           title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
           default_access TEXT NOT NULL CHECK (
             default_access IN ('inherit', 'none', 'view', 'edit')
-          ),
-          content_schema_version INTEGER NOT NULL CHECK (
-            content_schema_version >= 1
           ),
           content_json TEXT NOT NULL,
           revision INTEGER NOT NULL CHECK (revision >= 0),
@@ -440,12 +388,11 @@ export class CampaignDatabase {
       this.connection
         .prepare(
           `INSERT INTO campaign_system (
-             singleton, system_id, schema_version, settings_json
-           ) VALUES (1, ?, ?, ?)`,
+             singleton, system_id, settings_json
+           ) VALUES (1, ?, ?)`,
         )
         .run(
           system.id,
-          system.schemaVersion,
           JSON.stringify(system.settings),
         );
       this.connection
@@ -478,9 +425,6 @@ export class CampaignDatabase {
         `INSERT INTO journal_manifest (singleton, revision)
          VALUES (1, 0)`,
       );
-      this.connection.exec(
-        `PRAGMA user_version = ${CAMPAIGN_DATABASE_SCHEMA_VERSION}`,
-      );
       this.connection.exec('COMMIT');
     } catch (error) {
       this.connection.exec('ROLLBACK');
@@ -506,7 +450,6 @@ export class CampaignDatabase {
       campaign_system: [
         'singleton',
         'system_id',
-        'schema_version',
         'settings_json',
       ],
       campaign_server_settings: [
@@ -540,7 +483,6 @@ export class CampaignDatabase {
         'updated_at',
         'updated_by',
         'name_style_json',
-        'data_schema_version',
         'data_json',
       ],
       journal_entry_permissions: ['entry_id', 'user_id', 'access'],
@@ -550,7 +492,6 @@ export class CampaignDatabase {
         'position',
         'title',
         'default_access',
-        'content_schema_version',
         'content_json',
         'revision',
         'created_at',
@@ -660,8 +601,8 @@ export class CampaignDatabase {
   private validateJournalState(): void {
     const system = this.readSystem();
     const entries = this.connection.prepare(
-      `SELECT id, type_id, position, name, name_style_json, data_schema_version,
-              data_json, created_at, updated_at
+      `SELECT id, type_id, position, name, name_style_json, data_json,
+              created_at, updated_at
        FROM journal_entries ORDER BY position`,
     ).all() as Array<Record<string, unknown>>;
     if (entries.length > MAX_JOURNAL_ENTRIES) throw new Error('Campaign Journal exceeds its note limit.');
@@ -673,8 +614,8 @@ export class CampaignDatabase {
       const definition = typeof entry.type_id === 'string'
         ? getJournalEntryTypeDefinition(system, entry.type_id)
         : null;
-      const parsedData = typeof entry.type_id === 'string' && Number.isInteger(entry.data_schema_version)
-        ? parseJournalEntryData(system, entry.type_id, Number(entry.data_schema_version), data)
+      const parsedData = typeof entry.type_id === 'string'
+        ? parseJournalEntryData(system, entry.type_id, data)
         : null;
       if (
         typeof entry.id !== 'string' || !UUID_PATTERN.test(entry.id) ||
@@ -686,7 +627,7 @@ export class CampaignDatabase {
         typeof entry.updated_at !== 'string' || !validTimestamp(entry.updated_at)
       ) throw new Error('Campaign Journal contains a malformed note.');
       const pages = this.connection.prepare(
-        `SELECT id, position, title, title_style_json, content_schema_version, content_json,
+        `SELECT id, position, title, title_style_json, content_json,
                 revision, permission_revision, created_at, updated_at
          FROM journal_pages WHERE entry_id = ? ORDER BY position`,
       ).all(entry.id as string) as Array<Record<string, unknown>>;
@@ -707,7 +648,7 @@ export class CampaignDatabase {
           typeof page.title !== 'string' || page.title.normalize('NFKC').trim() !== page.title ||
           countGraphemes(page.title) < 1 || countGraphemes(page.title) > MAX_JOURNAL_TITLE_GRAPHEMES ||
           !isJournalTitleStyle(titleStyle) ||
-          page.content_schema_version !== RICH_TEXT_SCHEMA_VERSION || !isRichTextDocument(content) ||
+          !isRichTextDocument(content) ||
           !Number.isInteger(page.revision) || Number(page.revision) < 0 ||
           !Number.isInteger(page.permission_revision) || Number(page.permission_revision) < 0 ||
           typeof page.created_at !== 'string' || !validTimestamp(page.created_at) ||
@@ -725,261 +666,4 @@ export class CampaignDatabase {
     }
   }
 
-  private migrateVersion7To8(): void {
-    this.connection.exec('BEGIN IMMEDIATE');
-    try {
-      this.connection.exec(`
-        ALTER TABLE chat_messages RENAME TO chat_messages_v7;
-        CREATE TABLE chat_messages (
-          sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-          id TEXT UNIQUE NOT NULL,
-          client_message_id TEXT NOT NULL,
-          generation TEXT NOT NULL,
-          accepted_at TEXT NOT NULL,
-          sender_key TEXT NOT NULL,
-          sender_kind TEXT NOT NULL CHECK (sender_kind IN ('gm', 'player')),
-          sender_user_id TEXT,
-          sender_name TEXT NOT NULL,
-          recipient_key TEXT,
-          recipient_kind TEXT CHECK (
-            recipient_kind IS NULL OR recipient_kind IN ('gm', 'player')
-          ),
-          recipient_user_id TEXT,
-          recipient_name TEXT,
-          message_kind TEXT NOT NULL CHECK (message_kind IN ('text', 'roll')),
-          payload_json TEXT NOT NULL,
-          UNIQUE (sender_key, client_message_id),
-          CHECK (
-            (recipient_key IS NULL AND recipient_kind IS NULL
-              AND recipient_user_id IS NULL AND recipient_name IS NULL)
-            OR
-            (recipient_key IS NOT NULL AND recipient_kind IS NOT NULL
-              AND recipient_name IS NOT NULL)
-          )
-        ) STRICT;
-      `);
-      const rows = this.connection
-        .prepare('SELECT * FROM chat_messages_v7 ORDER BY sequence ASC')
-        .all() as Array<Record<string, unknown>>;
-      const insert = this.connection.prepare(`
-        INSERT INTO chat_messages (
-          sequence, id, client_message_id, generation, accepted_at,
-          sender_key, sender_kind, sender_user_id, sender_name,
-          recipient_key, recipient_kind, recipient_user_id, recipient_name,
-          message_kind, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'text', ?)
-      `);
-      for (const row of rows) {
-        if (typeof row.content !== 'string') {
-          throw new Error('Campaign chat migration found invalid text content.');
-        }
-        insert.run(
-          ...([
-            row.sequence, row.id, row.client_message_id, row.generation,
-            row.accepted_at, row.sender_key, row.sender_kind,
-            row.sender_user_id, row.sender_name, row.recipient_key,
-            row.recipient_kind, row.recipient_user_id, row.recipient_name,
-            JSON.stringify({ kind: 'text', text: row.content }),
-          ] as SQLInputValue[]),
-        );
-      }
-      this.connection.exec(`
-        DROP TABLE chat_messages_v7;
-        CREATE INDEX chat_messages_sender_sequence
-          ON chat_messages (sender_key, sequence);
-        CREATE INDEX chat_messages_recipient_sequence
-          ON chat_messages (recipient_key, sequence);
-        PRAGMA user_version = 8;
-        COMMIT;
-      `);
-    } catch (error) {
-      this.connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migrateVersion8To9(): void {
-    const system = createDefaultCampaignSystemState();
-    if (!system) {
-      throw new Error('The default game system is unavailable.');
-    }
-    this.connection.exec('BEGIN IMMEDIATE');
-    try {
-      this.connection.exec(`
-        CREATE TABLE campaign_system (
-          singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
-          system_id TEXT NOT NULL,
-          schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
-          settings_json TEXT NOT NULL
-        ) STRICT;
-      `);
-      this.connection
-        .prepare(
-          `INSERT INTO campaign_system (
-             singleton, system_id, schema_version, settings_json
-           ) VALUES (1, ?, ?, ?)`,
-        )
-        .run(
-          system.id,
-          system.schemaVersion,
-          JSON.stringify(system.settings),
-        );
-      this.connection.exec(`
-        PRAGMA user_version = 9;
-        COMMIT;
-      `);
-    } catch (error) {
-      this.connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migrateVersion9To10(): void {
-    this.connection.exec('BEGIN IMMEDIATE');
-    try {
-      this.connection.exec(`
-        CREATE TABLE journal_manifest (
-          singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
-          revision INTEGER NOT NULL CHECK (revision >= 0)
-        ) STRICT;
-        CREATE TABLE journal_entries (
-          id TEXT PRIMARY KEY NOT NULL,
-          type_id TEXT NOT NULL,
-          position INTEGER UNIQUE NOT NULL CHECK (position >= 0),
-          name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 256),
-          default_access TEXT NOT NULL CHECK (
-            default_access IN ('none', 'view', 'edit')
-          ),
-          revision INTEGER NOT NULL CHECK (revision >= 0),
-          created_at TEXT NOT NULL,
-          created_by TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          updated_by TEXT NOT NULL
-        ) STRICT;
-        CREATE TABLE journal_entry_permissions (
-          entry_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          access TEXT NOT NULL CHECK (access IN ('none', 'view', 'edit')),
-          PRIMARY KEY (entry_id, user_id),
-          FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE,
-          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
-        ) STRICT;
-        CREATE INDEX journal_entry_permissions_user
-          ON journal_entry_permissions (user_id, entry_id);
-        CREATE TABLE journal_pages (
-          id TEXT PRIMARY KEY NOT NULL,
-          entry_id TEXT NOT NULL,
-          position INTEGER NOT NULL CHECK (position >= 0),
-          title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 256),
-          default_access TEXT NOT NULL CHECK (
-            default_access IN ('inherit', 'none', 'view', 'edit')
-          ),
-          content_schema_version INTEGER NOT NULL CHECK (
-            content_schema_version >= 1
-          ),
-          content_json TEXT NOT NULL,
-          revision INTEGER NOT NULL CHECK (revision >= 0),
-          created_at TEXT NOT NULL,
-          created_by TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          updated_by TEXT NOT NULL,
-          UNIQUE (entry_id, position),
-          FOREIGN KEY (entry_id) REFERENCES journal_entries(id) ON DELETE CASCADE
-        ) STRICT;
-        CREATE TABLE journal_page_permissions (
-          page_id TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          access TEXT NOT NULL CHECK (
-            access IN ('inherit', 'none', 'view', 'edit')
-          ),
-          PRIMARY KEY (page_id, user_id),
-          FOREIGN KEY (page_id) REFERENCES journal_pages(id) ON DELETE CASCADE,
-          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
-        ) STRICT;
-        CREATE INDEX journal_page_permissions_user
-          ON journal_page_permissions (user_id, page_id);
-        INSERT INTO journal_manifest (singleton, revision) VALUES (1, 0);
-        PRAGMA user_version = 10;
-        COMMIT;
-      `);
-    } catch (error) {
-      this.connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migrateVersion10To11(): void {
-    const styleJson = JSON.stringify(defaultJournalTitleStyle()).replaceAll("'", "''");
-    this.connection.exec('BEGIN IMMEDIATE');
-    try {
-      this.connection.exec(`
-        ALTER TABLE journal_entries
-          ADD COLUMN name_style_json TEXT NOT NULL DEFAULT '${styleJson}';
-        ALTER TABLE journal_pages
-          ADD COLUMN title_style_json TEXT NOT NULL DEFAULT '${styleJson}';
-        PRAGMA user_version = 11;
-        COMMIT;
-      `);
-    } catch (error) {
-      this.connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migrateVersion11To12(): void {
-    this.connection.exec('BEGIN IMMEDIATE');
-    try {
-      this.connection.exec(`
-        ALTER TABLE journal_pages
-          ADD COLUMN permission_revision INTEGER NOT NULL DEFAULT 0
-            CHECK (permission_revision >= 0);
-        CREATE TABLE journal_page_assets (
-          page_id TEXT NOT NULL,
-          asset_id TEXT NOT NULL,
-          PRIMARY KEY (page_id, asset_id),
-          FOREIGN KEY (page_id) REFERENCES journal_pages(id) ON DELETE CASCADE
-        ) STRICT;
-        CREATE INDEX journal_page_assets_asset
-          ON journal_page_assets (asset_id, page_id);
-      `);
-      const pages = this.connection.prepare(
-        'SELECT id, content_json FROM journal_pages',
-      ).all() as Array<{ content_json: string; id: string }>;
-      const insert = this.connection.prepare(
-        'INSERT INTO journal_page_assets (page_id, asset_id) VALUES (?, ?)',
-      );
-      for (const page of pages) {
-        const content: unknown = JSON.parse(page.content_json);
-        if (!isRichTextDocument(content)) {
-          throw new Error('Campaign Journal page content is invalid.');
-        }
-        for (const assetId of extractJournalAssetIds(content)) {
-          insert.run(page.id, assetId);
-        }
-      }
-      this.connection.exec('PRAGMA user_version = 12');
-      this.connection.exec('COMMIT');
-    } catch (error) {
-      this.connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
-
-  private migrateVersion12To13(): void {
-    this.connection.exec('BEGIN IMMEDIATE');
-    try {
-      this.connection.exec(`
-        ALTER TABLE journal_entries
-          ADD COLUMN data_schema_version INTEGER NOT NULL DEFAULT 1
-            CHECK (data_schema_version >= 1);
-        ALTER TABLE journal_entries
-          ADD COLUMN data_json TEXT NOT NULL DEFAULT '{}';
-        PRAGMA user_version = 13;
-        COMMIT;
-      `);
-    } catch (error) {
-      this.connection.exec('ROLLBACK');
-      throw error;
-    }
-  }
 }

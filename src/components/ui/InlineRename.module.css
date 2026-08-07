@@ -5,26 +5,11 @@
   align-content: center;
 }
 
-.copy input {
-  min-width: 0;
+.renameInput {
   height: 1rem;
-  padding: 0;
-  overflow: hidden;
-  color: var(--color-text);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font: inherit;
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   line-height: 1rem;
-  text-overflow: ellipsis;
-}
-
-.copy input:focus {
-  background: transparent;
-  border: 0;
-  outline: 0;
 }
 
 .copy span {

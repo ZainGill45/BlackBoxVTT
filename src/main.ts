@@ -1,11 +1,14 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   powerMonitor,
   protocol,
   safeStorage,
   shell,
+  type OpenDialogOptions,
+  type SaveDialogOptions,
 } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
@@ -13,6 +16,7 @@ import { registerApplicationIpcHandlers } from './main/applicationIpc';
 import { registerAssetIpcHandlers } from './main/assetIpc';
 import { AssetManager } from './main/assetManager';
 import { AssetPreviewRegistry } from './main/assetPreviewRegistry';
+import { CampaignArchiveService } from './main/campaignArchiveService';
 import { registerCampaignIpcHandlers } from './main/campaignIpc';
 import { CampaignRepository } from './main/campaignRepository';
 import { CampaignRuntimeRegistry } from './main/campaignRuntime';
@@ -163,9 +167,55 @@ app.whenReady().then(() => {
   if (!isPrimaryInstance) {
     return;
   }
+  const campaignRootDirectory = path.join(
+    app.getPath('userData'),
+    'data',
+    'campaigns',
+  );
   const campaignRepository = new CampaignRepository({
-    rootDirectory: path.join(app.getPath('userData'), 'data', 'campaigns'),
+    rootDirectory: campaignRootDirectory,
     trashItem: (targetPath) => shell.trashItem(targetPath),
+  });
+  const campaignArchives = new CampaignArchiveService({
+    campaigns: campaignRepository,
+    dialogs: {
+      chooseExportPath: async (defaultFileName) => {
+        const options: SaveDialogOptions = {
+          buttonLabel: 'Export',
+          defaultPath: defaultFileName,
+          filters: [
+            {
+              extensions: ['blackbox-campaign'],
+              name: 'BlackBox Campaign',
+            },
+          ],
+          title: 'Export Campaign',
+        };
+        const result = mainWindow
+          ? await dialog.showSaveDialog(mainWindow, options)
+          : await dialog.showSaveDialog(options);
+        return result.canceled ? null : result.filePath ?? null;
+      },
+      chooseImportPath: async () => {
+        const options: OpenDialogOptions = {
+          buttonLabel: 'Import',
+          filters: [
+            {
+              extensions: ['blackbox-campaign'],
+              name: 'BlackBox Campaign',
+            },
+          ],
+          properties: ['openFile'],
+          title: 'Import Campaign',
+        };
+        const result = mainWindow
+          ? await dialog.showOpenDialog(mainWindow, options)
+          : await dialog.showOpenDialog(options);
+        return result.canceled ? null : result.filePaths[0] ?? null;
+      },
+    },
+    rootDirectory: campaignRootDirectory,
+    sourceRelease: app.getVersion(),
   });
 
   const historyRepository = new ConnectionHistoryRepository(
@@ -243,6 +293,7 @@ app.whenReady().then(() => {
   registerCampaignIpcHandlers(
     ipcMain,
     campaignRepository,
+    campaignArchives,
     async (input) => {
       const campaignId =
         input &&
@@ -253,6 +304,20 @@ app.whenReady().then(() => {
           : null;
       if (campaignId) {
         await networkManager?.stopHostForCampaign(campaignId);
+        await workspaces.close(campaignId);
+      }
+    },
+    async (input) => {
+      const campaignId =
+        input &&
+        typeof input === 'object' &&
+        'id' in input &&
+        typeof input.id === 'string'
+          ? input.id
+          : null;
+      if (campaignId) {
+        await networkManager?.stopHostForCampaign(campaignId);
+        await workspaces.close(campaignId);
       }
     },
   );

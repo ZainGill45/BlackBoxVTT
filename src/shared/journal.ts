@@ -1,8 +1,6 @@
 import type { Result } from './result';
 import type { JsonValue } from './gameSystems';
 
-export const JOURNAL_SCHEMA_VERSION = 3 as const;
-export const RICH_TEXT_SCHEMA_VERSION = 1 as const;
 export const JOURNAL_ENTRY_TYPE_NOTE = 'core.note' as const;
 export const JOURNAL_EDIT_LEASE_MS = 30_000;
 export const JOURNAL_EDIT_LEASE_REFRESH_MS = 10_000;
@@ -89,6 +87,7 @@ export const journalIpcChannels = {
   reorderNotes: 'journal:reorder-notes',
   reorderPages: 'journal:reorder-pages',
   renewLease: 'journal:renew-lease',
+  updateEntryData: 'journal:update-entry-data',
   updateEntryPermissions: 'journal:update-entry-permissions',
   updateNote: 'journal:update-note',
   updateNotePermissions: 'journal:update-note-permissions',
@@ -109,23 +108,22 @@ export interface JournalPermissionConfiguration<TAccess extends string> {
   overrides: JournalPermissionOverride<TAccess>[];
 }
 
-export interface RichTextMarkV1 {
+export interface RichTextMark {
   attrs?: Record<string, JsonValue>;
   type: string;
 }
 
-export interface RichTextNodeV1 {
+export interface RichTextNode {
   attrs?: Record<string, JsonValue>;
-  content?: RichTextNodeV1[];
-  marks?: RichTextMarkV1[];
+  content?: RichTextNode[];
+  marks?: RichTextMark[];
   text?: string;
   type: string;
 }
 
-export interface RichTextDocumentV1 {
-  doc: RichTextNodeV1;
+export interface RichTextDocument {
+  doc: RichTextNode;
   lineLength?: JournalLineLength;
-  schemaVersion: typeof RICH_TEXT_SCHEMA_VERSION;
 }
 
 export interface JournalEntryCapabilities {
@@ -158,7 +156,6 @@ export interface JournalPageSummary {
 
 export interface JournalEntryBaseSummary {
   capabilities: JournalEntryCapabilities;
-  dataVersion: number;
   groupId: string;
   id: string;
   kind: 'note' | 'system';
@@ -191,11 +188,10 @@ export type JournalEntry = NoteEntry | SystemJournalEntry;
 export interface JournalManifest {
   entries: JournalEntrySummary[];
   revision: number;
-  schemaVersion: typeof JOURNAL_SCHEMA_VERSION;
 }
 
 export interface JournalPage extends JournalPageSummary {
-  content: RichTextDocumentV1;
+  content: RichTextDocument;
   entryId: string;
 }
 
@@ -271,8 +267,13 @@ export interface RenameJournalEntryInput extends JournalEntryInput {
   name: string;
 }
 
+export interface UpdateJournalEntryDataInput extends JournalEntryInput {
+  data: JsonValue;
+  expectedRevision: number;
+}
+
 export interface UpdateJournalPageInput extends JournalPageInput {
-  content: RichTextDocumentV1;
+  content: RichTextDocument;
   expectedRevision: number;
   leaseId: string;
   title: string;
@@ -381,6 +382,7 @@ export interface JournalApi {
   reorderNotes(input: ReorderJournalEntriesInput): Promise<JournalResult<JournalManifest>>;
   reorderPages(input: ReorderJournalPagesInput): Promise<JournalResult<NoteEntry>>;
   renewLease(input: JournalLeaseInput): Promise<JournalResult<PageEditLease>>;
+  updateEntryData(input: UpdateJournalEntryDataInput): Promise<JournalResult<JournalEntry>>;
   updateEntryPermissions(input: UpdateJournalEntryPermissionsInput): Promise<JournalResult<JournalEntry>>;
   updateNote(input: UpdateJournalNoteInput): Promise<JournalResult<NoteEntry>>;
   updateNotePermissions(input: UpdateJournalNotePermissionsInput): Promise<JournalResult<NoteEntry>>;
@@ -416,18 +418,17 @@ const MARK_TYPES = new Set([
   'textStyle',
   'underline',
 ]);
-const RICH_TEXT_DOCUMENT_KEYS = new Set(['doc', 'lineLength', 'schemaVersion']);
+const RICH_TEXT_DOCUMENT_KEYS = new Set(['doc', 'lineLength']);
 const RICH_TEXT_NODE_KEYS = new Set(['attrs', 'content', 'marks', 'text', 'type']);
 const RICH_TEXT_MARK_KEYS = new Set(['attrs', 'type']);
 const MAX_RICH_TEXT_ATTRIBUTE_DEPTH = 8;
 const MAX_RICH_TEXT_ATTRIBUTE_ENTRIES = 256;
 const MAX_RICH_TEXT_MARKS_PER_NODE = 64;
 
-export function emptyRichTextDocument(): RichTextDocumentV1 {
+export function emptyRichTextDocument(): RichTextDocument {
   return {
     doc: { content: [{ type: 'paragraph' }], type: 'doc' },
     lineLength: DEFAULT_JOURNAL_LINE_LENGTH,
-    schemaVersion: RICH_TEXT_SCHEMA_VERSION,
   };
 }
 
@@ -526,17 +527,16 @@ function validNodeAttributes(type: string, attrs: Record<string, JsonValue> | un
   );
 }
 
-export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 {
+export function isRichTextDocument(value: unknown): value is RichTextDocument {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<RichTextDocumentV1>;
+  const candidate = value as Partial<RichTextDocument>;
   if (
-    candidate.schemaVersion !== RICH_TEXT_SCHEMA_VERSION ||
     (candidate.lineLength !== undefined &&
       !JOURNAL_LINE_LENGTHS.includes(candidate.lineLength)) ||
     !Object.keys(candidate).every((key) => RICH_TEXT_DOCUMENT_KEYS.has(key))
   ) return false;
   let count = 0;
-  const visit = (node: unknown, depth: number): node is RichTextNodeV1 => {
+  const visit = (node: unknown, depth: number): node is RichTextNode => {
     count += 1;
     if (
       count > MAX_RICH_TEXT_NODES ||
@@ -544,7 +544,7 @@ export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 
       !node ||
       typeof node !== 'object'
     ) return false;
-    const item = node as Partial<RichTextNodeV1>;
+    const item = node as Partial<RichTextNode>;
     if (
       !Object.keys(item).every((key) => RICH_TEXT_NODE_KEYS.has(key)) ||
       typeof item.type !== 'string' ||
@@ -582,9 +582,9 @@ export function isRichTextDocument(value: unknown): value is RichTextDocumentV1 
   }
 }
 
-export function extractJournalAssetIds(content: RichTextDocumentV1): string[] {
+export function extractJournalAssetIds(content: RichTextDocument): string[] {
   const ids = new Set<string>();
-  const visit = (node: RichTextNodeV1) => {
+  const visit = (node: RichTextNode) => {
     if (node.type === 'assetImage' && typeof node.attrs?.assetId === 'string') {
       ids.add(node.attrs.assetId);
     }
@@ -595,10 +595,10 @@ export function extractJournalAssetIds(content: RichTextDocumentV1): string[] {
 }
 
 export function removeJournalAsset(
-  content: RichTextDocumentV1,
+  content: RichTextDocument,
   assetId: string,
-): RichTextDocumentV1 {
-  const filter = (node: RichTextNodeV1): RichTextNodeV1 | null => {
+): RichTextDocument {
+  const filter = (node: RichTextNode): RichTextNode | null => {
     if (node.type === 'assetImage' && node.attrs?.assetId === assetId) return null;
     return {
       ...node,

@@ -76,7 +76,6 @@ import {
   DEFAULT_GRID_OPACITY,
   DEFAULT_GRID_SIZE,
   SCENE_LAYERS,
-  SCENE_MANIFEST_SCHEMA_VERSION,
 } from './sceneConstants';
 
 export const sceneIpcChannels = {
@@ -236,7 +235,6 @@ export function createEmptySceneManifest(): SceneManifest {
     activeSceneId: null,
     revision: 0,
     scenes: [],
-    schemaVersion: SCENE_MANIFEST_SCHEMA_VERSION,
   };
 }
 

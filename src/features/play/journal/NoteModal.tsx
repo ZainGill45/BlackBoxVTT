@@ -1,4 +1,4 @@
-import { Check, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, FileText, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -11,6 +11,7 @@ import { Button } from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { IconButton } from '../../../components/ui/IconButton';
+import { InlineRename } from '../../../components/ui/InlineRename';
 import { Modal } from '../../../components/ui/Modal';
 import {
   ContextMenuController,
@@ -21,6 +22,7 @@ import type { AssetApi } from '../../../shared/assets';
 import {
   JOURNAL_AUTOSAVE_DELAY_MS,
   JOURNAL_EDIT_LEASE_REFRESH_MS,
+  MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
   type JournalApi,
   type JournalDeletePreview,
   type JournalDeleteTarget,
@@ -29,7 +31,7 @@ import {
   type JournalPermissionSubject,
   type JournalResult,
   type JournalTitleStyle,
-  type RichTextDocumentV1,
+  type RichTextDocument,
 } from '../../../shared/journal';
 import {
   DELETE_CONFIRMATION_TIMEOUT_MS,
@@ -125,14 +127,13 @@ export function NoteModal({
   const [current, setCurrent] = useState(note);
   const [name, setName] = useState(note.name);
   const [nameStyle, setNameStyle] = useState(note.nameStyle);
-  const [noteStatus, setNoteStatus] = useState<SaveStatus>('saved');
   const [pageId, setPageId] = useState(
     initialPageId ?? note.pages[0]?.id,
   );
   const [page, setPage] = useState<JournalPage | null>(null);
   const [title, setTitle] = useState('');
   const [titleStyle, setTitleStyle] = useState<JournalTitleStyle | null>(null);
-  const [content, setContent] = useState<RichTextDocumentV1 | null>(null);
+  const [content, setContent] = useState<RichTextDocument | null>(null);
   const [leaseId, setLeaseId] = useState<string | null>(null);
   const [pageStatus, setPageStatus] = useState<SaveStatus>('loading');
   const [pageMessage, setPageMessage] = useState<string | null>(null);
@@ -171,7 +172,7 @@ export function NoteModal({
   const pageRef = useRef<JournalPage | null>(null);
   const titleRef = useRef('');
   const titleStyleRef = useRef<JournalTitleStyle | null>(null);
-  const contentRef = useRef<RichTextDocumentV1 | null>(null);
+  const contentRef = useRef<RichTextDocument | null>(null);
   const leaseRef = useRef<ActiveLease | null>(null);
   const noteSaveTimerRef = useRef<number | null>(null);
   const pageSaveTimerRef = useRef<number | null>(null);
@@ -257,7 +258,6 @@ export function NoteModal({
         if (!result.ok) {
           if (onFailure) onFailure(result.error.message);
           else setError(result.error.message);
-          setNoteStatus('failed');
           return false;
         }
         acceptCurrent(result.value);
@@ -270,11 +270,9 @@ export function NoteModal({
           setName(result.value.name);
           setNameStyle(result.value.nameStyle);
         }
-        setNoteStatus(hasNewerNameDraft ? 'dirty' : 'saved');
         return true;
       });
       noteMutationQueueRef.current = queued.catch(() => {
-        setNoteStatus('failed');
         return false;
       });
       return queued;
@@ -301,10 +299,8 @@ export function NoteModal({
     }
     if (!draftName.trim()) {
       setError('A note name cannot be empty.');
-      setNoteStatus('failed');
       return false;
     }
-    setNoteStatus('saving');
     const pending = queueNoteMutation(async (active) => {
       const input = {
         campaignId,
@@ -473,6 +469,87 @@ export function NoteModal({
   }, [campaignId, journalApi, onUpdated, refreshCurrent]);
 
   savePageRef.current = savePage;
+
+  const renamePage = useCallback(async (
+    summary: NoteEntry['pages'][number],
+    nextTitle: string,
+  ): Promise<boolean> => {
+    if (!nextTitle.trim()) {
+      setError('A page title cannot be empty.');
+      return false;
+    }
+    if (nextTitle === summary.title) return true;
+
+    const activePage = pageRef.current;
+    const activeLease = leaseRef.current;
+    if (
+      summary.id === pageIdRef.current &&
+      activePage?.id === summary.id &&
+      activeLease?.pageId === summary.id
+    ) {
+      const previousTitle = titleRef.current;
+      titleRef.current = nextTitle;
+      setTitle(nextTitle);
+      setPageStatus('dirty');
+      const saved = await savePage();
+      if (!saved && titleRef.current === nextTitle) {
+        titleRef.current = previousTitle;
+        setTitle(previousTitle);
+      }
+      return saved;
+    }
+
+    const leaseResult = await journalApi.acquireLease({
+      campaignId,
+      entryId: currentRef.current.id,
+      pageId: summary.id,
+    });
+    if (!leaseResult.ok) {
+      setError(leaseResult.error.message);
+      return false;
+    }
+
+    const temporaryLease = leaseResult.value;
+    const result = await (async () => {
+      try {
+        return await journalApi.updatePage({
+          campaignId,
+          content: temporaryLease.page.content,
+          entryId: currentRef.current.id,
+          expectedRevision: temporaryLease.page.revision,
+          leaseId: temporaryLease.leaseId,
+          pageId: summary.id,
+          title: nextTitle,
+          titleStyle: temporaryLease.page.titleStyle,
+        });
+      } finally {
+        await journalApi.releaseLease({
+          campaignId,
+          entryId: currentRef.current.id,
+          leaseId: temporaryLease.leaseId,
+          pageId: summary.id,
+        });
+      }
+    })();
+    if (!result.ok) {
+      setError(result.error.message);
+      return false;
+    }
+
+    const activeNote = currentRef.current;
+    const titleChanged = temporaryLease.page.title !== result.value.title;
+    acceptCurrent({
+      ...activeNote,
+      pages: activeNote.pages.map((pageSummaryItem) =>
+        pageSummaryItem.id === result.value.id
+          ? pageSummary(result.value)
+          : pageSummaryItem,
+      ),
+      revision: activeNote.revision + (titleChanged ? 1 : 0),
+    });
+    if (titleChanged) await refreshCurrent();
+    return true;
+  }, [acceptCurrent, campaignId, journalApi, refreshCurrent, savePage]);
 
   useEffect(() => {
     let active = true;
@@ -738,7 +815,6 @@ export function NoteModal({
   }, [onClose, releaseLease]);
 
   const savePermissions = (draft: JournalPermissionDraft) => {
-    setNoteStatus('saving');
     setPageStatus('saving');
     const pending = (async (): Promise<string | null> => {
       const currentPermissions = currentRef.current.permissions;
@@ -774,7 +850,6 @@ export function NoteModal({
         if (!result.ok) {
           const message = result.error.message;
           await refreshCurrent();
-          setNoteStatus('failed');
           setPageStatus('failed');
           return message;
         }
@@ -789,7 +864,6 @@ export function NoteModal({
       }
       const refreshed = await refreshCurrent();
       if (!refreshed) return 'The updated permissions could not be reloaded.';
-      setNoteStatus('saved');
       setPageStatus('saved');
       return null;
     })();
@@ -881,6 +955,18 @@ export function NoteModal({
     void requestDelete(
       { entryId: currentRef.current.id, kind: 'note' },
       currentRef.current.revision,
+    );
+  };
+
+  const requestPageDelete = (summary: NoteEntry['pages'][number]) => {
+    if (!requestDeleteConfirmation(summary.id)) return;
+    void requestDelete(
+      {
+        entryId: currentRef.current.id,
+        kind: 'page',
+        pageId: summary.id,
+      },
+      summary.revision,
     );
   };
 
@@ -1139,14 +1225,6 @@ export function NoteModal({
         (id) => current.pages.find((item) => item.id === id) ?? [],
       )
     : visiblePages;
-  const isSaving = noteStatus === 'saving' || pageStatus === 'saving';
-  const saveLabel = isSaving
-    ? 'Saving…'
-    : noteStatus === 'failed' || pageStatus === 'failed'
-      ? 'Save failed'
-      : noteStatus === 'dirty' || pageStatus === 'dirty'
-        ? 'Unsaved changes'
-      : pageMessage ?? 'Saved';
   const selectedSummary = current.pages.find((item) => item.id === pageId);
   const canEditPage = Boolean(leaseId && page?.capabilities.edit);
   const noteDeleteIsArmed = pendingDeleteId === current.id;
@@ -1156,7 +1234,6 @@ export function NoteModal({
         onChange: (next: JournalTitleStyle) => {
           nameStyleRef.current = next;
           setNameStyle(next);
-          setNoteStatus('dirty');
         },
         style: nameStyle,
       }
@@ -1221,23 +1298,60 @@ export function NoteModal({
             <ol className={styles.pageList} ref={pageListRef}>
               {displayedPages.map((summary) => (
                 <li
+                  data-current={summary.id === pageId}
                   data-page-order-id={summary.id}
                   data-reordering={pageReorder?.activeId === summary.id}
                   key={summary.id}
                   onContextMenu={(event) => openPageContext(event, summary)}
                 >
                   <button
+                    aria-label={`Open ${summary.title}`}
                     aria-current={summary.id === pageId ? 'page' : undefined}
+                    className={styles.pageIcon}
                     onClick={() => void switchPage(summary.id)}
                     type="button"
                   >
-                    <span>{summary.title}</span>
-                    <small>
-                      {summary.id === pageId && summary.capabilities.edit && !leaseId && pageMessage
-                        ? 'Locked'
-                        : pageAccessLabel(summary)}
-                    </small>
+                    <FileText aria-hidden size="1.625rem" strokeWidth={1.4} />
                   </button>
+                  <InlineRename
+                    accessibleLabel={`Name for ${summary.title}`}
+                    detail={
+                      summary.id === pageId &&
+                      summary.capabilities.edit &&
+                      !leaseId &&
+                      pageMessage
+                        ? 'Locked'
+                        : pageAccessLabel(summary)
+                    }
+                    disabled={
+                      !summary.capabilities.edit ||
+                      Boolean(pageReorder) ||
+                      (summary.id === pageId && !canEditPage)
+                    }
+                    maxLength={MAX_JOURNAL_TITLE_INPUT_CODE_UNITS}
+                    onRename={(nextTitle) => renamePage(summary, nextTitle)}
+                    value={summary.title}
+                  />
+                  <Button
+                    aria-label={pendingDeleteId === summary.id
+                      ? `Confirm deletion of ${summary.title}`
+                      : `Delete ${summary.title}`}
+                    aria-pressed={pendingDeleteId === summary.id}
+                    className={styles.pageDeleteButton}
+                    disabled={
+                      !summary.capabilities.delete ||
+                      current.pages.length <= 1
+                    }
+                    onClick={() => requestPageDelete(summary)}
+                    size="compact"
+                    variant="danger"
+                  >
+                    {pendingDeleteId === summary.id ? (
+                      <Check aria-hidden size="1.125rem" strokeWidth={1.75} />
+                    ) : (
+                      <Trash2 aria-hidden size="1.125rem" strokeWidth={1.75} />
+                    )}
+                  </Button>
                 </li>
               ))}
             </ol>
@@ -1265,7 +1379,6 @@ export function NoteModal({
                   if (!current.capabilities.edit) return;
                   nameRef.current = event.currentTarget.value;
                   setName(event.currentTarget.value);
-                  setNoteStatus('dirty');
                 }}
               />
             </header>
@@ -1297,26 +1410,7 @@ export function NoteModal({
                       : 'This note has no pages.')}
               </div>
             )}
-
           </section>
-
-          <footer className={styles.statusBar}>
-            <span aria-live="polite">{saveLabel}</span>
-            {closeFailed ? (
-              <>
-                <Button onClick={() => void close()} size="compact">
-                  Retry save
-                </Button>
-                <Button
-                  onClick={() => void forceClose()}
-                  size="compact"
-                  variant="danger"
-                >
-                  Discard changes
-                </Button>
-              </>
-            ) : null}
-          </footer>
         </div>
       </Modal>
 
@@ -1406,7 +1500,30 @@ export function NoteModal({
       >
         <h2>Journal</h2>
         <p role="alert">{error}</p>
-        <Button onClick={() => setError(null)}>Close</Button>
+        <div className={styles.promptActions}>
+          {closeFailed ? (
+            <>
+              <Button
+                onClick={() => {
+                  setError(null);
+                  void close();
+                }}
+              >
+                Retry save
+              </Button>
+              <Button
+                onClick={() => {
+                  setError(null);
+                  void forceClose();
+                }}
+                variant="danger"
+              >
+                Discard changes
+              </Button>
+            </>
+          ) : null}
+          <Button onClick={() => setError(null)}>Close</Button>
+        </div>
       </Modal>
     </>
   );

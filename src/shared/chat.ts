@@ -1,5 +1,5 @@
 import type { Result } from './result';
-import type { ChatRollCardV1, ChatRollDefinition } from './chatRoll';
+import type { ChatRollCard, ChatRollDefinition } from './chatRoll';
 
 export const DEFAULT_MAX_CHAT_MESSAGE_CHARACTERS = 10_000;
 export const MIN_MAX_CHAT_MESSAGE_CHARACTERS = 100;
@@ -11,7 +11,7 @@ export const MAX_LOADED_CHAT_MESSAGES = 1_000;
 export const CHAT_SEND_TIMEOUT_MS = 10_000;
 
 export type ChatMessagePayload =
-  | { kind: 'roll'; card: ChatRollCardV1 }
+  | { kind: 'roll'; card: ChatRollCard }
   | { kind: 'text'; text: string };
 
 export type ChatPrincipal =

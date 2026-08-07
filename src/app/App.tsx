@@ -18,10 +18,12 @@ import type {
   AssetErrorEvent,
   AssetProgressEvent,
 } from '../shared/assets';
-import type {
-  CampaignApi,
-  CampaignResult,
-  CampaignSummary,
+import {
+  isUnavailableCampaignSummary,
+  type CampaignApi,
+  type CampaignManifest,
+  type CampaignResult,
+  type CampaignSummary,
 } from '../shared/campaigns';
 import type {
   HostStatus,
@@ -158,7 +160,7 @@ export function App({
 
   const handleCreate = async (
     draft: CreateCampaignDraft,
-  ): Promise<CampaignResult<CampaignSummary>> => {
+  ): Promise<CampaignResult<CampaignManifest>> => {
     const result = await campaignApi.create({ name: draft.name });
 
     if (result.ok) {
@@ -182,10 +184,25 @@ export function App({
     return result;
   };
 
+  const handleExportCampaign: ConnectionScreenProps['onExportCampaign'] =
+    (id) => campaignApi.export({ id });
+
+  const handleImportCampaign: ConnectionScreenProps['onImportCampaign'] =
+    async () => {
+      const result = await campaignApi.import();
+      if (result.ok && result.value) {
+        const importedCampaign = result.value.campaign;
+        setCampaigns((current) =>
+          sortCampaigns([...current, importedCampaign]),
+        );
+      }
+      return result;
+    };
+
   const handleOpenCampaign = async (id: string): Promise<void> => {
     const campaign = campaigns.find((candidate) => candidate.id === id);
 
-    if (!campaign) {
+    if (!campaign || isUnavailableCampaignSummary(campaign)) {
       return;
     }
 
@@ -291,6 +308,8 @@ export function App({
           networkApi={networkApi}
           onCreate={handleCreate}
           onDeleteCampaign={handleDeleteCampaign}
+          onExportCampaign={handleExportCampaign}
+          onImportCampaign={handleImportCampaign}
           onOpenCampaign={handleOpenCampaign}
           onRemoteAuthenticated={(session) => {
             setConnectionNotice(null);

@@ -21,11 +21,9 @@
   width: 100%;
   height: 100%;
   min-height: 0;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: clamp(18rem, 25%, 20rem) minmax(0, 1fr);
-  grid-template-areas:
-    'sidebar note'
-    'status status';
+  grid-template-areas: 'sidebar note';
   background:
     linear-gradient(180deg, rgb(255 255 255 / 1.5%), transparent 12rem),
     var(--color-surface);
@@ -102,7 +100,10 @@
 }
 
 .pageList {
+  display: grid;
   min-height: 0;
+  align-content: start;
+  gap: var(--space-1);
   padding-inline: var(--space-2);
   padding-bottom: var(--space-2);
   margin: 0;
@@ -111,8 +112,20 @@
 }
 
 .pageList li {
-  margin-bottom: var(--space-1);
-  border: var(--border-width) solid transparent;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.125rem;
+  padding: var(--space-1);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-sm);
+}
+
+.pageList li[data-current='true'] {
+  background: var(--color-overlay-active);
+  border-color: var(--color-border-strong);
 }
 
 .pageList li[data-reordering='true'] {
@@ -120,48 +133,36 @@
   border-color: var(--color-border-strong);
 }
 
-.pageList button {
+.pageIcon {
   display: grid;
-  width: 100%;
-  min-height: calc(var(--control-height));
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-2);
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  place-items: center;
   color: var(--color-text-muted);
-  background: var(--color-surface);
-  border: var(--border-width) solid var(--color-border);
-  text-align: left;
-  transition:
-    color var(--duration-fast) var(--ease-standard),
-    background-color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
+  background: transparent;
+  border: 0;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
-.pageList button:hover,
-.pageList button:focus-visible {
+.pageIcon:hover,
+.pageIcon[aria-current='page'] {
   color: var(--color-text);
-  background: var(--color-surface-raised);
-  border-color: var(--color-border-strong);
 }
 
-.pageList button[aria-current='page'] {
-  color: var(--color-text);
-  background: var(--color-overlay-active);
-  border-color: var(--color-border-strong);
+.pageIcon:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 0;
 }
 
-.pageList button span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pageList button small {
-  color: var(--color-text-subtle);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
+.pageDeleteButton {
+  display: grid;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0;
+  place-items: center;
 }
 
 .emptyPages {
@@ -233,25 +234,6 @@
   place-items: center;
   padding: var(--space-6);
   color: var(--color-text-muted);
-}
-
-.statusBar {
-  display: flex;
-  grid-area: status;
-  min-height: calc(var(--control-height) + var(--space-1));
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  color: var(--color-text-subtle);
-  background: var(--color-surface-muted);
-  border-top: var(--border-width) solid var(--color-border);
-  font-size: var(--font-size-xs);
-}
-
-.statusBar span:first-child {
-  margin-right: auto;
-  padding-inline: var(--space-2);
 }
 
 .permissionsModal {

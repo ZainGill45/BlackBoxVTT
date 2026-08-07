@@ -91,6 +91,12 @@ export class HostJournalRequestHandler {
       await this.after(result.ok, { entryId: input.entryId, type: 'structure' });
       return this.respond(client, envelope, 'server.journal_entry', result);
     }
+    if (envelope.type === 'client.journal_update_entry_data') {
+      const input = parsePayload('client.journal_update_entry_data', envelope.payload);
+      const result = await this.journal.updateEntryData(actor, input);
+      await this.after(result.ok, { entryId: input.entryId, type: 'content' });
+      return this.respond(client, envelope, 'server.journal_entry', result);
+    }
     if (envelope.type === 'client.journal_update_entry_permissions') {
       const input = parsePayload('client.journal_update_entry_permissions', envelope.payload);
       const result = await this.journal.updateEntryPermissions(actor, input);

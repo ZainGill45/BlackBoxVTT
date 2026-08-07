@@ -9,11 +9,9 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { CampaignRepository } from '../../../main/campaignRepository';
 import {
   CAMPAIGN_DATABASE_FILENAME,
-  CAMPAIGN_DATABASE_SCHEMA_VERSION,
   CampaignDatabase,
 } from '../../../main/storage/campaignDatabase';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
@@ -57,7 +55,6 @@ describe('CampaignRepository', () => {
         createdAt: createdAt.toISOString(),
         id: firstId,
         name: 'Iron Meridian',
-        schemaVersion: CAMPAIGN_SCHEMA_VERSION,
         system: TEST_CAMPAIGN_SYSTEM,
         updatedAt: createdAt.toISOString(),
       },
@@ -125,39 +122,6 @@ describe('CampaignRepository', () => {
     await expect(access(rootDirectory)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
-  it('migrates a version 8 campaign to the default bundled system', async () => {
-    const rootDirectory = await createTemporaryRoot();
-    const repository = new CampaignRepository({
-      createId: () => firstId,
-      rootDirectory,
-      trashItem: vi.fn(),
-    });
-    const created = await repository.create({ name: 'Iron Meridian' });
-    expect(created.ok).toBe(true);
-    const directory = path.join(rootDirectory, firstId);
-    const previous = CampaignDatabase.open(directory);
-    previous.connection.exec(`
-      DROP TABLE journal_page_assets;
-      DROP TABLE journal_page_permissions;
-      DROP TABLE journal_pages;
-      DROP TABLE journal_entry_permissions;
-      DROP TABLE journal_entries;
-      DROP TABLE journal_manifest;
-      DROP TABLE campaign_system;
-      PRAGMA user_version = 8;
-    `);
-    previous.close();
-
-    const migrated = CampaignDatabase.open(directory);
-    expect(migrated.readSystem()).toEqual(TEST_CAMPAIGN_SYSTEM);
-    expect(
-      (migrated.connection.prepare('PRAGMA user_version').get() as {
-        user_version: number;
-      }).user_version,
-    ).toBe(CAMPAIGN_DATABASE_SCHEMA_VERSION);
-    migrated.close();
-  });
-
   it('refuses malformed campaign system settings', async () => {
     const rootDirectory = await createTemporaryRoot();
     const repository = new CampaignRepository({
@@ -202,7 +166,7 @@ describe('CampaignRepository', () => {
     ]);
   });
 
-  it('ignores malformed campaign containers while reporting a warning', async () => {
+  it('lists malformed campaign containers as unavailable', async () => {
     const rootDirectory = await createTemporaryRoot();
     const warn = vi.fn();
     const repository = new CampaignRepository({
@@ -220,7 +184,18 @@ describe('CampaignRepository', () => {
     );
 
     const result = await repository.list();
-    expect(result.ok && result.value).toHaveLength(1);
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value).toHaveLength(2);
+    expect(result.value.find((campaign) => campaign.id === secondId)).toEqual(
+      expect.objectContaining({
+        id: secondId,
+        name: 'Unavailable campaign (22222222)',
+        unavailableReason: 'unsupported_data',
+      }),
+    );
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining(secondId),
       expect.any(Error),
@@ -245,7 +220,7 @@ describe('CampaignRepository', () => {
     expect(trashItem).not.toHaveBeenCalled();
   });
 
-  it('refuses to trash an unvalidated campaign directory', async () => {
+  it('allows an unavailable campaign directory to be trashed', async () => {
     const rootDirectory = await createTemporaryRoot();
     const trashItem = vi.fn();
     await mkdir(path.join(rootDirectory, firstId), { recursive: true });
@@ -259,13 +234,12 @@ describe('CampaignRepository', () => {
     });
 
     await expect(repository.trash({ id: firstId })).resolves.toEqual({
-      error: {
-        code: 'not_found',
-        message: 'Campaign could not be found.',
-      },
-      ok: false,
+      ok: true,
+      value: null,
     });
-    expect(trashItem).not.toHaveBeenCalled();
+    expect(trashItem).toHaveBeenCalledWith(
+      path.resolve(rootDirectory, firstId),
+    );
   });
 
   it('keeps a campaign when trashing fails and targets its exact folder', async () => {

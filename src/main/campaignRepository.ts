@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readdir, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  CAMPAIGN_SCHEMA_VERSION,
   type CampaignErrorCode,
   type CampaignManifest,
   type CampaignResult,
@@ -57,7 +56,6 @@ export function isCampaignManifest(value: unknown): value is CampaignManifest {
   }
   const manifest = value as Partial<CampaignManifest>;
   return (
-    manifest.schemaVersion === CAMPAIGN_SCHEMA_VERSION &&
     typeof manifest.id === 'string' &&
     UUID_PATTERN.test(manifest.id) &&
     typeof manifest.name === 'string' &&
@@ -142,7 +140,7 @@ export class CampaignRepository {
     });
   }
 
-  create(input: unknown): Promise<CampaignResult<CampaignSummary>> {
+  create(input: unknown): Promise<CampaignResult<CampaignManifest>> {
     return this.mutations.run(async () => {
       if (
         !input ||
@@ -197,7 +195,6 @@ export class CampaignRepository {
           createdAt: timestamp,
           id,
           name,
-          schemaVersion: CAMPAIGN_SCHEMA_VERSION,
           system,
           updatedAt: timestamp,
         };
@@ -235,12 +232,18 @@ export class CampaignRepository {
         return failure('not_found', 'Campaign could not be found.');
       }
       const id = (input as { id: string }).id;
-      const container = await this.getContainer(id);
-      if (!container) {
+      let directory: string;
+      try {
+        directory = this.resolveCampaignDirectory(id);
+        const target = await lstat(directory);
+        if (!target.isDirectory() || target.isSymbolicLink()) {
+          return failure('not_found', 'Campaign could not be found.');
+        }
+      } catch {
         return failure('not_found', 'Campaign could not be found.');
       }
       try {
-        await this.trashItem(container.directory);
+        await this.trashItem(directory);
         return { ok: true, value: null };
       } catch (error) {
         this.warn('Failed to move a campaign container to the trash.', error);
@@ -257,10 +260,13 @@ export class CampaignRepository {
       if (!entry.isDirectory() || entry.name.startsWith('.')) {
         continue;
       }
+      if (!UUID_PATTERN.test(entry.name)) {
+        this.warn(`Ignoring campaign-like directory with invalid ID: ${entry.name}`);
+        continue;
+      }
+      const directory = this.resolveCampaignDirectory(entry.name);
       try {
-        const database = CampaignDatabase.open(
-          this.resolveCampaignDirectory(entry.name),
-        );
+        const database = CampaignDatabase.open(directory);
         try {
           const manifest = database.readManifest();
           if (manifest.id !== entry.name) {
@@ -271,10 +277,13 @@ export class CampaignRepository {
           database.close();
         }
       } catch (error) {
-        this.warn(
-          `Ignoring malformed campaign container â€œ${entry.name}â€.`,
-          error,
-        );
+        this.warn(`Campaign container ${entry.name} is unavailable.`, error);
+        campaigns.push({
+          id: entry.name,
+          name: `Unavailable campaign (${entry.name.slice(0, 8)})`,
+          unavailableReason: 'unsupported_data',
+          updatedAt: await this.readFilesystemTimestamp(directory),
+        });
       }
     }
     return campaigns.sort(
@@ -282,6 +291,14 @@ export class CampaignRepository {
         right.updatedAt.localeCompare(left.updatedAt) ||
         left.id.localeCompare(right.id),
     );
+  }
+
+  private async readFilesystemTimestamp(directory: string): Promise<string> {
+    try {
+      return (await lstat(directory)).mtime.toISOString();
+    } catch {
+      return new Date(0).toISOString();
+    }
   }
 
   private resolveCampaignDirectory(id: string): string {

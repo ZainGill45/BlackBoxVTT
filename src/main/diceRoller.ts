@@ -7,8 +7,7 @@ import {
   RollGroup,
 } from '@dice-roller/rpg-dice-roller';
 import {
-  CHAT_ROLL_PAYLOAD_VERSION,
-  type ChatRollCardV1,
+  type ChatRollCard,
   type ChatRollDefinition,
   type ChatRollExpressionNode,
   type ChatRollGroupNode,
@@ -71,7 +70,7 @@ function normalizeSequence(
 export function rollChatCard(
   definition: ChatRollDefinition,
   engine: RandomEngine = NumberGenerator.engines.nodeCrypto,
-): ChatRollCardV1 {
+): ChatRollCard {
   const previousEngine = NumberGenerator.generator.engine;
   NumberGenerator.generator.engine = engine;
   try {
@@ -93,7 +92,7 @@ export function rollChatCard(
         total,
       };
     });
-    return { ...definition, sections, version: CHAT_ROLL_PAYLOAD_VERSION };
+    return { ...definition, sections };
   } finally {
     NumberGenerator.generator.engine = previousEngine;
   }

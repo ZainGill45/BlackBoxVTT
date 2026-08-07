@@ -11,7 +11,6 @@ import {
 import path from 'node:path';
 import {
   ASSET_CHUNK_BYTES,
-  ASSET_MANIFEST_SCHEMA_VERSION,
   MAX_ASSET_BYTES,
   type AssetActor,
   type AssetErrorCode,
@@ -212,13 +211,12 @@ function isAssetRecord(value: unknown): value is AssetRecord {
   );
 }
 
-function isAssetManifest(value: unknown): value is AssetManifest {
+export function isAssetManifest(value: unknown): value is AssetManifest {
   if (!value || typeof value !== 'object') {
     return false;
   }
   const manifest = value as Partial<AssetManifest>;
   if (
-    manifest.schemaVersion === ASSET_MANIFEST_SCHEMA_VERSION &&
     typeof manifest.revision === 'number' &&
     Number.isInteger(manifest.revision) &&
     manifest.revision >= 0 &&
@@ -429,7 +427,6 @@ export class AssetRepository {
         return record;
       }),
       revision: state?.revision,
-      schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     };
     if (!isAssetManifest(manifest)) {
       throw new Error('Asset manifest is invalid.');
@@ -561,7 +558,6 @@ export class AssetRepository {
         const nextManifest: AssetManifest = {
           assets: [...manifest.assets, ...staged.map(({ record }) => record)],
           revision: manifest.revision + 1,
-          schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
         };
         pendingOperationId = randomUUID();
         this.recordPendingOperation(pendingOperationId, 'import', {
@@ -642,7 +638,6 @@ export class AssetRepository {
       await this.writeManifest({
         assets,
         revision: nextRevision,
-        schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
       });
       await this.touchCampaign();
       return { ok: true, value: renamed };
@@ -667,7 +662,6 @@ export class AssetRepository {
       const nextManifest: AssetManifest = {
         assets: manifest.assets.filter((asset) => asset.id !== assetId),
         revision: manifest.revision + 1,
-        schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
       };
       const pendingOperationId = randomUUID();
       let manifestCommitted = false;

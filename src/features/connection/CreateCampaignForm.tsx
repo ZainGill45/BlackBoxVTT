@@ -6,15 +6,19 @@ import styles from './ConnectionScreen.module.css';
 
 interface CreateCampaignFormProps {
   draft: CreateCampaignDraft;
+  isImporting: boolean;
   isSubmitting: boolean;
   onChange: (draft: CreateCampaignDraft) => void;
+  onImport: () => void;
   onSubmit: (draft: CreateCampaignDraft) => void;
 }
 
 export function CreateCampaignForm({
   draft,
+  isImporting,
   isSubmitting,
   onChange,
+  onImport,
   onSubmit,
 }: CreateCampaignFormProps) {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -34,7 +38,7 @@ export function CreateCampaignForm({
             placeholder="Enter a campaign name"
             value={draft.name}
             autoComplete="off"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isImporting}
             required
             onChange={(event) =>
               onChange({ ...draft, name: event.currentTarget.value })
@@ -44,9 +48,19 @@ export function CreateCampaignForm({
 
         <Button
           className={styles.formAction}
+          type="button"
+          variant="secondary"
+          disabled={isSubmitting || isImporting}
+          onClick={onImport}
+        >
+          {isImporting ? 'Importingâ€¦' : 'Import'}
+        </Button>
+
+        <Button
+          className={styles.formAction}
           type="submit"
           variant="primary"
-          disabled={isSubmitting}
+          disabled={isSubmitting || isImporting}
         >
           {isSubmitting ? 'Creating…' : 'Create'}
         </Button>

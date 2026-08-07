@@ -157,7 +157,6 @@ describe('chat protocol messages', () => {
               total: 20,
             },
           ],
-          version: 1,
         },
         kind: 'roll',
       },
@@ -221,9 +220,27 @@ describe('campaign system protocol messages', () => {
 });
 
 describe('Journal protocol messages', () => {
+  it('keeps system entry data updates explicit and rejects sender authority', () => {
+    const input = {
+      data: { identity: { className: 'Fighter' } },
+      entryId: '11111111-1111-4111-8111-111111111111',
+      expectedRevision: 2,
+    };
+
+    expect(parsePayload('client.journal_update_entry_data', input)).toEqual(input);
+    expect(() => parsePayload('client.journal_update_entry_data', {
+      ...input,
+      actor: { kind: 'gm' },
+    })).toThrow();
+    expect(() => parsePayload('client.journal_update_entry_data', {
+      ...input,
+      data: { invalid: undefined },
+    })).toThrow();
+  });
+
   it('keeps page mutations explicit and rejects actor or campaign spoofing', () => {
     const input = {
-      content: { doc: { content: [{ type: 'paragraph' }], type: 'doc' }, schemaVersion: 1 },
+      content: { doc: { content: [{ type: 'paragraph' }], type: 'doc' } },
       entryId: '11111111-1111-4111-8111-111111111111',
       expectedRevision: 2,
       leaseId: '22222222-2222-4222-8222-222222222222',
@@ -246,7 +263,6 @@ describe('Journal protocol messages', () => {
     expect(() => parsePayload('client.journal_update_page', {
       content: {
         doc: { content: [{ attrs: { src: 'https://example.com/map.png' }, type: 'image' }], type: 'doc' },
-        schemaVersion: 1,
       },
       entryId: '11111111-1111-4111-8111-111111111111',
       expectedRevision: 0,

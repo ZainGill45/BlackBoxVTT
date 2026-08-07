@@ -16,6 +16,12 @@ export function createCampaignApi(invoke: IpcInvoke): CampaignApi {
       invoke(campaignIpcChannels.create, input) as ReturnType<
         CampaignApi['create']
       >,
+    export: (input) =>
+      invoke(campaignIpcChannels.export, input) as ReturnType<
+        CampaignApi['export']
+      >,
+    import: () =>
+      invoke(campaignIpcChannels.import) as ReturnType<CampaignApi['import']>,
     list: () =>
       invoke(campaignIpcChannels.list) as ReturnType<CampaignApi['list']>,
     trash: (input) =>

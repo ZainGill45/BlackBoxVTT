@@ -15,6 +15,7 @@ import type {
   ReorderJournalEntriesInput,
   ReorderJournalGroupInput,
   ReorderJournalPagesInput,
+  UpdateJournalEntryDataInput,
   UpdateJournalNotePermissionsInput,
   UpdateJournalEntryPermissionsInput,
   UpdateJournalPagePermissionsInput,
@@ -46,6 +47,7 @@ export interface JoinedJournalTransport {
   updateNote(entryId: string, name: string, nameStyle: NoteEntry['nameStyle'], expectedRevision: number): Promise<JournalResult<NoteEntry>>;
   updateNotePermissions(input: Omit<UpdateJournalNotePermissionsInput, 'campaignId'>): Promise<JournalResult<NoteEntry>>;
   renameEntry(entryId: string, name: string, expectedRevision: number): Promise<JournalResult<JournalEntry>>;
+  updateEntryData(input: Omit<UpdateJournalEntryDataInput, 'campaignId'>): Promise<JournalResult<JournalEntry>>;
   updateEntryPermissions(input: Omit<UpdateJournalEntryPermissionsInput, 'campaignId'>): Promise<JournalResult<JournalEntry>>;
   updatePage(
     entryId: string,
@@ -91,6 +93,7 @@ export function createLocalJournalRuntime(
     updateNote: (entryId, name, nameStyle, revision) => repository.updateNote(actor, entryId, name, nameStyle, revision),
     updateNotePermissions: (input) => repository.updateNotePermissions(actor, input),
     renameEntry: (entryId, name, revision) => repository.renameEntry(actor, entryId, name, revision),
+    updateEntryData: (input) => repository.updateEntryData(actor, input),
     updateEntryPermissions: (input) => repository.updateEntryPermissions(actor, input),
     updatePage: (entryId, pageId, leaseId, title, titleStyle, content, revision) =>
       repository.updatePage(actor, entryId, pageId, leaseId, title, titleStyle, content, revision),

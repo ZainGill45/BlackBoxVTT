@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SHAPE_SETTINGS } from '../../features/play/shapeSettings';
 import {
-  persistedSceneRecordSchema,
   sceneObjectStateSchema,
   sceneShapeSchema,
 } from '../../shared/sceneSchema';
@@ -39,43 +38,6 @@ describe('scene shape schema', () => {
     expect(sceneShapeSchema.safeParse({ ...sphere(), kind: 'cone', spread: 53.13 }).success).toBe(true);
     expect(sceneShapeSchema.safeParse({ ...sphere(), kind: 'cone', spread: 0 }).success).toBe(false);
     expect(sceneShapeSchema.safeParse({ ...sphere(), kind: 'cone', spread: 180 }).success).toBe(false);
-  });
-
-  it('defaults persisted records that predate shape layers', () => {
-    const record = structuredClone(makeScene()) as Record<string, unknown>;
-    delete record.shapes;
-    expect(persistedSceneRecordSchema.parse(record).shapes).toEqual(
-      createEmptyShapeLayers(),
-    );
-  });
-
-  it('removes retired labels and derives shapes below images in persisted fallback order', () => {
-    const legacyShape = sphere();
-    const legacyRecord = structuredClone(makeScene({
-      images: {
-        ...createEmptyImageLayers(),
-        map: [{
-          assetId: '22222222-2222-4222-8222-222222222222',
-          height: 10,
-          id: '33333333-3333-4333-8333-333333333333',
-          rotation: 0,
-          width: 10,
-          x: 0,
-          y: 0,
-        }],
-      },
-      shapes: { ...createEmptyShapeLayers(), map: [legacyShape] },
-    })) as Record<string, unknown>;
-    delete legacyRecord.objectOrder;
-    (legacyRecord.shapes as { map: Array<Record<string, unknown>> })
-      .map[0].label = 'Retired label';
-
-    const parsed = persistedSceneRecordSchema.parse(legacyRecord);
-    expect('label' in parsed.shapes.map[0]).toBe(false);
-    expect(parsed.objectOrder.map).toEqual([
-      legacyShape.id,
-      '33333333-3333-4333-8333-333333333333',
-    ]);
   });
 
   it('rejects duplicate and wrong-layer ordering entries', () => {

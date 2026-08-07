@@ -3,12 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  ASSET_MANIFEST_SCHEMA_VERSION,
   type AssetActor,
 } from '../../../shared/assets';
 import { AssetRepository } from '../../../main/assetRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
-import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const temporaryDirectories: string[] = [];
@@ -28,7 +26,6 @@ async function createFixture() {
     createdAt: timestamp,
     id: '99999999-9999-4999-8999-999999999999',
     name: 'Iron Meridian',
-    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
     system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
@@ -82,7 +79,6 @@ describe('AssetRepository', () => {
     expect(await repository.readManifest()).toEqual({
       assets: [],
       revision: 0,
-      schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     });
     await expect(
       stat(path.join(campaignDirectory, 'content', 'assets.json')),
@@ -258,7 +254,6 @@ describe('AssetRepository', () => {
           nextManifest: {
             assets: [],
             revision: previousManifest.revision + 1,
-            schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
           },
           previousManifest,
         }),

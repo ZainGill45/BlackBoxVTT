@@ -3,7 +3,7 @@ import { Button } from '../../../components/ui/Button';
 import {
   classifyRollOutcome,
   classifyRollResultOutcome,
-  type ChatRollCardV1,
+  type ChatRollCard,
   type ChatRollDefinition,
   type ChatRollDieNode,
   type ChatRollExpressionNode,
@@ -217,7 +217,7 @@ function RollAudit({ section }: { section: ChatRollSectionResult }) {
   );
 }
 
-export function DiceRollCard({ card }: { card: ChatRollCardV1 }) {
+export function DiceRollCard({ card }: { card: ChatRollCard }) {
   return (
     <div className={styles.rollContent}>
       <div className={styles.rollCommand}>

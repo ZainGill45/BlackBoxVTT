@@ -8,9 +8,8 @@ import {
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  CAMPAIGN_SCHEMA_VERSION,
   type CampaignApi,
-  type CampaignSummary,
+  type CampaignManifest,
 } from '../../../shared/campaigns';
 import type { ApplicationApi } from '../../../shared/application';
 import type { AssetApi } from '../../../shared/assets';
@@ -19,11 +18,10 @@ import { createMockNetworkApi } from '../../support/networkApi';
 import { App } from '../../../app/App';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
-const createdCampaign: CampaignSummary = {
+const createdCampaign: CampaignManifest = {
   createdAt: '2026-07-26T05:00:00.000Z',
   id: '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325',
   name: 'Iron Meridian',
-  schemaVersion: CAMPAIGN_SCHEMA_VERSION,
   system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-26T05:00:00.000Z',
 };
@@ -107,10 +105,18 @@ function createMockAssetApi(
   };
 }
 
+function campaignTransferStubs(): Pick<CampaignApi, 'export' | 'import'> {
+  return {
+    export: vi.fn(async () => ({ ok: true as const, value: null })),
+    import: vi.fn(async () => ({ ok: true as const, value: null })),
+  };
+}
+
 describe('App campaign integration', () => {
   it('loads, creates, lists, and removes persistent campaign summaries', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(async () => ({
         ok: true as const,
         value: createdCampaign,
@@ -156,8 +162,35 @@ describe('App campaign integration', () => {
     });
   });
 
+  it('adds a reconstructed import to the current campaign list', async () => {
+    const user = userEvent.setup();
+    const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
+      create: vi.fn(),
+      import: vi.fn(async () => ({
+        ok: true as const,
+        value: {
+          campaign: createdCampaign,
+          report: { sourceRelease: '1.0.0-dev', warnings: [] },
+        },
+      })),
+      list: vi.fn(async () => ({ ok: true as const, value: [] })),
+      trash: vi.fn(),
+    };
+
+    render(<App campaignApi={campaignApi} />);
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    await user.click(screen.getByRole('button', { name: 'Import' }));
+
+    expect(await screen.findByText('Iron Meridian')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Imported Iron Meridian.',
+    );
+  });
+
   it('surfaces a repository loading failure', async () => {
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({
         error: {
@@ -180,6 +213,7 @@ describe('App campaign integration', () => {
 
   it('surfaces an unexpected IPC rejection as a storage failure', async () => {
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn().mockRejectedValue(new Error('IPC unavailable')),
       trash: vi.fn(),
@@ -201,6 +235,7 @@ describe('App campaign integration', () => {
       ready: vi.fn(),
     };
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({ ok: true as const, value: [createdCampaign] })),
       trash: vi.fn(),
@@ -222,6 +257,7 @@ describe('App campaign integration', () => {
       ready: vi.fn(),
     };
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn().mockRejectedValue(new Error('IPC unavailable')),
       trash: vi.fn(),
@@ -237,6 +273,7 @@ describe('App campaign integration', () => {
   it('saves a manual profile and only enters play from its saved Connect action', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({ ok: true as const, value: [] })),
       trash: vi.fn(),
@@ -334,6 +371,7 @@ describe('App campaign integration', () => {
 
   it('does not enter play with an invalid endpoint', () => {
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({ ok: true as const, value: [] })),
       trash: vi.fn(),
@@ -355,6 +393,7 @@ describe('App campaign integration', () => {
   it('gates saved-campaign play on asset synchronization and reports failure', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({ ok: true as const, value: [] })),
       trash: vi.fn(),
@@ -434,6 +473,7 @@ describe('App campaign integration', () => {
   it('opens a local campaign as GM and preserves connection state on Logout', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({
         ok: true as const,
@@ -478,6 +518,7 @@ describe('App campaign integration', () => {
   it('enters local play only after the campaign host is ready', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({
         ok: true as const,
@@ -531,6 +572,7 @@ describe('App campaign integration', () => {
   it('persists server settings through the main-process API across Logout', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({
         ok: true as const,
@@ -611,6 +653,7 @@ describe('App campaign integration', () => {
       ready: vi.fn(),
     };
     const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
       create: vi.fn(),
       list: vi.fn(async () => ({
         ok: true as const,

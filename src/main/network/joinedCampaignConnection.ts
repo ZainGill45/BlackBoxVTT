@@ -244,6 +244,7 @@ export class JoinedCampaignConnection {
       renewLease: (entryId, pageId, leaseId) => this.client.renewJournalLease(entryId, pageId, leaseId),
       updateNote: (entryId, name, nameStyle, revision) => this.client.updateJournalNote(entryId, name, nameStyle, revision),
       renameEntry: (entryId, name, revision) => this.client.renameJournalEntry(entryId, name, revision),
+      updateEntryData: (input) => this.client.updateJournalEntryData(input),
       updateEntryPermissions: (input) => this.client.updateJournalEntryPermissions(input),
       updateNotePermissions: (input) => this.client.updateJournalNotePermissions(input),
       updatePage: (entryId, pageId, leaseId, title, titleStyle, content, revision) =>

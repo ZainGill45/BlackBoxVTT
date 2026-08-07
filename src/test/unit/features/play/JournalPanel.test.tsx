@@ -13,7 +13,12 @@ import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
 } from '../../../../systems/dnd5e/definition';
 import {
-  JOURNAL_SCHEMA_VERSION,
+  createDefaultDnd5eCharacterData,
+  DND5E_5_5E_CLASSES,
+  DND5E_CHARACTER_LEVELS,
+  type Dnd5eCharacterData,
+} from '../../../../systems/dnd5e/characterData';
+import {
   JOURNAL_ENTRY_TYPE_NOTE,
   defaultJournalTitleStyle,
   emptyRichTextDocument,
@@ -35,7 +40,6 @@ const page: JournalPage = {
 };
 const note: NoteEntry = {
   capabilities: { delete: true, edit: true, managePages: true, managePermissions: true, reorder: true, view: true },
-  dataVersion: 1,
   groupId: 'core.notes',
   id: page.entryId,
   kind: 'note',
@@ -50,8 +54,7 @@ const note: NoteEntry = {
 
 const character = {
   capabilities: { delete: true, edit: true, managePages: false, managePermissions: true, reorder: true, view: true },
-  data: {},
-  dataVersion: 1,
+  data: createDefaultDnd5eCharacterData(),
   groupId: 'dnd5e.characters',
   id: '77777777-7777-4777-8777-777777777777',
   kind: 'system' as const,
@@ -81,7 +84,7 @@ function journalApi(overrides: Partial<JournalApi> = {}): JournalApi {
     }),
     getNote: async () => ({ ok: true, value: note }),
     getPage: async () => ({ ok: true, value: page }),
-    list: async () => ({ ok: true, value: { entries: [note], revision: 0, schemaVersion: JOURNAL_SCHEMA_VERSION } }),
+    list: async () => ({ ok: true, value: { entries: [note], revision: 0 } }),
     listUsers: async () => ({ ok: true, value: [] }),
     ...overrides,
   };
@@ -131,7 +134,6 @@ describe('JournalPanel', () => {
             value: {
               entries: [],
               revision: 0,
-              schemaVersion: JOURNAL_SCHEMA_VERSION,
             },
           }),
         })}
@@ -158,6 +160,86 @@ describe('JournalPanel', () => {
     });
     expect(characterSheet).toBeVisible();
     expect(characterSheet).toHaveFocus();
+    expect(within(characterSheet).getByRole('textbox', { name: 'Name' }))
+      .toHaveValue('New Character');
+    const classDropdown = within(characterSheet).getByRole('button', { name: 'Class' });
+    const levelDropdown = within(characterSheet).getByRole('button', { name: 'Level' });
+    expect(classDropdown).toBeVisible();
+    expect(levelDropdown).toBeVisible();
+    expect(classDropdown.querySelector('svg')).not.toBeInTheDocument();
+    expect(levelDropdown.querySelector('svg')).not.toBeInTheDocument();
+    expect(classDropdown).toHaveAttribute(
+      'title',
+      "The character's primary adventuring class.",
+    );
+    expect(levelDropdown).toHaveAttribute(
+      'title',
+      "The character's current class level, from 1 to 20.",
+    );
+    const identityInputTooltips = [
+      ['Name', 'The name used to identify this character.'],
+      ['Subclass', "The specialization chosen within the character's class."],
+      ['Experience', "The character's accumulated experience points."],
+      ['Species', "The character's species."],
+      ['Lineage', "The character's lineage, if applicable."],
+      ['Creature Type', "The character's creature type, such as Humanoid."],
+      ['Age', "The character's age."],
+      ['Height', "The character's height."],
+      ['Weight', "The character's weight."],
+      ['Eyes', "The character's eye color or appearance."],
+      ['Skin', "The character's skin color or appearance."],
+      ['Hair', "The character's hair color or appearance."],
+      ['Size', "The character's size category, such as Medium or Small."],
+    ] as const;
+    for (const [label, tooltip] of identityInputTooltips) {
+      expect(within(characterSheet).getByRole('textbox', { name: label }))
+        .toHaveAttribute('title', tooltip);
+    }
+    expect(within(characterSheet).getByRole('textbox', { name: 'Species' })).toBeVisible();
+    expect(within(characterSheet).getByRole('textbox', { name: 'Strength score' })).toBeVisible();
+    const importantStats = within(characterSheet).getByRole('heading', { name: 'Important Statistics' })
+      .parentElement!;
+    const importantStatDefaults = [
+      ['Initiative', '0'],
+      ['Armor Class', '10'],
+      ['Current Speed', '30'],
+      ['Concentration Save', '0'],
+      ['Proficiency Bonus', '+2'],
+      ['Inspiration Count', '0'],
+    ] as const;
+    for (const [label, defaultValue] of importantStatDefaults) {
+      const input = within(importantStats).getByRole('textbox', { name: label });
+      expect(input.parentElement?.tagName).toBe('LABEL');
+      expect(input).not.toHaveAttribute('placeholder');
+      expect(input).toHaveValue(defaultValue);
+    }
+    expect(within(characterSheet).getByRole('heading', { name: 'Skills' }))
+      .toBeVisible();
+    const health = within(characterSheet).getByRole('heading', { name: /^Health$/u })
+      .parentElement!;
+    for (const [label, defaultValue] of [
+      ['Current hit points', '1'],
+      ['Maximum hit points', '1'],
+      ['Temporary hit points', '0'],
+      ['Current hit dice', '1'],
+      ['Maximum hit dice', '1'],
+      ['Hit die', 'd8'],
+    ] as const) {
+      expect(within(health).getByRole('textbox', { name: label })).toHaveValue(defaultValue);
+    }
+    expect(within(health).getByRole('group', { name: 'Death save successes' })
+      .querySelectorAll('button')).toHaveLength(3);
+    expect(within(health).getByRole('group', { name: 'Death save failures' })
+      .querySelectorAll('button')).toHaveLength(3);
+    expect(within(characterSheet).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Spells',
+      'Home',
+      'Settings',
+    ]);
+    await user.click(within(characterSheet).getByRole('tab', { name: 'Spells' }));
+    expect(within(characterSheet).getByRole('tabpanel')).toBeEmptyDOMElement();
+    await user.click(within(characterSheet).getByRole('tab', { name: 'Settings' }));
+    expect(within(characterSheet).getByRole('tabpanel')).toBeEmptyDOMElement();
     expect(createEntry).toHaveBeenCalledWith({ campaignId, typeId: DND5E_CHARACTER_ENTRY_TYPE_ID });
 
     fireEvent(
@@ -178,6 +260,1016 @@ describe('JournalPanel', () => {
     expect(
       await screen.findByRole('textbox', { name: 'Note name' }),
     ).toBeVisible();
+  });
+
+  it('autosaves Character fields and its Journal name from the sheet', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const renameEntry = vi.fn(async (
+      input: Parameters<JournalApi['renameEntry']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        name: input.name.trim(),
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as typeof server.data,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          renameEntry,
+          updateEntryData,
+        })}
+        role="gm"
+        system={{
+          id: 'dnd5e',
+          settings: { defaultRulesVersion: '5e' },
+        }}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    let sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    expect(within(sheet).getByRole('textbox', { name: 'Race' }))
+      .toHaveAttribute('title', "The character's race.");
+    expect(within(sheet).getByRole('textbox', { name: 'Subrace' }))
+      .toHaveAttribute('title', "The character's subrace, if applicable.");
+    expect(within(sheet).getByRole('textbox', { name: 'Creature' })).toBeVisible();
+
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    const classOptions = within(sheet).getByRole('group', { name: 'Class options' });
+    const classOptionButtons = within(classOptions).getAllByRole('button');
+    expect(classOptionButtons.map(({ textContent }) => textContent))
+      .toEqual([...DND5E_5_5E_CLASSES]);
+    const classIconNames = classOptionButtons.map((option) =>
+      option.querySelector('svg')?.getAttribute('class'));
+    expect(classIconNames.every(Boolean)).toBe(true);
+    expect(new Set(classIconNames).size).toBe(DND5E_5_5E_CLASSES.length);
+    await user.click(within(classOptions).getByRole('button', { name: 'Fighter' }));
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
+      campaignId,
+      entryId: character.id,
+      expectedRevision: 0,
+      data: expect.objectContaining({ identity: expect.objectContaining({ className: 'Fighter' }) }),
+    })));
+
+    await user.click(within(sheet).getByRole('button', { name: 'Level' }));
+    const levelOptions = within(sheet).getByRole('group', { name: 'Level options' });
+    const levelOptionButtons = within(levelOptions).getAllByRole('button');
+    expect(levelOptionButtons.map(({ textContent }) => textContent))
+      .toEqual(DND5E_CHARACTER_LEVELS);
+    const levelIconNames = levelOptionButtons.map((option) =>
+      option.querySelector('svg')?.getAttribute('class'));
+    expect(levelIconNames.every(Boolean)).toBe(true);
+    expect(new Set(levelIconNames).size).toBe(4);
+    await user.click(within(levelOptions).getByRole('button', { name: '7' }));
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
+      campaignId,
+      entryId: character.id,
+      expectedRevision: 1,
+      data: expect.objectContaining({
+        identity: expect.objectContaining({ className: 'Fighter', level: 7 }),
+      }),
+    })));
+
+    const name = within(sheet).getByRole('textbox', { name: 'Name' });
+    await user.clear(name);
+    await user.type(name, 'Aria Stone');
+    await user.tab();
+    await waitFor(() => expect(renameEntry).toHaveBeenCalledWith({
+      campaignId,
+      entryId: character.id,
+      expectedRevision: 2,
+      name: 'Aria Stone',
+    }));
+
+    fireEvent(sheet, new Event('cancel', { bubbles: false, cancelable: true }));
+    await user.click(await screen.findByRole('button', { name: 'Open Aria Stone' }));
+    sheet = screen.getByRole('dialog', { name: 'Aria Stone character sheet' });
+    expect(within(sheet).getByRole('textbox', { name: 'Name' })).toHaveValue('Aria Stone');
+    expect(within(sheet).getByRole('button', { name: 'Class' })).toHaveTextContent('Fighter');
+    expect(within(sheet).getByRole('button', { name: 'Level' })).toHaveTextContent('7');
+  });
+
+  it('edits calculated totals as durable offsets and propagates their effective values', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Fighter' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Level' }));
+    await user.click(within(sheet).getByRole('button', { name: '5' }));
+
+    const strengthScore = within(sheet).getByRole('textbox', { name: 'Strength score' });
+    const strengthModifier = within(sheet).getByRole('textbox', { name: 'Strength modifier' });
+    const strengthSave = within(sheet).getByRole('textbox', { name: 'Strength saving throw' });
+    const athletics = within(sheet).getByLabelText('Athletics bonus and passive score');
+    await user.clear(strengthScore);
+    await user.type(strengthScore, '12');
+    await user.tab();
+    await waitFor(() => {
+      expect(strengthModifier).toHaveValue('+1');
+      expect(strengthSave).toHaveValue('+4');
+      expect(athletics).toHaveTextContent('+1 / 11');
+    });
+
+    await user.clear(strengthModifier);
+    await user.type(strengthModifier, '+3');
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.abilities.strength.modifierOffset).toBe(2);
+      expect(strengthSave).toHaveValue('+6');
+      expect(athletics).toHaveTextContent('+3 / 13');
+    });
+    await user.click(within(sheet).getByRole('button', {
+      name: 'Athletics training: Untrained',
+    }));
+    await waitFor(() => expect(athletics).toHaveTextContent('+6 / 16'));
+
+    await user.clear(strengthScore);
+    await user.type(strengthScore, '14');
+    await user.tab();
+    await waitFor(() => {
+      expect(strengthModifier).toHaveValue('+4');
+      expect(strengthSave).toHaveValue('+7');
+      expect(athletics).toHaveTextContent('+7 / 17');
+    });
+    await user.clear(strengthModifier);
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.abilities.strength.modifierOffset).toBe(0);
+      expect(strengthModifier).toHaveValue('+2');
+      expect(strengthSave).toHaveValue('+5');
+      expect(athletics).toHaveTextContent('+5 / 15');
+    });
+
+    await user.clear(strengthModifier);
+    await user.type(strengthModifier, 'invalid');
+    await user.tab();
+    expect(strengthModifier).toHaveValue('+2');
+
+    const proficiency = within(sheet).getByRole('textbox', { name: 'Proficiency Bonus' });
+    await user.clear(proficiency);
+    await user.type(proficiency, '+4');
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.importantStats.proficiencyBonusOffset).toBe(1);
+      expect(strengthSave).toHaveValue('+6');
+      expect(athletics).toHaveTextContent('+6 / 16');
+    });
+    await user.click(within(sheet).getByRole('button', { name: 'Level' }));
+    await user.click(within(sheet).getByRole('button', { name: '9' }));
+    await waitFor(() => {
+      expect(proficiency).toHaveValue('+5');
+      expect(strengthSave).toHaveValue('+7');
+      expect(athletics).toHaveTextContent('+7 / 17');
+    });
+
+    const constitutionSave = within(sheet).getByRole('textbox', {
+      name: 'Constitution saving throw',
+    });
+    const concentration = within(sheet).getByRole('textbox', { name: 'Concentration Save' });
+    expect(constitutionSave).toHaveValue('+5');
+    expect(concentration).toHaveValue('+5');
+    await user.clear(constitutionSave);
+    await user.type(constitutionSave, '+6');
+    await user.tab();
+    await waitFor(() => expect(concentration).toHaveValue('+6'));
+    await user.clear(concentration);
+    await user.type(concentration, '+8');
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.importantStats.concentrationSaveOffset).toBe(2);
+      expect(concentration).toHaveValue('+8');
+    });
+  });
+
+  it('adds, edits, reorders, and deletes signed Character Resources', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Add Resource' }));
+    const firstName = within(sheet).getByRole('textbox', { name: 'New Resource name' });
+    expect(firstName).toHaveFocus();
+    expect(firstName).toHaveValue('New Resource');
+    expect((firstName as HTMLInputElement).selectionStart).toBe(0);
+    expect((firstName as HTMLInputElement).selectionEnd).toBe('New Resource'.length);
+    await waitFor(() => expect(server.data.resources).toHaveLength(1));
+
+    await user.clear(firstName);
+    await user.type(firstName, 'Rage');
+    await user.tab();
+    const current = within(sheet).getByRole('textbox', { name: 'Rage current' });
+    const maximum = within(sheet).getByRole('textbox', { name: 'Rage maximum' });
+    expect(current).toHaveAttribute('size', '1');
+    await user.clear(current);
+    await user.type(current, '-2');
+    expect(current).toHaveAttribute('size', '2');
+    await user.tab();
+    await user.clear(maximum);
+    await user.type(maximum, '9007199254740992');
+    await user.tab();
+    expect(maximum).toHaveValue('0');
+    await waitFor(() => expect(server.data.resources[0]).toMatchObject({
+      current: -2,
+      maximum: 0,
+      name: 'Rage',
+    }));
+    await user.clear(current);
+    await user.tab();
+    await waitFor(() => expect(server.data.resources[0]?.current).toBe(0));
+    await user.clear(current);
+    await user.type(current, '-2');
+    await user.tab();
+    await waitFor(() => expect(server.data.resources[0]?.current).toBe(-2));
+
+    await user.click(within(sheet).getByRole('button', { name: 'Add Resource' }));
+    const secondName = within(sheet).getByRole('textbox', { name: 'New Resource name' });
+    await user.clear(secondName);
+    await user.type(secondName, 'Ki');
+    await user.tab();
+    await waitFor(() => expect(server.data.resources.map(({ name }) => name))
+      .toEqual(['Rage', 'Ki']));
+
+    fireEvent.contextMenu(secondName);
+    const moveUp = screen.getByRole('menuitem', { name: 'Move Resource Up' });
+    expect(moveUp).toBeEnabled();
+    await user.click(moveUp);
+    await waitFor(() => expect(server.data.resources.map(({ name }) => name))
+      .toEqual(['Ki', 'Rage']));
+
+    fireEvent.contextMenu(within(sheet).getByRole('textbox', { name: 'Ki name' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Resource Freely' }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await waitFor(() => expect(server.data.resources.map(({ name }) => name))
+      .toEqual(['Rage', 'Ki']));
+
+    const rageName = within(sheet).getByRole('textbox', { name: 'Rage name' });
+    fireEvent.contextMenu(rageName);
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Resource Freely' }));
+    const kiName = within(sheet).getByRole('textbox', { name: 'Ki name' });
+    const resourceList = within(sheet).getByRole('list', { name: 'Character resources' });
+    Object.defineProperty(resourceList, 'scrollBy', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    fireEvent(kiName, new MouseEvent('pointermove', {
+      bubbles: true,
+      clientX: 1,
+      clientY: 1,
+    }));
+    fireEvent(kiName, new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    await waitFor(() => expect(server.data.resources.map(({ name }) => name))
+      .toEqual(['Ki', 'Rage']));
+
+    fireEvent.contextMenu(kiName);
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Resource Freely' }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(server.data.resources.map(({ name }) => name)).toEqual(['Ki', 'Rage']);
+
+    fireEvent.contextMenu(kiName);
+    await user.click(screen.getByRole('menuitem', { name: 'Move Resource Down' }));
+    await waitFor(() => expect(server.data.resources.map(({ name }) => name))
+      .toEqual(['Rage', 'Ki']));
+
+    fireEvent.contextMenu(kiName);
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Resource' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Confirm deletion of Ki' }));
+    await waitFor(() => expect(server.data.resources.map(({ name }) => name))
+      .toEqual(['Rage']));
+  });
+
+  it('adds, expands, edits, reorders, collapses, and deletes Character Features', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Add Feature' }));
+    const firstName = within(sheet).getByRole('textbox', { name: 'New Feature name' });
+    expect(firstName).toHaveFocus();
+    expect((firstName as HTMLInputElement).selectionStart).toBe(0);
+    expect((firstName as HTMLInputElement).selectionEnd).toBe('New Feature'.length);
+    expect(within(sheet).getByRole('button', { name: 'New Feature' }))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(within(sheet).getByRole('button', { name: 'New Feature type' }))
+      .toHaveTextContent('Unknown');
+
+    await user.clear(firstName);
+    await user.type(firstName, 'Second Wind');
+    await user.tab();
+    await user.click(within(sheet).getByRole('button', { name: 'Second Wind type' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Trait' }));
+    const source = within(sheet).getByRole('textbox', { name: 'Second Wind source' });
+    await user.type(source, 'Class');
+    await user.tab();
+    const sourceType = within(sheet).getByRole('textbox', {
+      name: 'Second Wind source type',
+    });
+    await user.type(sourceType, 'Fighter');
+    await user.tab();
+    const description = within(sheet).getByRole('textbox', {
+      name: 'Second Wind description',
+    });
+    expect(description).toHaveAttribute('maxlength', '16384');
+    expect(description).toHaveAttribute('rows', '4');
+    await user.type(description, 'Regain hit points.{Enter}Once per rest.');
+    await user.tab();
+    await waitFor(() => expect(server.data.features[0]).toMatchObject({
+      description: 'Regain hit points.\nOnce per rest.',
+      name: 'Second Wind',
+      source: 'Class',
+      sourceType: 'Fighter',
+      type: 'trait',
+    }));
+
+    await user.click(within(sheet).getByRole('button', { name: 'Second Wind type' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Unknown' }));
+    await waitFor(() => expect(server.data.features[0]?.type).toBe('unknown'));
+
+    await user.click(within(sheet).getByRole('button', { name: 'Add Feature' }));
+    const secondName = within(sheet).getByRole('textbox', { name: 'New Feature name' });
+    await user.clear(secondName);
+    await user.type(secondName, 'Darkvision');
+    await user.tab();
+    await waitFor(() => expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Second Wind', 'Darkvision']));
+    expect(within(sheet).getByRole('button', { name: 'Second Wind' }))
+      .toHaveAttribute('aria-expanded', 'true');
+    expect(within(sheet).getByRole('button', { name: 'Darkvision' }))
+      .toHaveAttribute('aria-expanded', 'true');
+
+    const darkvisionTrigger = within(sheet).getByRole('button', { name: 'Darkvision' });
+    fireEvent.contextMenu(darkvisionTrigger);
+    await user.click(screen.getByRole('menuitem', { name: 'Move Feature Up' }));
+    await waitFor(() => expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Darkvision', 'Second Wind']));
+
+    fireEvent.contextMenu(within(sheet).getByRole('button', { name: 'Darkvision' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Feature Freely' }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await waitFor(() => expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Second Wind', 'Darkvision']));
+
+    const viewport = sheet.querySelector<HTMLElement>('[data-character-sheet-viewport]')!;
+    Object.defineProperty(viewport, 'scrollBy', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    fireEvent.contextMenu(within(sheet).getByRole('button', { name: 'Second Wind' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Feature Freely' }));
+    const darkvisionAfterKeyboard = within(sheet).getByRole('button', {
+      name: 'Darkvision',
+    });
+    fireEvent(darkvisionAfterKeyboard, new MouseEvent('pointermove', {
+      bubbles: true,
+      clientX: 1,
+      clientY: 1,
+    }));
+    fireEvent(darkvisionAfterKeyboard, new MouseEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+    }));
+    await waitFor(() => expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Darkvision', 'Second Wind']));
+    fireEvent.contextMenu(within(sheet).getByRole('button', { name: 'Darkvision' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Move Feature Down' }));
+    await waitFor(() => expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Second Wind', 'Darkvision']));
+
+    fireEvent.contextMenu(within(sheet).getByRole('button', { name: 'Second Wind' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Feature Freely' }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Second Wind', 'Darkvision']);
+
+    await user.click(within(sheet).getByRole('button', { name: 'Second Wind' }));
+    expect(within(sheet).getByRole('button', { name: 'Second Wind' }))
+      .toHaveAttribute('aria-expanded', 'false');
+    expect(within(sheet).getByRole('button', { name: 'Darkvision' }))
+      .toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.contextMenu(within(sheet).getByRole('button', { name: 'Darkvision' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Feature' }));
+    await user.click(screen.getByRole('menuitem', {
+      name: 'Confirm deletion of Darkvision',
+    }));
+    await waitFor(() => expect(server.data.features.map(({ name }) => name))
+      .toEqual(['Second Wind']));
+    await user.click(within(sheet).getByRole('button', { name: 'Second Wind' }));
+    const remainingName = within(sheet).getByRole('textbox', { name: 'Second Wind name' });
+    await user.clear(remainingName);
+    await user.tab();
+    expect(within(sheet).getByRole('button', { name: 'Unnamed Feature' }))
+      .toHaveAttribute('aria-expanded', 'true');
+    await user.click(within(sheet).getByRole('button', { name: 'Unnamed Feature' }));
+    expect(within(sheet).getByRole('button', { name: 'Unnamed Feature' }))
+      .toHaveAttribute('aria-expanded', 'false');
+  }, 15_000);
+
+  it('merges dirty Character fields over a newer server revision and retries safely', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      if (updateEntryData.mock.calls.length === 1) {
+        const remoteData = structuredClone(server.data);
+        remoteData.identity.ancestry = 'Dwarf';
+        server = { ...server, data: remoteData, revision: 1 };
+        return {
+          error: { code: 'conflict', entryId: server.id, message: 'Changed remotely.' },
+          ok: false,
+        };
+      }
+      server = {
+        ...server,
+        data: input.data as typeof server.data,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Fighter' }));
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(2));
+    expect(updateEntryData).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        identity: expect.objectContaining({ ancestry: 'Dwarf', className: 'Fighter' }),
+      }),
+      expectedRevision: 1,
+    }));
+    expect(within(sheet).getByRole('textbox', { name: 'Species' })).toHaveValue('Dwarf');
+    expect(within(sheet).getByRole('button', { name: 'Class' })).toHaveTextContent('Fighter');
+  });
+
+  it('rebases Resource edits by id without replacing remotely added Resources', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.resources = [{
+      current: 1,
+      id: '11111111-1111-4111-8111-111111111111',
+      maximum: 2,
+      name: 'Local',
+    }];
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      if (updateEntryData.mock.calls.length === 1) {
+        server = {
+          ...server,
+          data: {
+            ...server.data,
+            resources: [
+              {
+                current: 3,
+                id: '22222222-2222-4222-8222-222222222222',
+                maximum: 4,
+                name: 'Remote',
+              },
+              { ...server.data.resources[0], current: 9 },
+            ],
+          },
+          revision: 1,
+        };
+        return {
+          error: { code: 'conflict', entryId: server.id, message: 'Changed remotely.' },
+          ok: false,
+        };
+      }
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const name = within(sheet).getByRole('textbox', { name: 'Local name' });
+    await user.clear(name);
+    await user.type(name, 'Rebased');
+    await user.tab();
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(2));
+    expect(server.data.resources).toEqual([
+      {
+        current: 3,
+        id: '22222222-2222-4222-8222-222222222222',
+        maximum: 4,
+        name: 'Remote',
+      },
+      {
+        current: 9,
+        id: '11111111-1111-4111-8111-111111111111',
+        maximum: 2,
+        name: 'Rebased',
+      },
+    ]);
+  });
+
+  it('lets remote Resource deletion win over a pending local edit', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.resources = [{
+      current: 1,
+      id: '11111111-1111-4111-8111-111111111111',
+      maximum: 2,
+      name: 'Vanishing',
+    }];
+    const updateEntryData = vi.fn(async (): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: { ...server.data, resources: [] },
+        revision: 1,
+      };
+      return {
+        error: { code: 'conflict', entryId: server.id, message: 'Deleted remotely.' },
+        ok: false,
+      };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const current = within(sheet).getByRole('textbox', { name: 'Vanishing current' });
+    await user.clear(current);
+    await user.type(current, '8');
+    await user.tab();
+
+    const error = await screen.findByRole('dialog', { name: 'Character sheet error' });
+    expect(within(error).getByRole('alert')).toHaveTextContent(
+      'A Resource was deleted remotely, so its pending local edit was discarded.',
+    );
+    expect(within(sheet).queryByRole('textbox', { name: 'Vanishing current' }))
+      .not.toBeInTheDocument();
+    expect(updateEntryData).toHaveBeenCalledTimes(1);
+  });
+
+  it('rebases Feature edits by id without replacing remotely added Features', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.features = [{
+      description: '',
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Local',
+      source: '',
+      sourceType: '',
+      type: 'unknown',
+    }];
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      if (updateEntryData.mock.calls.length === 1) {
+        server = {
+          ...server,
+          data: {
+            ...server.data,
+            features: [
+              {
+                description: 'Remote addition',
+                id: '22222222-2222-4222-8222-222222222222',
+                name: 'Remote',
+                source: '',
+                sourceType: '',
+                type: 'feature',
+              },
+              { ...server.data.features[0], source: 'Remote source' },
+            ],
+          },
+          revision: 1,
+        };
+        return {
+          error: { code: 'conflict', entryId: server.id, message: 'Changed remotely.' },
+          ok: false,
+        };
+      }
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Local' }));
+    const name = within(sheet).getByRole('textbox', { name: 'Local name' });
+    await user.clear(name);
+    await user.type(name, 'Rebased');
+    await user.tab();
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(2));
+    expect(server.data.features).toEqual([
+      {
+        description: 'Remote addition',
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'Remote',
+        source: '',
+        sourceType: '',
+        type: 'feature',
+      },
+      {
+        description: '',
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Rebased',
+        source: 'Remote source',
+        sourceType: '',
+        type: 'unknown',
+      },
+    ]);
+  });
+
+  it('lets remote Feature deletion win over a pending local edit', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.features = [{
+      description: '',
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Vanishing Feature',
+      source: '',
+      sourceType: '',
+      type: 'unknown',
+    }];
+    const updateEntryData = vi.fn(async (): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: { ...server.data, features: [] },
+        revision: 1,
+      };
+      return {
+        error: { code: 'conflict', entryId: server.id, message: 'Deleted remotely.' },
+        ok: false,
+      };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Vanishing Feature' }));
+    const source = within(sheet).getByRole('textbox', { name: 'Vanishing Feature source' });
+    await user.type(source, 'Local change');
+    await user.tab();
+
+    const error = await screen.findByRole('dialog', { name: 'Character sheet error' });
+    expect(within(error).getByRole('alert')).toHaveTextContent(
+      'A Feature was deleted remotely, so its pending local edit was discarded.',
+    );
+    expect(within(sheet).queryByRole('button', { name: 'Vanishing Feature' }))
+      .not.toBeInTheDocument();
+    expect(updateEntryData).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a dirty Character sheet open when close-time saving fails and retries', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      if (updateEntryData.mock.calls.length === 1) {
+        return { error: { code: 'storage_error', message: 'Save failed.' }, ok: false };
+      }
+      server = {
+        ...server,
+        data: input.data as typeof server.data,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.type(within(sheet).getByRole('textbox', { name: 'Subclass' }), 'Champion');
+    fireEvent(sheet, new Event('cancel', { bubbles: false, cancelable: true }));
+
+    const error = await screen.findByRole('dialog', { name: 'Character sheet error' });
+    expect(sheet).toBeInTheDocument();
+    expect(within(error).getByRole('button', { name: 'Discard changes' })).toBeVisible();
+    await user.click(within(error).getByRole('button', { name: 'Retry save' }));
+    await waitFor(() => expect(sheet).not.toBeInTheDocument());
+    expect(updateEntryData).toHaveBeenCalledTimes(2);
+  });
+
+  it('presents a view-only Character sheet without editable fields', async () => {
+    const user = userEvent.setup();
+    const readOnlyCharacter = {
+      ...structuredClone(character),
+      capabilities: {
+        delete: false,
+        edit: false,
+        managePages: false,
+        managePermissions: false,
+        reorder: false,
+        view: true,
+      },
+      data: {
+        ...structuredClone(character.data),
+        features: [{
+          description: 'See in darkness.',
+          id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          name: 'Darkvision',
+          source: 'Species',
+          sourceType: 'Dwarf',
+          type: 'trait' as const,
+        }],
+        resources: [{
+          current: -1,
+          id: '99999999-9999-4999-8999-999999999999',
+          maximum: 3,
+          name: 'Luck',
+        }],
+      },
+      permissions: null,
+    };
+    const renameEntry = vi.fn();
+    const updateEntryData = vi.fn();
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: readOnlyCharacter }),
+          list: async () => ({
+            ok: true,
+            value: {
+              entries: [readOnlyCharacter],
+              revision: 0,
+            },
+          }),
+          renameEntry,
+          updateEntryData,
+        })}
+        role="player"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    expect(within(sheet).getByRole('textbox', { name: 'Name' })).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('button', { name: 'Class' }))
+      .toHaveAttribute('aria-disabled', 'true');
+    expect(within(sheet).getByRole('button', { name: 'Level' }))
+      .toHaveAttribute('aria-disabled', 'true');
+    expect(within(sheet).getByRole('textbox', { name: 'Strength score' })).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Initiative' })).toHaveAttribute('readonly');
+    for (const label of [
+      'Current hit points',
+      'Maximum hit points',
+      'Temporary hit points',
+      'Current hit dice',
+      'Maximum hit dice',
+      'Hit die',
+    ]) {
+      expect(within(sheet).getByRole('textbox', { name: label })).toHaveAttribute('readonly');
+    }
+    for (const control of within(sheet).getAllByRole('button', { name: /^(Success|Failure) \d$/u })) {
+      expect(control).toBeDisabled();
+    }
+    const skillTrainingControls = within(sheet).getAllByRole('button', { name: /training:/u });
+    expect(skillTrainingControls).toHaveLength(18);
+    for (const control of skillTrainingControls) expect(control).toBeDisabled();
+    for (const name of [
+      'Add Custom Skill',
+      'Add Action',
+      'Add Inventory Item',
+      'Add Resource',
+      'Add Feature',
+    ]) {
+      expect(within(sheet).getByRole('button', { name })).toBeDisabled();
+    }
+    const resourceName = within(sheet).getByRole('textbox', { name: 'Luck name' });
+    expect(resourceName).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Luck current' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Luck maximum' }))
+      .toHaveAttribute('readonly');
+    fireEvent.contextMenu(resourceName);
+    expect(screen.queryByRole('menu', { name: 'Luck actions' })).not.toBeInTheDocument();
+    const featureTrigger = within(sheet).getByRole('button', { name: 'Darkvision' });
+    expect(featureTrigger).toHaveAttribute('aria-expanded', 'false');
+    await user.click(featureTrigger);
+    expect(within(sheet).getByRole('textbox', { name: 'Darkvision name' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Darkvision source' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Darkvision source type' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Darkvision description' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('button', { name: 'Darkvision type' }))
+      .toHaveAttribute('aria-disabled', 'true');
+    fireEvent.contextMenu(featureTrigger);
+    expect(screen.queryByRole('menu', { name: 'Darkvision actions' }))
+      .not.toBeInTheDocument();
+    expect(within(sheet).getByLabelText('Acrobatics bonus and passive score'))
+      .toHaveTextContent('0 / 10');
+    expect(renameEntry).not.toHaveBeenCalled();
+    expect(updateEntryData).not.toHaveBeenCalled();
   });
 
   it('opens a character from its icon, renames it inline, and edits permissions', async () => {
@@ -215,7 +1307,6 @@ describe('JournalPanel', () => {
             value: {
               entries: [character],
               revision: 0,
-              schemaVersion: JOURNAL_SCHEMA_VERSION,
             },
           }),
           listUsers: async () => ({
@@ -328,7 +1419,9 @@ describe('JournalPanel', () => {
     const search = await screen.findByRole('searchbox', { name: 'Search journal' });
     await user.type(search, 'Babylon');
     await user.click(screen.getByRole('button', { name: 'Open Gathered Magic Items' }));
-    expect(await screen.findByRole('button', { name: /Tomb of Babylon/ })).toBeVisible();
+    expect(await screen.findByRole('button', {
+      name: 'Open Tomb of Babylon',
+    })).toBeVisible();
     expect(screen.queryByRole('textbox', { name: 'Page title' })).not.toBeInTheDocument();
     expect(screen.getByRole('toolbar', { name: 'Rich text formatting toolbar' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
@@ -340,6 +1433,227 @@ describe('JournalPanel', () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close note' })).not.toBeInTheDocument();
+  });
+
+  it('renames a page inline and opens it from its document icon', async () => {
+    const user = userEvent.setup();
+    const secondPage: JournalPage = {
+      ...page,
+      id: '66666666-6666-4666-8666-666666666666',
+      position: 1,
+      title: 'Arcane Annex',
+    };
+    let currentNote: NoteEntry = {
+      ...note,
+      pages: [page, secondPage],
+    };
+    const pages = new Map([
+      [page.id, page],
+      [secondPage.id, secondPage],
+    ]);
+    let leaseSequence = 0;
+    const acquireLease = vi.fn(async (
+      input: Parameters<JournalApi['acquireLease']>[0],
+    ) => ({
+      ok: true as const,
+      value: {
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        holderName: 'Game Master',
+        leaseId: `44444444-4444-4444-8444-${String(++leaseSequence).padStart(12, '0')}`,
+        page: pages.get(input.pageId)!,
+      },
+    }));
+    const releaseLease = vi.fn(async () => ({ ok: true as const, value: null }));
+    const updatePage = vi.fn(async (
+      input: Parameters<JournalApi['updatePage']>[0],
+    ) => {
+      const updatedPage = {
+        ...pages.get(input.pageId)!,
+        content: input.content,
+        revision: pages.get(input.pageId)!.revision + 1,
+        title: input.title,
+        titleStyle: input.titleStyle,
+      };
+      pages.set(updatedPage.id, updatedPage);
+      currentNote = {
+        ...currentNote,
+        pages: currentNote.pages.map((summary) =>
+          summary.id === updatedPage.id ? updatedPage : summary,
+        ),
+        revision: currentNote.revision + 1,
+      };
+      return { ok: true as const, value: updatedPage };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          acquireLease,
+          getNote: async () => ({ ok: true, value: currentNote }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [currentNote], revision: 0 },
+          }),
+          releaseLease,
+          updatePage,
+        })}
+        role="gm"
+      />,
+    );
+
+    await expandNotes(user);
+    await user.click(
+      await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+    const firstTitle = await screen.findByRole('textbox', {
+      name: 'Name for Tomb of Babylon',
+    });
+    const firstRow = firstTitle.closest('li')!;
+    const firstIcon = within(firstRow).getByRole('button', {
+      name: 'Open Tomb of Babylon',
+    });
+    expect(firstIcon.querySelector('.lucide-file-text')).toBeInTheDocument();
+    expect(within(firstTitle.parentElement!).getByText('Inherits')).toBeVisible();
+
+    const secondTitle = screen.getByRole('textbox', {
+      name: 'Name for Arcane Annex',
+    });
+    await user.clear(secondTitle);
+    await user.type(secondTitle, 'Vault Index{Enter}');
+
+    await waitFor(() => expect(updatePage).toHaveBeenCalledWith(expect.objectContaining({
+      content: secondPage.content,
+      entryId: note.id,
+      expectedRevision: secondPage.revision,
+      pageId: secondPage.id,
+      title: 'Vault Index',
+      titleStyle: secondPage.titleStyle,
+    })));
+    expect(releaseLease).toHaveBeenCalledWith(expect.objectContaining({
+      entryId: note.id,
+      pageId: secondPage.id,
+    }));
+
+    const renamedTitle = await screen.findByRole('textbox', {
+      name: 'Name for Vault Index',
+    });
+    const renamedIcon = within(renamedTitle.closest('li')!).getByRole('button', {
+      name: 'Open Vault Index',
+    });
+    await user.click(renamedIcon);
+
+    await waitFor(() => expect(renamedIcon).toHaveAttribute('aria-current', 'page'));
+    await waitFor(() => expect(renamedTitle).toBeEnabled());
+    expect(acquireLease).toHaveBeenCalledWith({
+      campaignId,
+      entryId: note.id,
+      pageId: secondPage.id,
+    });
+
+    await user.clear(renamedTitle);
+    await user.type(renamedTitle, 'Vault Ledger{Enter}');
+
+    await waitFor(() => expect(updatePage).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('textbox', { name: 'Name for Vault Ledger' }))
+      .toHaveValue('Vault Ledger');
+  });
+
+  it('deletes a page from its row and disables deletion for the last page', async () => {
+    const user = userEvent.setup();
+    const firstPage: JournalPage = {
+      ...page,
+      capabilities: { ...page.capabilities, delete: true },
+    };
+    const secondPage: JournalPage = {
+      ...firstPage,
+      id: '66666666-6666-4666-8666-666666666666',
+      position: 1,
+      title: 'Arcane Annex',
+    };
+    let currentNote: NoteEntry = {
+      ...note,
+      pages: [firstPage, secondPage],
+    };
+    const prepareDelete = vi.fn(async (
+      input: Parameters<JournalApi['prepareDelete']>[0],
+    ): ReturnType<JournalApi['prepareDelete']> => ({
+      ok: true,
+      value: { assets: [], target: input.target },
+    }));
+    const deleteTarget = vi.fn(async (
+      input: Parameters<JournalApi['deleteTarget']>[0],
+    ) => {
+      if (input.target.kind === 'page') {
+        const deletedPageId = input.target.pageId;
+        currentNote = {
+          ...currentNote,
+          pages: currentNote.pages.filter(({ id }) => id !== deletedPageId),
+          revision: currentNote.revision + 1,
+        };
+      }
+      return { ok: true as const, value: { cleanupFailures: [] } };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          acquireLease: async () => ({
+            ok: true,
+            value: {
+              expiresAt: new Date(Date.now() + 30_000).toISOString(),
+              holderName: 'Game Master',
+              leaseId: '44444444-4444-4444-8444-444444444444',
+              page: firstPage,
+            },
+          }),
+          deleteTarget,
+          getNote: async () => ({ ok: true, value: currentNote }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [currentNote], revision: 0 },
+          }),
+          prepareDelete,
+        })}
+        role="gm"
+      />,
+    );
+
+    await expandNotes(user);
+    await user.click(
+      await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+    expect(screen.getByRole('button', { name: 'Delete Tomb of Babylon' }))
+      .toBeEnabled();
+    const deleteSecondPage = screen.getByRole('button', {
+      name: 'Delete Arcane Annex',
+    });
+    expect(deleteSecondPage).toBeEnabled();
+
+    await user.click(deleteSecondPage);
+
+    const confirmDelete = screen.getByRole('button', {
+      name: 'Confirm deletion of Arcane Annex',
+    });
+    expect(confirmDelete).toHaveAttribute('aria-pressed', 'true');
+    expect(prepareDelete).not.toHaveBeenCalled();
+    await user.click(confirmDelete);
+
+    await waitFor(() => expect(deleteTarget).toHaveBeenCalledWith({
+      campaignId,
+      cleanupAssetIds: [],
+      expectedRevision: secondPage.revision,
+      target: {
+        entryId: note.id,
+        kind: 'page',
+        pageId: secondPage.id,
+      },
+    }));
+    expect(screen.queryByRole('textbox', { name: 'Name for Arcane Annex' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete Tomb of Babylon' }))
+      .toBeDisabled();
   });
 
   it('keeps the read-only note presentation aligned with the editable presentation', async () => {
@@ -403,7 +1717,6 @@ describe('JournalPanel', () => {
             value: {
               entries: [readOnlyNote],
               revision: 0,
-              schemaVersion: JOURNAL_SCHEMA_VERSION,
             },
           }),
         })}
@@ -677,7 +1990,6 @@ describe('JournalPanel', () => {
             value: {
               entries: [currentNote],
               revision: 0,
-              schemaVersion: JOURNAL_SCHEMA_VERSION,
             },
           }),
           updatePagePermissions,
@@ -884,7 +2196,64 @@ describe('JournalPanel', () => {
     );
   });
 
-  it('keeps a name draft when an older change refresh finishes', async () => {
+  it('keeps close-time save recovery in the Journal error dialog', async () => {
+    const user = userEvent.setup();
+    let currentNote = structuredClone(note);
+    const updateNote = vi.fn(async (
+      input: Parameters<JournalApi['updateNote']>[0],
+    ): Promise<JournalResult<NoteEntry>> => {
+      if (updateNote.mock.calls.length === 1) {
+        return {
+          error: { code: 'storage_error', message: 'Save failed.' },
+          ok: false,
+        };
+      }
+      currentNote = {
+        ...currentNote,
+        name: input.name,
+        nameStyle: input.nameStyle,
+        revision: currentNote.revision + 1,
+      };
+      return { ok: true, value: currentNote };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({ updateNote })}
+        role="gm"
+      />,
+    );
+
+    await expandNotes(user);
+    await user.click(
+      await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+    const noteDialog = screen.getByRole('dialog', { name: 'Gathered Magic Items' });
+    fireEvent.change(within(noteDialog).getByRole('textbox', { name: 'Note name' }), {
+      target: { value: 'Retitled Note' },
+    });
+    fireEvent(
+      noteDialog,
+      new Event('cancel', { bubbles: false, cancelable: true }),
+    );
+
+    const errorDialog = await screen.findByRole('dialog', { name: 'Journal error' });
+    expect(noteDialog).toBeInTheDocument();
+    expect(within(errorDialog).getByRole('alert')).toHaveTextContent('Save failed.');
+    const retrySave = await within(errorDialog).findByRole('button', {
+      name: 'Retry save',
+    });
+    expect(within(errorDialog).getByRole('button', { name: 'Discard changes' }))
+      .toBeVisible();
+
+    await user.click(retrySave);
+
+    await waitFor(() => expect(noteDialog).not.toBeInTheDocument());
+    expect(updateNote).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a name draft when an older change refresh finishes without a save-status bar', async () => {
     const user = userEvent.setup();
     const listeners = new Set<(event: JournalChangedEvent) => void>();
     let resolveRefresh!: (result: JournalResult<NoteEntry>) => void;
@@ -927,7 +2296,9 @@ describe('JournalPanel', () => {
     });
 
     expect(nameInput).toHaveValue('Unfinished rename');
-    expect(screen.getByText('Unsaved changes')).toBeVisible();
+    const noteDialog = screen.getByRole('dialog', { name: 'Gathered Magic Items' });
+    expect(within(noteDialog).queryByText('Unsaved changes')).not.toBeInTheDocument();
+    expect(within(noteDialog).queryByText('Saved', { exact: true })).not.toBeInTheDocument();
   });
 
   it('prevents players from creating parent notes', async () => {

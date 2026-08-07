@@ -126,6 +126,12 @@ const campaignApi: CampaignApi = {
   async create() {
     return campaignUnavailable();
   },
+  async export() {
+    return campaignUnavailable();
+  },
+  async import() {
+    return campaignUnavailable();
+  },
   async list() {
     return campaignUnavailable();
   },
@@ -330,6 +336,7 @@ const journalApi: JournalApi = {
   renewLease: journalUnavailable,
   updateNote: journalUnavailable,
   renameEntry: journalUnavailable,
+  updateEntryData: journalUnavailable,
   updateEntryPermissions: journalUnavailable,
   updateNotePermissions: journalUnavailable,
   updatePage: journalUnavailable,

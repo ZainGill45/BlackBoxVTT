@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  ASSET_MANIFEST_SCHEMA_VERSION,
   type AssetRecord,
 } from '../../../../shared/assets';
 import type { ChatMessage } from '../../../../shared/chat';
@@ -165,7 +164,6 @@ describe('host chat request handler', () => {
               total: 20,
             },
           ],
-          version: 1,
         },
         kind: 'roll',
       },
@@ -288,7 +286,6 @@ describe('host asset request handler', () => {
     const manifest = {
       assets: [asset],
       revision: 2,
-      schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     };
     const readManifest = vi.fn(async () => manifest);
     const renameAsset = vi.fn(async () => ({

@@ -82,7 +82,11 @@ test.describe('networked Journal permissions', () => {
     expect(narrowGeometry.textAlign).toBe(fullGeometry.textAlign);
     await gmNote.getByLabel('Note name').fill('Party Briefing');
     await gmNote.getByLabel('Note name').blur();
-    await expect(gmNote.getByText('Saved', { exact: true })).toBeVisible();
+    await expect(gm.window.getByRole('button', {
+      exact: true,
+      name: 'Open Party Briefing',
+    })).toBeVisible();
+    await expect(gmNote.getByText('Saved', { exact: true })).toHaveCount(0);
     await expect(
       gmNote.getByRole('toolbar', { name: 'Rich text formatting toolbar' }),
     ).toBeVisible();
@@ -226,7 +230,6 @@ test.describe('networked Journal permissions', () => {
     await permissions.getByLabel(`${USERNAME} permission`).selectOption('edit');
     await permissions.getByRole('button', { name: 'Save changes' }).click();
     await expect(permissions).not.toBeVisible();
-    await expect(gmNote.getByText('Saved', { exact: true })).toBeVisible();
     await gm.window.mouse.click(10, 10);
     await expect(gmNote).not.toBeVisible();
 
@@ -249,7 +252,6 @@ test.describe('networked Journal permissions', () => {
     await expect(playerDraft.locator('..')).toHaveAttribute('data-line-length', 'narrow');
     await playerDraft.fill('Player revision');
     await playerDraft.blur();
-    await expect(playerNote.getByText('Saved', { exact: true })).toBeVisible();
     await player.window.mouse.click(10, 10);
     await expect(playerNote).not.toBeVisible();
 

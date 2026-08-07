@@ -25,7 +25,7 @@ import {
   chatRollCardSchema,
   chatRollDefinitionSchema,
   serializeChatRollDefinition,
-  type ChatRollCardV1,
+  type ChatRollCard,
   type ChatRollDefinition,
 } from '../shared/chatRoll';
 import { fail } from '../shared/result';
@@ -67,7 +67,7 @@ interface SendStoredChatInput {
 }
 
 interface SendStoredRollInput {
-  card: ChatRollCardV1;
+  card: ChatRollCard;
   clientMessageId: string;
   definition: ChatRollDefinition;
   maxMessageCharacters: number;
@@ -105,7 +105,7 @@ function sameRecipient(
   );
 }
 
-function definitionFromCard(card: ChatRollCardV1): ChatRollDefinition {
+function definitionFromCard(card: ChatRollCard): ChatRollDefinition {
   return {
     category: card.category,
     sections: card.sections.map(({ label, modifiers, notation, typeLabel }) => ({

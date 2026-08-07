@@ -6,10 +6,12 @@ import type { AssetRepository } from '../../../main/assetRepository';
 import { JournalRepository } from '../../../main/journalRepository';
 import type { SceneRepository } from '../../../main/sceneRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
-import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { emptyRichTextDocument } from '../../../shared/journal';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
+import {
+  createDefaultDnd5eCharacterData,
+} from '../../../systems/dnd5e/characterData';
 
 const campaignId = '99999999-9999-4999-8999-999999999999';
 const playerId = '88888888-8888-4888-8888-888888888888';
@@ -20,7 +22,7 @@ let counter = 0;
 
 function repository() {
   const assets = {
-    readManifest: vi.fn(async () => ({ assets: [], revision: 0, schemaVersion: 1 })),
+    readManifest: vi.fn(async () => ({ assets: [], revision: 0 })),
     trashAsset: vi.fn(),
   } as unknown as AssetRepository;
   const scenes = {
@@ -43,7 +45,6 @@ beforeEach(async () => {
     createdAt: '2026-08-02T00:00:00.000Z',
     id: campaignId,
     name: 'Iron Meridian',
-    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
     system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: '2026-08-02T00:00:00.000Z',
   });
@@ -91,8 +92,7 @@ describe('JournalRepository', () => {
     expect(created).toMatchObject({
       ok: true,
       value: {
-        data: {},
-        dataVersion: 1,
+        data: createDefaultDnd5eCharacterData(),
         groupId: 'dnd5e.characters',
         kind: 'system',
         name: 'New Character',
@@ -116,7 +116,29 @@ describe('JournalRepository', () => {
       ok: true,
       value: { entries: [{ capabilities: { edit: true, managePermissions: false }, name: 'New Character' }] },
     });
-    const renamed = await journal.renameEntry(player, created.value.id, '  Aria Stone  ', granted.value.revision);
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.className = 'Fighter';
+    data.abilities.strength.score = 17;
+    const updated = await journal.updateEntryData(player, {
+      data,
+      entryId: created.value.id,
+      expectedRevision: granted.value.revision,
+    });
+    expect(updated).toMatchObject({
+      ok: true,
+      value: {
+        data: { abilities: { strength: { score: 17 } }, identity: { className: 'Fighter' } },
+        revision: granted.value.revision + 1,
+      },
+    });
+    expect(database.connection.prepare(
+      'SELECT updated_at, updated_by FROM journal_entries WHERE id = ?',
+    ).get(created.value.id)).toEqual({
+      updated_at: '2026-08-02T12:00:00.000Z',
+      updated_by: `player:${playerId}`,
+    });
+    if (!updated.ok) throw new Error('data update failed');
+    const renamed = await journal.renameEntry(player, created.value.id, '  Aria Stone  ', updated.value.revision);
     expect(renamed).toMatchObject({ ok: true, value: { name: 'Aria Stone' } });
     expect(await journal.createEntry({ kind: 'gm' }, 'core.character')).toMatchObject({
       error: { code: 'invalid_input' },
@@ -127,7 +149,11 @@ describe('JournalRepository', () => {
     database = CampaignDatabase.open(directory);
     await expect(repository().getEntry({ kind: 'gm' }, created.value.id)).resolves.toMatchObject({
       ok: true,
-      value: { data: {}, name: 'Aria Stone', typeId: DND5E_CHARACTER_ENTRY_TYPE_ID },
+      value: {
+        data: { abilities: { strength: { score: 17 } }, identity: { className: 'Fighter' } },
+        name: 'Aria Stone',
+        typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+      },
     });
   });
 
@@ -193,60 +219,40 @@ describe('JournalRepository', () => {
     await expect(repository().list({ kind: 'gm' })).resolves.toMatchObject(reordered);
   });
 
-  it('migrates a schema-12 Note to versioned empty entry data', async () => {
-    const created = await repository().createNote({ kind: 'gm' });
-    if (!created.ok) throw new Error('setup failed');
-    database.connection.exec(`
-      ALTER TABLE journal_entries DROP COLUMN data_json;
-      ALTER TABLE journal_entries DROP COLUMN data_schema_version;
-      PRAGMA user_version = 12;
-    `);
-    database.close();
-    database = CampaignDatabase.open(directory);
-    expect(database.connection.prepare(
-      'SELECT data_schema_version, data_json FROM journal_entries WHERE id = ?',
-    ).get(created.value.id)).toEqual({ data_json: '{}', data_schema_version: 1 });
-    await expect(repository().getNote({ kind: 'gm' }, created.value.id)).resolves.toMatchObject({
-      ok: true,
-      value: { name: 'New Note', pages: [{ title: 'New Page' }] },
-    });
-  });
-
-  it('migrates version 11 page revisions and embedded-asset references', async () => {
+  it('validates system entry data updates and revision conflicts', async () => {
     const journal = repository();
-    const created = await journal.createNote({ kind: 'gm' });
-    if (!created.ok) throw new Error('setup failed');
-    const pageId = created.value.pages[0]!.id;
-    const assetId = '77777777-7777-4777-8777-777777777777';
-    database.connection.prepare(
-      'UPDATE journal_pages SET content_json = ? WHERE id = ?',
-    ).run(JSON.stringify({
-      doc: {
-        content: [
-          { attrs: { assetId }, type: 'assetImage' },
-          { type: 'paragraph' },
-        ],
-        type: 'doc',
-      },
-      schemaVersion: 1,
-    }), pageId);
-    database.connection.exec(`
-      DROP TABLE journal_page_assets;
-      ALTER TABLE journal_pages DROP COLUMN permission_revision;
-      ALTER TABLE journal_entries DROP COLUMN data_json;
-      ALTER TABLE journal_entries DROP COLUMN data_schema_version;
-      PRAGMA user_version = 11;
-    `);
-    database.close();
+    const character = await journal.createEntry({ kind: 'gm' }, DND5E_CHARACTER_ENTRY_TYPE_ID);
+    const note = await journal.createNote({ kind: 'gm' });
+    if (!character.ok || !note.ok) throw new Error('setup failed');
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.subclass = 'Champion';
 
-    database = CampaignDatabase.open(directory);
-
-    expect(database.connection.prepare(
-      'SELECT permission_revision FROM journal_pages WHERE id = ?',
-    ).get(pageId)).toEqual({ permission_revision: 0 });
-    expect(database.connection.prepare(
-      'SELECT asset_id FROM journal_page_assets WHERE page_id = ?',
-    ).all(pageId)).toEqual([{ asset_id: assetId }]);
+    await expect(journal.updateEntryData(player, {
+      data,
+      entryId: character.value.id,
+      expectedRevision: character.value.revision,
+    })).resolves.toMatchObject({ error: { code: 'permission_denied' }, ok: false });
+    await expect(journal.updateEntryData({ kind: 'gm' }, {
+      data,
+      entryId: note.value.id,
+      expectedRevision: note.value.revision,
+    })).resolves.toMatchObject({ error: { code: 'not_found' }, ok: false });
+    await expect(journal.updateEntryData({ kind: 'gm' }, {
+      data: { ...data, extra: '' },
+      entryId: character.value.id,
+      expectedRevision: character.value.revision,
+    })).resolves.toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+    const updated = await journal.updateEntryData({ kind: 'gm' }, {
+      data,
+      entryId: character.value.id,
+      expectedRevision: character.value.revision,
+    });
+    expect(updated).toMatchObject({ ok: true, value: { data: { identity: { subclass: 'Champion' } } } });
+    await expect(journal.updateEntryData({ kind: 'gm' }, {
+      data,
+      entryId: character.value.id,
+      expectedRevision: character.value.revision,
+    })).resolves.toMatchObject({ error: { code: 'conflict' }, ok: false });
   });
 
   it('refuses malformed persisted rich-text state on reopen', async () => {
@@ -254,7 +260,7 @@ describe('JournalRepository', () => {
     const created = await journal.createNote({ kind: 'gm' });
     if (!created.ok) throw new Error('setup failed');
     database.connection.prepare('UPDATE journal_pages SET content_json = ? WHERE id = ?').run(
-      JSON.stringify({ doc: { content: [{ attrs: { src: 'https://bad.example/image.png' }, type: 'image' }], type: 'doc' }, schemaVersion: 1 }),
+      JSON.stringify({ doc: { content: [{ attrs: { src: 'https://bad.example/image.png' }, type: 'image' }], type: 'doc' } }),
       created.value.pages[0]!.id,
     );
     expect(() => CampaignDatabase.open(directory)).toThrow(/malformed page|content is invalid/u);
@@ -444,7 +450,6 @@ describe('JournalRepository', () => {
         content: [{ attrs: { assetId }, type: 'assetImage' as const }],
         type: 'doc' as const,
       },
-      schemaVersion: 1 as const,
     };
     const saved = await journal.updatePage(
       { kind: 'gm' },

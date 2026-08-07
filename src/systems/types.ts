@@ -5,7 +5,6 @@ export interface JournalEntryTypeDefinition<
   TData extends JsonValue = JsonValue,
 > {
   createDefaultData(settings: TSettings): TData;
-  dataVersion: number;
   defaultName: string;
   groupId: string;
   groupLabel: string;
@@ -20,7 +19,6 @@ export interface GameSystemDefinition<TSettings extends JsonValue = JsonValue> {
   displayName: string;
   id: string;
   journalEntryTypes: readonly JournalEntryTypeDefinition<TSettings>[];
-  schemaVersion: number;
   validateSettings(value: JsonValue): value is TSettings;
 }
 
@@ -29,7 +27,6 @@ export function createSystemState(
 ): CampaignSystemState {
   return {
     id: definition.id,
-    schemaVersion: definition.schemaVersion,
     settings: structuredClone(definition.createDefaultSettings()),
   };
 }

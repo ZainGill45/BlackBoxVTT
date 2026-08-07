@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
+import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../components/ui/deleteConfirmation';
 
-export const DELETE_CONFIRMATION_TIMEOUT_MS = 5_000;
+export { DELETE_CONFIRMATION_TIMEOUT_MS };
 
 export function useDeleteConfirmation(
   timeout = DELETE_CONFIRMATION_TIMEOUT_MS,

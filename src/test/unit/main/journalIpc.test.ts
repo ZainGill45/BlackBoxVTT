@@ -19,9 +19,10 @@ function setup() {
   const sender = { id: 1, isDestroyed: () => false, send: vi.fn() } as unknown as WebContents;
   const manager = {
     deleteTarget: vi.fn(async () => ({ ok: true, value: { cleanupFailures: [] } })),
-    list: vi.fn(async () => ({ ok: true, value: { entries: [], revision: 0, schemaVersion: 2 } })),
+    list: vi.fn(async () => ({ ok: true, value: { entries: [], revision: 0 } })),
     off: vi.fn(),
     on: vi.fn(),
+    updateEntryData: vi.fn(async () => ({ ok: true, value: null })),
   } as unknown as JournalManager;
   const ipc = {
     handle: vi.fn((channel: string, handler: (event: { sender: WebContents }, input?: unknown) => unknown) => handlers.set(channel, handler)),
@@ -68,6 +69,24 @@ describe('registerJournalIpcHandlers', () => {
       ...common,
       target: { entryId, kind: 'page', pageId },
     });
+  });
+
+  it('accepts JSON entry data without accepting authority or extra fields', async () => {
+    const { invoke, manager } = setup();
+    const input = { campaignId, data: { identity: { className: 'Fighter' } }, entryId, expectedRevision: 3 };
+
+    await invoke(journalIpcChannels.updateEntryData, input);
+    expect(manager.updateEntryData).toHaveBeenCalledWith(input);
+
+    expect(await invoke(journalIpcChannels.updateEntryData, {
+      ...input,
+      actor: { kind: 'gm' },
+    })).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+    expect(await invoke(journalIpcChannels.updateEntryData, {
+      ...input,
+      data: { invalid: undefined },
+    })).toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+    expect(manager.updateEntryData).toHaveBeenCalledOnce();
   });
 
   it('bounds renderer-controlled titles, permission rows, and cleanup lists', async () => {

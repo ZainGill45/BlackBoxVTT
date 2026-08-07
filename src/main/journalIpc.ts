@@ -111,6 +111,13 @@ export function registerJournalIpcHandlers(
     }).safeParse(input);
     return parsed.success ? manager.renameEntry(parsed.data) : invalid();
   });
+  handle(journalIpcChannels.updateEntryData, (input) => {
+    const parsed = entry.extend({
+      data: z.json(),
+      expectedRevision: revision,
+    }).safeParse(input);
+    return parsed.success ? manager.updateEntryData(parsed.data) : invalid();
+  });
   handle(journalIpcChannels.updateEntryPermissions, (input) => {
     const parsed = entry.extend({
       expectedRevision: revision,

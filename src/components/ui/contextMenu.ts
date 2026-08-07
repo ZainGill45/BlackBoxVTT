@@ -39,6 +39,7 @@ export class ContextMenuController {
     ariaLabel: string,
     entries: ContextMenuEntry[],
     returnFocus?: () => void,
+    mount?: HTMLElement,
   ): void {
     this.close();
     const menu = document.createElement('div');
@@ -71,7 +72,7 @@ export class ContextMenuController {
       });
       menu.appendChild(button);
     }
-    document.body.appendChild(menu);
+    (mount ?? document.body).appendChild(menu);
     this.menu = menu;
     const bounds = menu.getBoundingClientRect();
     const padding = 8;

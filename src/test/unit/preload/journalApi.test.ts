@@ -15,6 +15,18 @@ beforeEach(() => {
 });
 
 describe('createJournalApi', () => {
+  it('sends system entry data through its explicit channel', async () => {
+    const input = {
+      campaignId: '11111111-1111-4111-8111-111111111111',
+      data: { identity: { className: 'Fighter' } },
+      entryId: '22222222-2222-4222-8222-222222222222',
+      expectedRevision: 4,
+    };
+
+    await api.updateEntryData(input);
+    expect(invoke).toHaveBeenCalledWith(journalIpcChannels.updateEntryData, input);
+  });
+
   it('uses separate note and page delete channels', async () => {
     const campaignId = '11111111-1111-4111-8111-111111111111';
     const entryId = '22222222-2222-4222-8222-222222222222';

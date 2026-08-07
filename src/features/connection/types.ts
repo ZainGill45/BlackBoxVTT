@@ -1,4 +1,7 @@
 import type {
+  CampaignExportReceipt,
+  CampaignImportReceipt,
+  CampaignManifest,
   CampaignResult,
   CampaignSummary,
 } from '../../shared/campaigns';
@@ -29,7 +32,11 @@ export interface ConnectionScreenProps {
   onRemoteAuthenticated: (session: RemotePlaySession) => void;
   onCreate: (
     draft: CreateCampaignDraft,
-  ) => Promise<CampaignResult<CampaignSummary>>;
+  ) => Promise<CampaignResult<CampaignManifest>>;
   onDeleteCampaign: (id: string) => Promise<CampaignResult<null>>;
+  onExportCampaign: (
+    id: string,
+  ) => Promise<CampaignResult<CampaignExportReceipt | null>>;
+  onImportCampaign: () => Promise<CampaignResult<CampaignImportReceipt | null>>;
   onOpenCampaign: (id: string) => void;
 }

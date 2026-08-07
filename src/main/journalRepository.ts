@@ -13,11 +13,9 @@ import {
 import {
   JOURNAL_EDIT_LEASE_MS,
   JOURNAL_ENTRY_TYPE_NOTE,
-  JOURNAL_SCHEMA_VERSION,
   MAX_JOURNAL_ENTRIES,
   MAX_JOURNAL_TITLE_GRAPHEMES,
   MAX_NOTE_PAGES,
-  RICH_TEXT_SCHEMA_VERSION,
   countGraphemes,
   defaultJournalTitleStyle,
   emptyRichTextDocument,
@@ -49,7 +47,8 @@ import {
   type ReorderJournalEntriesInput,
   type ReorderJournalGroupInput,
   type ReorderJournalPagesInput,
-  type RichTextDocumentV1,
+  type RichTextDocument,
+  type UpdateJournalEntryDataInput,
   type UpdateJournalNotePermissionsInput,
   type UpdateJournalPagePermissionsInput,
 } from '../shared/journal';
@@ -73,7 +72,6 @@ interface EntryRow {
   created_by: string;
   default_access: JournalAccessLevel;
   data_json: string;
-  data_schema_version: number;
   id: string;
   name: string;
   name_style_json: string;
@@ -101,7 +99,6 @@ interface PageSummaryRow {
 
 interface PageRow extends PageSummaryRow {
   content_json: string;
-  content_schema_version: number;
 }
 
 interface PermissionRow<TAccess extends string> {
@@ -282,9 +279,8 @@ export class JournalRepository {
           this.database.connection.prepare(
             `INSERT INTO journal_entries (
                id, type_id, position, name, name_style_json, default_access, revision,
-               created_at, created_by, updated_at, updated_by,
-               data_schema_version, data_json
-             ) VALUES (?, ?, ?, ?, ?, 'none', 0, ?, 'gm', ?, 'gm', ?, ?)`,
+               created_at, created_by, updated_at, updated_by, data_json
+             ) VALUES (?, ?, ?, ?, ?, 'none', 0, ?, 'gm', ?, 'gm', ?)`,
           ).run(
             entryId,
             typeId,
@@ -293,7 +289,6 @@ export class JournalRepository {
             titleStyleJson,
             timestamp,
             timestamp,
-            defaultData.dataVersion,
             JSON.stringify(defaultData.data),
           );
           if (typeId === JOURNAL_ENTRY_TYPE_NOTE) {
@@ -301,14 +296,13 @@ export class JournalRepository {
             this.database.connection.prepare(
               `INSERT INTO journal_pages (
                  id, entry_id, position, title, title_style_json, default_access,
-                 content_schema_version, content_json, revision, permission_revision,
+                 content_json, revision, permission_revision,
                  created_at, created_by, updated_at, updated_by
-               ) VALUES (?, ?, 0, 'New Page', ?, 'inherit', ?, ?, 0, 0, ?, 'gm', ?, 'gm')`,
+               ) VALUES (?, ?, 0, 'New Page', ?, 'inherit', ?, 0, 0, ?, 'gm', ?, 'gm')`,
             ).run(
               pageId,
               entryId,
               titleStyleJson,
-              RICH_TEXT_SCHEMA_VERSION,
               JSON.stringify(emptyRichTextDocument()),
               timestamp,
               timestamp,
@@ -405,6 +399,61 @@ export class JournalRepository {
         return this.getEntry(actor, entryId);
       } catch {
         return failure('storage_error', 'The Journal entry could not be renamed.', { entryId });
+      }
+    });
+  }
+
+  updateEntryData(
+    actor: JournalActor,
+    input: Omit<UpdateJournalEntryDataInput, 'campaignId'>,
+  ): Promise<JournalResult<JournalEntry>> {
+    return this.mutations.run(async () => {
+      try {
+        const entry = this.entry(input.entryId);
+        if (!entry || entry.type_id === JOURNAL_ENTRY_TYPE_NOTE) {
+          return failure('not_found', 'The system Journal entry no longer exists.', {
+            entryId: input.entryId,
+          });
+        }
+        const projected = this.projectEntry(actor, entry);
+        if (!projected?.capabilities.edit) {
+          return failure('permission_denied', 'You cannot edit this Journal entry.', {
+            entryId: input.entryId,
+          });
+        }
+        if (entry.revision !== input.expectedRevision) {
+          return failure('conflict', 'The Journal entry changed before it could be saved.', {
+            entryId: input.entryId,
+          });
+        }
+        const definition = getJournalEntryTypeDefinition(this.system, entry.type_id);
+        if (!definition || !definition.validateData(input.data)) {
+          return failure('invalid_input', 'The Journal entry data is invalid.', {
+            entryId: input.entryId,
+          });
+        }
+        const dataJson = JSON.stringify(input.data);
+        const timestamp = this.now().toISOString();
+        this.transaction(() => {
+          this.database.connection.prepare(
+            `UPDATE journal_entries
+             SET data_json = ?,
+                  revision = revision + 1, updated_at = ?, updated_by = ?
+             WHERE id = ?`,
+          ).run(
+            dataJson,
+            timestamp,
+            actorKey(actor),
+            input.entryId,
+          );
+          this.bumpManifest();
+        });
+        await this.touchCampaign();
+        return this.getEntry(actor, input.entryId);
+      } catch {
+        return failure('storage_error', 'The Journal entry data could not be saved.', {
+          entryId: input.entryId,
+        });
       }
     });
   }
@@ -513,15 +562,14 @@ export class JournalRepository {
           this.database.connection.prepare(
             `INSERT INTO journal_pages (
                id, entry_id, position, title, title_style_json, default_access,
-               content_schema_version, content_json, revision, permission_revision,
+               content_json, revision, permission_revision,
                created_at, created_by, updated_at, updated_by
-             ) VALUES (?, ?, ?, 'New Page', ?, 'inherit', ?, ?, 0, 0, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, 'New Page', ?, 'inherit', ?, 0, 0, ?, ?, ?, ?)`,
           ).run(
             pageId,
             entryId,
             pages.length,
             JSON.stringify(defaultJournalTitleStyle()),
-            RICH_TEXT_SCHEMA_VERSION,
             JSON.stringify(emptyRichTextDocument()),
             timestamp,
             key,
@@ -627,7 +675,7 @@ export class JournalRepository {
     leaseId: string,
     titleInput: string,
     titleStyle: JournalTitleStyle,
-    content: RichTextDocumentV1,
+    content: RichTextDocument,
     expectedRevision: number,
   ): Promise<JournalResult<JournalPage>> {
     return this.mutations.run(async () => {
@@ -664,13 +712,12 @@ export class JournalRepository {
         this.transaction(() => {
           this.database.connection.prepare(
             `UPDATE journal_pages
-             SET title = ?, title_style_json = ?, content_schema_version = ?, content_json = ?,
+             SET title = ?, title_style_json = ?, content_json = ?,
                  revision = revision + 1, updated_at = ?, updated_by = ?
              WHERE id = ?`,
           ).run(
             title,
             titleStyleJson,
-            RICH_TEXT_SCHEMA_VERSION,
             JSON.stringify(content),
             timestamp,
             key,
@@ -1032,7 +1079,6 @@ export class JournalRepository {
         return projected ? [projected] : [];
       }).map((entry, position) => ({ ...entry, position })),
       revision: this.manifestRevision(),
-      schemaVersion: JOURNAL_SCHEMA_VERSION,
     };
   }
 
@@ -1051,7 +1097,6 @@ export class JournalRepository {
         reorder: isGm,
         view: true,
       },
-      dataVersion: entry.data_schema_version,
       groupId: definition.groupId,
       id: entry.id,
       name: entry.name,
@@ -1193,9 +1238,9 @@ export class JournalRepository {
     }).map((page, position) => ({ ...page, position }));
   }
 
-  private content(row: PageRow): RichTextDocumentV1 {
+  private content(row: PageRow): RichTextDocument {
     const parsed: unknown = JSON.parse(row.content_json);
-    if (row.content_schema_version !== RICH_TEXT_SCHEMA_VERSION || !isRichTextDocument(parsed)) {
+    if (!isRichTextDocument(parsed)) {
       throw new Error('Journal page content is invalid.');
     }
     return parsed;
@@ -1219,7 +1264,6 @@ export class JournalRepository {
     const data = parseJournalEntryData(
       this.system,
       row.type_id,
-      row.data_schema_version,
       parsed,
     );
     if (data === null) throw new Error('Journal entry data is invalid.');
@@ -1234,9 +1278,8 @@ export class JournalRepository {
 
   private entries(): EntryRow[] {
     return this.database.connection.prepare(
-      `SELECT id, type_id, position, name, name_style_json, default_access, revision,
-              created_at, created_by, updated_at, updated_by,
-              data_schema_version, data_json
+       `SELECT id, type_id, position, name, name_style_json, default_access, revision,
+               created_at, created_by, updated_at, updated_by, data_json
        FROM journal_entries ORDER BY position`,
     ).all() as unknown as EntryRow[];
   }
@@ -1244,8 +1287,7 @@ export class JournalRepository {
   private entry(entryId: string): EntryRow | null {
     return (this.database.connection.prepare(
       `SELECT id, type_id, position, name, name_style_json, default_access, revision,
-              created_at, created_by, updated_at, updated_by,
-              data_schema_version, data_json
+               created_at, created_by, updated_at, updated_by, data_json
        FROM journal_entries WHERE id = ?`,
     ).get(entryId) as EntryRow | undefined) ?? null;
   }
@@ -1262,7 +1304,7 @@ export class JournalRepository {
   private page(pageId: string): PageRow | null {
     return (this.database.connection.prepare(
       `SELECT id, entry_id, position, title, title_style_json, default_access,
-               content_schema_version, content_json, revision, permission_revision,
+               content_json, revision, permission_revision,
               created_at, created_by, updated_at, updated_by
        FROM journal_pages WHERE id = ?`,
     ).get(pageId) as PageRow | undefined) ?? null;

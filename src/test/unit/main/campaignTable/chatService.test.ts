@@ -14,7 +14,7 @@ import {
   playerChatIdentity,
   type DiceRoller,
 } from '../../../../main/campaignTable/chatService';
-import type { ChatRollCardV1 } from '../../../../shared/chatRoll';
+import type { ChatRollCard } from '../../../../shared/chatRoll';
 import type {
   ChatConfigurationSnapshot,
   ServerConfigRepository,
@@ -126,7 +126,6 @@ function createHarness(options?: {
     return {
       maxChatMessageCharacters: 500,
       port: 31_337,
-      schemaVersion: 3 as const,
       transformPreviewRate: 60,
       users,
     };
@@ -310,7 +309,7 @@ describe('CampaignChatService', () => {
       ],
       title: null,
     };
-    const card: ChatRollCardV1 = {
+    const card: ChatRollCard = {
       ...definition,
       sections: [
         {
@@ -320,7 +319,6 @@ describe('CampaignChatService', () => {
           total: 20,
         },
       ],
-      version: 1,
     };
     const diceRoller = { roll: vi.fn(async () => ({ ok: true as const, value: card })) };
     const { find, sendRoll, service } = createHarness({ diceRoller });

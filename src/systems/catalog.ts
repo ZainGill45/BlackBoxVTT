@@ -17,7 +17,6 @@ export const CORE_NOTE_GROUP_ID = 'core.notes' as const;
 const CORE_JOURNAL_ENTRY_TYPES: readonly JournalEntryTypeDefinition[] = [
   {
     createDefaultData: () => ({}),
-    dataVersion: 1,
     defaultName: 'New Note',
     groupId: CORE_NOTE_GROUP_ID,
     groupLabel: 'Notes',
@@ -50,7 +49,6 @@ export function listJournalEntryTypeDefinitions(
   const definition = getGameSystemDefinition(system.id);
   if (
     !definition ||
-    definition.schemaVersion !== system.schemaVersion ||
     !definition.validateSettings(system.settings)
   ) {
     return CORE_JOURNAL_ENTRY_TYPES;
@@ -68,25 +66,21 @@ export function getJournalEntryTypeDefinition(
 export function createDefaultJournalEntryData(
   system: CampaignSystemState,
   typeId: string,
-): { data: JsonValue; dataVersion: number } | null {
+): { data: JsonValue } | null {
   const type = getJournalEntryTypeDefinition(system, typeId);
   if (!type) return null;
   const data = type.createDefaultData(system.settings);
-  return type.validateData(data)
-    ? { data: structuredClone(data), dataVersion: type.dataVersion }
-    : null;
+  return type.validateData(data) ? { data: structuredClone(data) } : null;
 }
 
 export function parseJournalEntryData(
   system: CampaignSystemState,
   typeId: string,
-  dataVersion: number,
   data: unknown,
 ): JsonValue | null {
   const type = getJournalEntryTypeDefinition(system, typeId);
   if (
     !type ||
-    dataVersion !== type.dataVersion ||
     !isJsonValue(data) ||
     !type.validateData(data)
   ) {
@@ -135,8 +129,6 @@ export function parseCampaignSystemState(
   const candidate = value as Partial<CampaignSystemState>;
   if (
     typeof candidate.id !== 'string' ||
-    !Number.isInteger(candidate.schemaVersion) ||
-    (candidate.schemaVersion ?? 0) < 1 ||
     !isJsonValue(candidate.settings)
   ) {
     return null;
@@ -144,14 +136,12 @@ export function parseCampaignSystemState(
   const definition = getGameSystemDefinition(candidate.id);
   if (
     !definition ||
-    definition.schemaVersion !== candidate.schemaVersion ||
     !definition.validateSettings(candidate.settings)
   ) {
     return null;
   }
   return {
     id: definition.id,
-    schemaVersion: definition.schemaVersion,
     settings: structuredClone(candidate.settings),
   };
 }

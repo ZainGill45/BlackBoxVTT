@@ -1,16 +1,25 @@
 import type { JsonValue } from '../../shared/gameSystems';
 import type { GameSystemDefinition } from '../types';
+import {
+  createDefaultDnd5eCharacterData,
+  isDnd5eCharacterData,
+  type Dnd5eRulesVersion,
+} from './characterData';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_CHARACTER_GROUP_ID,
+} from './ids';
 
-export type Dnd5eRulesVersion = '5e' | '5.5e';
+export {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_CHARACTER_GROUP_ID,
+} from './ids';
 
 export type Dnd5eSettings = {
   defaultRulesVersion: Dnd5eRulesVersion;
 };
 
-export const DND5E_CHARACTER_ENTRY_TYPE_ID = 'dnd5e.character' as const;
-export const DND5E_CHARACTER_GROUP_ID = 'dnd5e.characters' as const;
-
-function validateSettings(value: JsonValue): value is Dnd5eSettings {
+export function isDnd5eSettings(value: JsonValue): value is Dnd5eSettings {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -27,21 +36,15 @@ export const dnd5eSystem = {
   id: 'dnd5e',
   journalEntryTypes: [
     {
-      createDefaultData: () => ({}),
-      dataVersion: 1,
+      createDefaultData: createDefaultDnd5eCharacterData,
       defaultName: 'New Character',
       groupId: DND5E_CHARACTER_GROUP_ID,
       groupLabel: 'Characters',
       groupOrder: 0,
       id: DND5E_CHARACTER_ENTRY_TYPE_ID,
       label: 'Character',
-      validateData: (value: JsonValue): value is Record<string, never> =>
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value) &&
-        Object.keys(value).length === 0,
+      validateData: isDnd5eCharacterData,
     },
   ],
-  schemaVersion: 1,
-  validateSettings,
+  validateSettings: isDnd5eSettings,
 } satisfies GameSystemDefinition<Dnd5eSettings>;

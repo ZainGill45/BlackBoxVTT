@@ -1,4 +1,3 @@
-export const SCENE_MANIFEST_SCHEMA_VERSION = 9 as const;
 export const CANONICAL_MAP_ID = 'canonical-map';
 export const MAX_SCENE_IMAGES = 2_048;
 export const MAX_SCENE_DRAWINGS = 1_024;

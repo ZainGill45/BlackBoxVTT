@@ -5,23 +5,28 @@ export interface SavedEntryViewModel {
   detail: string;
   id: string;
   title: string;
+  unavailable?: boolean;
 }
 
 interface SavedEntryListProps {
   deletingId: string | null;
   entries: readonly SavedEntryViewModel[];
+  exportingId: string | null;
   label: string;
   pendingDeleteId: string | null;
   onDeleteRequest: (id: string) => void;
+  onExport: (id: string) => void;
   onOpen: (id: string) => void;
 }
 
 export function SavedEntryList({
   deletingId,
   entries,
+  exportingId,
   label,
   pendingDeleteId,
   onDeleteRequest,
+  onExport,
   onOpen,
 }: SavedEntryListProps) {
   if (entries.length === 0) {
@@ -40,6 +45,8 @@ export function SavedEntryList({
         {entries.map((entry) => {
           const isPendingDelete = pendingDeleteId === entry.id;
           const isDeleting = deletingId === entry.id;
+          const isExporting = exportingId === entry.id;
+          const isUnavailable = entry.unavailable === true;
 
           return (
             <li className={styles.savedEntry} key={entry.id}>
@@ -51,6 +58,15 @@ export function SavedEntryList({
               <div className={styles.savedEntryActions}>
                 <Button
                   size="compact"
+                  variant="secondary"
+                  aria-label={`Export ${entry.title}`}
+                  disabled={isUnavailable || isDeleting || isExporting}
+                  onClick={() => onExport(entry.id)}
+                >
+                  {isExporting ? 'Exportingâ€¦' : 'Export'}
+                </Button>
+                <Button
+                  size="compact"
                   variant="danger"
                   aria-label={
                     isDeleting
@@ -60,7 +76,7 @@ export function SavedEntryList({
                       : `Delete ${entry.title}`
                   }
                   aria-pressed={isPendingDelete}
-                  disabled={isDeleting}
+                  disabled={isDeleting || isExporting}
                   onClick={() => onDeleteRequest(entry.id)}
                 >
                   {isDeleting
@@ -73,6 +89,7 @@ export function SavedEntryList({
                   size="compact"
                   variant="secondary"
                   aria-label={`Open ${entry.title}`}
+                  disabled={isUnavailable || isDeleting || isExporting}
                   onClick={() => onOpen(entry.id)}
                 >
                   Open

@@ -17,7 +17,7 @@ import {
 } from '../../shared/chat';
 import {
   serializeChatRollDefinition,
-  type ChatRollCardV1,
+  type ChatRollCard,
   type ChatRollDefinition,
 } from '../../shared/chatRoll';
 import type {
@@ -58,7 +58,7 @@ export interface DiceRoller {
     clientMessageId: string,
     definition: ChatRollDefinition,
     signature: string,
-  ): Promise<ChatResult<ChatRollCardV1>>;
+  ): Promise<ChatResult<ChatRollCard>>;
 }
 
 export const GAME_MASTER_CHAT_IDENTITY = {

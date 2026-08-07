@@ -1,6 +1,6 @@
 .list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--tab-count), minmax(0, 1fr));
   background: var(--color-surface-muted);
   border-bottom: var(--border-width) solid var(--color-border-strong);
 }

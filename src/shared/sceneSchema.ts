@@ -1,11 +1,9 @@
 import { z } from 'zod';
 import {
-  DEFAULT_FOG_COLOR,
   MAX_DRAWING_POINTS,
   GRID_COLOR_PATTERN,
   MAX_SCENE_DRAWINGS,
   MAX_SCENE_DRAWING_POINTS,
-  SCENE_MANIFEST_SCHEMA_VERSION,
   MAX_SCENE_IMAGES,
   MAX_SCENE_OBJECTS,
   MAX_SCENE_TEXT_CHARACTERS,
@@ -502,80 +500,11 @@ export const sceneRecordSchema = z
   .refine(uniqueObjectIds, 'Scene object IDs must be unique.')
   .refine(validObjectOrder, 'Scene object order must contain every object in its layer exactly once.');
 
-export const persistedSceneRecordSchema = z.preprocess((value) => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return value;
-  }
-  const record = value as Record<string, unknown>;
-  const shapes = record.shapes && typeof record.shapes === 'object'
-    ? Object.fromEntries(
-        Object.entries(record.shapes as Record<string, unknown>).map(
-          ([layer, entries]) => [
-            layer,
-            Array.isArray(entries)
-              ? entries.map((shape) =>
-                  shape && typeof shape === 'object' && !Array.isArray(shape)
-                    ? Object.fromEntries(
-                        Object.entries(shape).filter(([key]) => key !== 'label'),
-                      )
-                    : shape,
-                )
-              : entries,
-          ],
-        ),
-      )
-    : { gm: [], map: [], token: [] };
-  const objectIds = (layer: 'gm' | 'map' | 'token') =>
-    ['shapes', 'images', 'drawings', 'texts'].flatMap((family) => {
-      const layers = family === 'shapes'
-        ? shapes
-        : record[family];
-      if (!layers || typeof layers !== 'object' || Array.isArray(layers)) {
-        return [];
-      }
-      const entries = (layers as Record<string, unknown>)[layer];
-      return Array.isArray(entries)
-        ? entries.flatMap((entry) =>
-            entry && typeof entry === 'object' && !Array.isArray(entry) &&
-              typeof (entry as Record<string, unknown>).id === 'string'
-              ? [(entry as Record<string, unknown>).id]
-              : [],
-          )
-        : [];
-    });
-  return {
-    ...record,
-    ...(record.fog === undefined
-      ? {
-          fog: {
-            base: 'clear',
-            color: DEFAULT_FOG_COLOR,
-            operations: [],
-          },
-        }
-      : {}),
-    shapes,
-    ...(record.texts === undefined
-      ? { texts: { gm: [], map: [], token: [] } }
-      : {}),
-    ...(record.objectOrder === undefined
-      ? {
-          objectOrder: {
-            gm: objectIds('gm'),
-            map: objectIds('map'),
-            token: objectIds('token'),
-          },
-        }
-      : {}),
-  };
-}, sceneRecordSchema);
-
 export const sceneManifestSchema = z
   .object({
     activeSceneId: z.string().uuid().nullable(),
     revision: z.number().int().nonnegative(),
     scenes: z.array(sceneRecordSchema).max(1024),
-    schemaVersion: z.literal(SCENE_MANIFEST_SCHEMA_VERSION),
   })
   .strict();
 

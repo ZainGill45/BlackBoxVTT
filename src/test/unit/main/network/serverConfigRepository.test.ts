@@ -8,7 +8,6 @@ import {
   CAMPAIGN_DATABASE_FILENAME,
   CampaignDatabase,
 } from '../../../../main/storage/campaignDatabase';
-import { CAMPAIGN_SCHEMA_VERSION } from '../../../../shared/campaigns';
 import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 const temporaryDirectories: string[] = [];
@@ -23,7 +22,6 @@ async function createCampaignDatabase() {
     createdAt: timestamp,
     id: campaignId,
     name: 'Iron Meridian',
-    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
     system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
@@ -96,7 +94,6 @@ describe('ServerConfigRepository', () => {
     expect(await repository.load()).toEqual({
       maxChatMessageCharacters: 10_000,
       port: 30_000,
-      schemaVersion: 3,
       transformPreviewRate: 60,
       users: [],
     });

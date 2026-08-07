@@ -12,7 +12,6 @@ import {
   type SceneText,
 } from '../../shared/scenes';
 import {
-  persistedSceneRecordSchema,
   sceneObjectStateSchema,
   sceneRecordSchema,
   sceneTextLayersSchema,
@@ -171,14 +170,4 @@ describe('scene text schemas', () => {
     expect(sceneRecordSchema.safeParse(makeScene(state)).success).toBe(false);
   });
 
-  it('adds empty text layers only when parsing persisted pre-v5 scene records', () => {
-    const current = makeScene();
-    const legacy = structuredClone(current) as Record<string, unknown>;
-    delete legacy.texts;
-
-    expect(sceneRecordSchema.safeParse(legacy).success).toBe(false);
-    expect(persistedSceneRecordSchema.parse(legacy).texts).toEqual(
-      createEmptyTextLayers(),
-    );
-  });
 });

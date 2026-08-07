@@ -5,7 +5,6 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ASSET_CHUNK_BYTES,
-  ASSET_MANIFEST_SCHEMA_VERSION,
   type AssetManifest,
   type AssetRecord,
 } from '../../../../shared/assets';
@@ -68,7 +67,6 @@ describe('RemoteAssetCache', () => {
     const manifest: AssetManifest = {
       assets: [asset],
       revision: 1,
-      schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     };
     const cache = createCache(
       root,
@@ -99,7 +97,6 @@ describe('RemoteAssetCache', () => {
     const manifest: AssetManifest = {
       assets: [asset],
       revision: 1,
-      schemaVersion: ASSET_MANIFEST_SCHEMA_VERSION,
     };
     const cache = createCache(
       root,

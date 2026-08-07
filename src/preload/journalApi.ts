@@ -42,6 +42,7 @@ export function createJournalApi(ipc: Pick<IpcRenderer, 'invoke' | 'on' | 'remov
     renewLease: (input) => ipc.invoke(journalIpcChannels.renewLease, input),
     updateNote: (input) => ipc.invoke(journalIpcChannels.updateNote, input),
     renameEntry: (input) => ipc.invoke(journalIpcChannels.renameEntry, input),
+    updateEntryData: (input) => ipc.invoke(journalIpcChannels.updateEntryData, input),
     updateEntryPermissions: (input) => ipc.invoke(journalIpcChannels.updateEntryPermissions, input),
     updateNotePermissions: (input) => ipc.invoke(journalIpcChannels.updateNotePermissions, input),
     updatePage: (input) => ipc.invoke(journalIpcChannels.updatePage, input),

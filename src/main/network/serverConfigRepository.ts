@@ -20,7 +20,6 @@ import {
   type StoredPasswordHash,
 } from './passwords';
 
-const SERVER_CONFIG_SCHEMA_VERSION = 3 as const;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -48,7 +47,6 @@ export interface ChatConfigurationSnapshot {
 interface StoredServerConfig {
   maxChatMessageCharacters: number;
   port: number;
-  schemaVersion: typeof SERVER_CONFIG_SCHEMA_VERSION;
   users: StoredManagedUser[];
   transformPreviewRate: number;
 }
@@ -127,7 +125,6 @@ export class ServerConfigRepository {
     return {
       maxChatMessageCharacters: settings.max_chat_message_characters,
       port: settings.port,
-      schemaVersion: SERVER_CONFIG_SCHEMA_VERSION,
       transformPreviewRate: settings.transform_preview_rate,
       users,
     };

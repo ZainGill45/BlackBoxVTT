@@ -25,6 +25,7 @@ import { ConnectionHistoryRepository } from '../../../../main/network/connection
 import { NetworkManager } from '../../../../main/network/networkManager';
 import { ServerConfigRepository } from '../../../../main/network/serverConfigRepository';
 import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
+import { createDefaultDnd5eCharacterData } from '../../../../systems/dnd5e/characterData';
 
 /**
  * Real TLS, real sockets, real repositories — two NetworkManagers talking to a
@@ -567,7 +568,6 @@ describe('Journal over the network', () => {
         content: [{ content: [{ text: 'Shared treasure', type: 'text' }], type: 'paragraph' }],
         type: 'doc',
       },
-      schemaVersion: 1 as const,
     };
     const saved = await journal.updatePage(
       noteId,
@@ -619,11 +619,33 @@ describe('Journal over the network', () => {
     const visible = await remote.getEntry(created.value.id);
     expect(visible).toMatchObject({
       ok: true,
-      value: { data: {}, name: 'New Character', typeId: 'dnd5e.character' },
+      value: {
+        data: createDefaultDnd5eCharacterData(),
+        name: 'New Character',
+        typeId: 'dnd5e.character',
+      },
     });
-    if (!visible.ok) throw new Error('Expected the remote Character.');
-    const renamed = await remote.renameEntry(created.value.id, 'Remote Hero', visible.value.revision);
+    if (!visible.ok || visible.value.kind !== 'system') throw new Error('Expected the remote Character.');
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.className = 'Ranger';
+    const updated = await remote.updateEntryData({
+      data,
+      entryId: created.value.id,
+      expectedRevision: visible.value.revision,
+    });
+    expect(updated).toMatchObject({ ok: true, value: { data: { identity: { className: 'Ranger' } } } });
+    if (!updated.ok) throw new Error('Expected the remote Character data update.');
+    const renamed = await remote.renameEntry(created.value.id, 'Remote Hero', updated.value.revision);
     expect(renamed).toMatchObject({ ok: true, value: { name: 'Remote Hero' } });
+    await vi.waitFor(async () => {
+      await expect(hostRuntime.journal.getEntry(created.value.id)).resolves.toMatchObject({
+        ok: true,
+        value: { data: { identity: { className: 'Ranger' } }, name: 'Remote Hero' },
+      });
+      expect(hostJournalEvents).toEqual(expect.arrayContaining([
+        expect.objectContaining({ campaignId, entryId: created.value.id, type: 'content' }),
+      ]));
+    });
     await expect((await joinedRuntime(observer)).journal.list()).resolves.not.toMatchObject({
       value: { entries: expect.arrayContaining([expect.objectContaining({ id: created.value.id })]) },
     });

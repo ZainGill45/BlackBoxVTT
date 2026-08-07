@@ -9,7 +9,7 @@ import {
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  CAMPAIGN_SCHEMA_VERSION,
+  type CampaignManifest,
   type CampaignSummary,
 } from '../../../../shared/campaigns';
 import type {
@@ -24,22 +24,27 @@ import {
 import type { ConnectionScreenProps } from '../../../../features/connection/types';
 import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
-const shatteredCoast: CampaignSummary = {
+const shatteredCoast: CampaignManifest = {
   createdAt: '2026-07-25T18:00:00.000Z',
   id: '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325',
   name: 'Shattered Coast',
-  schemaVersion: CAMPAIGN_SCHEMA_VERSION,
   system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-26T05:00:00.000Z',
 };
 
-const emberfall: CampaignSummary = {
+const emberfall: CampaignManifest = {
   createdAt: '2026-07-24T18:00:00.000Z',
   id: '53b6d9e1-26ec-4fb6-bc89-6d7138160788',
   name: 'Emberfall',
-  schemaVersion: CAMPAIGN_SCHEMA_VERSION,
   system: TEST_CAMPAIGN_SYSTEM,
   updatedAt: '2026-07-25T05:00:00.000Z',
+};
+
+const unavailableCampaign: CampaignSummary = {
+  id: '77777777-7777-4777-8777-777777777777',
+  name: 'Unavailable campaign (77777777)',
+  unavailableReason: 'unsupported_data',
+  updatedAt: '2026-07-23T05:00:00.000Z',
 };
 
 function success<T>(value: T) {
@@ -100,6 +105,14 @@ function renderConnectionScreen(
       value: shatteredCoast,
     })),
     onDeleteCampaign: vi.fn(async () => ({
+      ok: true as const,
+      value: null,
+    })),
+    onExportCampaign: vi.fn(async () => ({
+      ok: true as const,
+      value: null,
+    })),
+    onImportCampaign: vi.fn(async () => ({
       ok: true as const,
       value: null,
     })),
@@ -985,6 +998,103 @@ describe('ConnectionScreen', () => {
     expect(onOpenCampaign).toHaveBeenCalledWith(shatteredCoast.id);
   });
 
+  it('places Import beside Create and exports a selected campaign', async () => {
+    const user = userEvent.setup();
+    const onExportCampaign = vi.fn(async () => ({
+      ok: true as const,
+      value: { fileName: 'Shattered Coast.blackbox-campaign' },
+    }));
+    renderConnectionScreen({ onExportCampaign });
+
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    const form = screen.getByLabelText('Campaign name').closest('form');
+    expect(form).not.toBeNull();
+    expect(
+      within(form as HTMLFormElement)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Import', 'Create']);
+
+    await user.click(
+      screen.getByRole('button', { name: 'Export Shattered Coast' }),
+    );
+
+    expect(onExportCampaign).toHaveBeenCalledWith(shatteredCoast.id);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Exported Shattered Coast.blackbox-campaign.',
+    );
+  });
+
+  it('allows only deletion for an unavailable campaign', async () => {
+    const user = userEvent.setup();
+    const onDeleteCampaign = vi.fn(() => success(null));
+    const onExportCampaign = vi.fn(async () => ({
+      ok: true as const,
+      value: null,
+    }));
+    const onOpenCampaign = vi.fn();
+    renderConnectionScreen({
+      campaigns: [unavailableCampaign],
+      onDeleteCampaign,
+      onExportCampaign,
+      onOpenCampaign,
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+
+    expect(
+      screen.getByText('Outdated or invalid campaign data. Delete to remove.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Export Unavailable campaign (77777777)',
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', {
+        name: 'Open Unavailable campaign (77777777)',
+      }),
+    ).toBeDisabled();
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Delete Unavailable campaign (77777777)',
+      }),
+    );
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Confirm deletion of Unavailable campaign (77777777)',
+      }),
+    );
+
+    expect(onDeleteCampaign).toHaveBeenCalledWith(unavailableCampaign.id);
+    expect(onExportCampaign).not.toHaveBeenCalled();
+    expect(onOpenCampaign).not.toHaveBeenCalled();
+  });
+
+  it('reports a completed import and its conversion warnings', async () => {
+    const user = userEvent.setup();
+    const onImportCampaign = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        campaign: shatteredCoast,
+        report: {
+          sourceRelease: '1.0.0-dev',
+          warnings: ['Server identity was regenerated.'],
+        },
+      },
+    }));
+    renderConnectionScreen({ onImportCampaign });
+
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    await user.click(screen.getByRole('button', { name: 'Import' }));
+
+    expect(onImportCampaign).toHaveBeenCalledWith();
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Imported Shattered Coast. Server identity was regenerated.',
+    );
+  });
+
   it('requires two activations before deleting a campaign', async () => {
     const user = userEvent.setup();
     const onDeleteCampaign = vi.fn(() => success(null));
@@ -1060,11 +1170,13 @@ describe('ConnectionScreen', () => {
       <ConnectionScreen
         campaignLoadError={null}
         campaignLoadState="loading"
-        campaigns={[]}
-        networkApi={createMockNetworkApi()}
-        onCreate={vi.fn()}
-        onDeleteCampaign={vi.fn()}
-        onOpenCampaign={vi.fn()}
+      campaigns={[]}
+      networkApi={createMockNetworkApi()}
+      onCreate={vi.fn()}
+      onDeleteCampaign={vi.fn()}
+      onExportCampaign={vi.fn()}
+      onImportCampaign={vi.fn()}
+      onOpenCampaign={vi.fn()}
         onRemoteAuthenticated={vi.fn()}
       />,
     );
@@ -1078,11 +1190,13 @@ describe('ConnectionScreen', () => {
       <ConnectionScreen
         campaignLoadError="Campaigns could not be loaded."
         campaignLoadState="error"
-        campaigns={[]}
-        networkApi={createMockNetworkApi()}
-        onCreate={vi.fn()}
-        onDeleteCampaign={vi.fn()}
-        onOpenCampaign={vi.fn()}
+      campaigns={[]}
+      networkApi={createMockNetworkApi()}
+      onCreate={vi.fn()}
+      onDeleteCampaign={vi.fn()}
+      onExportCampaign={vi.fn()}
+      onImportCampaign={vi.fn()}
+      onOpenCampaign={vi.fn()}
         onRemoteAuthenticated={vi.fn()}
       />,
     );

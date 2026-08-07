@@ -591,7 +591,6 @@ describe('ChatPanel commands', () => {
                 total: 20,
                 }),
               ),
-              version: 1,
             },
             kind: 'roll',
           },

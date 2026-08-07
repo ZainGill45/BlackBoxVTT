@@ -5,10 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChatIdentity, ChatPrincipal } from '../../../shared/chat';
 import { ChatRepository } from '../../../main/chatRepository';
 import {
-  CAMPAIGN_DATABASE_SCHEMA_VERSION,
   CampaignDatabase,
 } from '../../../main/storage/campaignDatabase';
-import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 const gm = { displayName: 'Game Master', kind: 'gm' } as const;
@@ -38,7 +36,6 @@ async function createCampaignDatabase() {
     createdAt: timestamp,
     id: '44444444-4444-4444-8444-444444444444',
     name: 'Iron Meridian',
-    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
     system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
@@ -64,104 +61,6 @@ afterEach(async () => {
 });
 
 describe('ChatRepository', () => {
-  it('transactionally migrates schema 7 text messages and whispers to v1 payloads', async () => {
-    const { database, directory } = await createCampaignDatabase();
-    const repository = new ChatRepository({ database });
-    await repository.send({
-      clientMessageId: '10101010-1010-4010-8010-101010101010',
-      content: 'Public before migration',
-      maxMessageCharacters: 10_000,
-      recipient: null,
-      sender: gm,
-    });
-    await repository.send({
-      clientMessageId: '20202020-2020-4020-8020-202020202020',
-      content: 'Private before migration',
-      maxMessageCharacters: 10_000,
-      recipient: bob,
-      sender: alice,
-    });
-    await repository.close();
-
-    database.connection.exec(`
-      BEGIN IMMEDIATE;
-      ALTER TABLE chat_messages RENAME TO chat_messages_v8;
-      CREATE TABLE chat_messages_v7 (
-        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT UNIQUE NOT NULL,
-        client_message_id TEXT NOT NULL,
-        generation TEXT NOT NULL,
-        accepted_at TEXT NOT NULL,
-        sender_key TEXT NOT NULL,
-        sender_kind TEXT NOT NULL,
-        sender_user_id TEXT,
-        sender_name TEXT NOT NULL,
-        recipient_key TEXT,
-        recipient_kind TEXT,
-        recipient_user_id TEXT,
-        recipient_name TEXT,
-        content TEXT NOT NULL,
-        UNIQUE (sender_key, client_message_id)
-      ) STRICT;
-      INSERT INTO chat_messages_v7
-      SELECT
-        sequence, id, client_message_id, generation, accepted_at,
-        sender_key, sender_kind, sender_user_id, sender_name,
-        recipient_key, recipient_kind, recipient_user_id, recipient_name,
-        json_extract(payload_json, '$.text')
-      FROM chat_messages_v8;
-      DROP TABLE chat_messages_v8;
-      ALTER TABLE chat_messages_v7 RENAME TO chat_messages;
-      CREATE INDEX chat_messages_sender_sequence
-        ON chat_messages (sender_key, sequence);
-      CREATE INDEX chat_messages_recipient_sequence
-        ON chat_messages (recipient_key, sequence);
-      DROP TABLE campaign_system;
-      DROP TABLE journal_page_assets;
-      DROP TABLE journal_page_permissions;
-      DROP TABLE journal_pages;
-      DROP TABLE journal_entry_permissions;
-      DROP TABLE journal_entries;
-      DROP TABLE journal_manifest;
-      PRAGMA user_version = 7;
-      COMMIT;
-    `);
-    database.close();
-    databases.splice(databases.indexOf(database), 1);
-
-    const migrated = CampaignDatabase.open(directory);
-    databases.push(migrated);
-    expect(
-      (migrated.connection.prepare('PRAGMA user_version').get() as {
-        user_version: number;
-      }).user_version,
-    ).toBe(CAMPAIGN_DATABASE_SCHEMA_VERSION);
-    expect(migrated.readSystem()).toEqual(TEST_CAMPAIGN_SYSTEM);
-    const migratedRepository = new ChatRepository({ database: migrated });
-    const page = await migratedRepository.bootstrap(
-      principal(alice),
-      [gm, alice, bob],
-      10_000,
-    );
-    expect(page).toMatchObject({
-      ok: true,
-      value: {
-        messages: [
-          {
-            clientMessageId: '10101010-1010-4010-8010-101010101010',
-            payload: { kind: 'text', text: 'Public before migration' },
-            sequence: 1,
-          },
-          {
-            clientMessageId: '20202020-2020-4020-8020-202020202020',
-            payload: { kind: 'text', text: 'Private before migration' },
-            sequence: 2,
-          },
-        ],
-      },
-    });
-  });
-
   it('persists public and participant-only whispers with immutable snapshots', async () => {
     const { database, directory } = await createCampaignDatabase();
     const repository = new ChatRepository({ database });
@@ -334,7 +233,6 @@ describe('ChatRepository', () => {
           total: 20,
         },
       ],
-      version: 1 as const,
     };
     const input = {
       card,

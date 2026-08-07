@@ -1,4 +1,5 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { InlineInput } from './InlineInput';
 import styles from './InlineRename.module.css';
 
 interface InlineRenameProps {
@@ -45,8 +46,9 @@ export function InlineRename({
 
   return (
     <div className={styles.copy}>
-      <input
+      <InlineInput
         aria-label={accessibleLabel}
+        className={styles.renameInput}
         disabled={disabled}
         maxLength={maxLength}
         value={draft}

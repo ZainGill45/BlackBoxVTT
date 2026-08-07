@@ -167,6 +167,7 @@ function unavailableJournalTransport(): JoinedJournalTransport {
     renewLease: unavailable,
     updateNote: unavailable,
     renameEntry: unavailable,
+    updateEntryData: unavailable,
     updateEntryPermissions: unavailable,
     updateNotePermissions: unavailable,
     updatePage: unavailable,

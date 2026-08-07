@@ -24,6 +24,7 @@ import type {
   ReorderJournalEntriesInput,
   ReorderJournalGroupInput,
   ReorderJournalPagesInput,
+  UpdateJournalEntryDataInput,
   UpdateJournalNoteInput,
   UpdateJournalNotePermissionsInput,
   UpdateJournalEntryPermissionsInput,
@@ -91,6 +92,15 @@ export class JournalManager extends EventEmitter {
       ? await runtime.journal.renameEntry(input.entryId, input.name, input.expectedRevision)
       : unavailable<JournalEntry>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'structure' });
+    return result;
+  }
+
+  async updateEntryData(input: UpdateJournalEntryDataInput): Promise<JournalResult<JournalEntry>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    const result = runtime
+      ? await runtime.journal.updateEntryData(input)
+      : unavailable<JournalEntry>();
+    if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'content' });
     return result;
   }
 

@@ -9,7 +9,6 @@ import {
   DEFAULT_SCENE_WIDTH,
   MAX_SCENE_IMAGES,
   MAX_SCENE_FOG_POINTS,
-  SCENE_MANIFEST_SCHEMA_VERSION,
   createEmptyDrawingLayers,
   createEmptyImageLayers,
   createEmptyShapeLayers,
@@ -22,7 +21,6 @@ import {
 } from '../../../shared/scenes';
 import { SceneRepository } from '../../../main/sceneRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
-import { CAMPAIGN_SCHEMA_VERSION } from '../../../shared/campaigns';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 let directory = '';
@@ -138,7 +136,6 @@ beforeEach(async () => {
     createdAt: timestamp,
     id: '99999999-9999-4999-8999-999999999999',
     name: 'Iron Meridian',
-    schemaVersion: CAMPAIGN_SCHEMA_VERSION,
     system: TEST_CAMPAIGN_SYSTEM,
     updatedAt: timestamp,
   });
@@ -157,7 +154,6 @@ describe('SceneRepository', () => {
       activeSceneId: null,
       revision: 0,
       scenes: [],
-      schemaVersion: SCENE_MANIFEST_SCHEMA_VERSION,
     });
 
     const created = await repository.create();
@@ -1315,33 +1311,6 @@ describe('SceneRepository', () => {
       { kind: 'player', userId: playerId },
       { kind: 'move-layer', targetLayer: 'token', targets: [shapeId] },
     )).toMatchObject({ error: { code: 'permission_denied' }, ok: false });
-  });
-
-  it('loads SQLite scene records missing newer object families as empty layers', async () => {
-    const repository = createRepository();
-    const created = await repository.create();
-    if (!created.ok) {
-      throw new Error('setup failed');
-    }
-    const legacy = structuredClone(created.value) as Record<string, unknown>;
-    delete legacy.texts;
-    delete legacy.shapes;
-    delete legacy.fog;
-    database.connection
-      .prepare('UPDATE scenes SET record_json = ? WHERE id = ?')
-      .run(JSON.stringify(legacy), created.value.id);
-
-    expect((await repository.readManifest()).scenes[0].texts).toEqual(
-      createEmptyTextLayers(),
-    );
-    expect((await repository.readManifest()).scenes[0].shapes).toEqual(
-      createEmptyShapeLayers(),
-    );
-    expect((await repository.readManifest()).scenes[0].fog).toEqual({
-      base: 'clear',
-      color: '#000000',
-      operations: [],
-    });
   });
 
   it('recovers from a malformed manifest instead of throwing', async () => {

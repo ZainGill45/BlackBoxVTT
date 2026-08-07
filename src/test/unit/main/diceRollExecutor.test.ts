@@ -3,7 +3,7 @@ import type { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DiceRollExecutor } from '../../../main/diceRollExecutor';
 import type {
-  ChatRollCardV1,
+  ChatRollCard,
   ChatRollDefinition,
 } from '../../../shared/chatRoll';
 
@@ -15,7 +15,7 @@ const definition: ChatRollDefinition = {
   title: null,
 };
 
-const card: ChatRollCardV1 = {
+const card: ChatRollCard = {
   category: 'Roll',
   sections: [
     {
@@ -29,7 +29,6 @@ const card: ChatRollCardV1 = {
     },
   ],
   title: null,
-  version: 1,
 };
 
 class MockWorker extends EventEmitter {

@@ -18,9 +18,6 @@ import {
   NETWORK_PROTOCOL_VERSION,
 } from '../../shared/network';
 import {
-  ASSET_MANIFEST_SCHEMA_VERSION,
-} from '../../shared/assets';
-import {
   sceneDrawingPointSchema,
   sceneDrawingStyleSchema,
   sceneObjectStateSchema,
@@ -35,7 +32,6 @@ import {
 } from '../../shared/chatRoll';
 import {
   JOURNAL_ENTRY_TYPE_NOTE,
-  JOURNAL_SCHEMA_VERSION,
   MAX_JOURNAL_CLEANUP_ASSETS,
   MAX_JOURNAL_ENTRIES,
   MAX_JOURNAL_PERMISSION_OVERRIDES,
@@ -44,7 +40,7 @@ import {
   isJournalTitleStyle,
   isRichTextDocument,
   type JournalTitleStyle,
-  type RichTextDocumentV1,
+  type RichTextDocument,
 } from '../../shared/journal';
 
 export const MAX_TCP_MESSAGE_BYTES = 3 * 1024 * 1024;
@@ -118,7 +114,6 @@ const assetManifestSchema = z
   .object({
     assets: z.array(assetRecordSchema),
     revision: z.number().int().nonnegative(),
-    schemaVersion: z.literal(ASSET_MANIFEST_SCHEMA_VERSION),
   })
   .strict();
 
@@ -259,7 +254,6 @@ const chatMessageSchema = z
 const campaignSystemStateSchema = z
   .object({
     id: z.string().min(1).max(128),
-    schemaVersion: z.number().int().positive(),
     settings: z.json(),
   })
   .strict();
@@ -301,7 +295,6 @@ const journalPageSummarySchema = z.object({
 }).strict();
 const journalNoteSchema = z.object({
   capabilities: journalEntryCapabilitiesSchema,
-  dataVersion: z.number().int().positive(),
   groupId: z.string().min(1).max(128),
   id: z.string().uuid(),
   kind: z.literal('note'),
@@ -315,7 +308,6 @@ const journalNoteSchema = z.object({
 }).strict();
 const journalSystemEntrySummarySchema = z.object({
   capabilities: journalEntryCapabilitiesSchema,
-  dataVersion: z.number().int().positive(),
   groupId: z.string().min(1).max(128),
   id: z.string().uuid(),
   kind: z.literal('system'),
@@ -333,7 +325,7 @@ const journalEntrySchema = z.discriminatedUnion('kind', [
   journalNoteSchema,
   journalSystemEntrySummarySchema.extend({ data: z.json() }).strict(),
 ]);
-const richTextDocumentSchema = z.custom<RichTextDocumentV1>(isRichTextDocument);
+const richTextDocumentSchema = z.custom<RichTextDocument>(isRichTextDocument);
 const journalPageSchema = journalPageSummarySchema.extend({
   content: richTextDocumentSchema,
   entryId: z.string().uuid(),
@@ -341,7 +333,6 @@ const journalPageSchema = journalPageSummarySchema.extend({
 const journalManifestSchema = z.object({
   entries: z.array(journalEntrySummarySchema).max(MAX_JOURNAL_ENTRIES),
   revision: z.number().int().nonnegative(),
-  schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
 }).strict();
 const journalLeaseSchema = z.object({
   expiresAt: z.string().datetime(),
@@ -484,6 +475,11 @@ export const protocolPayloadSchemas = {
     entryId: z.string().uuid(),
     expectedRevision: z.number().int().nonnegative(),
     name: z.string().max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
+  }).strict(),
+  'client.journal_update_entry_data': z.object({
+    data: z.json(),
+    entryId: z.string().uuid(),
+    expectedRevision: z.number().int().nonnegative(),
   }).strict(),
   'client.journal_update_note': z.object({
     entryId: z.string().uuid(),

@@ -38,7 +38,6 @@ import {
   type SceneText,
 } from '../shared/scenes';
 import {
-  persistedSceneRecordSchema,
   sceneObjectStateSchema,
   sceneManifestSchema,
   sceneFogSchema,
@@ -701,7 +700,7 @@ export class SceneRepository {
         activeSceneId: state.active_scene_id,
         revision: state.revision,
         scenes: records.map((row) => {
-          const scene = persistedSceneRecordSchema.parse(
+          const scene = sceneRecordSchema.parse(
             JSON.parse(row.record_json),
           );
           if (scene.id !== row.id) {
@@ -709,7 +708,6 @@ export class SceneRepository {
           }
           return scene;
         }),
-        schemaVersion: createEmptySceneManifest().schemaVersion,
       });
       return this.reconcile(parsed);
     } catch (error) {

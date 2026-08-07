@@ -1,6 +1,5 @@
 import type { Result } from './result';
 
-export const ASSET_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const MAX_ASSET_BYTES = 1024 ** 3;
 export const ASSET_CHUNK_BYTES = 512 * 1024;
 export const MAX_EMBEDDED_IMAGE_BYTES = 32 * 1024 * 1024;
@@ -72,7 +71,6 @@ export interface AssetRecord {
 export interface AssetManifest {
   assets: AssetRecord[];
   revision: number;
-  schemaVersion: typeof ASSET_MANIFEST_SCHEMA_VERSION;
 }
 
 export interface AssetPermissionEntry {

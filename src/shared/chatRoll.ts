@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-export const CHAT_ROLL_PAYLOAD_VERSION = 1 as const;
 export const CHAT_ROLL_SEND_TIMEOUT_MS = 12_000;
 export const MAX_CHAT_ROLL_SECTIONS = 100;
 export const MAX_CHAT_ROLL_LABEL_CHARACTERS = 50_000;
@@ -75,11 +74,10 @@ export interface ChatRollSectionResult extends ChatRollSectionDefinition {
   total: number;
 }
 
-export interface ChatRollCardV1 {
+export interface ChatRollCard {
   category: string;
   sections: ChatRollSectionResult[];
   title: string | null;
-  version: typeof CHAT_ROLL_PAYLOAD_VERSION;
 }
 
 const labelSchema = z
@@ -164,7 +162,7 @@ const rollExpressionNodeSchema: z.ZodType<ChatRollExpressionNode> = z.lazy(() =>
   ]),
 );
 
-export const chatRollCardSchema: z.ZodType<ChatRollCardV1> = z
+export const chatRollCardSchema: z.ZodType<ChatRollCard> = z
   .object({
     category: labelSchema,
     sections: z
@@ -178,7 +176,6 @@ export const chatRollCardSchema: z.ZodType<ChatRollCardV1> = z
       .min(1)
       .max(MAX_CHAT_ROLL_SECTIONS),
     title: labelSchema.nullable(),
-    version: z.literal(CHAT_ROLL_PAYLOAD_VERSION),
   })
   .strict();
 

@@ -12,21 +12,20 @@ import {
 import { EditorContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import {
-  ChevronDown,
   Image as ImageIcon,
   Minus,
   Table2,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import type { JournalAssetApi } from '../../../shared/assets';
 import {
   DEFAULT_JOURNAL_LINE_LENGTH,
   JOURNAL_FONT_SIZES,
-  RICH_TEXT_SCHEMA_VERSION,
   type JournalLineLength,
   type JournalTitleStyle,
-  type RichTextDocumentV1,
+  type RichTextDocument,
 } from '../../../shared/journal';
 import {
   JOURNAL_FONT_OPTIONS,
@@ -72,55 +71,14 @@ interface ToolbarMenuProps {
 }
 
 function ToolbarMenu({ children, disabled = false, label }: ToolbarMenuProps) {
-  const detailsRef = useRef<HTMLDetailsElement>(null);
   return (
-    <details
-      ref={detailsRef}
+    <Dropdown
       className={styles.menuControl}
-      onBlur={(event) => {
-        if (!(event.relatedTarget instanceof HTMLElement) ||
-          !event.currentTarget.contains(event.relatedTarget)) {
-          event.currentTarget.open = false;
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || !event.currentTarget.open) return;
-        event.preventDefault();
-        event.currentTarget.open = false;
-        event.currentTarget.querySelector('summary')?.focus();
-      }}
+      disabled={disabled}
+      label={label}
     >
-      <summary
-        aria-disabled={disabled || undefined}
-        aria-label={label}
-        role="button"
-        tabIndex={disabled ? -1 : undefined}
-        title={label}
-        onClick={(event) => {
-          if (disabled) event.preventDefault();
-        }}
-        onKeyDown={(event) => {
-          if (disabled && (event.key === 'Enter' || event.key === ' ')) {
-            event.preventDefault();
-          }
-        }}
-      >
-        <span>{label}</span>
-        <ChevronDown aria-hidden size="0.9rem" strokeWidth={1.7} />
-      </summary>
-      <div
-        aria-label={`${label} options`}
-        className={styles.menuPanel}
-        role="group"
-        onClick={(event) => {
-          if (event.target instanceof Element && event.target.closest('button')) {
-            detailsRef.current!.open = false;
-          }
-        }}
-      >
-        {children}
-      </div>
-    </details>
+      {children}
+    </Dropdown>
   );
 }
 
@@ -257,12 +215,12 @@ async function fileToBase64(file: File): Promise<string> {
 interface RichTextEditorProps {
   assetApi: JournalAssetApi;
   campaignId: string;
-  content: RichTextDocumentV1;
+  content: RichTextDocument;
   documentKey: string;
   editable: boolean;
   onBodyFocus?: () => void;
   onBlur?: () => void;
-  onChange?: (content: RichTextDocumentV1) => void;
+  onChange?: (content: RichTextDocument) => void;
   onChooseImage?: (insert: (assetId: string) => void) => void;
   titleFormatting?: {
     onChange: (style: JournalTitleStyle) => void;
@@ -345,9 +303,8 @@ export function RichTextEditor({
     immediatelyRender: false,
     onBlur: () => onBlurRef.current?.(),
     onUpdate: ({ editor: instance }) => onChangeRef.current?.({
-      doc: instance.getJSON() as RichTextDocumentV1['doc'],
+      doc: instance.getJSON() as RichTextDocument['doc'],
       lineLength: lineLengthRef.current,
-      schemaVersion: RICH_TEXT_SCHEMA_VERSION,
     }),
   }, [assetApi, campaignId, editable, previewCache]);
 
@@ -423,17 +380,14 @@ export function RichTextEditor({
     disabled = false,
     Icon?: LucideIcon,
   ) => (
-    <button
+    <DropdownOption
       key={label}
-      aria-pressed={active}
-      className={Icon ? `${styles.menuItem} ${styles.menuItemWithIcon}` : styles.menuItem}
+      active={active}
       disabled={disabled || (!editable && !titleTarget)}
-      type="button"
-      onClick={action}
-    >
-      {Icon ? <Icon aria-hidden className={styles.menuItemIcon} size="1rem" /> : null}
-      <span>{label}</span>
-    </button>
+      icon={Icon ? <Icon aria-hidden size="1rem" /> : undefined}
+      label={label}
+      onSelect={action}
+    />
   );
   const applyTextColor = (value: string | null) => {
     if (titleFormatting) {
@@ -561,9 +515,8 @@ export function RichTextEditor({
             () => {
               setLineLength(option.value);
               onChange?.({
-                doc: editor.getJSON() as RichTextDocumentV1['doc'],
+                doc: editor.getJSON() as RichTextDocument['doc'],
                 lineLength: option.value,
-                schemaVersion: RICH_TEXT_SCHEMA_VERSION,
               });
             },
             lineLength === option.value,

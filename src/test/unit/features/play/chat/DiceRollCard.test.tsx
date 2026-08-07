@@ -5,7 +5,7 @@ import {
   PendingDiceRollCard,
 } from '../../../../../features/play/chat/DiceRollCard';
 import type {
-  ChatRollCardV1,
+  ChatRollCard,
   ChatRollDieNode,
 } from '../../../../../shared/chatRoll';
 
@@ -29,7 +29,7 @@ function die(sides: number, value: number): ChatRollDieNode {
   };
 }
 
-function card(sides: number, value: number, total = value): ChatRollCardV1 {
+function card(sides: number, value: number, total = value): ChatRollCard {
   return {
     category: 'Damage',
     sections: [
@@ -44,7 +44,6 @@ function card(sides: number, value: number, total = value): ChatRollCardV1 {
       },
     ],
     title: 'Fixture',
-    version: 1,
   };
 }
 
