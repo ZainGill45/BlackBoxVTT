@@ -40,6 +40,25 @@ function unavailable<T>(): JournalResult<T> {
   };
 }
 
+/**
+ * Drops the routing key from a request before it reaches a runtime. Every IPC
+ * input carries `campaignId` so the manager can resolve a runtime, but the
+ * resolved runtime is already scoped to that campaign and a joined runtime
+ * forwards what it is handed straight onto the wire, where the host rejects
+ * unrecognized keys by closing the connection. The transports declare
+ * `Omit<…, 'campaignId'>`, which describes the intent but cannot enforce it:
+ * excess property checks do not apply to a value passed by reference.
+ */
+function forwarded<T extends { campaignId: string }>(
+  input: T,
+): Omit<T, 'campaignId'> {
+  const request = { ...input } as Omit<T, 'campaignId'> & {
+    campaignId?: string;
+  };
+  delete request.campaignId;
+  return request;
+}
+
 export class JournalManager extends EventEmitter {
   constructor(private readonly runtimes: CampaignRuntimeRegistry) {
     super();
@@ -98,7 +117,7 @@ export class JournalManager extends EventEmitter {
   async updateEntryData(input: UpdateJournalEntryDataInput): Promise<JournalResult<JournalEntry>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     const result = runtime
-      ? await runtime.journal.updateEntryData(input)
+      ? await runtime.journal.updateEntryData(forwarded(input))
       : unavailable<JournalEntry>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'content' });
     return result;
@@ -107,7 +126,7 @@ export class JournalManager extends EventEmitter {
   async updateEntryPermissions(input: UpdateJournalEntryPermissionsInput): Promise<JournalResult<JournalEntry>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     const result = runtime
-      ? await runtime.journal.updateEntryPermissions(input)
+      ? await runtime.journal.updateEntryPermissions(forwarded(input))
       : unavailable<JournalEntry>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'permissions' });
     return result;
@@ -125,7 +144,7 @@ export class JournalManager extends EventEmitter {
   async updateNotePermissions(input: UpdateJournalNotePermissionsInput): Promise<JournalResult<NoteEntry>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     const result = runtime
-      ? await runtime.journal.updateNotePermissions(input)
+      ? await runtime.journal.updateNotePermissions(forwarded(input))
       : unavailable<NoteEntry>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'permissions' });
     return result;
@@ -160,7 +179,7 @@ export class JournalManager extends EventEmitter {
   async updatePagePermissions(input: UpdateJournalPagePermissionsInput): Promise<JournalResult<JournalPage>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
     const result = runtime
-      ? await runtime.journal.updatePagePermissions(input)
+      ? await runtime.journal.updatePagePermissions(forwarded(input))
       : unavailable<JournalPage>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, pageId: input.pageId, type: 'permissions' });
     return result;
@@ -185,42 +204,42 @@ export class JournalManager extends EventEmitter {
 
   async moveNote(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.moveNote(input) : unavailable<JournalManifest>();
+    const result = runtime ? await runtime.journal.moveNote(forwarded(input)) : unavailable<JournalManifest>();
     if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
     return result;
   }
 
   async moveEntry(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.moveEntry(input) : unavailable<JournalManifest>();
+    const result = runtime ? await runtime.journal.moveEntry(forwarded(input)) : unavailable<JournalManifest>();
     if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
     return result;
   }
 
   async reorderNotes(input: ReorderJournalEntriesInput): Promise<JournalResult<JournalManifest>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.reorderNotes(input) : unavailable<JournalManifest>();
+    const result = runtime ? await runtime.journal.reorderNotes(forwarded(input)) : unavailable<JournalManifest>();
     if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
     return result;
   }
 
   async reorderEntries(input: ReorderJournalGroupInput): Promise<JournalResult<JournalManifest>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.reorderEntries(input) : unavailable<JournalManifest>();
+    const result = runtime ? await runtime.journal.reorderEntries(forwarded(input)) : unavailable<JournalManifest>();
     if (result.ok) this.changed({ campaignId: input.campaignId, type: 'structure' });
     return result;
   }
 
   async movePage(input: MoveJournalPageInput): Promise<JournalResult<NoteEntry>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.movePage(input) : unavailable<NoteEntry>();
+    const result = runtime ? await runtime.journal.movePage(forwarded(input)) : unavailable<NoteEntry>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'structure' });
     return result;
   }
 
   async reorderPages(input: ReorderJournalPagesInput): Promise<JournalResult<NoteEntry>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.reorderPages(input) : unavailable<NoteEntry>();
+    const result = runtime ? await runtime.journal.reorderPages(forwarded(input)) : unavailable<NoteEntry>();
     if (result.ok) this.changed({ campaignId: input.campaignId, entryId: input.entryId, type: 'structure' });
     return result;
   }
@@ -232,7 +251,7 @@ export class JournalManager extends EventEmitter {
 
   async deleteTarget(input: DeleteJournalTargetInput): Promise<JournalResult<JournalDeleteResult>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    const result = runtime ? await runtime.journal.deleteTarget(input) : unavailable<JournalDeleteResult>();
+    const result = runtime ? await runtime.journal.deleteTarget(forwarded(input)) : unavailable<JournalDeleteResult>();
     if (result.ok) {
       this.changed({
         campaignId: input.campaignId,

@@ -22,6 +22,7 @@ import {
   type SceneText,
 } from '../../../../shared/scenes';
 import { ConnectionHistoryRepository } from '../../../../main/network/connectionHistoryRepository';
+import { JournalManager } from '../../../../main/journalManager';
 import { NetworkManager } from '../../../../main/network/networkManager';
 import { ServerConfigRepository } from '../../../../main/network/serverConfigRepository';
 import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
@@ -94,6 +95,7 @@ let bobUserId: string;
 let importedAssetId: string;
 let initialSceneId: string;
 let presentedSceneId: string;
+let characterEntryId: string;
 
 const hostChatEvents: ChatEvent[] = [];
 const playerChatEvents: ChatEvent[] = [];
@@ -648,6 +650,42 @@ describe('Journal over the network', () => {
     });
     await expect((await joinedRuntime(observer)).journal.list()).resolves.not.toMatchObject({
       value: { entries: expect.arrayContaining([expect.objectContaining({ id: created.value.id })]) },
+    });
+    characterEntryId = created.value.id;
+  });
+
+  it('keeps the player connected when a sheet edit arrives through the Journal manager', async () => {
+    const runtimes = managerRuntimes.get(player);
+    if (!runtimes) throw new Error('Expected the player runtime registry.');
+    const remote = (await joinedRuntime(player)).journal;
+    const before = await remote.getEntry(characterEntryId);
+    if (!before.ok || before.value.kind !== 'system') throw new Error('Expected the remote Character.');
+
+    // The renderer reaches the transport through the manager, never directly,
+    // and every IPC request it sends carries the campaign it is routed by. A
+    // request the host cannot parse costs the whole session rather than the
+    // edit, so this drives the production path instead of the transport alone.
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.className = 'Druid';
+    const saved = await new JournalManager(runtimes).updateEntryData({
+      campaignId,
+      data,
+      entryId: characterEntryId,
+      expectedRevision: before.value.revision,
+    });
+    expect(saved).toMatchObject({ ok: true, value: { data: { identity: { className: 'Druid' } } } });
+
+    // A dropped player fails here: the session behind this runtime is gone.
+    await expect(remote.getEntry(characterEntryId)).resolves.toMatchObject({
+      ok: true,
+      value: { data: { identity: { className: 'Druid' } } },
+    });
+    await vi.waitFor(async () => {
+      const hostRuntime = await managerRuntimes.get(host)?.resolve(campaignId);
+      await expect(hostRuntime?.journal.getEntry(characterEntryId)).resolves.toMatchObject({
+        ok: true,
+        value: { data: { identity: { className: 'Druid' } } },
+      });
     });
   });
 });
