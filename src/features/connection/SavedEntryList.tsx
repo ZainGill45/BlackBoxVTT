@@ -58,22 +58,13 @@ export function SavedEntryList({
               <div className={styles.savedEntryActions}>
                 <Button
                   size="compact"
-                  variant="secondary"
-                  aria-label={`Export ${entry.title}`}
-                  disabled={isUnavailable || isDeleting || isExporting}
-                  onClick={() => onExport(entry.id)}
-                >
-                  {isExporting ? 'Exportingâ€¦' : 'Export'}
-                </Button>
-                <Button
-                  size="compact"
                   variant="danger"
                   aria-label={
                     isDeleting
                       ? `Deleting ${entry.title}`
                       : isPendingDelete
-                      ? `Confirm deletion of ${entry.title}`
-                      : `Delete ${entry.title}`
+                        ? `Confirm deletion of ${entry.title}`
+                        : `Delete ${entry.title}`
                   }
                   aria-pressed={isPendingDelete}
                   disabled={isDeleting || isExporting}
@@ -84,6 +75,15 @@ export function SavedEntryList({
                     : isPendingDelete
                       ? 'Confirm'
                       : 'Delete'}
+                </Button>
+                <Button
+                  size="compact"
+                  variant="secondary"
+                  aria-label={`Export ${entry.title}`}
+                  disabled={isUnavailable || isDeleting || isExporting}
+                  onClick={() => onExport(entry.id)}
+                >
+                  {isExporting ? 'Exporting' : 'Export'}
                 </Button>
                 <Button
                   size="compact"
