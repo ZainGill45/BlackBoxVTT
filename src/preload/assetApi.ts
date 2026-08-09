@@ -31,6 +31,10 @@ export function createAssetApi(ipc: AssetIpcRenderer): AssetApi {
       >,
     list: (input) =>
       ipc.invoke(assetIpcChannels.list, input) as ReturnType<AssetApi['list']>,
+    listUsers: (input) =>
+      ipc.invoke(assetIpcChannels.listUsers, input) as ReturnType<
+        AssetApi['listUsers']
+      >,
     importImageBytes: (input) =>
       ipc.invoke(assetIpcChannels.importImageBytes, input) as ReturnType<
         AssetApi['importImageBytes']
@@ -60,6 +64,10 @@ export function createAssetApi(ipc: AssetIpcRenderer): AssetApi {
     reorder: (input) =>
       ipc.invoke(assetIpcChannels.reorder, input) as ReturnType<
         AssetApi['reorder']
+      >,
+    updatePermissions: (input) =>
+      ipc.invoke(assetIpcChannels.updatePermissions, input) as ReturnType<
+        AssetApi['updatePermissions']
       >,
     trash: (input) =>
       ipc.invoke(assetIpcChannels.trash, input) as ReturnType<

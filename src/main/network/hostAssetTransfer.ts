@@ -66,6 +66,13 @@ export class HostAssetTransfer {
     manifest: Awaited<ReturnType<AssetRepository['readManifest']>>,
   ) {
     const subject = actorFor(client);
+    const access = this.assetRepository.accessByAsset(subject);
+    /* The manifest stays whole. A client only downloads what its manifest
+       lists, so withholding rows here would stop a map image or an embedded
+       Journal image from ever reaching the player who can already see the
+       content using it. What each asset carries instead is the access the
+       Game Master gave: `list` is what keeps it out of their Storage library,
+       and rename and delete are refused here as well as hidden there. */
     return {
       campaignCapabilities: getAssetCapabilities(
         this.assetPolicy,
@@ -78,9 +85,15 @@ export class HostAssetTransfer {
           this.assetPolicy,
           subject,
           asset,
+          access.get(asset.id),
         ),
       })),
     };
+  }
+
+  /** The subject's access to one asset, for authorizing a single request. */
+  private accessTo(client: HostClient, assetId: string) {
+    return this.assetRepository.accessByAsset(actorFor(client)).get(assetId);
   }
 
   /** Routes authenticated asset protocol requests away from host transport. */
@@ -141,6 +154,7 @@ export class HostAssetTransfer {
         (candidate) => candidate.id === input.assetId,
       );
       if (!this.assetPolicy.authorize({
+        access: this.accessTo(client, input.assetId),
         action: 'rename',
         asset,
         subject: actorFor(client),
@@ -198,6 +212,7 @@ export class HostAssetTransfer {
         (candidate) => candidate.id === input.assetId,
       );
       if (!this.assetPolicy.authorize({
+        access: this.accessTo(client, input.assetId),
         action: 'delete',
         asset,
         subject: actorFor(client),

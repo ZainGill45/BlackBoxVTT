@@ -22,7 +22,10 @@ type PlayerSceneService = Pick<
   | 'applyPlayerHistory'
   | 'beginPlayerTransform'
   | 'cancelTransform'
+  | 'listForPlayer'
   | 'setPlayerObjects'
+  | 'trashForPlayer'
+  | 'updateForPlayer'
 >;
 
 interface HostSceneRequestHandlerOptions {
@@ -59,6 +62,47 @@ export class HostSceneRequestHandler {
   ): Promise<boolean> {
     if (!client.user) {
       return false;
+    }
+    if (envelope.type === 'client.scene_list') {
+      parsePayload('client.scene_list', envelope.payload);
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.scene_manifest',
+        await this.options.scenes.listForPlayer(client.user.id),
+        envelope.requestId,
+      );
+      return true;
+    }
+    if (envelope.type === 'client.scene_update') {
+      const input = parsePayload('client.scene_update', envelope.payload);
+      const result = await this.options.scenes.updateForPlayer(
+        client.user.id,
+        input,
+      );
+      this.sendResult(client, result, envelope.requestId);
+      if (result.ok) await this.options.onSceneMutation();
+      return true;
+    }
+    if (envelope.type === 'client.scene_trash') {
+      const input = parsePayload('client.scene_trash', envelope.payload);
+      const result = await this.options.scenes.trashForPlayer(
+        client.user.id,
+        input,
+      );
+      /* Deleting answers with the caller's remaining library rather than a
+         scene, because the scene it names is gone. */
+      if (!result.ok) {
+        this.sendResult(client, result, envelope.requestId);
+        return true;
+      }
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.scene_manifest',
+        await this.options.scenes.listForPlayer(client.user.id),
+        envelope.requestId,
+      );
+      await this.options.onSceneMutation();
+      return true;
     }
     if (envelope.type === 'client.scene_drawing_preview') {
       const input = parsePayload(

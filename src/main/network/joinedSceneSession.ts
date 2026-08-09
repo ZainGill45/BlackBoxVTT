@@ -14,11 +14,14 @@ import type { CampaignClient } from './campaignClient';
 type SceneClient = Pick<
   CampaignClient,
   | 'cancelSceneTransform'
+  | 'listScenes'
   | 'redoSceneEdit'
   | 'sendSceneTransformPreview'
   | 'setSceneObjects'
   | 'startSceneTransform'
+  | 'trashScene'
   | 'undoSceneEdit'
+  | 'updateScene'
 >;
 
 interface JoinedSceneSessionOptions {
@@ -60,6 +63,9 @@ export class JoinedSceneSession {
     return {
       cancelTransform: (input) => this.cancelTransform(input),
       getActiveScene: () => this.getActiveScene(campaignId),
+      listScenes: () => this.client.listScenes(),
+      trashScene: (input) => this.client.trashScene(input),
+      updateScene: (input) => this.client.updateScene(input),
       redo: (input) => this.redo(input),
       setObjects: (input) => this.setObjects(input),
       startTransform: (input) => this.startTransform(input),

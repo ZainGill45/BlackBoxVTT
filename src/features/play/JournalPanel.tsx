@@ -22,14 +22,14 @@ import type { CampaignSystemState } from '../../shared/gameSystems';
 import {
   type JournalApi,
   type JournalDeletePreview,
+  type JournalEntry,
   type JournalEntrySummary,
   type JournalManifest,
-  type JournalPermissionSubject,
   MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
   type NoteEntry,
   type SystemJournalEntry,
-  type SystemJournalEntrySummary,
 } from '../../shared/journal';
+import type { PermissionSubject } from '../../shared/permissions';
 import {
   createDefaultCampaignSystemState,
   listJournalEntryTypeDefinitions,
@@ -46,8 +46,9 @@ import {
   SidebarCollectionGroup,
   SidebarCollectionPanel,
 } from './SidebarCollectionPanel';
-import { JournalEntryPermissionsModal } from './journal/JournalEntryPermissionsModal';
+import { PermissionsModal } from '../../components/ui/PermissionsModal';
 import { NoteModal } from './journal/NoteModal';
+import { journalEntryPermissionSubject } from './journal/permissionSubjects';
 import styles from './JournalPanel.module.css';
 
 interface JournalPanelProps {
@@ -205,16 +206,15 @@ function ConnectedJournalPanel({
   const [selectedNote, setSelectedNote] = useState<{
     note: NoteEntry;
     pageId?: string;
-    showPermissions?: boolean;
   } | null>(null);
   const [selectedSystemEntry, setSelectedSystemEntry] = useState<SystemJournalEntry | null>(null);
-  const [editingPermissions, setEditingPermissions] = useState<SystemJournalEntrySummary | null>(null);
+  const [editingPermissions, setEditingPermissions] = useState<JournalEntrySummary | null>(null);
   const [deleteRequest, setDeleteRequest] = useState<{
     entry: JournalEntrySummary;
     preview: JournalDeletePreview;
   } | null>(null);
   const [cleanupIds, setCleanupIds] = useState<string[]>([]);
-  const [users, setUsers] = useState<JournalPermissionSubject[]>([]);
+  const [users, setUsers] = useState<PermissionSubject[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reorderState, setReorderState] = useState<ReorderState | null>(null);
   const menu = useRef<ContextMenuController | null>(null);
@@ -254,6 +254,33 @@ function ConnectedJournalPanel({
         }
       : current);
   }, [refresh]);
+
+  const acceptUpdatedPermissions = useCallback((updated: JournalEntry) => {
+    setEditingPermissions(updated);
+    setManifest((current) => current
+      ? {
+          ...current,
+          entries: current.entries.map((entry) => entry.id === updated.id ? updated : entry),
+        }
+      : current);
+    setSelectedSystemEntry((current) =>
+      current?.id === updated.id && updated.kind === 'system' ? updated : current);
+  }, []);
+
+  /* Built once per subject so the editor is not handed a fresh commit closure
+     on every render of the panel behind it. */
+  const permissionSubject = useMemo(
+    () => editingPermissions?.permissions
+      ? journalEntryPermissionSubject({
+          campaignId,
+          entry: editingPermissions,
+          journalApi,
+          onUpdated: acceptUpdatedPermissions,
+          users,
+        })
+      : null,
+    [acceptUpdatedPermissions, campaignId, editingPermissions, journalApi, users],
+  );
 
   const acceptUpdatedEntry = useCallback((updated: SystemJournalEntry) => {
     setManifest((current) => current
@@ -439,7 +466,7 @@ function ConnectedJournalPanel({
     setDeleteRequest({ entry, preview: result.value });
   };
 
-  const openSystemEntry = async (entry: SystemJournalEntrySummary) => {
+  const openSystemEntry = async (entry: JournalEntrySummary) => {
     const result = await journalApi.getEntry({ campaignId, entryId: entry.id });
     if (!result.ok) {
       setError(result.error.message);
@@ -483,9 +510,7 @@ function ConnectedJournalPanel({
       entries.push({
         kind: 'action',
         label: 'Edit Permissions',
-        onSelect: () => entry.kind === 'note'
-          ? setSelectedNote({ note: entry, pageId: entry.pages[0]?.id, showPermissions: true })
-          : setEditingPermissions(entry),
+        onSelect: () => setEditingPermissions(entry),
       });
     }
     if (entry.capabilities.reorder) {
@@ -674,7 +699,6 @@ function ConnectedJournalPanel({
           assetApi={assetApi}
           campaignId={campaignId}
           initialPageId={selectedNote.pageId}
-          initialShowPermissions={selectedNote.showPermissions}
           journalApi={journalApi}
           note={selectedNote.note}
           onClose={() => setSelectedNote(null)}
@@ -694,22 +718,10 @@ function ConnectedJournalPanel({
         />
       ) : null}
 
-      {editingPermissions?.permissions ? (
-        <JournalEntryPermissionsModal
-          entry={editingPermissions}
+      {permissionSubject ? (
+        <PermissionsModal
           onDismiss={() => setEditingPermissions(null)}
-          onSave={async (permissions) => {
-            const result = await journalApi.updateEntryPermissions({
-              campaignId,
-              entryId: editingPermissions.id,
-              expectedRevision: editingPermissions.revision,
-              permissions,
-            });
-            if (!result.ok) return result.error.message;
-            if (result.value.kind === 'system') acceptUpdatedEntry(result.value);
-            return null;
-          }}
-          users={users}
+          subject={permissionSubject}
         />
       ) : null}
 

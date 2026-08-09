@@ -6,7 +6,6 @@ import type {
   JournalAssetDependent,
   JournalManifest,
   JournalPage,
-  JournalPermissionSubject,
   JournalResult,
   MoveJournalEntryInput,
   MoveJournalPageInput,
@@ -20,6 +19,9 @@ import type {
   UpdateJournalEntryPermissionsInput,
   UpdateJournalPagePermissionsInput,
 } from '../shared/journal';
+import type {
+  PermissionSubject,
+} from '../shared/permissions';
 import type { LocalCampaignWorkspace } from './campaignWorkspace';
 
 export interface JoinedJournalTransport {
@@ -34,7 +36,7 @@ export interface JoinedJournalTransport {
   getEntry(entryId: string): Promise<JournalResult<JournalEntry>>;
   getPage(entryId: string, pageId: string): Promise<JournalResult<JournalPage>>;
   list(): Promise<JournalResult<JournalManifest>>;
-  listUsers(): Promise<JournalResult<JournalPermissionSubject[]>>;
+  listUsers(): Promise<JournalResult<PermissionSubject[]>>;
   moveNote(input: Omit<MoveJournalEntryInput, 'campaignId'>): Promise<JournalResult<JournalManifest>>;
   moveEntry(input: Omit<MoveJournalEntryInput, 'campaignId'>): Promise<JournalResult<JournalManifest>>;
   movePage(input: Omit<MoveJournalPageInput, 'campaignId'>): Promise<JournalResult<NoteEntry>>;

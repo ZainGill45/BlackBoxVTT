@@ -385,8 +385,11 @@ export class HostedCampaignSession implements CampaignNetworkSession {
     return this.server.broadcastAssetsChanged();
   }
 
-  notifyScenePresented(): Promise<void> {
-    return this.server.broadcastActiveScene();
+  async notifyScenePresented(): Promise<void> {
+    await this.server.broadcastActiveScene();
+    /* The Game Master's own edits move the library too, so every player's
+       Scenes tab is re-projected alongside what the table is looking at. */
+    await this.server.broadcastSceneLibraries();
   }
 
   notifyJournalChanged(event: {

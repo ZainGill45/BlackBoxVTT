@@ -21,6 +21,7 @@ const capabilities: AssetCapability = {
   delete: true,
   import: true,
   list: true,
+  managePermissions: true,
   preview: true,
   read: true,
   rename: true,
@@ -34,6 +35,8 @@ function asset(format: AssetView['format'], kind: AssetView['kind']): AssetView 
   return {
     available: true,
     capabilities,
+    permissionRevision: 0,
+    permissions: { allPlayers: 'none' as const, overrides: [] },
     chunkHashes: [],
     createdAt: '2026-01-01T00:00:00.000Z',
     createdBy: 'gm',

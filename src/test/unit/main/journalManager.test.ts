@@ -165,7 +165,7 @@ const forwardingOperations: readonly {
       manager.updateEntryPermissions({
         campaignId,
         entryId,
-        expectedRevision: 4,
+        expectedPermissionRevision: 4,
         permissions: entryPermissions,
       }),
     messageType: 'client.journal_update_entry_permissions',
@@ -176,7 +176,7 @@ const forwardingOperations: readonly {
       manager.updateNotePermissions({
         campaignId,
         entryId,
-        expectedRevision: 4,
+        expectedPermissionRevision: 4,
         permissions: entryPermissions,
       }),
     messageType: 'client.journal_update_note_permissions',

@@ -28,11 +28,11 @@ import {
   type JournalDeleteTarget,
   type NoteEntry,
   type JournalPage,
-  type JournalPermissionSubject,
   type JournalResult,
   type JournalTitleStyle,
   type RichTextDocument,
 } from '../../../shared/journal';
+import type { PermissionSubject } from '../../../shared/permissions';
 import {
   DELETE_CONFIRMATION_TIMEOUT_MS,
   useDeleteConfirmation,
@@ -40,10 +40,11 @@ import {
 import { MapImageChooserModal } from '../scenes/MapImageChooserModal';
 import type { AssetThumbnail } from '../scenes/useAssetThumbnails';
 import { RichTextEditor } from './RichTextEditor';
+import { PermissionsModal } from '../../../components/ui/PermissionsModal';
 import {
-  JournalPermissionsModal,
-  type JournalPermissionDraft,
-} from './JournalPermissionsModal';
+  journalEntryPermissionSubject,
+  journalPagePermissionSubject,
+} from './permissionSubjects';
 import { journalTitleStyleProperties } from './titleStyles';
 import styles from './NoteModal.module.css';
 
@@ -53,12 +54,11 @@ interface NoteModalProps {
   assetApi: AssetApi;
   campaignId: string;
   initialPageId?: string;
-  initialShowPermissions?: boolean;
   journalApi: JournalApi;
   note: NoteEntry;
   onClose: () => void;
   onUpdated: (note: NoteEntry | null) => void;
-  users: JournalPermissionSubject[];
+  users: PermissionSubject[];
 }
 
 interface DeleteRequest {
@@ -71,20 +71,8 @@ interface ActiveLease {
   pageId: string;
 }
 
-function samePermissions<TAccess extends string>(
-  left: { allPlayers: TAccess; overrides: Array<{ access: TAccess; userId: string }> },
-  right: { allPlayers: TAccess; overrides: Array<{ access: TAccess; userId: string }> },
-): boolean {
-  if (left.allPlayers !== right.allPlayers || left.overrides.length !== right.overrides.length) {
-    return false;
-  }
-  return left.overrides.every((override) =>
-    right.overrides.some(
-      (candidate) =>
-        candidate.userId === override.userId && candidate.access === override.access,
-    ),
-  );
-}
+/** Which single subject the permissions editor is open for, if any. */
+type PermissionTarget = { kind: 'note' } | { kind: 'page'; pageId: string };
 
 const JOURNAL_EDIT_LEASE_RETRY_MS = 500;
 const EMPTY_IMAGE_THUMBNAILS: ReadonlyMap<string, AssetThumbnail> = new Map();
@@ -117,7 +105,6 @@ export function NoteModal({
   assetApi,
   campaignId,
   initialPageId,
-  initialShowPermissions = false,
   journalApi,
   note,
   onClose,
@@ -139,10 +126,7 @@ export function NoteModal({
   const [pageMessage, setPageMessage] = useState<string | null>(null);
   const [pageLoadVersion, setPageLoadVersion] = useState(0);
   const [search, setSearch] = useState('');
-  const [showPermissions, setShowPermissions] = useState(
-    initialShowPermissions,
-  );
-  const [permissionPageId, setPermissionPageId] = useState<string | undefined>();
+  const [permissionTarget, setPermissionTarget] = useState<PermissionTarget | null>(null);
   const [formattingTarget, setFormattingTarget] = useState<'body' | 'note'>('body');
   const [chooser, setChooser] = useState<((assetId: string) => void) | null>(
     null,
@@ -179,7 +163,6 @@ export function NoteModal({
   const noteMutationQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const nameSaveInFlightRef = useRef<Promise<boolean> | null>(null);
   const pageSaveInFlightRef = useRef<Promise<boolean> | null>(null);
-  const pendingPermissionSavesRef = useRef(new Set<Promise<boolean>>());
   const pageMenu = useRef<ContextMenuController | null>(null);
   const pageListRef = useRef<HTMLOListElement>(null);
   const pageOrder = useRef<OrderedCollectionController | null>(null);
@@ -554,7 +537,7 @@ export function NoteModal({
   useEffect(() => {
     let active = true;
     let retryTimer: number | null = null;
-    if (showPermissions) return () => { active = false; };
+    if (permissionTarget) return () => { active = false; };
     const selectedPageId = pageId;
     pageIdRef.current = selectedPageId;
     pageRef.current = null;
@@ -651,7 +634,7 @@ export function NoteModal({
       active = false;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
     };
-  }, [acceptPage, campaignId, journalApi, pageId, pageLoadVersion, showPermissions]);
+  }, [acceptPage, campaignId, journalApi, pageId, pageLoadVersion, permissionTarget]);
 
   useEffect(() => {
     if (!leaseId) return undefined;
@@ -758,35 +741,30 @@ export function NoteModal({
       await releaseLease();
       pageIdRef.current = nextPageId;
       setPageId(nextPageId);
-      setShowPermissions(false);
+      setPermissionTarget(null);
       return true;
     },
     [pageReorder, releaseLease, savePage],
   );
 
-  const openPermissions = useCallback(async (nextPageId?: string) => {
+  const openPermissions = useCallback(async (target: PermissionTarget) => {
     if (!await saveName()) return;
-    if (nextPageId && nextPageId !== pageIdRef.current) {
-      if (!await switchPage(nextPageId)) return;
+    if (target.kind === 'page' && target.pageId !== pageIdRef.current) {
+      if (!await switchPage(target.pageId)) return;
     } else if (!await savePage()) {
       return;
     }
     await releaseLease();
-    setPermissionPageId(nextPageId);
-    setShowPermissions(true);
+    setPermissionTarget(target);
   }, [releaseLease, saveName, savePage, switchPage]);
 
   const close = useCallback(async () => {
     setCloseFailed(false);
-    const permissionResults = await Promise.all([
-      ...pendingPermissionSavesRef.current,
-    ]);
-    const permissionsSaved = permissionResults.every(Boolean);
     const [nameSaved, pageSaved] = await Promise.all([
       saveName(),
       savePage(),
     ]);
-    if (!permissionsSaved || !nameSaved || !pageSaved) {
+    if (!nameSaved || !pageSaved) {
       setCloseFailed(true);
       return;
     }
@@ -809,66 +787,33 @@ export function NoteModal({
     await releaseLease();
   }, [onClose, releaseLease]);
 
-  const savePermissions = (draft: JournalPermissionDraft) => {
-    setPageStatus('saving');
-    const pending = (async (): Promise<string | null> => {
-      const currentPermissions = currentRef.current.permissions;
-      if (currentPermissions && !samePermissions(currentPermissions, draft.note)) {
-        let failureMessage = 'The note permissions could not be saved.';
-        const noteSaved = await queueNoteMutation((active) =>
-          journalApi.updateNotePermissions({
-            campaignId,
-            entryId: active.id,
-            expectedRevision: active.revision,
-            permissions: draft.note,
-          }),
-          (message) => { failureMessage = message; },
-        );
-        if (!noteSaved) {
-          await refreshCurrent();
-          setPageStatus('failed');
-          return failureMessage;
-        }
-      }
-      for (const summary of currentRef.current.pages) {
-        const permissions = draft.pages[summary.id];
-        if (!permissions || !summary.permissions || samePermissions(summary.permissions, permissions)) {
-          continue;
-        }
-        const result = await journalApi.updatePagePermissions({
-          campaignId,
-          entryId: currentRef.current.id,
-          expectedPermissionRevision: summary.permissionRevision,
-          pageId: summary.id,
-          permissions,
-        });
-        if (!result.ok) {
-          const message = result.error.message;
-          await refreshCurrent();
-          setPageStatus('failed');
-          return message;
-        }
-        if (pageIdRef.current === result.value.id) acceptPage(result.value);
-        const active = currentRef.current;
-        acceptCurrent({
-          ...active,
-          pages: active.pages.map((page) =>
-            page.id === result.value.id ? pageSummary(result.value) : page,
-          ),
-        });
-      }
-      const refreshed = await refreshCurrent();
-      if (!refreshed) return 'The updated permissions could not be reloaded.';
-      setPageStatus('saved');
-      return null;
-    })();
-    const tracked = pending.then((failure) => failure === null);
-    pendingPermissionSavesRef.current.add(tracked);
-    void tracked.finally(() => {
-      pendingPermissionSavesRef.current.delete(tracked);
-    });
-    return pending;
-  };
+  /* One subject at a time, built once per target so the editor is not handed a
+     fresh commit closure on every keystroke in the note behind it. */
+  const permissionSubject = useMemo(() => {
+    if (!permissionTarget || !current.permissions) return null;
+    if (permissionTarget.kind === 'note') {
+      return journalEntryPermissionSubject({
+        campaignId,
+        entry: current,
+        journalApi,
+        onUpdated: (updated) => {
+          if (updated.kind === 'note') acceptCurrent(updated);
+        },
+        users,
+      });
+    }
+    const target = current.pages.find(({ id }) => id === permissionTarget.pageId);
+    return target?.permissions
+      ? journalPagePermissionSubject({
+        campaignId,
+        journalApi,
+        note: current,
+        onUpdated: acceptCurrent,
+        page: target,
+        users,
+      })
+      : null;
+  }, [acceptCurrent, campaignId, current, journalApi, permissionTarget, users]);
 
   const createPage = async () => {
     if (!await saveName() || !await savePage()) return;
@@ -886,7 +831,7 @@ export function NoteModal({
     await releaseLease();
     pageIdRef.current = result.value.id;
     setPageId(result.value.id);
-    setShowPermissions(false);
+    setPermissionTarget(null);
   };
 
   const deletePreparedTarget = async (
@@ -1096,6 +1041,13 @@ export function NoteModal({
     );
     const index = eligible.findIndex(({ id }) => id === summary.id);
     const entries: ContextMenuEntry[] = [];
+    if (summary.capabilities.managePermissions) {
+      entries.push({
+        kind: 'action',
+        label: 'Edit Page Permissions',
+        onSelect: () => void openPermissions({ kind: 'page', pageId: summary.id }),
+      });
+    }
     if (summary.capabilities.reorder) {
       entries.push(
         {
@@ -1142,13 +1094,6 @@ export function NoteModal({
           onSelect: () => beginPageReorder(summary, event),
         },
       );
-    }
-    if (summary.capabilities.managePermissions) {
-      entries.push({
-        kind: 'action',
-        label: 'Edit Page Permissions',
-        onSelect: () => void openPermissions(summary.id),
-      });
     }
     if (summary.capabilities.delete) {
       entries.push(
@@ -1203,6 +1148,9 @@ export function NoteModal({
         pageListRef.current
           ?.querySelector<HTMLElement>(`[data-page-order-id="${summary.id}"] button`)
           ?.focus(),
+      /* The note is a dialog, so a menu on the document would render beneath
+         its top layer and swallow every click. */
+      pageListRef.current?.closest('dialog') ?? undefined,
     );
   };
 
@@ -1210,15 +1158,15 @@ export function NoteModal({
     const query = search.trim().toLocaleLowerCase();
     return query
       ? current.pages.filter((item) =>
-          item.title.toLocaleLowerCase().includes(query),
-        )
+        item.title.toLocaleLowerCase().includes(query),
+      )
       : current.pages;
   }, [current.pages, search]);
 
   const displayedPages = pageReorder
     ? pageReorder.orderedIds.flatMap(
-        (id) => current.pages.find((item) => item.id === id) ?? [],
-      )
+      (id) => current.pages.find((item) => item.id === id) ?? [],
+    )
     : visiblePages;
   const selectedSummary = current.pages.find((item) => item.id === pageId);
   const canEditPage = Boolean(leaseId && page?.capabilities.edit);
@@ -1226,12 +1174,12 @@ export function NoteModal({
   const deleteTarget = deleteRequest?.preview.target;
   const titleFormatting = formattingTarget === 'note' && current.capabilities.edit
     ? {
-        onChange: (next: JournalTitleStyle) => {
-          nameStyleRef.current = next;
-          setNameStyle(next);
-        },
-        style: nameStyle,
-      }
+      onChange: (next: JournalTitleStyle) => {
+        nameStyleRef.current = next;
+        setNameStyle(next);
+      },
+      style: nameStyle,
+    }
     : null;
 
   return (
@@ -1241,7 +1189,7 @@ export function NoteModal({
         className={styles.modal}
         contentClassName={styles.modalContent}
         initialFocus="dialog"
-        isOpen={!showPermissions && !deleteRequest}
+        isOpen={!permissionTarget && !deleteRequest}
         onDismiss={() => void close()}
       >
         <div className={styles.workspace}>
@@ -1249,7 +1197,7 @@ export function NoteModal({
             <div className={styles.sidebarActions}>
               <Button
                 disabled={!current.capabilities.managePermissions}
-                onClick={() => void openPermissions()}
+                onClick={() => void openPermissions({ kind: 'note' })}
                 size="compact"
               >
                 <ShieldCheck aria-hidden size="1rem" />
@@ -1312,9 +1260,9 @@ export function NoteModal({
                     accessibleLabel={`Name for ${summary.title}`}
                     detail={
                       summary.id === pageId &&
-                      summary.capabilities.edit &&
-                      !leaseId &&
-                      pageMessage
+                        summary.capabilities.edit &&
+                        !leaseId &&
+                        pageMessage
                         ? 'Locked'
                         : pageAccessLabel(summary)
                     }
@@ -1400,25 +1348,19 @@ export function NoteModal({
                 {pageStatus === 'loading'
                   ? 'Opening page…'
                   : pageMessage ??
-                    (selectedSummary
-                      ? 'This page is unavailable.'
-                      : 'This note has no pages.')}
+                  (selectedSummary
+                    ? 'This page is unavailable.'
+                    : 'This note has no pages.')}
               </div>
             )}
           </section>
         </div>
       </Modal>
 
-      {showPermissions && current.permissions ? (
-        <JournalPermissionsModal
-          initialPageId={permissionPageId}
-          note={current}
-          onDismiss={() => {
-            setPermissionPageId(undefined);
-            setShowPermissions(false);
-          }}
-          onSave={savePermissions}
-          users={users}
+      {permissionSubject ? (
+        <PermissionsModal
+          onDismiss={() => setPermissionTarget(null)}
+          subject={permissionSubject}
         />
       ) : null}
 
@@ -1449,13 +1391,12 @@ export function NoteModal({
       <ConfirmModal
         confirmLabel={cleanupIds.length ? 'Delete and clean up' : 'Delete'}
         isOpen={Boolean(deleteRequest)}
-        message={`“${
-          deleteTarget?.kind === 'note'
+        message={`“${deleteTarget?.kind === 'note'
             ? current.name
             : deleteTarget?.kind === 'page'
               ? current.pages.find((item) => item.id === deleteTarget.pageId)?.title ?? 'This page'
               : 'This item'
-        }” contains embedded Storage images. Select any images that should also be moved to trash. Unselected images stay in Storage.`}
+          }” contains embedded Storage images. Select any images that should also be moved to trash. Unselected images stay in Storage.`}
         onCancel={() => setDeleteRequest(null)}
         onConfirm={() => void confirmDelete()}
         title={

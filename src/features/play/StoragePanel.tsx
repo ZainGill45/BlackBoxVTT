@@ -7,7 +7,9 @@ import {
   Trash2,
 } from 'lucide-react';
 import {
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -37,7 +39,10 @@ import {
   DELETE_CONFIRMATION_TIMEOUT_MS,
   useDeleteConfirmation,
 } from '../connection/useDeleteConfirmation';
+import { PermissionsModal } from '../../components/ui/PermissionsModal';
+import type { PermissionSubject } from '../../shared/permissions';
 import { AssetPreviewModal } from './AssetPreviewModal';
+import { assetPermissionSubject } from './assetPermissionSubject';
 import {
   SidebarCollectionGroup,
   SidebarCollectionPanel,
@@ -195,6 +200,8 @@ export function StoragePanel({
   const [progress, setProgress] = useState<AssetProgressEvent | null>(null);
   const [selected, setSelected] = useState<AssetView | null>(null);
   const [preview, setPreview] = useState<AssetPreview | null>(null);
+  const [editingPermissions, setEditingPermissions] = useState<AssetView | null>(null);
+  const [users, setUsers] = useState<PermissionSubject[]>([]);
   const [dependencyPrompt, setDependencyPrompt] = useState<{
     asset: AssetView;
     journal: JournalAssetDependent[];
@@ -248,9 +255,19 @@ export function StoragePanel({
         });
       }
     });
+    /* Only the Game Master is offered the roster, and only the Game Master is
+       ever allowed to read it, so a player's denial is not an error to show. */
+    void assetApi.listUsers({ campaignId }).then((result) => {
+      if (current && result.ok) setUsers(result.value);
+    });
     const removeChanged = assetApi.onChanged((event) => {
       if (event.campaignId === campaignId) {
         setAssets(event.assets);
+        setEditingPermissions((editing) =>
+          editing
+            ? event.assets.find(({ id }) => id === editing.id) ?? null
+            : editing,
+        );
       }
     });
     const removeProgress = assetApi.onProgress((event) => {
@@ -299,6 +316,28 @@ export function StoragePanel({
       active = false;
     };
   }, [assetApi, assets, campaignId, preview, selected]);
+
+  const acceptUpdatedAsset = useCallback((updated: AssetView) => {
+    setEditingPermissions(updated);
+    setAssets((current) =>
+      current.map((asset) => (asset.id === updated.id ? updated : asset)),
+    );
+  }, []);
+
+  /* Built once per asset so the editor is not handed a fresh commit closure on
+     every render of the library behind it. */
+  const permissionSubject = useMemo(
+    () => editingPermissions?.permissions
+      ? assetPermissionSubject({
+        asset: editingPermissions,
+        assetApi,
+        campaignId,
+        onUpdated: acceptUpdatedAsset,
+        users,
+      })
+      : null,
+    [acceptUpdatedAsset, assetApi, campaignId, editingPermissions, users],
+  );
 
   const commitOrder = async (
     kind: AssetKind,
@@ -413,6 +452,13 @@ export function StoragePanel({
       ordered.splice(index + direction, 0, moved);
       void commitOrder(asset.kind, ordered);
     };
+    if (asset.capabilities.managePermissions && asset.permissions) {
+      entries.push({
+        kind: 'action',
+        label: 'Edit Permissions',
+        onSelect: () => setEditingPermissions(asset),
+      });
+    }
     if (asset.capabilities.reorder) {
       entries.push(
         {
@@ -484,15 +530,19 @@ export function StoragePanel({
    * order, so re-sorting here would silently discard whatever the Game Master
    * arranged. Newly imported assets therefore land at the end of their group.
    */
+  /* The library is what the Game Master granted. Assets outside it still
+     arrive, because that is what lets a map image or an embedded Journal image
+     render, but they are not this player's to browse. */
+  const visible = assets.filter(({ capabilities }) => capabilities.list);
   const normalizedQuery = query.normalize('NFKC').trim().toLocaleLowerCase('en-US');
   const filtered = normalizedQuery
-    ? assets.filter((asset) =>
-        asset.displayName
-          .normalize('NFKC')
-          .toLocaleLowerCase('en-US')
-          .includes(normalizedQuery),
-      )
-    : assets;
+    ? visible.filter((asset) =>
+      asset.displayName
+        .normalize('NFKC')
+        .toLocaleLowerCase('en-US')
+        .includes(normalizedQuery),
+    )
+    : visible;
 
   const importAssets = async () => {
     setImporting(true);
@@ -592,8 +642,8 @@ export function StoragePanel({
              rows follow the pointer before anything is persisted. */
           const entries = reorderState?.kind === group.id
             ? reorderState.orderedIds.flatMap(
-                (id) => matching.find((asset) => asset.id === id) ?? [],
-              )
+              (id) => matching.find((asset) => asset.id === id) ?? [],
+            )
             : matching;
           if (entries.length === 0) {
             return null;
@@ -727,6 +777,13 @@ export function StoragePanel({
           ))}
         </ul>
       </ConfirmModal>
+
+      {permissionSubject ? (
+        <PermissionsModal
+          onDismiss={() => setEditingPermissions(null)}
+          subject={permissionSubject}
+        />
+      ) : null}
 
       <ErrorModal
         isOpen={error !== null}

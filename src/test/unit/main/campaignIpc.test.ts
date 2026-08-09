@@ -20,13 +20,14 @@ const campaign: CampaignSummary = {
 };
 
 let handlers: Map<string, (event: unknown, input?: unknown) => unknown>;
+let ipc: CampaignIpcRegistrar;
 let repository: CampaignRepositoryContract;
 let transfer: CampaignTransferContract;
 let unregister: () => void;
 
 beforeEach(() => {
   handlers = new Map();
-  const ipc: CampaignIpcRegistrar = {
+  ipc = {
     handle: vi.fn((channel, listener) => {
       handlers.set(channel, listener);
     }),
@@ -42,6 +43,10 @@ beforeEach(() => {
   transfer = {
     exportCampaign: vi.fn(async () => ({ ok: true as const, value: null })),
     importCampaign: vi.fn(async () => ({ ok: true as const, value: null })),
+    salvageCampaign: vi.fn(async () => ({
+      error: { code: 'unsalvageable' as const, message: 'Not salvageable.' },
+      ok: false as const,
+    })),
   };
   unregister = registerCampaignIpcHandlers(ipc, repository, transfer);
 });
@@ -54,6 +59,7 @@ describe('registerCampaignIpcHandlers', () => {
         campaignIpcChannels.export,
         campaignIpcChannels.import,
         campaignIpcChannels.list,
+        campaignIpcChannels.salvage,
         campaignIpcChannels.trash,
       ].sort(),
     );
@@ -89,6 +95,23 @@ describe('registerCampaignIpcHandlers', () => {
 
     expect(transfer.exportCampaign).toHaveBeenCalledWith(input);
     expect(transfer.importCampaign).toHaveBeenCalledWith();
+  });
+
+  it('releases a campaign before salvaging it, as an outright deletion does', async () => {
+    const beforeTrash = vi.fn(async () => undefined);
+    unregister();
+    unregister = registerCampaignIpcHandlers(
+      ipc,
+      repository,
+      transfer,
+      beforeTrash,
+    );
+    const input = { id: campaign.id };
+
+    await handlers.get(campaignIpcChannels.salvage)?.({}, input);
+
+    expect(beforeTrash).toHaveBeenCalledWith(input);
+    expect(transfer.salvageCampaign).toHaveBeenCalledWith(input);
   });
 
   it('removes every handler on unregister', () => {

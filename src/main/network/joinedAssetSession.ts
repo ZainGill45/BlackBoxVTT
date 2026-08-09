@@ -140,6 +140,10 @@ export class JoinedAssetSession {
                 actor,
                 record,
               ),
+            permissionRevision: 0,
+            /* Only the Game Master edits access, and the Game Master is the
+               host, so a joined view never carries a configuration. */
+            permissions: null,
             syncState: available ? ('ready' as const) : ('syncing' as const),
           };
         }),
@@ -251,6 +255,8 @@ export class JoinedAssetSession {
       value: {
         ...result.value,
         available: true,
+        permissionRevision: 0,
+        permissions: null,
         capabilities:
           this.permissions.get(result.value.id) ??
           this.campaignCapabilities ??
@@ -315,6 +321,10 @@ export class JoinedAssetSession {
             available,
             capabilities:
               this.permissions.get(record.id) ?? snapshot.campaignCapabilities,
+            permissionRevision: 0,
+            /* Only the Game Master edits access, and the Game Master is the
+               host, so a joined view never carries a configuration. */
+            permissions: null,
             syncState: available ? ('ready' as const) : ('syncing' as const),
           };
         }),

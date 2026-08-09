@@ -14,7 +14,6 @@ import type {
   JournalManifest,
   JournalPage,
   JournalPageInput,
-  JournalPermissionSubject,
   JournalResult,
   MoveJournalEntryInput,
   MoveJournalPageInput,
@@ -32,6 +31,9 @@ import type {
   UpdateJournalPageInput,
   UpdateJournalPagePermissionsInput,
 } from '../shared/journal';
+import type {
+  PermissionSubject,
+} from '../shared/permissions';
 
 function unavailable<T>(): JournalResult<T> {
   return {
@@ -69,7 +71,7 @@ export class JournalManager extends EventEmitter {
     return runtime ? runtime.journal.list() : unavailable();
   }
 
-  async listUsers(campaignId: string): Promise<JournalResult<JournalPermissionSubject[]>> {
+  async listUsers(campaignId: string): Promise<JournalResult<PermissionSubject[]>> {
     const runtime = await this.runtimes.resolve(campaignId);
     return runtime ? runtime.journal.listUsers() : unavailable();
   }

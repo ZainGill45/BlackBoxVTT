@@ -99,7 +99,7 @@ export function registerJournalIpcHandlers(
   });
   handle(journalIpcChannels.updateNotePermissions, (input) => {
     const parsed = entry.extend({
-      expectedRevision: revision,
+      expectedPermissionRevision: revision,
       permissions: permissions(entryAccess),
     }).safeParse(input);
     return parsed.success ? manager.updateNotePermissions(parsed.data) : invalid();
@@ -120,7 +120,7 @@ export function registerJournalIpcHandlers(
   });
   handle(journalIpcChannels.updateEntryPermissions, (input) => {
     const parsed = entry.extend({
-      expectedRevision: revision,
+      expectedPermissionRevision: revision,
       permissions: permissions(entryAccess),
     }).safeParse(input);
     return parsed.success ? manager.updateEntryPermissions(parsed.data) : invalid();

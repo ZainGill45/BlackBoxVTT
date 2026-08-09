@@ -11,6 +11,7 @@ import {
   type SceneApi,
   type SceneRecord,
 } from '../../../shared/scenes';
+import type { SceneAccessEntry } from '../../../shared/sceneSchema';
 
 export interface SceneStore {
   activeScene: SceneRecord | null;
@@ -21,6 +22,9 @@ export interface SceneStore {
   error: SceneError | null;
   findDependents: (assetId: string) => Promise<SceneRecord[]>;
   present: (sceneId: string | null) => Promise<void>;
+  /** Resolves false when the order was rejected, so callers can leave it be. */
+  reorderScenes: (orderedSceneIds: readonly string[]) => Promise<boolean>;
+  access: SceneAccessEntry[];
   scenes: SceneRecord[];
   trashScene: (scene: SceneRecord) => Promise<void>;
   updateScene: (
@@ -221,6 +225,22 @@ export function useScenes(
     [campaignId, run, sceneApi],
   );
 
+  /* Carries the manifest revision rather than a scene's: reordering rewrites
+     the list and leaves every scene record untouched. */
+  const reorderScenes = useCallback(
+    async (orderedSceneIds: readonly string[]) => {
+      const result = await run(() =>
+        sceneApi.reorder({
+          campaignId,
+          expectedRevision: manifest.revision,
+          orderedSceneIds: [...orderedSceneIds],
+        }),
+      );
+      return result !== null;
+    },
+    [campaignId, manifest.revision, run, sceneApi],
+  );
+
   const present = useCallback(
     async (sceneId: string | null) => {
       // Presenting also moves the game master's own view to that scene.
@@ -254,6 +274,8 @@ export function useScenes(
     error,
     findDependents,
     present,
+    reorderScenes,
+    access: manifest.access,
     scenes: manifest.scenes,
     redo,
     setImages,

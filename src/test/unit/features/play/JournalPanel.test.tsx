@@ -46,6 +46,7 @@ const note: NoteEntry = {
   name: 'Gathered Magic Items',
   nameStyle: defaultJournalTitleStyle(),
   pages: [page],
+  permissionRevision: 0,
   permissions: { allPlayers: 'none', overrides: [] },
   position: 0,
   revision: 0,
@@ -59,6 +60,7 @@ const character = {
   id: '77777777-7777-4777-8777-777777777777',
   kind: 'system' as const,
   name: 'New Character',
+  permissionRevision: 0,
   permissions: { allPlayers: 'none' as const, overrides: [] },
   position: 0,
   revision: 0,
@@ -476,7 +478,10 @@ describe('JournalPanel', () => {
       expect(server.data.importantStats.concentrationSaveOffset).toBe(2);
       expect(concentration).toHaveValue('+8');
     });
-  });
+  /* Drives the whole calculated-total round trip and runs close to four
+     seconds on its own, which the default five-second budget cannot absorb
+     once the suite is running files in parallel. */
+  }, 20_000);
 
   it('adds, edits, reorders, and deletes signed Character Resources', async () => {
     const user = userEvent.setup();
@@ -1279,8 +1284,8 @@ describe('JournalPanel', () => {
       value: {
         ...character,
         name: 'Aria Stone',
+        permissionRevision: input.expectedPermissionRevision + 1,
         permissions: input.permissions,
-        revision: input.expectedRevision + 1,
       },
     }));
     render(
@@ -1333,26 +1338,38 @@ describe('JournalPanel', () => {
     expect(screen.getByRole('menuitem', { name: 'Delete Character' })).toBeVisible();
     await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
 
-    const permissions = screen.getByRole('dialog', {
-      name: 'Edit permissions for Aria Stone',
-    });
-    expect(within(permissions).getByRole('columnheader', { name: 'Effective' })).toBeVisible();
-    await user.selectOptions(
-      within(permissions).getByRole('combobox', { name: 'Chris permission' }),
-      'edit',
-    );
-    expect(within(permissions).getByRole('cell', { name: 'Edit' })).toBeVisible();
-    await user.click(within(permissions).getByRole('button', { name: 'Save changes' }));
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    // The default is a row like any other, and it comes first.
+    expect(
+      within(permissions).getAllByRole('button', { name: /permission$/ })
+        .map((trigger) => trigger.getAttribute('aria-label')),
+    ).toEqual(['All players permission', 'Chris permission']);
+    expect(
+      within(permissions).queryByRole('button', { name: 'Save changes' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(permissions).queryByRole('button', { name: 'Cancel' }),
+    ).not.toBeInTheDocument();
 
+    await user.click(within(permissions).getByRole('button', { name: 'Chris permission' }));
+    await user.click(
+      within(within(permissions).getByRole('group', { name: 'Chris permission options' }))
+        .getByRole('button', { name: 'Edit' }),
+    );
+
+    /* Choosing the level is the save: the write lands on its own once the
+       coalescing window closes, with no confirmation step in between. */
     await waitFor(() => expect(updateEntryPermissions).toHaveBeenCalledWith({
       campaignId,
       entryId: character.id,
-      expectedRevision: character.revision + 1,
+      // Renaming bumped the entry revision; the permission counter is its own.
+      expectedPermissionRevision: character.permissionRevision,
       permissions: {
         allPlayers: 'none',
         overrides: [{ access: 'edit', userId: playerId }],
       },
-    }));
+    }), { timeout: 3_000 });
+    expect(updateEntryPermissions).toHaveBeenCalledTimes(1);
   });
 
   it('renames a Note inline with its page count in the metadata line', async () => {
@@ -1881,85 +1898,66 @@ describe('JournalPanel', () => {
     render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi({ updatePagePermissions })} role="gm" />);
 
     await expandNotes(user);
-    fireEvent.contextMenu(await screen.findByRole('button', { name: 'Open Gathered Magic Items' }));
-    expect(screen.getByRole('button', { name: 'Delete Gathered Magic Items' })).toBeVisible();
-    await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
+    await user.click(await screen.findByRole('button', { name: 'Open Gathered Magic Items' }));
 
-    expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    expect(screen.getByRole('dialog', { name: 'Edit Journal permissions' })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Note default/ })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Tomb of Babylon/ })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Edit permissions' })).not.toBeInTheDocument();
+    // A page's access is edited from that page, on its own.
+    fireEvent.contextMenu(screen.getByRole('textbox', { name: 'Name for Tomb of Babylon' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit Page Permissions' }));
 
-    await user.click(screen.getByRole('button', { name: /Tomb of Babylon/ }));
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'All players permission' }),
-      'view',
-    );
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    // One subject per modal, so the note's editor is not also on screen.
+    expect(screen.getAllByRole('dialog', { name: 'Edit Permissions' })).toHaveLength(1);
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    expect(permissions).toHaveTextContent('Tomb of Babylon');
+
+    await user.click(within(permissions).getByRole('button', { name: 'All players permission' }));
+    const options = within(permissions).getByRole('group', {
+      name: 'All players permission options',
+    });
+    /* Only a page can defer to something else, and it says what deferring
+       currently resolves to rather than making the reader go and look. */
+    expect(within(options).getByRole('button', { name: /^Inherit note default/ }))
+      .toHaveTextContent('Inherit note default (No access)');
+    await user.click(within(options).getByRole('button', { name: 'View' }));
+
     await waitFor(() => expect(updatePagePermissions).toHaveBeenCalledWith({
       campaignId,
       entryId: note.id,
       expectedPermissionRevision: page.permissionRevision,
       pageId: page.id,
       permissions: { allPlayers: 'view', overrides: [] },
-    }));
+    }), { timeout: 3_000 });
   });
 
-  it('retries only the conflicted page after a partial permission save', async () => {
+  it('replays a permission change onto the live revision after a conflict', async () => {
     const user = userEvent.setup();
-    const secondPage: JournalPage = {
-      ...page,
-      id: '66666666-6666-4666-8666-666666666666',
-      position: 1,
-      title: 'Arcane Annex',
-    };
-    let currentNote: NoteEntry = {
-      ...note,
-      pages: [page, secondPage],
-    };
-    let conflictSecondPage = true;
+    let currentNote: NoteEntry = note;
+    let conflictOnce = true;
     const updatePagePermissions = vi.fn(async (
       input: Parameters<JournalApi['updatePagePermissions']>[0],
     ): ReturnType<JournalApi['updatePagePermissions']> => {
-      const source = input.pageId === page.id ? page : secondPage;
-      if (input.pageId === secondPage.id && conflictSecondPage) {
-        conflictSecondPage = false;
+      if (conflictOnce) {
+        conflictOnce = false;
+        // Something else moved the page's permissions on before this landed.
         currentNote = {
           ...currentNote,
-          pages: currentNote.pages.map((summary) =>
-            summary.id === secondPage.id
-              ? { ...summary, permissionRevision: 1 }
-              : summary,
-          ),
+          pages: [{ ...page, permissionRevision: 7 }],
         };
         return {
           error: {
             code: 'conflict',
             entryId: note.id,
             message: 'The page permissions changed before they could be saved.',
-            pageId: secondPage.id,
+            pageId: page.id,
           },
           ok: false,
         };
       }
       const value = {
-        ...source,
+        ...page,
         permissionRevision: input.expectedPermissionRevision + 1,
         permissions: input.permissions,
       };
-      currentNote = {
-        ...currentNote,
-        pages: currentNote.pages.map((summary) =>
-          summary.id === value.id
-            ? {
-                ...summary,
-                permissionRevision: value.permissionRevision,
-                permissions: value.permissions,
-              }
-            : summary,
-        ),
-      };
+      currentNote = { ...currentNote, pages: [value] };
       return { ok: true, value };
     });
     render(
@@ -1968,49 +1966,79 @@ describe('JournalPanel', () => {
         campaignId={campaignId}
         journalApi={journalApi({
           getNote: async () => ({ ok: true, value: currentNote }),
-          list: async () => ({
-            ok: true,
-            value: {
-              entries: [currentNote],
-              revision: 0,
-            },
-          }),
+          list: async () => ({ ok: true, value: { entries: [currentNote], revision: 0 } }),
           updatePagePermissions,
         })}
         role="gm"
       />,
     );
+
     await expandNotes(user);
     await user.click(await screen.findByRole('button', { name: 'Open Gathered Magic Items' }));
-    await user.click(await screen.findByRole('button', { name: 'Edit Permissions' }));
-    await user.click(screen.getByRole('button', { name: /Tomb of Babylon/ }));
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'All players permission' }),
-      'view',
-    );
-    await user.click(screen.getByRole('button', { name: /Arcane Annex/ }));
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'All players permission' }),
-      'edit',
-    );
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    fireEvent.contextMenu(screen.getByRole('textbox', { name: 'Name for Tomb of Babylon' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit Page Permissions' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The page permissions changed before they could be saved.',
-    );
-    expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Edit Journal permissions' }))
-        .not.toBeInTheDocument(),
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    await user.click(within(permissions).getByRole('button', { name: 'All players permission' }));
+    await user.click(
+      within(within(permissions).getByRole('group', {
+        name: 'All players permission options',
+      })).getByRole('button', { name: 'View' }),
     );
 
-    expect(updatePagePermissions.mock.calls.filter(
-      ([input]) => input.pageId === page.id,
-    )).toHaveLength(1);
-    expect(updatePagePermissions.mock.calls.filter(
-      ([input]) => input.pageId === secondPage.id,
-    ).map(([input]) => input.expectedPermissionRevision)).toEqual([0, 1]);
+    /* The conflict is absorbed: the same choice is replayed against the
+       revision that won, so the user is never asked to press anything. */
+    await waitFor(
+      () => expect(updatePagePermissions.mock.calls.map(
+        ([input]) => input.expectedPermissionRevision,
+      )).toEqual([0, 7]),
+      { timeout: 3_000 },
+    );
+    expect(updatePagePermissions.mock.calls.every(
+      ([input]) => input.permissions.allPlayers === 'view',
+    )).toBe(true);
+    expect(within(permissions).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps the permissions editor open and reports a write that failed outright', async () => {
+    const user = userEvent.setup();
+    const updatePagePermissions = vi.fn(async (): ReturnType<
+      JournalApi['updatePagePermissions']
+    > => ({
+      error: {
+        code: 'storage_error',
+        message: 'The page permissions could not be saved.',
+        pageId: page.id,
+      },
+      ok: false,
+    }));
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({ updatePagePermissions })}
+        role="gm"
+      />,
+    );
+
+    await expandNotes(user);
+    await user.click(await screen.findByRole('button', { name: 'Open Gathered Magic Items' }));
+    fireEvent.contextMenu(screen.getByRole('textbox', { name: 'Name for Tomb of Babylon' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit Page Permissions' }));
+
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    await user.click(within(permissions).getByRole('button', { name: 'All players permission' }));
+    await user.click(
+      within(within(permissions).getByRole('group', {
+        name: 'All players permission options',
+      })).getByRole('button', { name: 'View' }),
+    );
+
+    expect(await within(permissions).findByRole('alert', undefined, { timeout: 3_000 }))
+      .toHaveTextContent('The page permissions could not be saved.');
+    // Dismissing writes what is pending, so a failed write keeps the editor up.
+    fireEvent(permissions, new Event('cancel', { bubbles: false, cancelable: true }));
+    expect(screen.getByRole('dialog', { name: 'Edit Permissions' })).toBeVisible();
   });
 
   it('places note actions above page search and directly deletes an unreferenced note after priming', async () => {
@@ -2048,8 +2076,14 @@ describe('JournalPanel', () => {
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     await user.click(editPermissions);
-    expect(screen.getByRole('dialog', { name: 'Edit Journal permissions' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    expect(permissions).toBeVisible();
+    // Nothing was changed, so dismissing has nothing to write and just closes.
+    fireEvent(permissions, new Event('cancel', { bubbles: false, cancelable: true }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Edit Permissions' }))
+        .not.toBeInTheDocument(),
+    );
 
     expect(deleteNote).toHaveAttribute('aria-pressed', 'false');
     await user.click(deleteNote);

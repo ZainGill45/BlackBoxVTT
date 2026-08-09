@@ -10,8 +10,10 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  ASSET_ACCESS_LEVELS,
   ASSET_CHUNK_BYTES,
   MAX_ASSET_BYTES,
+  type AssetAccessLevel,
   type AssetActor,
   type AssetErrorCode,
   type AssetFormat,
@@ -19,8 +21,21 @@ import {
   type AssetManifest,
   type AssetRecord,
   type AssetResult,
+  type UpdateAssetPermissionsInput,
 } from '../shared/assets';
+import type {
+  PermissionConfiguration,
+  PermissionSubject,
+} from '../shared/permissions';
 import { fail } from '../shared/result';
+
+/**
+ * Clears the range any real position can occupy, so surviving rows can be
+ * shifted aside while a new order is written without tripping the unique index.
+ * A campaign cannot hold enough assets to reach it: reordering is capped well
+ * below this.
+ */
+const ASSET_POSITION_PARK_OFFSET = 1_000_000;
 import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 
@@ -573,6 +588,18 @@ export class AssetRepository {
         }
         await this.writeManifest(nextManifest, pendingOperationId);
         manifestCommitted = true;
+        /* A player who adds a file would otherwise lose sight of it the moment
+           it lands, because the library defaults to no access. The grant needs
+           a real campaign account to hang off, so an actor without one simply
+           imports without gaining an override. */
+        if (actor.role === 'player' && this.isCampaignUser(actor.id)) {
+          const grant = this.database.connection.prepare(
+            `INSERT INTO asset_permissions (asset_id, user_id, access)
+             VALUES (?, ?, 'edit')
+             ON CONFLICT(asset_id, user_id) DO UPDATE SET access = 'edit'`,
+          );
+          for (const { record } of staged) grant.run(record.id, actor.id);
+        }
         await this.touchCampaign();
         return { ok: true, value: staged.map(({ record }) => record) };
       } catch {
@@ -755,6 +782,181 @@ export class AssetRepository {
     });
   }
 
+  /** Every asset's access for one actor, in a single pass over the overrides. */
+  accessByAsset(actor: AssetActor): Map<string, AssetAccessLevel> {
+    const rows = this.database.connection
+      .prepare(
+        `SELECT assets.id AS id,
+                COALESCE(overrides.access, assets.default_access) AS access
+         FROM assets
+         LEFT JOIN asset_permissions AS overrides
+           ON overrides.asset_id = assets.id AND overrides.user_id = ?`,
+      )
+      .all(actor.role === 'gm' ? '' : actor.id) as unknown as Array<{
+        access: AssetAccessLevel;
+        id: string;
+      }>;
+    return new Map(rows.map(({ access, id }) => [id, access]));
+  }
+
+  /** Every asset's configuration in two queries, for projecting a whole list. */
+  permissionStates(): Map<
+    string,
+    { permissionRevision: number; permissions: PermissionConfiguration<AssetAccessLevel> }
+  > {
+    const states = new Map<
+      string,
+      { permissionRevision: number; permissions: PermissionConfiguration<AssetAccessLevel> }
+    >();
+    for (const row of this.database.connection
+      .prepare('SELECT id, default_access, permission_revision FROM assets')
+      .all() as unknown as Array<{
+        default_access: AssetAccessLevel;
+        id: string;
+        permission_revision: number;
+      }>) {
+      states.set(row.id, {
+        permissionRevision: row.permission_revision,
+        permissions: { allPlayers: row.default_access, overrides: [] },
+      });
+    }
+    for (const row of this.database.connection
+      .prepare(
+        `SELECT asset_id, user_id, access FROM asset_permissions
+         ORDER BY asset_id, user_id`,
+      )
+      .all() as unknown as Array<{
+        access: AssetAccessLevel;
+        asset_id: string;
+        user_id: string;
+      }>) {
+      states.get(row.asset_id)?.permissions.overrides.push({
+        access: row.access,
+        userId: row.user_id,
+      });
+    }
+    return states;
+  }
+
+  permissionState(
+    assetId: string,
+  ): {
+    permissionRevision: number;
+    permissions: PermissionConfiguration<AssetAccessLevel>;
+  } | null {
+    const row = this.database.connection
+      .prepare(
+        `SELECT default_access, permission_revision
+         FROM assets WHERE id = ?`,
+      )
+      .get(assetId) as
+        | { default_access: AssetAccessLevel; permission_revision: number }
+        | undefined;
+    if (!row) return null;
+    const overrides = this.database.connection
+      .prepare(
+        `SELECT user_id, access FROM asset_permissions
+         WHERE asset_id = ? ORDER BY user_id`,
+      )
+      .all(assetId) as unknown as Array<{
+        access: AssetAccessLevel;
+        user_id: string;
+      }>;
+    return {
+      permissionRevision: row.permission_revision,
+      permissions: {
+        allPlayers: row.default_access,
+        overrides: overrides.map(({ access, user_id }) => ({
+          access,
+          userId: user_id,
+        })),
+      },
+    };
+  }
+
+  private isCampaignUser(userId: string): boolean {
+    return Boolean(
+      this.database.connection
+        .prepare('SELECT 1 FROM campaign_users WHERE id = ?')
+        .get(userId),
+    );
+  }
+
+  listUsers(): PermissionSubject[] {
+    return (
+      this.database.connection
+        .prepare('SELECT id, username FROM campaign_users ORDER BY username')
+        .all() as unknown as Array<{ id: string; username: string }>
+    ).map(({ id, username }) => ({ id, username }));
+  }
+
+  updatePermissions(
+    input: Omit<UpdateAssetPermissionsInput, 'campaignId'>,
+  ): Promise<AssetResult<null>> {
+    return this.mutations.run(async () => {
+      await this.initialize();
+      const current = this.permissionState(input.assetId);
+      if (!current) {
+        return failure('not_found', 'That asset no longer exists.', input.assetId);
+      }
+      if (current.permissionRevision !== input.expectedPermissionRevision) {
+        return failure(
+          'conflict',
+          'The asset permissions changed before this change could be saved.',
+          input.assetId,
+        );
+      }
+      if (!this.validPermissions(input.permissions)) {
+        return failure('invalid_input', 'The asset permissions are invalid.', input.assetId);
+      }
+      const database = this.database.connection;
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        database
+          .prepare(
+            `UPDATE assets
+             SET default_access = ?, permission_revision = permission_revision + 1
+             WHERE id = ?`,
+          )
+          .run(input.permissions.allPlayers, input.assetId);
+        database
+          .prepare('DELETE FROM asset_permissions WHERE asset_id = ?')
+          .run(input.assetId);
+        const insert = database.prepare(
+          `INSERT INTO asset_permissions (asset_id, user_id, access)
+           VALUES (?, ?, ?)`,
+        );
+        for (const override of input.permissions.overrides) {
+          insert.run(input.assetId, override.userId, override.access);
+        }
+        database.exec('COMMIT');
+      } catch {
+        database.exec('ROLLBACK');
+        return failure(
+          'storage_error',
+          'The asset permissions could not be saved.',
+          input.assetId,
+        );
+      }
+      await this.touchCampaign();
+      return { ok: true, value: null };
+    });
+  }
+
+  private validPermissions(
+    permissions: PermissionConfiguration<AssetAccessLevel>,
+  ): boolean {
+    if (!ASSET_ACCESS_LEVELS.includes(permissions.allPlayers)) return false;
+    const users = new Set(this.listUsers().map(({ id }) => id));
+    const seen = new Set<string>();
+    return permissions.overrides.every(({ access, userId }) => {
+      if (!users.has(userId) || seen.has(userId)) return false;
+      if (!ASSET_ACCESS_LEVELS.includes(access)) return false;
+      seen.add(userId);
+      return true;
+    });
+  }
+
   resolveAssetPath(record: AssetRecord): string {
     const target = path.resolve(
       this.assetDirectory,
@@ -777,13 +979,31 @@ export class AssetRepository {
     const database = this.database.connection;
     database.exec('BEGIN IMMEDIATE');
     try {
-      database.exec('DELETE FROM assets');
-      const insert = database.prepare(
-        `INSERT INTO assets (id, position, record_json)
-         VALUES (?, ?, ?)`,
+      /* Rewriting the rows wholesale would drop each asset's access with them,
+         because the permission overrides cascade off this table. Only assets
+         that actually left the manifest are deleted; the rest keep the access
+         the Game Master gave them while their order and record move. */
+      const retained = new Set(manifest.assets.map((asset) => asset.id));
+      const remove = database.prepare('DELETE FROM assets WHERE id = ?');
+      for (const row of database
+        .prepare('SELECT id FROM assets')
+        .all() as unknown as Array<{ id: string }>) {
+        if (!retained.has(row.id)) remove.run(row.id);
+      }
+      /* Positions are unique and non-negative, so the surviving rows are
+         shifted above every position the new order can use before it lands. */
+      database.exec(
+        `UPDATE assets SET position = position + ${ASSET_POSITION_PARK_OFFSET}`,
+      );
+      const upsert = database.prepare(
+        `INSERT INTO assets (
+           id, position, record_json, default_access, permission_revision
+         ) VALUES (?, ?, ?, 'none', 0)
+         ON CONFLICT(id) DO UPDATE
+           SET position = excluded.position, record_json = excluded.record_json`,
       );
       manifest.assets.forEach((asset, position) => {
-        insert.run(asset.id, position, JSON.stringify(asset));
+        upsert.run(asset.id, position, JSON.stringify(asset));
       });
       database
         .prepare(

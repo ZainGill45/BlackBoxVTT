@@ -53,7 +53,7 @@ export function CreateCampaignForm({
           disabled={isSubmitting || isImporting}
           onClick={onImport}
         >
-          {isImporting ? 'Importingâ€¦' : 'Import'}
+          {isImporting ? 'Importing…' : 'Import'}
         </Button>
 
         <Button

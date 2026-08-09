@@ -3,6 +3,7 @@ import {
   type CampaignExportReceipt,
   type CampaignImportReceipt,
   type CampaignResult,
+  type CampaignSalvageReceipt,
   type CampaignSummary,
 } from '../shared/campaigns';
 
@@ -17,6 +18,9 @@ export interface CampaignTransferContract {
     input: unknown,
   ): Promise<CampaignResult<CampaignExportReceipt | null>>;
   importCampaign(): Promise<CampaignResult<CampaignImportReceipt | null>>;
+  salvageCampaign(
+    input: unknown,
+  ): Promise<CampaignResult<CampaignSalvageReceipt>>;
 }
 
 export interface CampaignIpcRegistrar {
@@ -38,6 +42,7 @@ export function registerCampaignIpcHandlers(
   ipc.removeHandler(campaignIpcChannels.create);
   ipc.removeHandler(campaignIpcChannels.export);
   ipc.removeHandler(campaignIpcChannels.import);
+  ipc.removeHandler(campaignIpcChannels.salvage);
   ipc.removeHandler(campaignIpcChannels.trash);
 
   ipc.handle(campaignIpcChannels.list, () => repository.list());
@@ -49,6 +54,12 @@ export function registerCampaignIpcHandlers(
     return transfer.exportCampaign(input);
   });
   ipc.handle(campaignIpcChannels.import, () => transfer.importCampaign());
+  /* Salvage ends by trashing what it replaced, so it releases the campaign
+     the same way an outright deletion does. */
+  ipc.handle(campaignIpcChannels.salvage, async (_event, input) => {
+    await beforeTrash?.(input);
+    return transfer.salvageCampaign(input);
+  });
   ipc.handle(campaignIpcChannels.trash, async (_event, input) => {
     await beforeTrash?.(input);
     return repository.trash(input);
@@ -59,6 +70,7 @@ export function registerCampaignIpcHandlers(
     ipc.removeHandler(campaignIpcChannels.create);
     ipc.removeHandler(campaignIpcChannels.export);
     ipc.removeHandler(campaignIpcChannels.import);
+    ipc.removeHandler(campaignIpcChannels.salvage);
     ipc.removeHandler(campaignIpcChannels.trash);
   };
 }

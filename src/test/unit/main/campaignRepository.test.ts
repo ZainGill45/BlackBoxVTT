@@ -67,6 +67,21 @@ describe('CampaignRepository', () => {
       path.join(rootDirectory, firstId),
     );
     const manifest = database.readManifest();
+    /* These columns were already canonical before archive conversion was
+       added. Keeping them default-free means those campaigns continue to
+       open directly instead of being mislabeled as salvage candidates. */
+    for (const [table, column] of [
+      ['journal_entries', 'permission_revision'],
+      ['assets', 'default_access'],
+      ['assets', 'permission_revision'],
+      ['scenes', 'default_access'],
+      ['scenes', 'permission_revision'],
+    ] as const) {
+      const detail = database.connection
+        .prepare(`PRAGMA table_info('${table}')`)
+        .all() as Array<{ dflt_value: unknown; name: string }>;
+      expect(detail.find(({ name }) => name === column)?.dflt_value).toBeNull();
+    }
     database.close();
     expect(manifest).toEqual(result.ok ? result.value : undefined);
 

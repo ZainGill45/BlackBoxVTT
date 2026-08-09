@@ -1,14 +1,20 @@
 import type { Result } from './result';
+import type {
+  PermissionConfiguration,
+  PermissionSubject,
+} from './permissions';
 
 export const MAX_ASSET_BYTES = 1024 ** 3;
 export const ASSET_CHUNK_BYTES = 512 * 1024;
 export const MAX_EMBEDDED_IMAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_ASSET_PERMISSION_OVERRIDES = 20;
 
 export const assetIpcChannels = {
   changed: 'assets:changed',
   error: 'assets:error',
   getPreview: 'assets:get-preview',
   list: 'assets:list',
+  listUsers: 'assets:list-users',
   importImageBytes: 'assets:import-image-bytes',
   pickImages: 'assets:pick-images',
   pickAndImport: 'assets:pick-and-import',
@@ -18,6 +24,7 @@ export const assetIpcChannels = {
   rename: 'assets:rename',
   reorder: 'assets:reorder',
   trash: 'assets:trash',
+  updatePermissions: 'assets:update-permissions',
 } as const;
 
 export type AssetKind = 'audio' | 'document' | 'image';
@@ -39,6 +46,8 @@ export type AssetAction =
   | 'delete'
   | 'import'
   | 'list'
+  /* Campaign-level rather than per-asset, and only ever the Game Master's. */
+  | 'managePermissions'
   | 'preview'
   | 'read'
   | 'rename'
@@ -47,6 +56,23 @@ export type AssetAction =
   | 'reorder';
 
 export type AssetCapability = Record<AssetAction, boolean>;
+
+/**
+ * What a player may do with one asset in the Storage library.
+ *
+ * This curates the library rather than sealing a file: `read` stays open to any
+ * authenticated player so that a map image, an embedded Journal image, or any
+ * other asset referenced by content they can already see still renders. No
+ * access means the asset is absent from their Storage panel, not that its bytes
+ * are unreachable.
+ */
+export type AssetAccessLevel = 'edit' | 'none' | 'view';
+
+export const ASSET_ACCESS_LEVELS: readonly AssetAccessLevel[] = [
+  'none',
+  'view',
+  'edit',
+];
 
 export interface AssetActor {
   id: string;
@@ -91,6 +117,9 @@ export interface AssetNetworkSnapshot {
 export interface AssetView extends AssetRecord {
   available: boolean;
   capabilities: AssetCapability;
+  permissionRevision: number;
+  /** Only the Game Master receives a configuration to edit. */
+  permissions: PermissionConfiguration<AssetAccessLevel> | null;
   syncState: 'ready' | 'syncing' | 'unavailable';
 }
 
@@ -146,6 +175,12 @@ export interface AssetPreviewInput extends AssetCampaignInput {
   assetId: string;
 }
 
+export interface UpdateAssetPermissionsInput extends AssetCampaignInput {
+  assetId: string;
+  expectedPermissionRevision: number;
+  permissions: PermissionConfiguration<AssetAccessLevel>;
+}
+
 export interface AssetPreview {
   assetId: string;
   displayName: string;
@@ -190,6 +225,7 @@ export interface AssetErrorEvent extends AssetError {
 export interface AssetApi {
   getPreview(input: AssetPreviewInput): Promise<AssetResult<AssetPreview>>;
   list(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
+  listUsers(input: AssetCampaignInput): Promise<AssetResult<PermissionSubject[]>>;
   importImageBytes(input: ImportImageBytesInput): Promise<AssetResult<AssetView[]>>;
   onChanged(listener: (event: AssetChangedEvent) => void): () => void;
   onError(listener: (event: AssetErrorEvent) => void): () => void;
@@ -201,6 +237,7 @@ export interface AssetApi {
   rename(input: RenameAssetInput): Promise<AssetResult<AssetView>>;
   reorder(input: ReorderAssetsInput): Promise<AssetResult<AssetView[]>>;
   trash(input: TrashAssetInput): Promise<AssetResult<null>>;
+  updatePermissions(input: UpdateAssetPermissionsInput): Promise<AssetResult<AssetView>>;
 }
 
 export type JournalAssetApi = Pick<

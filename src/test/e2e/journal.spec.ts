@@ -100,17 +100,25 @@ test.describe('networked Journal permissions', () => {
       exact: true,
       name: 'Open Party Briefing',
     });
-    await gmRow.click({ button: 'right' });
-    await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
-    const permissions = gm.window.getByRole('dialog', {
-      name: 'Edit Journal permissions',
-    });
+    // A page's access is granted from that page, not from a note-wide editor.
+    await gmRow.click();
+    await expect(gmNote).toBeVisible();
+    await gmNote
+      .getByRole('button', { exact: true, name: 'Open New Page' })
+      .click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Edit Page Permissions' }).click();
+    const permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await expect(permissions).toBeVisible();
-    await permissions.getByRole('button', { name: /New Page/ }).click();
-    await permissions.getByLabel(`${USERNAME} permission`).selectOption('edit');
-    await permissions.getByRole('button', { name: 'Save changes' }).click();
+    await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
+    await permissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'Edit' })
+      .click();
+    // Choosing the level is the save; there is nothing to confirm.
+    await permissions.press('Escape');
     await expect(permissions).not.toBeVisible();
-    await gm.window.mouse.click(10, 10);
+    await expect(gmNote).toBeVisible();
+    await gmNote.press('Escape');
     await expect(gmNote).not.toBeVisible();
 
     await openTab(player.window, 'Journal');
@@ -140,15 +148,22 @@ test.describe('networked Journal permissions', () => {
     await expect(playerNote.getByText('Player revision')).toBeVisible();
     await expect(playerNote.locator('.ProseMirror').locator('..'))
       .toHaveAttribute('data-line-length', 'narrow');
-    await gmRow.click({ button: 'right' });
-    await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
-    const currentPermissions = gm.window.getByRole('dialog', {
-      name: 'Edit Journal permissions',
-    });
-    await currentPermissions.getByRole('button', { name: /New Page/ }).click();
-    await currentPermissions.getByLabel(`${USERNAME} permission`).selectOption('none');
-    await currentPermissions.getByRole('button', { name: 'Save changes' }).click();
+    await gmRow.click();
+    await expect(gmNote).toBeVisible();
+    await gmNote
+      .getByRole('button', { exact: true, name: 'Open New Page' })
+      .click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Edit Page Permissions' }).click();
+    const currentPermissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
+    await currentPermissions
+      .getByRole('button', { name: `${USERNAME} permission` })
+      .click();
+    await currentPermissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'No access' })
+      .click();
 
+    // Revoking lands on its own, and takes the open editor away with it.
     await expect(playerNote).not.toBeVisible();
     await expect(player.window.getByRole('button', {
       exact: true,

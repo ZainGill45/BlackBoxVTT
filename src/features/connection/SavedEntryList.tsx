@@ -14,9 +14,11 @@ interface SavedEntryListProps {
   exportingId: string | null;
   label: string;
   pendingDeleteId: string | null;
+  salvagingId: string | null;
   onDeleteRequest: (id: string) => void;
   onExport: (id: string) => void;
   onOpen: (id: string) => void;
+  onSalvage: (id: string) => void;
 }
 
 export function SavedEntryList({
@@ -25,9 +27,11 @@ export function SavedEntryList({
   exportingId,
   label,
   pendingDeleteId,
+  salvagingId,
   onDeleteRequest,
   onExport,
   onOpen,
+  onSalvage,
 }: SavedEntryListProps) {
   if (entries.length === 0) {
     return null;
@@ -46,7 +50,9 @@ export function SavedEntryList({
           const isPendingDelete = pendingDeleteId === entry.id;
           const isDeleting = deletingId === entry.id;
           const isExporting = exportingId === entry.id;
+          const isSalvaging = salvagingId === entry.id;
           const isUnavailable = entry.unavailable === true;
+          const isBusy = isDeleting || isExporting || isSalvaging;
 
           return (
             <li className={styles.savedEntry} key={entry.id}>
@@ -67,7 +73,7 @@ export function SavedEntryList({
                         : `Delete ${entry.title}`
                   }
                   aria-pressed={isPendingDelete}
-                  disabled={isDeleting || isExporting}
+                  disabled={isBusy}
                   onClick={() => onDeleteRequest(entry.id)}
                 >
                   {isDeleting
@@ -76,24 +82,38 @@ export function SavedEntryList({
                       ? 'Confirm'
                       : 'Delete'}
                 </Button>
-                <Button
-                  size="compact"
-                  variant="secondary"
-                  aria-label={`Export ${entry.title}`}
-                  disabled={isUnavailable || isDeleting || isExporting}
-                  onClick={() => onExport(entry.id)}
-                >
-                  {isExporting ? 'Exporting' : 'Export'}
-                </Button>
-                <Button
-                  size="compact"
-                  variant="secondary"
-                  aria-label={`Open ${entry.title}`}
-                  disabled={isUnavailable || isDeleting || isExporting}
-                  onClick={() => onOpen(entry.id)}
-                >
-                  Open
-                </Button>
+                {isUnavailable ? (
+                  <Button
+                    size="compact"
+                    variant="secondary"
+                    aria-label={`Salvage ${entry.title}`}
+                    disabled={isBusy}
+                    onClick={() => onSalvage(entry.id)}
+                  >
+                    {isSalvaging ? 'Salvaging…' : 'Salvage'}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="compact"
+                      variant="secondary"
+                      aria-label={`Export ${entry.title}`}
+                      disabled={isBusy}
+                      onClick={() => onExport(entry.id)}
+                    >
+                      {isExporting ? 'Exporting' : 'Export'}
+                    </Button>
+                    <Button
+                      size="compact"
+                      variant="secondary"
+                      aria-label={`Open ${entry.title}`}
+                      disabled={isBusy}
+                      onClick={() => onOpen(entry.id)}
+                    >
+                      Open
+                    </Button>
+                  </>
+                )}
               </div>
             </li>
           );

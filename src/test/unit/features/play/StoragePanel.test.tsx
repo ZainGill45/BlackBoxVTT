@@ -13,6 +13,7 @@ const capabilities: AssetCapability = {
   delete: true,
   import: true,
   list: true,
+  managePermissions: true,
   preview: true,
   read: true,
   rename: true,
@@ -28,6 +29,8 @@ function asset(
   return {
     available: true,
     capabilities,
+    permissionRevision: 0,
+    permissions: { allPlayers: 'none' as const, overrides: [] },
     chunkHashes: [
       'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     ],
@@ -82,10 +85,26 @@ function createApi(initial: AssetView[]) {
     ok: true as const,
     value: initial,
   }));
+  const listUsers = vi.fn(async () => ({
+    ok: true as const,
+    value: [{ id: '99999999-9999-4999-8999-999999999999', username: 'Chris' }],
+  }));
+  const updatePermissions = vi.fn(async (
+    input: Parameters<AssetApi['updatePermissions']>[0],
+  ) => ({
+    ok: true as const,
+    value: {
+      ...initial.find(({ id }) => id === input.assetId)!,
+      permissionRevision: input.expectedPermissionRevision + 1,
+      permissions: input.permissions,
+    },
+  }));
   const api: AssetApi = {
     getPreview: vi.fn(),
     importImageBytes: vi.fn(),
     list: vi.fn(async () => ({ ok: true as const, value: initial })),
+    listUsers,
+    updatePermissions,
     onChanged: vi.fn(() => () => undefined),
     onError: vi.fn(() => () => undefined),
     onProgress: vi.fn(() => () => undefined),
@@ -97,7 +116,7 @@ function createApi(initial: AssetView[]) {
     reorder,
     trash,
   };
-  return { api, pickAndImport, rename, reorder, trash };
+  return { api, pickAndImport, rename, reorder, trash, updatePermissions };
 }
 
 describe('StoragePanel', () => {
@@ -345,6 +364,71 @@ describe('StoragePanel', () => {
 
     await user.click(item);
     await waitFor(() => expect(trash).toHaveBeenCalledOnce());
+  });
+
+  it('grants one player access to an asset from its row, saving as it changes', async () => {
+    const user = userEvent.setup();
+    const playerId = '99999999-9999-4999-8999-999999999999';
+    const { api, updatePermissions } = createApi([
+      asset('11111111-1111-4111-8111-111111111111', 'Map.png', 'image', 'png'),
+    ]);
+    render(
+      <StoragePanel
+        assetApi={api}
+        campaignId="33333333-3333-4333-8333-333333333333"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Images' }));
+    fireEvent.contextMenu(screen.getByRole('textbox', { name: 'Name for Map.png' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
+
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    expect(permissions).toHaveTextContent('Map.png');
+    expect(
+      within(permissions).queryByRole('button', { name: 'Save changes' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(permissions).getByRole('button', { name: 'Chris permission' }));
+    await user.click(
+      within(within(permissions).getByRole('group', {
+        name: 'Chris permission options',
+      })).getByRole('button', { name: 'View' }),
+    );
+
+    await waitFor(() => expect(updatePermissions).toHaveBeenCalledWith({
+      assetId: '11111111-1111-4111-8111-111111111111',
+      campaignId: '33333333-3333-4333-8333-333333333333',
+      expectedPermissionRevision: 0,
+      permissions: {
+        allPlayers: 'none',
+        overrides: [{ access: 'view', userId: playerId }],
+      },
+    }), { timeout: 3_000 });
+  });
+
+  it('keeps an asset the player was not granted out of the library', async () => {
+    const withheld = asset(
+      '11111111-1111-4111-8111-111111111111',
+      'Secret Map.png',
+      'image',
+      'png',
+    );
+    /* Its bytes still arrive, which is what keeps it rendering on a scene the
+       player can see; it is simply not theirs to browse. */
+    const { api } = createApi([
+      { ...withheld, capabilities: { ...withheld.capabilities, list: false } },
+    ]);
+    render(
+      <StoragePanel
+        assetApi={api}
+        campaignId="33333333-3333-4333-8333-333333333333"
+      />,
+    );
+
+    await waitFor(() => expect(api.list).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'Images' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Secret Map.png')).not.toBeInTheDocument();
   });
 
   it('offers asset import when no assets exist', async () => {

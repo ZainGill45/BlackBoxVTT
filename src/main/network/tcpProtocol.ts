@@ -22,6 +22,8 @@ import {
   sceneDrawingStyleSchema,
   sceneObjectStateSchema,
   sceneObjectTransformSchema,
+  sceneManifestSchema,
+  scenePatchSchema,
   sceneRecordSchema,
   sceneShapePreviewSchema,
 } from '../../shared/sceneSchema';
@@ -104,6 +106,7 @@ const assetCapabilitySchema = z
     delete: z.boolean(),
     import: z.boolean(),
     list: z.boolean(),
+    managePermissions: z.boolean(),
     preview: z.boolean(),
     read: z.boolean(),
     rename: z.boolean(),
@@ -302,6 +305,7 @@ const journalNoteSchema = z.object({
   name: z.string().min(1).max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
   nameStyle: journalTitleStyleSchema,
   pages: z.array(journalPageSummarySchema).max(MAX_NOTE_PAGES),
+  permissionRevision: z.number().int().nonnegative(),
   permissions: journalPermissionsSchema(journalEntryAccessSchema).nullable(),
   position: z.number().int().nonnegative(),
   revision: z.number().int().nonnegative(),
@@ -313,6 +317,7 @@ const journalSystemEntrySummarySchema = z.object({
   id: z.string().uuid(),
   kind: z.literal('system'),
   name: z.string().min(1).max(MAX_JOURNAL_TITLE_INPUT_CODE_UNITS),
+  permissionRevision: z.number().int().nonnegative(),
   permissions: journalPermissionsSchema(journalEntryAccessSchema).nullable(),
   position: z.number().int().nonnegative(),
   revision: z.number().int().nonnegative(),
@@ -490,12 +495,12 @@ export const protocolPayloadSchemas = {
   }).strict(),
   'client.journal_update_note_permissions': z.object({
     entryId: z.string().uuid(),
-    expectedRevision: z.number().int().nonnegative(),
+    expectedPermissionRevision: z.number().int().nonnegative(),
     permissions: journalPermissionsSchema(journalEntryAccessSchema),
   }).strict(),
   'client.journal_update_entry_permissions': z.object({
     entryId: z.string().uuid(),
-    expectedRevision: z.number().int().nonnegative(),
+    expectedPermissionRevision: z.number().int().nonnegative(),
     permissions: journalPermissionsSchema(journalEntryAccessSchema),
   }).strict(),
   'client.journal_update_page': z.object({
@@ -622,6 +627,22 @@ export const protocolPayloadSchemas = {
     })
     .strict(),
   'client.scene_transform_start': sceneTransformStartSchema,
+  /* A player's own view of the scene library: what the Game Master granted
+     them, plus whatever is presented so the table still draws. */
+  'client.scene_list': z.object({}).strict(),
+  'client.scene_update': z
+    .object({
+      expectedRevision: z.number().int().nonnegative(),
+      patch: scenePatchSchema,
+      sceneId: z.string().uuid(),
+    })
+    .strict(),
+  'client.scene_trash': z
+    .object({
+      expectedRevision: z.number().int().nonnegative(),
+      sceneId: z.string().uuid(),
+    })
+    .strict(),
   'client.scene_undo': z
     .object({ sceneId: z.string().uuid() })
     .strict(),
@@ -791,6 +812,8 @@ export const protocolPayloadSchemas = {
   'server.scene_mutation': z
     .object({ scene: sceneRecordSchema })
     .strict(),
+  'server.scene_manifest': sceneManifestSchema,
+  'server.scenes_changed': sceneManifestSchema,
   'server.scene_presented': z
     .object({ scene: sceneRecordSchema.nullable() })
     .strict(),

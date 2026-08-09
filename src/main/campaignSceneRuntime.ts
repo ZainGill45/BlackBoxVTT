@@ -2,6 +2,7 @@ import {
   createEmptySceneManifest,
   type PresentSceneInput,
   type SceneAssetInput,
+  type ReorderScenesInput,
   type SceneHistoryInput,
   type SceneManifest,
   type SceneRecord,
@@ -13,13 +14,26 @@ import {
   type SetSceneObjectsInput,
   type SetSceneFogInput,
   type TrashSceneInput,
+  type ScenePatch,
   type UpdateSceneInput,
 } from '../shared/scenes';
+import type { UpdateScenePermissionsInput } from '../shared/sceneContracts';
+import type { PermissionSubject } from '../shared/permissions';
 import type { LocalCampaignWorkspace } from './campaignWorkspace';
 
 export interface JoinedSceneTransport {
   cancelTransform(input: SceneTransformPreviewCancel): Promise<void>;
   getActiveScene(): SceneRecord | null;
+  listScenes(): Promise<SceneResult<SceneManifest>>;
+  trashScene(input: {
+    expectedRevision: number;
+    sceneId: string;
+  }): Promise<SceneResult<null>>;
+  updateScene(input: {
+    expectedRevision: number;
+    patch: ScenePatch;
+    sceneId: string;
+  }): Promise<SceneResult<SceneRecord>>;
   redo(input: SceneHistoryInput): Promise<SceneResult<SceneRecord>>;
   setObjects(input: SetSceneObjectsInput): Promise<SceneResult<SceneRecord>>;
   startTransform(input: SceneTransformPreviewStart): Promise<void>;
@@ -37,6 +51,10 @@ export interface CampaignSceneRuntime {
   detachAsset(input: SceneAssetInput): Promise<SceneRuntimeMutation<null>>;
   findDependents(input: SceneAssetInput): Promise<SceneResult<SceneRecord[]>>;
   list(): Promise<SceneResult<SceneManifest>>;
+  listUsers(): Promise<SceneResult<PermissionSubject[]>>;
+  updatePermissions(
+    input: UpdateScenePermissionsInput,
+  ): Promise<SceneRuntimeMutation<SceneManifest>>;
   present(
     input: PresentSceneInput,
   ): Promise<SceneRuntimeMutation<SceneManifest>>;
@@ -44,6 +62,9 @@ export interface CampaignSceneRuntime {
   previewStart(input: SceneTransformPreviewStart): Promise<boolean>;
   previewUpdate(input: SceneTransformPreviewDelta): Promise<boolean>;
   redo(input: SceneHistoryInput): Promise<SceneRuntimeMutation<SceneRecord>>;
+  reorder(
+    input: ReorderScenesInput,
+  ): Promise<SceneRuntimeMutation<SceneManifest>>;
   setImages(
     input: SetSceneImagesInput,
   ): Promise<SceneRuntimeMutation<SceneRecord>>;
@@ -81,8 +102,29 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
     return { ok: true, value: [] };
   }
 
+  /**
+   * The Game Master's projection of this player's library, with the presented
+   * scene folded in from the live session so the table keeps drawing even
+   * while the request is in flight or the connection is down.
+   */
   async list(): Promise<SceneResult<SceneManifest>> {
     const scene = this.transport.getActiveScene();
+    const listed = await this.transport.listScenes();
+    if (listed.ok) {
+      if (!scene) return listed;
+      /* The live session's copy of the presented scene wins over the host's
+         listing of it, because that is the one carrying transform previews and
+         everything else the table is watching move. */
+      const others = listed.value.scenes.filter(({ id }) => id !== scene.id);
+      return {
+        ok: true,
+        value: {
+          ...listed.value,
+          activeSceneId: scene.id,
+          scenes: [...others, scene],
+        },
+      };
+    }
     const manifest = createEmptySceneManifest();
     return {
       ok: true,
@@ -98,6 +140,14 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
   }
 
   present(): Promise<SceneRuntimeMutation<SceneManifest>> {
+    return this.readOnlyMutation();
+  }
+
+  async listUsers(): Promise<SceneResult<PermissionSubject[]>> {
+    return readOnly();
+  }
+
+  updatePermissions(): Promise<SceneRuntimeMutation<SceneManifest>> {
     return this.readOnlyMutation();
   }
 
@@ -122,6 +172,37 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
     return { changed: null, result: await this.transport.redo(input) };
   }
 
+  async trash(input: TrashSceneInput): Promise<SceneRuntimeMutation<null>> {
+    const result = await this.transport.trashScene({
+      expectedRevision: input.expectedRevision,
+      sceneId: input.sceneId,
+    });
+    return {
+      changed: result.ok ? await this.currentManifest() : null,
+      result,
+    };
+  }
+
+  async update(
+    input: UpdateSceneInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>> {
+    const result = await this.transport.updateScene({
+      expectedRevision: input.expectedRevision,
+      patch: input.patch,
+      sceneId: input.sceneId,
+    });
+    return {
+      changed: result.ok ? await this.currentManifest() : null,
+      result,
+    };
+  }
+
+  /** The refreshed library to announce, or nothing if it cannot be read. */
+  private async currentManifest(): Promise<SceneManifest | null> {
+    const listed = await this.list();
+    return listed.ok ? listed.value : null;
+  }
+
   setImages(): Promise<SceneRuntimeMutation<SceneRecord>> {
     return this.readOnlyMutation();
   }
@@ -139,17 +220,13 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
     return this.readOnlyMutation();
   }
 
-  trash(): Promise<SceneRuntimeMutation<null>> {
-    return this.readOnlyMutation();
-  }
-
   async undo(
     input: SceneHistoryInput,
   ): Promise<SceneRuntimeMutation<SceneRecord>> {
     return { changed: null, result: await this.transport.undo(input) };
   }
 
-  update(): Promise<SceneRuntimeMutation<SceneRecord>> {
+  reorder(): Promise<SceneRuntimeMutation<SceneManifest>> {
     return this.readOnlyMutation();
   }
 
@@ -179,11 +256,34 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
     return this.workspace.sceneRepository.list();
   }
 
+  async listUsers(): Promise<SceneResult<PermissionSubject[]>> {
+    return { ok: true, value: this.workspace.sceneRepository.listUsers() };
+  }
+
+  updatePermissions(
+    input: UpdateScenePermissionsInput,
+  ): Promise<SceneRuntimeMutation<SceneManifest>> {
+    return this.mutate(() =>
+      this.workspace.sceneRepository.updateScenePermissions(input),
+    );
+  }
+
   present(
     input: PresentSceneInput,
   ): Promise<SceneRuntimeMutation<SceneManifest>> {
     return this.mutate(() =>
       this.workspace.sceneRepository.present(input.sceneId),
+    );
+  }
+
+  reorder(
+    input: ReorderScenesInput,
+  ): Promise<SceneRuntimeMutation<SceneManifest>> {
+    return this.mutate(() =>
+      this.workspace.sceneRepository.reorderScenes(
+        input.orderedSceneIds,
+        input.expectedRevision,
+      ),
     );
   }
 

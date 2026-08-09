@@ -62,6 +62,7 @@ export function ConnectionScreen({
   onImportCampaign,
   onOpenCampaign,
   onRemoteAuthenticated,
+  onSalvageCampaign,
 }: ConnectionScreenProps) {
   const [activeTab, setActiveTab] = useState<ConnectionTab>('join');
   const [joinDraft, setJoinDraft] =
@@ -70,6 +71,7 @@ export function ConnectionScreen({
     useState<CreateCampaignDraft>(initialCreateDraft);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [exportingId, setExportingId] = useState<string | null>(null);
+  const [salvagingId, setSalvagingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [campaignMutationError, setCampaignMutationError] = useState<
@@ -154,6 +156,29 @@ export function ConnectionScreen({
       setCampaignMutationError('Campaign could not be exported.');
     } finally {
       setExportingId(null);
+    }
+  };
+
+  const handleSalvage = async (id: string) => {
+    setSalvagingId(id);
+    setCampaignMutationError(null);
+    setCampaignMutationNotice(null);
+
+    try {
+      const result = await onSalvageCampaign(id);
+      if (result.ok) {
+        const { campaign, report } = result.value;
+        setCampaignMutationNotice(
+          `Salvaged ${campaign.name} from campaign format ` +
+            `${report.detectedFormat}. ${report.warnings.join(' ')}`.trimEnd(),
+        );
+      } else {
+        setCampaignMutationError(result.error.message);
+      }
+    } catch {
+      setCampaignMutationError('Campaign could not be salvaged.');
+    } finally {
+      setSalvagingId(null);
     }
   };
 
@@ -272,6 +297,7 @@ export function ConnectionScreen({
               exportingId={exportingId}
               label="Created campaigns"
               pendingDeleteId={pendingDeleteId}
+              salvagingId={salvagingId}
               onDeleteRequest={(id) => {
                 void handleDeleteRequest(id);
               }}
@@ -279,6 +305,9 @@ export function ConnectionScreen({
                 void handleExport(id);
               }}
               onOpen={onOpenCampaign}
+              onSalvage={(id) => {
+                void handleSalvage(id);
+              }}
             />
           ) : null}
         </section>

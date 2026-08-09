@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type {
   PresentSceneInput,
+  ReorderScenesInput,
   SceneAssetInput,
   SceneChangedEvent,
   SceneHistoryInput,
@@ -15,7 +16,9 @@ import type {
   SetSceneFogInput,
   TrashSceneInput,
   UpdateSceneInput,
+  UpdateScenePermissionsInput,
 } from '../shared/scenes';
+import type { PermissionSubject } from '../shared/permissions';
 import type {
   CampaignRuntimeRegistry,
   CampaignSceneRuntime,
@@ -52,6 +55,21 @@ export class SceneManager extends EventEmitter {
 
   create(campaignId: string): Promise<SceneResult<SceneRecord>> {
     return this.mutate(campaignId, (scenes) => scenes.create());
+  }
+
+  async listUsers(
+    campaignId: string,
+  ): Promise<SceneResult<PermissionSubject[]>> {
+    const scenes = await this.scenes(campaignId);
+    return scenes ? scenes.listUsers() : unavailable();
+  }
+
+  updatePermissions(
+    input: UpdateScenePermissionsInput,
+  ): Promise<SceneResult<SceneManifest>> {
+    return this.mutate(input.campaignId, (scenes) =>
+      scenes.updatePermissions(input),
+    );
   }
 
   update(input: UpdateSceneInput): Promise<SceneResult<SceneRecord>> {
@@ -101,6 +119,10 @@ export class SceneManager extends EventEmitter {
 
   trash(input: TrashSceneInput): Promise<SceneResult<null>> {
     return this.mutate(input.campaignId, (scenes) => scenes.trash(input));
+  }
+
+  reorder(input: ReorderScenesInput): Promise<SceneResult<SceneManifest>> {
+    return this.mutate(input.campaignId, (scenes) => scenes.reorder(input));
   }
 
   present(input: PresentSceneInput): Promise<SceneResult<SceneManifest>> {

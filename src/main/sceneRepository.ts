@@ -37,6 +37,11 @@ import {
   type SceneShape,
   type SceneText,
 } from '../shared/scenes';
+import type {
+  SceneAccessLevel,
+  UpdateScenePermissionsInput,
+} from '../shared/sceneContracts';
+import type { PermissionSubject } from '../shared/permissions';
 import {
   sceneObjectStateSchema,
   sceneManifestSchema,
@@ -52,6 +57,12 @@ import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 
 const MAX_SCENES = 1024;
+/**
+ * Clears the range any real position can occupy, so surviving rows can be
+ * shifted aside while a new order is written without tripping the unique index.
+ * A campaign cannot hold enough scenes to reach it.
+ */
+const SCENE_POSITION_PARK_OFFSET = 1_000_000;
 const MAX_DURABLE_SCENE_OPERATIONS = 2_048;
 
 interface SceneRepositoryOptions {
@@ -691,12 +702,36 @@ export class SceneRepository {
       }
       const records = this.database.connection
         .prepare(
-          `SELECT id, record_json
+          `SELECT id, record_json, default_access, permission_revision
            FROM scenes
            ORDER BY position`,
         )
-        .all() as unknown as Array<{ id: string; record_json: string }>;
+        .all() as unknown as Array<{
+          default_access: SceneAccessLevel;
+          id: string;
+          permission_revision: number;
+          record_json: string;
+        }>;
+      const overrides = this.permissionOverrides();
       const parsed = sceneManifestSchema.parse({
+        access: records.map((row) => ({
+          /* The stored configuration, projected for whoever asks later. The
+             repository answers for the campaign; runtimes narrow it. */
+          capabilities: {
+            delete: true,
+            managePermissions: true,
+            present: true,
+            reorder: true,
+            update: true,
+            view: true,
+          },
+          permissionRevision: row.permission_revision,
+          permissions: {
+            allPlayers: row.default_access,
+            overrides: overrides.get(row.id) ?? [],
+          },
+          sceneId: row.id,
+        })),
         activeSceneId: state.active_scene_id,
         revision: state.revision,
         scenes: records.map((row) => {
@@ -718,6 +753,103 @@ export class SceneRepository {
 
   async list(): Promise<SceneResult<SceneManifest>> {
     return { ok: true, value: await this.readManifest() };
+  }
+
+  private permissionOverrides(): Map<
+    string,
+    Array<{ access: SceneAccessLevel; userId: string }>
+  > {
+    const grouped = new Map<
+      string,
+      Array<{ access: SceneAccessLevel; userId: string }>
+    >();
+    for (const row of this.database.connection
+      .prepare(
+        `SELECT scene_id, user_id, access FROM scene_permissions
+         ORDER BY scene_id, user_id`,
+      )
+      .all() as unknown as Array<{
+        access: SceneAccessLevel;
+        scene_id: string;
+        user_id: string;
+      }>) {
+      const entries = grouped.get(row.scene_id) ?? [];
+      entries.push({ access: row.access, userId: row.user_id });
+      grouped.set(row.scene_id, entries);
+    }
+    return grouped;
+  }
+
+  listUsers(): PermissionSubject[] {
+    return (
+      this.database.connection
+        .prepare('SELECT id, username FROM campaign_users ORDER BY username')
+        .all() as unknown as Array<{ id: string; username: string }>
+    ).map(({ id, username }) => ({ id, username }));
+  }
+
+  updateScenePermissions(
+    input: Omit<UpdateScenePermissionsInput, 'campaignId'>,
+  ): Promise<SceneResult<SceneManifest>> {
+    return this.mutate(async (manifest) => {
+      const entry = manifest.access.find(
+        ({ sceneId }) => sceneId === input.sceneId,
+      );
+      if (!entry) {
+        return failure('not_found', 'The scene no longer exists.', input.sceneId);
+      }
+      if (entry.permissionRevision !== input.expectedPermissionRevision) {
+        return failure(
+          'conflict',
+          'The scene permissions changed before this change could be saved.',
+          input.sceneId,
+        );
+      }
+      const users = new Set(this.listUsers().map(({ id }) => id));
+      const seen = new Set<string>();
+      const valid = input.permissions.overrides.every(({ userId }) => {
+        if (!users.has(userId) || seen.has(userId)) return false;
+        seen.add(userId);
+        return true;
+      });
+      if (!valid) {
+        return failure('invalid_input', 'The scene permissions are invalid.', input.sceneId);
+      }
+      const database = this.database.connection;
+      database.exec('BEGIN IMMEDIATE');
+      try {
+        database
+          .prepare(
+            `UPDATE scenes
+             SET default_access = ?, permission_revision = permission_revision + 1
+             WHERE id = ?`,
+          )
+          .run(input.permissions.allPlayers, input.sceneId);
+        database
+          .prepare('DELETE FROM scene_permissions WHERE scene_id = ?')
+          .run(input.sceneId);
+        const insert = database.prepare(
+          `INSERT INTO scene_permissions (scene_id, user_id, access)
+           VALUES (?, ?, ?)`,
+        );
+        for (const override of input.permissions.overrides) {
+          insert.run(input.sceneId, override.userId, override.access);
+        }
+        database.exec('COMMIT');
+      } catch (error) {
+        database.exec('ROLLBACK');
+        this.warn('Failed to replace scene permissions.', error);
+        return failure(
+          'storage_error',
+          'The scene permissions could not be saved.',
+          input.sceneId,
+        );
+      }
+      await this.touchAfterChange();
+      /* Access is not the scene, so no scene revision moves and the manifest
+         is simply re-read with the new configuration in place. */
+      return { ok: true, value: await this.readManifest() };
+    });
   }
 
   create(): Promise<SceneResult<SceneRecord>> {
@@ -1112,6 +1244,48 @@ export class SceneRepository {
         },
         result: { ok: true, value: null },
       };
+    });
+  }
+
+  /**
+   * Rewrites the whole scene list in the requested order.
+   *
+   * Manifest array order is already the stored order — readManifest reads
+   * `ORDER BY position` and writeManifest writes the array index back — so this
+   * only has to permute the array. No scene record changes, so no scene
+   * revision moves; the manifest revision guards the write.
+   */
+  reorderScenes(
+    orderedSceneIds: readonly string[],
+    expectedRevision: number,
+  ): Promise<SceneResult<SceneManifest>> {
+    return this.mutate(async (manifest) => {
+      if (manifest.revision !== expectedRevision) {
+        return failure(
+          'conflict',
+          'The scene order changed somewhere else. Reopen it and try again.',
+        );
+      }
+      const requested = [...orderedSceneIds];
+      const current = manifest.scenes.map((scene) => scene.id);
+      if (
+        requested.length !== current.length ||
+        new Set(requested).size !== requested.length ||
+        !requested.every((id) => current.includes(id))
+      ) {
+        return failure(
+          'invalid_input',
+          'The requested scene order is invalid.',
+        );
+      }
+      const byId = new Map(manifest.scenes.map((scene) => [scene.id, scene]));
+      const next = {
+        ...manifest,
+        scenes: requested.map((id) => byId.get(id)!),
+      };
+      /* The returned manifest carries the pre-bump revision, matching present()
+         and update(); callers refresh from the change event that follows. */
+      return { manifest: next, result: { ok: true, value: next } };
     });
   }
 
@@ -1874,15 +2048,20 @@ export class SceneRepository {
         this.warn('Failed to write the scene manifest.', error);
         return failure('storage_error', 'The scene could not be saved.');
       }
-      if (this.touchCampaign) {
-        try {
-          await this.touchCampaign();
-        } catch (error) {
-          this.warn('Failed to touch the campaign after a scene change.', error);
-        }
-      }
+      await this.touchAfterChange();
       return outcome.result;
     });
+  }
+
+  private async touchAfterChange(): Promise<void> {
+    if (!this.touchCampaign) return;
+    try {
+      await this.touchCampaign();
+    } catch (error) {
+      /* The scene change is already durable. A metadata timestamp failure must
+         not make a successful write look as though it should be retried. */
+      this.warn('Failed to touch the campaign after a scene change.', error);
+    }
   }
 
   private async writeManifest(
@@ -1893,10 +2072,28 @@ export class SceneRepository {
     const database = this.database.connection;
     database.exec('BEGIN IMMEDIATE');
     try {
-      database.exec('DELETE FROM scenes');
+      /* Rewriting every row would drop each scene's access with it, because
+         the permission overrides cascade off this table. Only scenes that
+         actually left the manifest are deleted; the rest keep the access the
+         Game Master gave them while their order and record move. */
+      const retained = new Set(parsed.scenes.map((scene) => scene.id));
+      const remove = database.prepare('DELETE FROM scenes WHERE id = ?');
+      for (const row of database
+        .prepare('SELECT id FROM scenes')
+        .all() as unknown as Array<{ id: string }>) {
+        if (!retained.has(row.id)) remove.run(row.id);
+      }
+      /* Positions are unique and non-negative, so surviving rows are shifted
+         above every position the new order can use before it lands. */
+      database.exec(
+        `UPDATE scenes SET position = position + ${SCENE_POSITION_PARK_OFFSET}`,
+      );
       const insert = database.prepare(
-        `INSERT INTO scenes (id, position, record_json)
-         VALUES (?, ?, ?)`,
+        `INSERT INTO scenes (
+           id, position, record_json, default_access, permission_revision
+         ) VALUES (?, ?, ?, 'none', 0)
+         ON CONFLICT(id) DO UPDATE
+           SET position = excluded.position, record_json = excluded.record_json`,
       );
       parsed.scenes.forEach((scene, position) => {
         insert.run(scene.id, position, JSON.stringify(scene));

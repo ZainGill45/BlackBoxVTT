@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { MAX_SCENE_OBJECTS, SCENE_LAYERS } from './sceneConstants';
+import {
+  MAX_SCENE_OBJECTS,
+  MAX_SCENE_PERMISSION_OVERRIDES,
+  SCENE_LAYERS,
+} from './sceneConstants';
 import {
   sceneObjectStateSchema,
   sceneManifestSchema,
@@ -23,6 +27,40 @@ export const trashSceneInputSchema = sceneCampaignInputSchema.extend({
 });
 export const updateSceneInputSchema = trashSceneInputSchema.extend({
   patch: scenePatchSchema,
+});
+export const sceneAccessLevelSchema = z.enum(['none', 'view', 'edit']);
+export const updateScenePermissionsInputSchema = sceneCampaignInputSchema.extend({
+  expectedPermissionRevision: z.number().int().nonnegative(),
+  permissions: z
+    .object({
+      allPlayers: sceneAccessLevelSchema,
+      overrides: z
+        .array(
+          z
+            .object({
+              access: sceneAccessLevelSchema,
+              userId: z.string().uuid(),
+            })
+            .strict(),
+        )
+        .max(MAX_SCENE_PERMISSION_OVERRIDES),
+    })
+    .strict(),
+  sceneId: z.string().uuid(),
+});
+/*
+ * Names no single scene: reordering rewrites the whole list, so it carries the
+ * manifest revision rather than a scene's. Unlike the asset equivalent, the
+ * manifest does reach the renderer, so the expected revision is real.
+ */
+export const reorderScenesInputSchema = sceneCampaignInputSchema.extend({
+  expectedRevision: z.number().int().nonnegative(),
+  orderedSceneIds: z
+    .array(z.string().uuid())
+    .max(10_000)
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'Scene order must not repeat a scene.',
+    }),
 });
 export const setSceneImagesInputSchema = trashSceneInputSchema.extend({
   state: sceneObjectStateSchema,
@@ -124,6 +162,11 @@ export type SceneAssetInput = z.infer<typeof sceneAssetInputSchema>;
 export type PresentSceneInput = z.infer<typeof presentSceneInputSchema>;
 export type TrashSceneInput = z.infer<typeof trashSceneInputSchema>;
 export type UpdateSceneInput = z.infer<typeof updateSceneInputSchema>;
+export type SceneAccessLevel = z.infer<typeof sceneAccessLevelSchema>;
+export type UpdateScenePermissionsInput = z.infer<
+  typeof updateScenePermissionsInputSchema
+>;
+export type ReorderScenesInput = z.infer<typeof reorderScenesInputSchema>;
 export type SetSceneImagesInput = z.infer<typeof setSceneImagesInputSchema>;
 export type SetSceneObjectsInput = z.infer<typeof setSceneObjectsInputSchema>;
 export type SceneFogMutation = z.infer<typeof sceneFogMutationSchema>;

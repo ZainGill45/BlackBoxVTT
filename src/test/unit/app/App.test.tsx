@@ -92,6 +92,8 @@ function createMockAssetApi(
     getPreview: vi.fn(),
     importImageBytes: vi.fn(),
     list: vi.fn(async () => ({ ok: true as const, value: [] })),
+    listUsers: vi.fn(async () => ({ ok: true as const, value: [] })),
+    updatePermissions: vi.fn(),
     onChanged: vi.fn(() => () => undefined),
     onError: vi.fn(() => () => undefined),
     onProgress: vi.fn(() => () => undefined),
@@ -106,10 +108,17 @@ function createMockAssetApi(
   };
 }
 
-function campaignTransferStubs(): Pick<CampaignApi, 'export' | 'import'> {
+function campaignTransferStubs(): Pick<
+  CampaignApi,
+  'export' | 'import' | 'salvage'
+> {
   return {
     export: vi.fn(async () => ({ ok: true as const, value: null })),
     import: vi.fn(async () => ({ ok: true as const, value: null })),
+    salvage: vi.fn(async () => ({
+      error: { code: 'unsalvageable' as const, message: 'Not salvageable.' },
+      ok: false as const,
+    })),
   };
 }
 
@@ -187,6 +196,49 @@ describe('App campaign integration', () => {
     expect(screen.getByRole('status')).toHaveTextContent(
       'Imported Iron Meridian.',
     );
+  });
+
+  it('keeps an unreadable source listed when salvage could not trash it', async () => {
+    const user = userEvent.setup();
+    const unreadable = {
+      id: '77777777-7777-4777-8777-777777777777',
+      name: 'Unavailable campaign (77777777)',
+      unavailableReason: 'unsupported_data' as const,
+      updatedAt: '2026-08-06T22:00:00.000Z',
+    };
+    const recovered = { ...createdCampaign, name: 'Recovered Meridian' };
+    const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
+      create: vi.fn(),
+      list: vi.fn(async () => ({ ok: true as const, value: [unreadable] })),
+      salvage: vi.fn(async () => ({
+        ok: true as const,
+        value: {
+          campaign: recovered,
+          originalTrashed: false,
+          report: {
+            detectedFormat: 3,
+            warnings: [
+              'The unreadable campaign could not be moved to the trash; ' +
+                'delete it from the campaign list.',
+            ],
+          },
+        },
+      })),
+      trash: vi.fn(),
+    };
+
+    render(<App campaignApi={campaignApi} />);
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    await user.click(await screen.findByRole('button', {
+      name: `Salvage ${unreadable.name}`,
+    }));
+
+    expect(await screen.findByText(recovered.name)).toBeInTheDocument();
+    expect(screen.getByText(unreadable.name)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: `Delete ${unreadable.name}`,
+    })).toBeEnabled();
   });
 
   it('surfaces a repository loading failure', async () => {

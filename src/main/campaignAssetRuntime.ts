@@ -1,4 +1,5 @@
 import type {
+  AssetAccessLevel,
   AssetActor,
   AssetProgressEvent,
   AssetRecord,
@@ -7,7 +8,12 @@ import type {
   RenameAssetInput,
   ReorderAssetsInput,
   TrashAssetInput,
+  UpdateAssetPermissionsInput,
 } from '../shared/assets';
+import type {
+  PermissionConfiguration,
+  PermissionSubject,
+} from '../shared/permissions';
 import {
   getAssetCapabilities,
   type AssetPolicy,
@@ -61,10 +67,15 @@ export interface CampaignAssetRuntime {
     input: TrashAssetInput,
     policy: AssetPolicy,
   ): Promise<AssetRuntimeMutation<null>>;
+  listUsers(policy: AssetPolicy): Promise<AssetResult<PermissionSubject[]>>;
+  updatePermissions(
+    input: Omit<UpdateAssetPermissionsInput, 'campaignId'>,
+    policy: AssetPolicy,
+  ): Promise<AssetRuntimeMutation<AssetView>>;
 }
 
 function failure<T>(
-  code: 'permission_denied' | 'storage_error',
+  code: 'not_found' | 'permission_denied' | 'storage_error',
   message: string,
   assetId?: string,
 ): AssetResult<T> {
@@ -134,6 +145,20 @@ class JoinedAssetRuntime implements CampaignAssetRuntime {
       result: await this.transport.trash(input),
     };
   }
+
+  /* Joining a campaign means playing in it. Granting access is the Game
+     Master's, and the Game Master is the host. */
+  async listUsers(): Promise<AssetResult<PermissionSubject[]>> {
+    return failure('permission_denied', 'Only the Game Master can manage asset access.');
+  }
+
+  async updatePermissions(): Promise<AssetRuntimeMutation<AssetView>> {
+    return {
+      changed: null,
+      releasePreviews: false,
+      result: failure('permission_denied', 'Only the Game Master can manage asset access.'),
+    };
+  }
 }
 
 class LocalAssetRuntime implements CampaignAssetRuntime {
@@ -178,10 +203,11 @@ class LocalAssetRuntime implements CampaignAssetRuntime {
     }
     try {
       const entries = await this.workspace.assetRepository.list();
+      const states = this.workspace.assetRepository.permissionStates();
       return {
         ok: true,
         value: entries.map(({ available, record }) =>
-          this.toView(record, policy, available),
+          this.toView(record, policy, available, states.get(record.id)),
         ),
       };
     } catch {
@@ -312,15 +338,70 @@ class LocalAssetRuntime implements CampaignAssetRuntime {
     };
   }
 
+  async listUsers(policy: AssetPolicy): Promise<AssetResult<PermissionSubject[]>> {
+    if (!policy.authorize({ action: 'managePermissions', subject: this.actor })) {
+      return failure('permission_denied', 'Only the Game Master can manage asset access.');
+    }
+    return { ok: true, value: this.workspace.assetRepository.listUsers() };
+  }
+
+  async updatePermissions(
+    input: Omit<UpdateAssetPermissionsInput, 'campaignId'>,
+    policy: AssetPolicy,
+  ): Promise<AssetRuntimeMutation<AssetView>> {
+    if (!policy.authorize({ action: 'managePermissions', subject: this.actor })) {
+      return {
+        changed: null,
+        releasePreviews: false,
+        result: failure(
+          'permission_denied',
+          'Only the Game Master can manage asset access.',
+          input.assetId,
+        ),
+      };
+    }
+    const written = await this.workspace.assetRepository.updatePermissions(input);
+    if (!written.ok) {
+      return { changed: null, releasePreviews: false, result: written };
+    }
+    const listed = await this.list(policy);
+    if (!listed.ok) {
+      return { changed: null, releasePreviews: false, result: listed };
+    }
+    const updated = listed.value.find(({ id }) => id === input.assetId);
+    return {
+      changed: listed.value,
+      releasePreviews: false,
+      result: updated
+        ? { ok: true, value: updated }
+        : failure('not_found', 'That asset no longer exists.', input.assetId),
+    };
+  }
+
   private toView(
     record: AssetRecord,
     policy: AssetPolicy,
     available: boolean,
+    state?: {
+      permissionRevision: number;
+      permissions: PermissionConfiguration<AssetAccessLevel>;
+    },
   ): AssetView {
     return {
       ...record,
       available,
-      capabilities: getAssetCapabilities(policy, this.actor, record),
+      capabilities: getAssetCapabilities(
+        policy,
+        this.actor,
+        record,
+        state?.permissions.allPlayers,
+      ),
+      permissionRevision: state?.permissionRevision ?? 0,
+      /* Only the Game Master edits access, and only the Game Master is ever
+         local, so the configuration travels no further than this process. */
+      permissions: this.actor.role === 'gm'
+        ? state?.permissions ?? { allPlayers: 'none', overrides: [] }
+        : null,
       syncState: available ? 'ready' : 'unavailable',
     };
   }

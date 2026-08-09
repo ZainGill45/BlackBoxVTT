@@ -107,6 +107,12 @@ export class JoinedCampaignConnection {
         }
       },
       onScenePresented: (scene) => this.scenes.present(scene),
+      /* The library moved rather than the presented scene, so the renderer is
+         nudged to re-read it through the same path a presentation uses. */
+      onScenesChanged: () => {
+        const campaignId = this.client.getSession()?.campaignId;
+        if (campaignId) this.events.onScenePresented(campaignId);
+      },
       onSessionClosed: (code, message) => {
         this.endSession();
         this.events.onSessionClosed({ code, message });

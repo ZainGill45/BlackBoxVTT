@@ -3,6 +3,7 @@ import type {
   CampaignImportReceipt,
   CampaignManifest,
   CampaignResult,
+  CampaignSalvageReceipt,
   CampaignSummary,
 } from '../../shared/campaigns';
 import type {
@@ -39,4 +40,7 @@ export interface ConnectionScreenProps {
   ) => Promise<CampaignResult<CampaignExportReceipt | null>>;
   onImportCampaign: () => Promise<CampaignResult<CampaignImportReceipt | null>>;
   onOpenCampaign: (id: string) => void;
+  onSalvageCampaign: (
+    id: string,
+  ) => Promise<CampaignResult<CampaignSalvageReceipt>>;
 }

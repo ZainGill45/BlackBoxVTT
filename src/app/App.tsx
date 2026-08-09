@@ -199,6 +199,27 @@ export function App({
       return result;
     };
 
+  const handleSalvageCampaign: ConnectionScreenProps['onSalvageCampaign'] =
+    async (id) => {
+      const result = await campaignApi.salvage({ id });
+      if (result.ok) {
+        /* A failed trash is reported as a successful salvage with a warning.
+           Keep that source entry visible so the warning's delete action is
+           actually available to the Game Master. */
+        const salvaged = result.value.campaign;
+        setCampaigns((current) =>
+          sortCampaigns([
+            ...current.filter(
+              (campaign) =>
+                !result.value.originalTrashed || campaign.id !== id,
+            ),
+            salvaged,
+          ]),
+        );
+      }
+      return result;
+    };
+
   const handleOpenCampaign = async (id: string): Promise<void> => {
     const campaign = campaigns.find((candidate) => candidate.id === id);
 
@@ -310,6 +331,7 @@ export function App({
           onDeleteCampaign={handleDeleteCampaign}
           onExportCampaign={handleExportCampaign}
           onImportCampaign={handleImportCampaign}
+          onSalvageCampaign={handleSalvageCampaign}
           onOpenCampaign={handleOpenCampaign}
           onRemoteAuthenticated={(session) => {
             setConnectionNotice(null);

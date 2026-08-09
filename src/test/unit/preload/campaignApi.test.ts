@@ -26,6 +26,7 @@ describe('createCampaignApi', () => {
       'export',
       'import',
       'list',
+      'salvage',
       'trash',
     ]);
   });
@@ -61,5 +62,13 @@ describe('createCampaignApi', () => {
       id: campaignId,
     });
     expect(invoke).toHaveBeenCalledWith(campaignIpcChannels.import);
+  });
+
+  it('sends a salvage request with the campaign id', async () => {
+    await api.salvage({ id: campaignId });
+
+    expect(invoke).toHaveBeenCalledWith(campaignIpcChannels.salvage, {
+      id: campaignId,
+    });
   });
 });

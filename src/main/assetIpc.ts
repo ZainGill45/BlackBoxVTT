@@ -2,6 +2,7 @@ import type { IpcMain, IpcMainInvokeEvent, WebContents } from 'electron';
 import { z } from 'zod';
 import {
   assetIpcChannels,
+  MAX_ASSET_PERMISSION_OVERRIDES,
   MAX_EMBEDDED_IMAGE_BYTES,
   type AssetResult,
 } from '../shared/assets';
@@ -25,6 +26,18 @@ const reorderSchema = campaignSchema.extend({
   orderedAssetIds: z.array(z.string().uuid()).max(10_000),
 });
 const releaseSchema = z.object({ token: z.string().uuid() }).strict();
+const assetAccessSchema = z.enum(['none', 'view', 'edit']);
+const updatePermissionsSchema = assetSchema.extend({
+  expectedPermissionRevision: z.number().int().nonnegative(),
+  permissions: z.object({
+    allPlayers: assetAccessSchema,
+    overrides: z
+      .array(
+        z.object({ access: assetAccessSchema, userId: z.string().uuid() }).strict(),
+      )
+      .max(MAX_ASSET_PERMISSION_OVERRIDES),
+  }).strict(),
+}).strict();
 const importImageSchema = campaignSchema.extend({
   bytesBase64: z.string().max(Math.ceil((MAX_EMBEDDED_IMAGE_BYTES * 4) / 3) + 8),
   filename: z.string().min(1).max(512),
@@ -57,6 +70,8 @@ export function registerAssetIpcHandlers(
     assetIpcChannels.rename,
     assetIpcChannels.reorder,
     assetIpcChannels.trash,
+    assetIpcChannels.listUsers,
+    assetIpcChannels.updatePermissions,
   ];
   requestChannels.forEach((channel) => ipc.removeHandler(channel));
   const isAllowed = (event: IpcMainInvokeEvent) =>
@@ -105,6 +120,14 @@ export function registerAssetIpcHandlers(
   handle(assetIpcChannels.trash, (input) => {
     const parsed = trashSchema.safeParse(input);
     return parsed.success ? manager.trash(parsed.data) : invalid();
+  });
+  handle(assetIpcChannels.listUsers, (input) => {
+    const parsed = campaignSchema.safeParse(input);
+    return parsed.success ? manager.listUsers(parsed.data.campaignId) : invalid();
+  });
+  handle(assetIpcChannels.updatePermissions, (input) => {
+    const parsed = updatePermissionsSchema.safeParse(input);
+    return parsed.success ? manager.updatePermissions(parsed.data) : invalid();
   });
   handle(assetIpcChannels.getPreview, (input) => {
     const parsed = assetSchema.safeParse(input);

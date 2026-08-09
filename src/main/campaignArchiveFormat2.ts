@@ -2,6 +2,12 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { JsonValue } from '../shared/gameSystems';
 import { isDnd5eCharacterData } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
+import {
+  addAssetPermissions,
+  addJournalEntryPermissionRevision,
+  addScenePermissions,
+  runDirectArchiveConversion,
+} from './campaignArchiveSteps';
 
 interface CharacterRow {
   data_json: string;
@@ -19,13 +25,18 @@ export function convertCampaignArchiveFormat2(
      WHERE type_id = ?
      ORDER BY position`,
   ).all(DND5E_CHARACTER_ENTRY_TYPE_ID) as unknown as CharacterRow[];
-  const update = connection.prepare(
-    'UPDATE journal_entries SET data_json = ? WHERE id = ?',
-  );
   let convertedCharacters = 0;
 
-  connection.exec('BEGIN IMMEDIATE');
-  try {
+  const accessWarnings: string[] = [];
+  runDirectArchiveConversion(connection, () => {
+    addJournalEntryPermissionRevision(connection);
+    accessWarnings.push(
+      ...addAssetPermissions(connection),
+      ...addScenePermissions(connection),
+    );
+    const update = connection.prepare(
+      'UPDATE journal_entries SET data_json = ? WHERE id = ?',
+    );
     for (const row of rows) {
       let parsed: unknown;
       try {
@@ -48,17 +59,14 @@ export function convertCampaignArchiveFormat2(
       update.run(JSON.stringify(converted), row.id);
       convertedCharacters += 1;
     }
-    connection.exec('COMMIT');
-  } catch (error) {
-    connection.exec('ROLLBACK');
-    throw error;
-  }
+  });
 
-  return convertedCharacters === 0
+  const characterWarnings = convertedCharacters === 0
     ? []
     : [
         `Added empty Features collections to ${convertedCharacters} D&D ${
           convertedCharacters === 1 ? 'character' : 'characters'
         } imported from archive format 2.`,
       ];
+  return [...characterWarnings, ...accessWarnings];
 }

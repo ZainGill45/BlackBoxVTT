@@ -34,6 +34,14 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
       ipc.invoke(sceneIpcChannels.findDependents, input) as ReturnType<
         SceneApi['findDependents']
       >,
+    listUsers: (input) =>
+      ipc.invoke(sceneIpcChannels.listUsers, input) as ReturnType<
+        SceneApi['listUsers']
+      >,
+    updatePermissions: (input) =>
+      ipc.invoke(sceneIpcChannels.updatePermissions, input) as ReturnType<
+        SceneApi['updatePermissions']
+      >,
     list: (input) =>
       ipc.invoke(sceneIpcChannels.list, input) as ReturnType<SceneApi['list']>,
     onChanged: (listener) => subscribe(sceneIpcChannels.changed, listener),
@@ -62,6 +70,10 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
     setFog: (input) =>
       ipc.invoke(sceneIpcChannels.setFog, input) as ReturnType<
         SceneApi['setFog']
+      >,
+    reorder: (input) =>
+      ipc.invoke(sceneIpcChannels.reorder, input) as ReturnType<
+        SceneApi['reorder']
       >,
     trash: (input) =>
       ipc.invoke(sceneIpcChannels.trash, input) as ReturnType<

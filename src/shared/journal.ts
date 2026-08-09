@@ -1,5 +1,9 @@
 import type { Result } from './result';
 import type { JsonValue } from './gameSystems';
+import type {
+  PermissionConfiguration,
+  PermissionSubject,
+} from './permissions';
 
 export const JOURNAL_ENTRY_TYPE_NOTE = 'core.note' as const;
 export const JOURNAL_EDIT_LEASE_MS = 30_000;
@@ -98,15 +102,6 @@ export const journalIpcChannels = {
 export type JournalAccessLevel = 'edit' | 'none' | 'view';
 export type JournalPageAccessLevel = JournalAccessLevel | 'inherit';
 
-export interface JournalPermissionOverride<TAccess extends string> {
-  access: TAccess;
-  userId: string;
-}
-
-export interface JournalPermissionConfiguration<TAccess extends string> {
-  allPlayers: TAccess;
-  overrides: JournalPermissionOverride<TAccess>[];
-}
 
 export interface RichTextMark {
   attrs?: Record<string, JsonValue>;
@@ -147,7 +142,7 @@ export interface JournalPageSummary {
   capabilities: JournalPageCapabilities;
   id: string;
   permissionRevision: number;
-  permissions: JournalPermissionConfiguration<JournalPageAccessLevel> | null;
+  permissions: PermissionConfiguration<JournalPageAccessLevel> | null;
   position: number;
   revision: number;
   title: string;
@@ -160,7 +155,8 @@ export interface JournalEntryBaseSummary {
   id: string;
   kind: 'note' | 'system';
   name: string;
-  permissions: JournalPermissionConfiguration<JournalAccessLevel> | null;
+  permissionRevision: number;
+  permissions: PermissionConfiguration<JournalAccessLevel> | null;
   position: number;
   revision: number;
   typeId: string;
@@ -193,11 +189,6 @@ export interface JournalManifest {
 export interface JournalPage extends JournalPageSummary {
   content: RichTextDocument;
   entryId: string;
-}
-
-export interface JournalPermissionSubject {
-  id: string;
-  username: string;
 }
 
 export interface JournalAssetDependent {
@@ -281,15 +272,15 @@ export interface UpdateJournalPageInput extends JournalPageInput {
 }
 
 export interface UpdateJournalNotePermissionsInput extends JournalEntryInput {
-  expectedRevision: number;
-  permissions: JournalPermissionConfiguration<JournalAccessLevel>;
+  expectedPermissionRevision: number;
+  permissions: PermissionConfiguration<JournalAccessLevel>;
 }
 
 export type UpdateJournalEntryPermissionsInput = UpdateJournalNotePermissionsInput;
 
 export interface UpdateJournalPagePermissionsInput extends JournalPageInput {
   expectedPermissionRevision: number;
-  permissions: JournalPermissionConfiguration<JournalPageAccessLevel>;
+  permissions: PermissionConfiguration<JournalPageAccessLevel>;
 }
 
 export interface MoveJournalEntryInput extends JournalEntryInput {
@@ -370,7 +361,7 @@ export interface JournalApi {
   getNote(input: JournalEntryInput): Promise<JournalResult<NoteEntry>>;
   getPage(input: JournalPageInput): Promise<JournalResult<JournalPage>>;
   list(input: JournalCampaignInput): Promise<JournalResult<JournalManifest>>;
-  listUsers(input: JournalCampaignInput): Promise<JournalResult<JournalPermissionSubject[]>>;
+  listUsers(input: JournalCampaignInput): Promise<JournalResult<PermissionSubject[]>>;
   moveEntry(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>>;
   moveNote(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>>;
   movePage(input: MoveJournalPageInput): Promise<JournalResult<NoteEntry>>;

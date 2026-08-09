@@ -103,3 +103,6 @@ export const GRID_COLOR_PRESETS = [
   '#2bad50',
   '#e0c22b',
 ] as const;
+
+/** Bounded by the campaign roster, matching the Journal and Storage caps. */
+export const MAX_SCENE_PERMISSION_OVERRIDES = 20;

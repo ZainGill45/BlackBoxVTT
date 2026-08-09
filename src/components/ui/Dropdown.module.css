@@ -52,19 +52,28 @@
   cursor: default;
 }
 
+/* Fixed rather than absolute so an open panel never joins the scrollable
+   content of whatever it opens inside. Its offsets are measured and set by the
+   component; the values here only matter before the first measurement. */
 .panel {
-  position: absolute;
+  position: fixed;
   z-index: 20;
-  top: calc(100% + var(--space-1));
-  left: 0;
   display: grid;
-  min-width: 13rem;
+  /* Exactly as wide as the control it belongs to, never below the width its
+     own options need, and never wider than the window it floats in. */
+  width: max(13rem, var(--dropdown-trigger-width, 13rem));
+  max-width: calc(100vw - var(--space-4));
+  translate: 0 var(--space-1);
   max-height: 24rem;
   padding: var(--space-1);
   overflow-y: auto;
   background: var(--color-overlay-surface);
   border: var(--border-width) solid var(--color-border-strong);
   box-shadow: var(--shadow-panel);
+}
+
+.panel[data-placement='above'] {
+  translate: 0 calc(-1 * var(--space-1));
 }
 
 .option {

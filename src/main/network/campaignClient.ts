@@ -45,7 +45,9 @@ import {
 import type {
   SceneError,
   SceneHistoryInput,
+  SceneManifest,
   SceneObjectState,
+  ScenePatch,
   SceneRecord,
   SceneResult,
   SceneTransformPreviewCancel,
@@ -74,7 +76,6 @@ import type {
   JournalEntry,
   JournalManifest,
   JournalPage,
-  JournalPermissionSubject,
   JournalResult,
   MoveJournalEntryInput,
   MoveJournalPageInput,
@@ -88,6 +89,9 @@ import type {
   UpdateJournalEntryPermissionsInput,
   UpdateJournalPagePermissionsInput,
 } from '../../shared/journal';
+import type {
+  PermissionSubject,
+} from '../../shared/permissions';
 import type { ProtocolMessageType } from './tcpProtocol';
 
 const TCP_CONNECT_TIMEOUT_MS = 10_000;
@@ -141,6 +145,7 @@ interface CampaignClientOptions {
     input: Omit<ShapePreviewEvent, 'campaignId'>
   ) => void;
   onScenePresented?: (scene: SceneRecord | null) => void;
+  onScenesChanged?: () => void;
   onTransformCancelled?: (input: Omit<SceneTransformPreviewCancel, 'campaignId'>) => void;
   onTransformPreview?: (input: Omit<SceneTransformPreviewDelta, 'campaignId'>) => void;
   onTransformStarted?: (input: Omit<SceneTransformPreviewStart, 'campaignId'>) => void;
@@ -168,6 +173,9 @@ export class CampaignClient {
   private readonly onScenePresented: NonNullable<
     CampaignClientOptions['onScenePresented']
   >;
+  private readonly onScenesChanged: NonNullable<
+    CampaignClientOptions['onScenesChanged']
+  >;
   private readonly onShapePreview: NonNullable<
     CampaignClientOptions['onShapePreview']
   >;
@@ -187,6 +195,7 @@ export class CampaignClient {
     onJournalChanged = () => undefined,
     onMeasurementUpdate = () => undefined,
     onScenePresented = () => undefined,
+    onScenesChanged = () => undefined,
     onShapePreview = () => undefined,
     onTransformCancelled = () => undefined,
     onTransformPreview = () => undefined,
@@ -202,6 +211,7 @@ export class CampaignClient {
     this.onJournalChanged = onJournalChanged;
     this.onMeasurementUpdate = onMeasurementUpdate;
     this.onScenePresented = onScenePresented;
+    this.onScenesChanged = onScenesChanged;
     this.onShapePreview = onShapePreview;
     this.onTransformCancelled = onTransformCancelled;
     this.onTransformPreview = onTransformPreview;
@@ -422,6 +432,7 @@ export class CampaignClient {
         onJournalChanged: this.onJournalChanged,
         onMeasurementUpdate: this.onMeasurementUpdate,
         onScenePresented: this.onScenePresented,
+        onScenesChanged: this.onScenesChanged,
         onShapePreview: this.onShapePreview,
         onTransformCancelled: this.onTransformCancelled,
         onTransformPreview: this.onTransformPreview,
@@ -979,7 +990,7 @@ export class CampaignClient {
       (payload) => parsePayload('server.journal_manifest', payload));
   }
 
-  listJournalUsers(): Promise<JournalResult<JournalPermissionSubject[]>> {
+  listJournalUsers(): Promise<JournalResult<PermissionSubject[]>> {
     return this.journalRequest('client.journal_list_users', {}, 'server.journal_users',
       (payload) => parsePayload('server.journal_users', payload).users);
   }
@@ -1179,11 +1190,85 @@ export class CampaignClient {
     }
   }
 
+  /** The caller's own scene library, as the host projects it for them. */
+  async listScenes(): Promise<SceneResult<SceneManifest>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return this.sceneFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.scene_list',
+        {},
+        ['server.scene_manifest', 'server.scene_error'],
+      );
+      if (envelope.type === 'server.scene_error') {
+        return {
+          error: parsePayload('server.scene_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload('server.scene_manifest', envelope.payload),
+      };
+    } catch {
+      return this.sceneFailure(
+        'unavailable',
+        'The scene library could not be read.',
+      );
+    }
+  }
+
+  updateScene(input: {
+    expectedRevision: number;
+    patch: ScenePatch;
+    sceneId: string;
+  }): Promise<SceneResult<SceneRecord>> {
+    return this.sceneMutation('client.scene_update', input);
+  }
+
+  async trashScene(input: {
+    expectedRevision: number;
+    sceneId: string;
+  }): Promise<SceneResult<null>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return this.sceneFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.scene_trash',
+        input,
+        ['server.scene_manifest', 'server.scene_error'],
+      );
+      if (envelope.type === 'server.scene_error') {
+        return {
+          error: parsePayload('server.scene_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return { ok: true, value: null };
+    } catch {
+      return this.sceneFailure(
+        'unavailable',
+        'The scene could not be deleted.',
+      );
+    }
+  }
+
   private async sceneMutation(
     type:
       | 'client.scene_objects_set'
       | 'client.scene_redo'
-      | 'client.scene_undo',
+      | 'client.scene_undo'
+      | 'client.scene_update',
     payload: unknown,
   ): Promise<SceneResult<SceneRecord>> {
     const active = this.active;

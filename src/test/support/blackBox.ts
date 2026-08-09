@@ -92,6 +92,12 @@ const assetApi: AssetApi = {
   async list() {
     return assetUnavailable();
   },
+  async listUsers() {
+    return assetUnavailable();
+  },
+  async updatePermissions() {
+    return assetUnavailable();
+  },
   async importImageBytes() {
     return assetUnavailable();
   },
@@ -136,6 +142,9 @@ const campaignApi: CampaignApi = {
     return campaignUnavailable();
   },
   async list() {
+    return campaignUnavailable();
+  },
+  async salvage() {
     return campaignUnavailable();
   },
   async trash() {
@@ -273,6 +282,12 @@ const sceneApi: SceneApi = {
   async create() {
     return sceneUnavailable();
   },
+  async listUsers() {
+    return sceneUnavailable();
+  },
+  async updatePermissions() {
+    return sceneUnavailable();
+  },
   async detachAsset() {
     return sceneUnavailable();
   },
@@ -291,6 +306,9 @@ const sceneApi: SceneApi = {
   async previewCancel() {},
   async previewStart() {},
   async previewUpdate() {},
+  async reorder() {
+    return sceneUnavailable();
+  },
   async redo() {
     return sceneUnavailable();
   },

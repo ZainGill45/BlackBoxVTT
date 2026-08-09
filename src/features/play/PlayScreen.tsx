@@ -152,10 +152,10 @@ export function PlayScreen({
   const showStorage = activeSidebarTab === 'storage';
   const showJournal = activeSidebarTab === 'journal';
   const showChat = activeSidebarTab === 'chat';
-  // Only the game master manages scenes; players just receive the presented one.
-  const showScenes =
-    activeSidebarTab === 'scenes' &&
-    session.role === 'gm';
+  /* Players see the scenes the Game Master granted them, and an empty tab
+     otherwise. Presenting is unaffected either way: the presented scene reaches
+     the table whatever the library says. */
+  const showScenes = activeSidebarTab === 'scenes';
 
   useEffect(() => {
     savePaintSettings(session, paintSettings);
@@ -524,6 +524,8 @@ export function PlayScreen({
                 <ScenePanel
                   assetApi={assetApi}
                   campaignId={session.campaignId}
+                  canCreate={session.role === 'gm'}
+                  sceneApi={sceneApi}
                   thumbnails={scenePreviews}
                   store={scenes}
                 />

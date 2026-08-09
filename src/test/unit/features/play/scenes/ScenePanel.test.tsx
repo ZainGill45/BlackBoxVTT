@@ -1,7 +1,7 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useMemo } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AssetApi } from '../../../../../shared/assets';
 import type { SceneApi, SceneRecord } from '../../../../../shared/scenes';
 import { ScenePanel } from '../../../../../features/play/scenes/ScenePanel';
@@ -17,12 +17,16 @@ import { useScenes } from '../../../../../features/play/scenes/useScenes';
 
 function Harness({
   assetApi,
+  canCreate = true,
+  canPresent = true,
   sceneApi,
 }: {
   assetApi?: AssetApi;
+  canCreate?: boolean;
+  canPresent?: boolean;
   sceneApi: SceneApi;
 }) {
-  const store = useScenes(sceneApi, testCampaignId, true);
+  const store = useScenes(sceneApi, testCampaignId, canPresent);
   // Mirrors PlayScreen: thumbnails are built above the panel, not inside it.
   const assetIds = useMemo(
     () =>
@@ -36,17 +40,23 @@ function Harness({
     <ScenePanel
       assetApi={assetApi}
       campaignId={testCampaignId}
+      canCreate={canCreate}
+      sceneApi={sceneApi}
       store={store}
       thumbnails={thumbnails}
     />
   );
 }
 
-async function renderPanel(scenes: SceneRecord[] = [], assets = [] as never[]) {
-  const sceneApi = createFakeSceneApi(scenes);
+async function renderPanel(
+  scenes: SceneRecord[] = [],
+  assets = [] as never[],
+  provided?: SceneApi,
+) {
+  const sceneApi = provided ?? createFakeSceneApi(scenes);
   const assetApi = createFakeAssetApi(assets);
   render(<Harness assetApi={assetApi} sceneApi={sceneApi} />);
-  if (scenes.length > 0) {
+  if (scenes.length > 0 || provided) {
     await screen.findAllByRole('listitem');
   }
   return { assetApi, sceneApi, user: userEvent.setup() };
@@ -107,6 +117,72 @@ describe('ScenePanel', () => {
         name: 'Scene settings for New Scene',
       }),
     ).toBeInTheDocument();
+  });
+
+  it('shows only viewable scenes and hides every unavailable player action', async () => {
+    const inaccessible = makeScene({ name: 'Secret Vault' });
+    const visible = makeScene({
+      id: '55555555-5555-4555-8555-555555555555',
+      name: 'Village Square',
+    });
+    const sceneApi = createFakeSceneApi([inaccessible, visible]);
+    sceneApi.list = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        access: [
+          {
+            capabilities: {
+              delete: false,
+              managePermissions: false,
+              present: false,
+              reorder: false,
+              update: false,
+              view: false,
+            },
+            permissionRevision: 0,
+            permissions: null,
+            sceneId: inaccessible.id,
+          },
+          {
+            capabilities: {
+              delete: false,
+              managePermissions: false,
+              present: false,
+              reorder: false,
+              update: false,
+              view: true,
+            },
+            permissionRevision: 0,
+            permissions: null,
+            sceneId: visible.id,
+          },
+        ],
+        /* The policy deliberately carries the presented scene even when it is
+           absent from the player's library. The panel must still omit it. */
+        activeSceneId: inaccessible.id,
+        revision: 0,
+        scenes: [inaccessible, visible],
+      },
+    }));
+
+    render(
+      <Harness
+        canCreate={false}
+        canPresent={false}
+        sceneApi={sceneApi}
+      />,
+    );
+
+    const name = await screen.findByRole('textbox', {
+      name: 'Name for Village Square',
+    });
+    expect(name).toBeDisabled();
+    expect(screen.queryByRole('textbox', { name: 'Name for Secret Vault' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add scene' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^(Present|Edit|Delete) / }))
+      .not.toBeInTheDocument();
   });
 
   it('renames a scene from the row input', async () => {
@@ -218,6 +294,66 @@ describe('ScenePanel', () => {
     });
   });
 
+  it('moves a scene from the context menu and mirrors the row actions', async () => {
+    const first = makeScene();
+    const second = makeScene({
+      id: '55555555-5555-4555-8555-555555555555',
+      name: 'Sunken Vault',
+    });
+    const { sceneApi, user } = await renderPanel([first, second]);
+
+    /* Every row action is reachable from the menu as well as the row. */
+    fireEvent.contextMenu(
+      rowFor('Sunken Vault').getByRole('button', { name: 'View Sunken Vault' }),
+    );
+    for (const name of [
+      'Present Scene',
+      'Scene Settings',
+      'Move Scene Up',
+      'Move Scene Down',
+      'Reorder Scene Freely',
+      'Delete Scene',
+    ]) {
+      expect(screen.getByRole('menuitem', { name })).toBeVisible();
+    }
+    /* Last of two, so it can rise but not sink. */
+    expect(screen.getByRole('menuitem', { name: 'Move Scene Down' })).toBeDisabled();
+
+    await user.click(screen.getByRole('menuitem', { name: 'Move Scene Up' }));
+
+    await waitFor(() => expect(sceneApi.reorder).toHaveBeenCalledWith({
+      campaignId: testCampaignId,
+      expectedRevision: 0,
+      orderedSceneIds: [second.id, first.id],
+    }));
+    await waitFor(() => {
+      const names = screen
+        .getAllByRole('textbox')
+        .map((input) => (input as HTMLInputElement).value);
+      expect(names).toEqual(['Sunken Vault', 'Iron Keep']);
+    });
+  });
+
+  it('arms scene deletion from the context menu before committing it', async () => {
+    const scene = makeScene();
+    const { sceneApi, user } = await renderPanel([scene]);
+
+    fireEvent.contextMenu(
+      rowFor('Iron Keep').getByRole('button', { name: 'View Iron Keep' }),
+    );
+    const item = screen.getByRole('menuitem', { name: 'Delete Scene' });
+    await user.click(item);
+    expect(item).toHaveAttribute('aria-pressed', 'true');
+    expect(sceneApi.trash).not.toHaveBeenCalled();
+
+    await user.click(item);
+    await waitFor(() => expect(sceneApi.trash).toHaveBeenCalledWith({
+      campaignId: testCampaignId,
+      expectedRevision: 0,
+      sceneId: scene.id,
+    }));
+  });
+
   it('keeps the presented scene out of the metadata line', async () => {
     const scene = makeScene();
     const { sceneApi, user } = await renderPanel([scene]);
@@ -274,5 +410,44 @@ describe('ScenePanel', () => {
         .getByRole('button', { name: 'View Iron Keep' })
         .querySelector('img'),
     ).toHaveAttribute('decoding', 'async');
+  });
+
+  it('grants one player access to a scene from its context menu', async () => {
+    const playerId = '99999999-9999-4999-8999-999999999999';
+    const sceneApi = createFakeSceneApi([makeScene({ name: 'Iron Keep' })]);
+    sceneApi.listUsers = vi.fn(async () => ({
+      ok: true as const,
+      value: [{ id: playerId, username: 'Chris' }],
+    }));
+    const { user } = await renderPanel([], [], sceneApi);
+
+    fireEvent.contextMenu(screen.getByRole('textbox', { name: 'Name for Iron Keep' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
+
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    expect(permissions).toHaveTextContent('Iron Keep');
+    // Presenting is not what this governs, and the editor says so.
+    expect(permissions).toHaveTextContent(/Presenting a scene always shows it/);
+    expect(
+      within(permissions).queryByRole('button', { name: 'Save changes' }),
+    ).not.toBeInTheDocument();
+
+    await user.click(within(permissions).getByRole('button', { name: 'Chris permission' }));
+    await user.click(
+      within(within(permissions).getByRole('group', {
+        name: 'Chris permission options',
+      })).getByRole('button', { name: 'View' }),
+    );
+
+    await waitFor(() => expect(sceneApi.updatePermissions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId: testCampaignId,
+        expectedPermissionRevision: 0,
+        permissions: {
+          allPlayers: 'none',
+          overrides: [{ access: 'view', userId: playerId }],
+        },
+      }),
+    ), { timeout: 3_000 });
   });
 });

@@ -118,6 +118,10 @@ function renderConnectionScreen(
     })),
     onOpenCampaign: vi.fn(),
     onRemoteAuthenticated: vi.fn(),
+    onSalvageCampaign: vi.fn(async () => ({
+      error: { code: 'unsalvageable' as const, message: 'Not salvageable.' },
+      ok: false as const,
+    })),
     ...overrides,
   };
 
@@ -1009,7 +1013,7 @@ describe('ConnectionScreen', () => {
     );
   });
 
-  it('allows only deletion for an unavailable campaign', async () => {
+  it('offers an unavailable campaign only the actions that can work on it', async () => {
     const user = userEvent.setup();
     const onDeleteCampaign = vi.fn(() => success(null));
     const onExportCampaign = vi.fn(async () => ({
@@ -1030,15 +1034,20 @@ describe('ConnectionScreen', () => {
       screen.getByText('Outdated or invalid campaign data. Delete to remove.'),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('button', {
+      screen.queryByRole('button', {
         name: 'Export Unavailable campaign (77777777)',
       }),
-    ).toBeDisabled();
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByRole('button', {
+      screen.queryByRole('button', {
         name: 'Open Unavailable campaign (77777777)',
       }),
-    ).toBeDisabled();
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('button', {
+        name: 'Salvage Unavailable campaign (77777777)',
+      }),
+    ).toBeEnabled();
 
     await user.click(
       screen.getByRole('button', {
@@ -1054,6 +1063,67 @@ describe('ConnectionScreen', () => {
     expect(onDeleteCampaign).toHaveBeenCalledWith(unavailableCampaign.id);
     expect(onExportCampaign).not.toHaveBeenCalled();
     expect(onOpenCampaign).not.toHaveBeenCalled();
+  });
+
+  it('reports the format a salvaged campaign was recovered from', async () => {
+    const user = userEvent.setup();
+    const onSalvageCampaign = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        campaign: { ...shatteredCoast, name: 'Recovered Coast' },
+        originalTrashed: true,
+        report: {
+          detectedFormat: 2,
+          warnings: ['Added empty Features collections to 1 D&D character.'],
+        },
+      },
+    }));
+    renderConnectionScreen({
+      campaigns: [unavailableCampaign],
+      onSalvageCampaign,
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Salvage Unavailable campaign (77777777)',
+      }),
+    );
+
+    expect(onSalvageCampaign).toHaveBeenCalledWith(unavailableCampaign.id);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Salvaged Recovered Coast from campaign format 2. ' +
+        'Added empty Features collections to 1 D&D character.',
+    );
+  });
+
+  it('shows why a campaign could not be salvaged', async () => {
+    const user = userEvent.setup();
+    const onSalvageCampaign = vi.fn(async () => ({
+      error: {
+        code: 'unsalvageable' as const,
+        message:
+          'This campaign’s structure matches no earlier release that ' +
+          'Salvage can convert.',
+      },
+      ok: false as const,
+    }));
+    renderConnectionScreen({
+      campaigns: [unavailableCampaign],
+      onSalvageCampaign,
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Create Campaign' }));
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Salvage Unavailable campaign (77777777)',
+      }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This campaign’s structure matches no earlier release that Salvage ' +
+        'can convert.',
+    );
   });
 
   it('reports a completed import and its conversion warnings', async () => {
@@ -1162,6 +1232,7 @@ describe('ConnectionScreen', () => {
       onImportCampaign={vi.fn()}
       onOpenCampaign={vi.fn()}
         onRemoteAuthenticated={vi.fn()}
+        onSalvageCampaign={vi.fn()}
       />,
     );
 
@@ -1182,6 +1253,7 @@ describe('ConnectionScreen', () => {
       onImportCampaign={vi.fn()}
       onOpenCampaign={vi.fn()}
         onRemoteAuthenticated={vi.fn()}
+        onSalvageCampaign={vi.fn()}
       />,
     );
 

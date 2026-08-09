@@ -254,7 +254,8 @@ export class CampaignDatabase {
           updated_at TEXT NOT NULL,
           updated_by TEXT NOT NULL,
           name_style_json TEXT NOT NULL,
-          data_json TEXT NOT NULL
+          data_json TEXT NOT NULL,
+          permission_revision INTEGER NOT NULL CHECK (permission_revision >= 0)
         ) STRICT;
         CREATE TABLE journal_entry_permissions (
           entry_id TEXT NOT NULL,
@@ -348,8 +349,22 @@ export class CampaignDatabase {
         CREATE TABLE scenes (
           id TEXT PRIMARY KEY NOT NULL,
           position INTEGER UNIQUE NOT NULL CHECK (position >= 0),
-          record_json TEXT NOT NULL
+          record_json TEXT NOT NULL,
+          default_access TEXT NOT NULL CHECK (
+            default_access IN ('none', 'view', 'edit')
+          ),
+          permission_revision INTEGER NOT NULL CHECK (permission_revision >= 0)
         ) STRICT;
+        CREATE TABLE scene_permissions (
+          scene_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          access TEXT NOT NULL CHECK (access IN ('none', 'view', 'edit')),
+          PRIMARY KEY (scene_id, user_id),
+          FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX scene_permissions_user
+          ON scene_permissions (user_id, scene_id);
         CREATE TABLE asset_manifest (
           singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
           revision INTEGER NOT NULL CHECK (revision >= 0)
@@ -357,8 +372,22 @@ export class CampaignDatabase {
         CREATE TABLE assets (
           id TEXT PRIMARY KEY NOT NULL,
           position INTEGER UNIQUE NOT NULL CHECK (position >= 0),
-          record_json TEXT NOT NULL
+          record_json TEXT NOT NULL,
+          default_access TEXT NOT NULL CHECK (
+            default_access IN ('none', 'view', 'edit')
+          ),
+          permission_revision INTEGER NOT NULL CHECK (permission_revision >= 0)
         ) STRICT;
+        CREATE TABLE asset_permissions (
+          asset_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          access TEXT NOT NULL CHECK (access IN ('none', 'view', 'edit')),
+          PRIMARY KEY (asset_id, user_id),
+          FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE,
+          FOREIGN KEY (user_id) REFERENCES campaign_users(id) ON DELETE CASCADE
+        ) STRICT;
+        CREATE INDEX asset_permissions_user
+          ON asset_permissions (user_id, asset_id);
         CREATE TABLE asset_file_operations (
           operation_id TEXT PRIMARY KEY NOT NULL,
           kind TEXT NOT NULL CHECK (kind IN ('delete', 'import')),
@@ -484,6 +513,7 @@ export class CampaignDatabase {
         'updated_by',
         'name_style_json',
         'data_json',
+        'permission_revision',
       ],
       journal_entry_permissions: ['entry_id', 'user_id', 'access'],
       journal_pages: [
@@ -522,9 +552,23 @@ export class CampaignDatabase {
       ],
       chat_metadata: ['key', 'value'],
       scene_manifest: ['singleton', 'active_scene_id', 'revision'],
-      scenes: ['id', 'position', 'record_json'],
+      scenes: [
+        'id',
+        'position',
+        'record_json',
+        'default_access',
+        'permission_revision',
+      ],
+      scene_permissions: ['scene_id', 'user_id', 'access'],
       asset_manifest: ['singleton', 'revision'],
-      assets: ['id', 'position', 'record_json'],
+      assets: [
+        'id',
+        'position',
+        'record_json',
+        'default_access',
+        'permission_revision',
+      ],
+      asset_permissions: ['asset_id', 'user_id', 'access'],
       asset_file_operations: ['operation_id', 'kind', 'payload_json'],
       scene_operations: [
         'sequence',
@@ -541,6 +585,97 @@ export class CampaignDatabase {
       if (
         columns.length !== names.length ||
         columns.some((column, index) => column.name !== names[index])
+      ) {
+        throw new Error(`Campaign database table ${table} is malformed.`);
+      }
+    }
+    const columnDetails = (
+      table: 'assets' | 'journal_entries' | 'scenes',
+    ) => this.connection
+      .prepare(`PRAGMA table_info('${table}')`)
+      .all() as Array<{
+      dflt_value: string | null;
+      name: string;
+      notnull: number;
+      type: string;
+    }>;
+    const requireColumn = (
+      table: 'assets' | 'journal_entries' | 'scenes',
+      name: string,
+      type: string,
+      defaultValue: string | null,
+    ) => {
+      const column = columnDetails(table).find((entry) => entry.name === name);
+      if (
+        column?.type !== type ||
+        column.notnull !== 1 ||
+        column.dflt_value !== defaultValue
+      ) {
+        throw new Error(`Campaign database table ${table} is malformed.`);
+      }
+    };
+    requireColumn('journal_entries', 'permission_revision', 'INTEGER', null);
+    for (const table of ['assets', 'scenes'] as const) {
+      requireColumn(table, 'default_access', 'TEXT', null);
+      requireColumn(table, 'permission_revision', 'INTEGER', null);
+    }
+    const normalizedTableSql = (table: string) => {
+      const row = this.connection.prepare(
+        `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?`,
+      ).get(table) as { sql?: unknown } | undefined;
+      return typeof row?.sql === 'string'
+        ? row.sql.replaceAll(/\s+/g, ' ').trim().toLocaleLowerCase('en-US')
+        : '';
+    };
+    const permissionRevisionConstraint =
+      /permission_revision integer not null check\s*\(permission_revision >= 0\)/;
+    if (!permissionRevisionConstraint.test(normalizedTableSql('journal_entries'))) {
+      throw new Error('Campaign database table journal_entries is malformed.');
+    }
+    for (const table of ['assets', 'scenes'] as const) {
+      const sql = normalizedTableSql(table);
+      if (
+        !permissionRevisionConstraint.test(sql) ||
+        !/default_access text not null check\s*\(\s*default_access in \('none', 'view', 'edit'\)\s*\)/.test(sql) ||
+        !sql.endsWith('strict')
+      ) {
+        throw new Error(`Campaign database table ${table} is malformed.`);
+      }
+    }
+    for (const [table, parent, foreignKey, index] of [
+      ['asset_permissions', 'assets', 'asset_id', 'asset_permissions_user'],
+      ['scene_permissions', 'scenes', 'scene_id', 'scene_permissions_user'],
+    ] as const) {
+      const sql = normalizedTableSql(table);
+      if (
+        !/access text not null check\s*\(access in \('none', 'view', 'edit'\)\)/.test(sql) ||
+        !sql.endsWith('strict')
+      ) {
+        throw new Error(`Campaign database table ${table} is malformed.`);
+      }
+      const foreignKeys = this.connection
+        .prepare(`PRAGMA foreign_key_list('${table}')`)
+        .all() as Array<{
+        from?: unknown;
+        on_delete?: unknown;
+        table?: unknown;
+        to?: unknown;
+      }>;
+      const hasParent = foreignKeys.some((entry) =>
+        entry.from === foreignKey && entry.table === parent &&
+        entry.to === 'id' && entry.on_delete === 'CASCADE');
+      const hasUser = foreignKeys.some((entry) =>
+        entry.from === 'user_id' && entry.table === 'campaign_users' &&
+        entry.to === 'id' && entry.on_delete === 'CASCADE');
+      const indexColumns = this.connection
+        .prepare(`PRAGMA index_info('${index}')`)
+        .all() as Array<{ name?: unknown }>;
+      if (
+        !hasParent ||
+        !hasUser ||
+        indexColumns.length !== 2 ||
+        indexColumns[0]?.name !== 'user_id' ||
+        indexColumns[1]?.name !== foreignKey
       ) {
         throw new Error(`Campaign database table ${table} is malformed.`);
       }

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createEmptySceneManifest } from '../../../shared/scenes';
 import { CampaignRepository } from '../../../main/campaignRepository';
 import { CampaignRuntimeRegistry } from '../../../main/campaignRuntime';
 import { CampaignWorkspaceRegistry } from '../../../main/campaignWorkspace';
@@ -94,6 +95,12 @@ describe('CampaignRuntimeRegistry', () => {
       scenes: {
         cancelTransform: vi.fn(async () => undefined),
         getActiveScene: vi.fn(() => null),
+        listScenes: vi.fn(async () => ({
+          ok: true as const,
+          value: createEmptySceneManifest(),
+        })),
+        trashScene: vi.fn(),
+        updateScene: vi.fn(),
         redo: vi.fn(),
         setObjects: vi.fn(),
         startTransform: vi.fn(async () => undefined),

@@ -72,6 +72,8 @@ interface ClientNetworkSessionOptions {
   channel: TcpClientChannel;
   onChatEvent?: (event: ChatEvent) => void;
   onAssetsChanged: (snapshot: AssetNetworkSnapshot) => void;
+  /** The Game Master re-projected this player's scene library. */
+  onScenesChanged?: () => void;
   onClosed: (code: NetworkErrorCode, message: string) => void;
   onDrawingPreview?: (
     input: Omit<DrawingPreviewEvent, 'campaignId'>
@@ -107,6 +109,7 @@ export class ClientNetworkSession {
     ClientNetworkSessionOptions['onChatEvent']
   >;
   private readonly onAssetsChanged: ClientNetworkSessionOptions['onAssetsChanged'];
+  private readonly onScenesChanged: () => void;
   private readonly onMapPing: NonNullable<ClientNetworkSessionOptions['onMapPing']>;
   private readonly onJournalChanged: NonNullable<ClientNetworkSessionOptions['onJournalChanged']>;
   private readonly onMeasurementUpdate: NonNullable<
@@ -146,6 +149,7 @@ export class ClientNetworkSession {
     campaignId,
     channel,
     onAssetsChanged,
+    onScenesChanged = () => undefined,
     onClosed,
     onDrawingPreview = () => undefined,
     onChatEvent = () => undefined,
@@ -165,6 +169,7 @@ export class ClientNetworkSession {
     this.campaignId = campaignId;
     this.channel = channel;
     this.onAssetsChanged = onAssetsChanged;
+    this.onScenesChanged = onScenesChanged;
     this.onDrawingPreview = onDrawingPreview;
     this.onChatEvent = onChatEvent;
     this.onMapPing = onMapPing;
@@ -379,6 +384,9 @@ export class ClientNetworkSession {
           envelope.payload,
         ),
       });
+    } else if (envelope.type === 'server.scenes_changed') {
+      parsePayload('server.scenes_changed', envelope.payload);
+      this.onScenesChanged();
     } else if (envelope.type === 'server.assets_changed') {
       this.onAssetsChanged(
         parsePayload('server.assets_changed', envelope.payload),

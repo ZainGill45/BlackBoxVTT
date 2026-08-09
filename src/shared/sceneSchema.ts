@@ -500,8 +500,47 @@ export const sceneRecordSchema = z
   .refine(uniqueObjectIds, 'Scene object IDs must be unique.')
   .refine(validObjectOrder, 'Scene object order must contain every object in its layer exactly once.');
 
+const sceneAccessSchema = z.enum(['none', 'view', 'edit']);
+const sceneCapabilitiesSchema = z
+  .object({
+    delete: z.boolean(),
+    managePermissions: z.boolean(),
+    present: z.boolean(),
+    reorder: z.boolean(),
+    update: z.boolean(),
+    view: z.boolean(),
+  })
+  .strict();
+
+/**
+ * Access travels beside the scenes rather than inside them, because a
+ * SceneRecord is the authored scene as stored and every reader validates it
+ * strictly. Only the Game Master receives a configuration to edit.
+ */
+export const sceneAccessEntrySchema = z
+  .object({
+    capabilities: sceneCapabilitiesSchema,
+    permissionRevision: z.number().int().nonnegative(),
+    permissions: z
+      .object({
+        allPlayers: sceneAccessSchema,
+        overrides: z
+          .array(
+            z
+              .object({ access: sceneAccessSchema, userId: z.string().uuid() })
+              .strict(),
+          )
+          .max(64),
+      })
+      .strict()
+      .nullable(),
+    sceneId: z.string().uuid(),
+  })
+  .strict();
+
 export const sceneManifestSchema = z
   .object({
+    access: z.array(sceneAccessEntrySchema).max(1024),
     activeSceneId: z.string().uuid().nullable(),
     revision: z.number().int().nonnegative(),
     scenes: z.array(sceneRecordSchema).max(1024),
@@ -565,4 +604,6 @@ export type SceneShapeLayer = SceneLayer;
 export type SceneObjectState = z.infer<typeof sceneObjectStateSchema>;
 export type SceneRecord = z.infer<typeof sceneRecordSchema>;
 export type SceneManifest = z.infer<typeof sceneManifestSchema>;
+export type SceneCapabilities = z.infer<typeof sceneCapabilitiesSchema>;
+export type SceneAccessEntry = z.infer<typeof sceneAccessEntrySchema>;
 export type ScenePatch = z.infer<typeof scenePatchSchema>;

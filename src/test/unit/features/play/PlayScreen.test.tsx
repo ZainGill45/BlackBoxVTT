@@ -592,7 +592,11 @@ describe('PlayScreen', () => {
     const chatTab = screen.getByRole('tab', { name: 'Chat' });
     expect(chatTab).toHaveAttribute('aria-selected', 'true');
 
-    await user.click(screen.getByRole('tab', { name: 'Scenes' }));
+    const scenesTab = screen.getByRole('tab', { name: 'Scenes' });
+    await user.click(scenesTab);
+    /* Roving is a property of the tab list, so the assertion starts from it
+       rather than from wherever the panel behind it left focus. */
+    scenesTab.focus();
 
     await user.keyboard('{End}');
     expect(screen.getByRole('tab', { name: 'Settings' })).toHaveAttribute(
@@ -707,7 +711,7 @@ describe('PlayScreen', () => {
     expect(screen.queryByLabelText('New username')).not.toBeInTheDocument();
   });
 
-  it('gives the GM scene management and leaves players the placeholder', async () => {
+  it('gives both roles the Scenes tab, and only the GM the controls it owns', async () => {
     const user = userEvent.setup();
     renderPlayScreen({
       sceneApi: createFakeSceneApi([]),
@@ -731,11 +735,13 @@ describe('PlayScreen', () => {
     });
     await user.click(screen.getByRole('tab', { name: 'Scenes' }));
 
+    /* A player has a library of their own now: what the Game Master granted
+       them, which is nothing until they are given something. */
     const playerPanel = screen.getByRole('tabpanel', { name: 'Scenes' });
     expect(playerPanel).toBeVisible();
     expect(
-      within(playerPanel).queryByRole('searchbox'),
-    ).not.toBeInTheDocument();
+      within(playerPanel).getByRole('searchbox', { name: 'Search scenes' }),
+    ).toBeInTheDocument();
   });
 
   it('centers the view on the presented scene from the quick action', async () => {

@@ -36,8 +36,6 @@ import {
   type JournalPage,
   type JournalPageAccessLevel,
   type JournalPageSummary,
-  type JournalPermissionConfiguration,
-  type JournalPermissionSubject,
   type JournalResult,
   type JournalTitleStyle,
   type MoveJournalEntryInput,
@@ -52,6 +50,10 @@ import {
   type UpdateJournalNotePermissionsInput,
   type UpdateJournalPagePermissionsInput,
 } from '../shared/journal';
+import type {
+  PermissionConfiguration,
+  PermissionSubject,
+} from '../shared/permissions';
 
 export type JournalActor =
   | { kind: 'gm' }
@@ -75,6 +77,7 @@ interface EntryRow {
   id: string;
   name: string;
   name_style_json: string;
+  permission_revision: number;
   position: number;
   revision: number;
   type_id: string;
@@ -234,7 +237,7 @@ export class JournalRepository {
 
   async listUsers(
     actor: JournalActor,
-  ): Promise<JournalResult<JournalPermissionSubject[]>> {
+  ): Promise<JournalResult<PermissionSubject[]>> {
     if (actor.kind !== 'gm') {
       return failure('permission_denied', 'Only the Game Master can manage permissions.');
     }
@@ -279,8 +282,8 @@ export class JournalRepository {
           this.database.connection.prepare(
             `INSERT INTO journal_entries (
                id, type_id, position, name, name_style_json, default_access, revision,
-               created_at, created_by, updated_at, updated_by, data_json
-             ) VALUES (?, ?, ?, ?, ?, 'none', 0, ?, 'gm', ?, 'gm', ?)`,
+               permission_revision, created_at, created_by, updated_at, updated_by, data_json
+             ) VALUES (?, ?, ?, ?, ?, 'none', 0, 0, ?, 'gm', ?, 'gm', ?)`,
           ).run(
             entryId,
             typeId,
@@ -472,8 +475,8 @@ export class JournalRepository {
         if (entry.type_id !== JOURNAL_ENTRY_TYPE_NOTE) {
           return failure('not_found', 'The note no longer exists.', { entryId: input.entryId });
         }
-        if (entry.revision !== input.expectedRevision) {
-          return failure('conflict', 'The note changed before permissions could be saved.', { entryId: input.entryId });
+        if (entry.permission_revision !== input.expectedPermissionRevision) {
+          return failure('conflict', 'The note permissions changed before this change could be saved.', { entryId: input.entryId });
         }
         if (!this.validPermissionConfiguration(input.permissions, ['none', 'view', 'edit'])) {
           return failure('invalid_input', 'The note permissions are invalid.', { entryId: input.entryId });
@@ -482,7 +485,7 @@ export class JournalRepository {
         this.transaction(() => {
           this.database.connection.prepare(
             `UPDATE journal_entries
-             SET default_access = ?, revision = revision + 1,
+             SET default_access = ?, permission_revision = permission_revision + 1,
                  updated_at = ?, updated_by = 'gm'
              WHERE id = ?`,
           ).run(input.permissions.allPlayers, timestamp, input.entryId);
@@ -509,8 +512,8 @@ export class JournalRepository {
       try {
         const entry = this.entry(input.entryId);
         if (!entry) return failure('not_found', 'The Journal entry no longer exists.', { entryId: input.entryId });
-        if (entry.revision !== input.expectedRevision) {
-          return failure('conflict', 'The Journal entry changed before permissions could be saved.', { entryId: input.entryId });
+        if (entry.permission_revision !== input.expectedPermissionRevision) {
+          return failure('conflict', 'The Journal entry permissions changed before this change could be saved.', { entryId: input.entryId });
         }
         if (!this.validPermissionConfiguration(input.permissions, ['none', 'view', 'edit'])) {
           return failure('invalid_input', 'The Journal entry permissions are invalid.', { entryId: input.entryId });
@@ -519,7 +522,7 @@ export class JournalRepository {
         this.transaction(() => {
           this.database.connection.prepare(
             `UPDATE journal_entries
-             SET default_access = ?, revision = revision + 1,
+             SET default_access = ?, permission_revision = permission_revision + 1,
                  updated_at = ?, updated_by = 'gm'
              WHERE id = ?`,
           ).run(input.permissions.allPlayers, timestamp, input.entryId);
@@ -1100,6 +1103,7 @@ export class JournalRepository {
       groupId: definition.groupId,
       id: entry.id,
       name: entry.name,
+      permissionRevision: entry.permission_revision,
       permissions: isGm ? this.entryPermissionConfiguration(entry) : null,
       position: entry.position,
       revision: entry.revision,
@@ -1126,7 +1130,7 @@ export class JournalRepository {
     pageCount: number,
     entryAccess: JournalAccessLevel,
     overrideAccess: JournalPageAccessLevel | undefined,
-    permissions: JournalPermissionConfiguration<JournalPageAccessLevel> | null,
+    permissions: PermissionConfiguration<JournalPageAccessLevel> | null,
   ): JournalPageSummary | null {
     const pageAccess = this.pageAccess(actor, page, entryAccess, overrideAccess);
     if (!accessAllowsView(pageAccess)) return null;
@@ -1173,7 +1177,7 @@ export class JournalRepository {
 
   private entryPermissionConfiguration(
     entry: EntryRow,
-  ): JournalPermissionConfiguration<JournalAccessLevel> {
+  ): PermissionConfiguration<JournalAccessLevel> {
     return {
       allPlayers: entry.default_access,
       overrides: (this.database.connection.prepare(
@@ -1279,7 +1283,7 @@ export class JournalRepository {
   private entries(): EntryRow[] {
     return this.database.connection.prepare(
        `SELECT id, type_id, position, name, name_style_json, default_access, revision,
-               created_at, created_by, updated_at, updated_by, data_json
+               permission_revision, created_at, created_by, updated_at, updated_by, data_json
        FROM journal_entries ORDER BY position`,
     ).all() as unknown as EntryRow[];
   }
@@ -1287,7 +1291,7 @@ export class JournalRepository {
   private entry(entryId: string): EntryRow | null {
     return (this.database.connection.prepare(
       `SELECT id, type_id, position, name, name_style_json, default_access, revision,
-               created_at, created_by, updated_at, updated_by, data_json
+               permission_revision, created_at, created_by, updated_at, updated_by, data_json
        FROM journal_entries WHERE id = ?`,
     ).get(entryId) as EntryRow | undefined) ?? null;
   }
@@ -1346,7 +1350,7 @@ export class JournalRepository {
   }
 
   private validPermissionConfiguration<TAccess extends string>(
-    permissions: JournalPermissionConfiguration<TAccess>,
+    permissions: PermissionConfiguration<TAccess>,
     allowed: readonly string[],
   ): boolean {
     if (!allowed.includes(permissions.allPlayers)) return false;
@@ -1364,7 +1368,7 @@ export class JournalRepository {
 
   private replaceEntryOverrides(
     entryId: string,
-    permissions: JournalPermissionConfiguration<JournalAccessLevel>,
+    permissions: PermissionConfiguration<JournalAccessLevel>,
   ): void {
     this.database.connection.prepare(
       'DELETE FROM journal_entry_permissions WHERE entry_id = ?',
@@ -1378,7 +1382,7 @@ export class JournalRepository {
 
   private replacePageOverrides(
     pageId: string,
-    permissions: JournalPermissionConfiguration<JournalPageAccessLevel>,
+    permissions: PermissionConfiguration<JournalPageAccessLevel>,
   ): void {
     this.database.connection.prepare(
       'DELETE FROM journal_page_permissions WHERE page_id = ?',

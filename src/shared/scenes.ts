@@ -20,12 +20,15 @@ import type {
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
+  ReorderScenesInput,
   SetSceneImagesInput,
   SetSceneObjectsInput,
   SetSceneFogInput,
   TrashSceneInput,
   UpdateSceneInput,
+  UpdateScenePermissionsInput,
 } from './sceneContracts';
+import type { PermissionSubject } from './permissions';
 
 export * from './sceneConstants';
 export * from './sceneTextMetrics';
@@ -67,6 +70,8 @@ export type {
   SceneShapeLayer,
   SceneShapeLayers,
   SceneShapeStyle,
+  SceneAccessEntry,
+  SceneCapabilities,
 } from './sceneSchema';
 export * from './sceneContracts';
 import {
@@ -84,10 +89,12 @@ export const sceneIpcChannels = {
   detachAsset: 'scenes:detach-asset',
   findDependents: 'scenes:find-dependents',
   list: 'scenes:list',
+  listUsers: 'scenes:list-users',
   present: 'scenes:present',
   previewCancel: 'scenes:preview-cancel',
   previewStart: 'scenes:preview-start',
   previewUpdate: 'scenes:preview-update',
+  reorder: 'scenes:reorder',
   setObjects: 'scenes:set-objects',
   setFog: 'scenes:set-fog',
   setImages: 'scenes:set-images',
@@ -95,6 +102,7 @@ export const sceneIpcChannels = {
   redo: 'scenes:redo',
   trash: 'scenes:trash',
   update: 'scenes:update',
+  updatePermissions: 'scenes:update-permissions',
 } as const;
 
 export type SceneErrorCode =
@@ -118,11 +126,13 @@ export interface SceneApi {
   detachAsset(input: SceneAssetInput): Promise<SceneResult<null>>;
   findDependents(input: SceneAssetInput): Promise<SceneResult<SceneRecord[]>>;
   list(input: SceneCampaignInput): Promise<SceneResult<SceneManifest>>;
+  listUsers(input: SceneCampaignInput): Promise<SceneResult<PermissionSubject[]>>;
   onChanged(listener: (event: SceneChangedEvent) => void): () => void;
   present(input: PresentSceneInput): Promise<SceneResult<SceneManifest>>;
   previewCancel(input: SceneTransformPreviewCancel): Promise<void>;
   previewStart(input: SceneTransformPreviewStart): Promise<void>;
   previewUpdate(input: SceneTransformPreviewDelta): Promise<void>;
+  reorder(input: ReorderScenesInput): Promise<SceneResult<SceneManifest>>;
   setObjects(
     input: SetSceneObjectsInput,
   ): Promise<SceneResult<SceneRecord>>;
@@ -132,6 +142,9 @@ export interface SceneApi {
   redo(input: SceneHistoryInput): Promise<SceneResult<SceneRecord>>;
   trash(input: TrashSceneInput): Promise<SceneResult<null>>;
   update(input: UpdateSceneInput): Promise<SceneResult<SceneRecord>>;
+  updatePermissions(
+    input: UpdateScenePermissionsInput,
+  ): Promise<SceneResult<SceneManifest>>;
 }
 
 export function createEmptyImageLayers(): SceneImageLayers {
@@ -232,6 +245,7 @@ export function projectSceneForPlayer(scene: SceneRecord): SceneRecord {
 
 export function createEmptySceneManifest(): SceneManifest {
   return {
+    access: [],
     activeSceneId: null,
     revision: 0,
     scenes: [],

@@ -456,13 +456,56 @@ describe('campaign assets over the network', () => {
     if (!synchronized.ok || synchronized.value.length === 0) {
       throw new Error('Expected synchronized campaign assets.');
     }
+    /* Present so the image renders, but not this player's to browse: Storage
+       shows only what `list` allows, and nothing is granted yet. */
+    expect(synchronized.value.every(({ capabilities }) => !capabilities.list))
+      .toBe(true);
+    expect(synchronized.value.every(({ capabilities }) => capabilities.read))
+      .toBe(true);
 
-    const renamed = await runtime.assets.rename(
+    /* The bytes arrive whatever the library says, because that is what keeps a
+       map image on the player's table. Changing the asset is another matter. */
+    const assetId = synchronized.value[0].id;
+    const refused = await runtime.assets.rename(
       {
-        assetId: synchronized.value[0].id,
+        assetId,
         campaignId,
         displayName: 'World Map.png',
         expectedRevision: synchronized.value[0].revision,
+      },
+      authenticatedAssetPolicy,
+    );
+    expect(refused.result).toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+
+    const hostRuntime = await managerRuntimes.get(host)?.resolve(campaignId);
+    if (hostRuntime?.kind !== 'local') throw new Error('Expected a local host runtime.');
+    const before = await hostRuntime.assets.list(authenticatedAssetPolicy);
+    if (!before.ok) throw new Error('Expected the host library.');
+    const target = before.value.find(({ id }) => id === assetId)!;
+    const granted = await hostRuntime.assets.updatePermissions(
+      {
+        assetId,
+        expectedPermissionRevision: target.permissionRevision,
+        permissions: {
+          allPlayers: 'none',
+          overrides: [{ access: 'edit', userId: aliceUserId }],
+        },
+      },
+      authenticatedAssetPolicy,
+    );
+    expect(granted.result.ok).toBe(true);
+
+    const regranted = await runtime.assets.prepare(authenticatedAssetPolicy, vi.fn());
+    if (!regranted.ok) throw new Error('Expected the player library.');
+    const renamed = await runtime.assets.rename(
+      {
+        assetId,
+        campaignId,
+        displayName: 'World Map.png',
+        expectedRevision: regranted.value.find(({ id }) => id === assetId)!.revision,
       },
       authenticatedAssetPolicy,
     );
@@ -544,7 +587,7 @@ describe('Journal over the network', () => {
     if (!current.ok) throw new Error('Expected the host note.');
     const granted = await hostRuntime.journal.updateNotePermissions({
       entryId: noteId,
-      expectedRevision: current.value.revision,
+      expectedPermissionRevision: current.value.permissionRevision,
       permissions: {
         allPlayers: 'none',
         overrides: [{ access: 'edit', userId: aliceUserId }],
@@ -612,7 +655,7 @@ describe('Journal over the network', () => {
 
     const granted = await hostRuntime.journal.updateEntryPermissions({
       entryId: created.value.id,
-      expectedRevision: created.value.revision,
+      expectedPermissionRevision: created.value.permissionRevision,
       permissions: { allPlayers: 'none', overrides: [{ access: 'edit', userId: aliceUserId }] },
     });
     if (!granted.ok) throw new Error('Expected the Character permission grant.');

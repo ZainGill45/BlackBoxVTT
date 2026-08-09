@@ -38,6 +38,19 @@ function createRepository(touchCampaign?: () => Promise<void>) {
   });
 }
 
+function addPlayer(
+  id: string,
+  username: string,
+): void {
+  database.connection.prepare(
+    `INSERT INTO campaign_users (
+       id, username, username_key, password_algorithm, password_block_size,
+       password_cost, password_hash, password_key_length,
+       password_parallelization, password_salt
+     ) VALUES (?, ?, ?, 'scrypt', 8, 2, 'hash', 32, 1, 'salt')`,
+  ).run(id, username, username.toLocaleLowerCase('en-US'));
+}
+
 async function readSceneFile() {
   return createRepository().readManifest();
 }
@@ -151,6 +164,7 @@ describe('SceneRepository', () => {
     const repository = createRepository();
 
     expect(await repository.readManifest()).toEqual({
+      access: [],
       activeSceneId: null,
       revision: 0,
       scenes: [],
@@ -189,6 +203,74 @@ describe('SceneRepository', () => {
     await repository.create();
 
     expect(touchCampaign).toHaveBeenCalledTimes(1);
+  });
+
+  it('touches the campaign after replacing scene permissions', async () => {
+    const touchCampaign = vi.fn(async () => undefined);
+    const repository = createRepository(touchCampaign);
+    const created = await repository.create();
+    if (!created.ok) throw new Error('setup failed');
+    touchCampaign.mockClear();
+
+    const saved = await repository.updateScenePermissions({
+      expectedPermissionRevision: 0,
+      permissions: { allPlayers: 'view', overrides: [] },
+      sceneId: created.value.id,
+    });
+
+    expect(saved.ok).toBe(true);
+    expect(touchCampaign).toHaveBeenCalledOnce();
+  });
+
+  it('rolls back the whole permission replacement when an override cannot be stored', async () => {
+    const firstPlayerId = '88888888-8888-4888-8888-888888888888';
+    const rejectedPlayerId = '77777777-7777-4777-8777-777777777777';
+    addPlayer(firstPlayerId, 'Alice');
+    addPlayer(rejectedPlayerId, 'Bob');
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) throw new Error('setup failed');
+    const initial = await repository.updateScenePermissions({
+      expectedPermissionRevision: 0,
+      permissions: {
+        allPlayers: 'view',
+        overrides: [{ access: 'edit', userId: firstPlayerId }],
+      },
+      sceneId: created.value.id,
+    });
+    if (!initial.ok) throw new Error('setup failed');
+    database.connection.exec(
+      `CREATE TRIGGER reject_scene_permission
+       BEFORE INSERT ON scene_permissions
+       WHEN NEW.user_id = '${rejectedPlayerId}'
+       BEGIN
+         SELECT RAISE(ABORT, 'injected permission failure');
+       END`,
+    );
+
+    await expect(repository.updateScenePermissions({
+      expectedPermissionRevision: 1,
+      permissions: {
+        allPlayers: 'none',
+        overrides: [
+          { access: 'view', userId: firstPlayerId },
+          { access: 'edit', userId: rejectedPlayerId },
+        ],
+      },
+      sceneId: created.value.id,
+    })).resolves.toMatchObject({
+      error: { code: 'storage_error' },
+      ok: false,
+    });
+
+    const manifest = await repository.readManifest();
+    expect(manifest.access[0]).toMatchObject({
+      permissionRevision: 1,
+      permissions: {
+        allPlayers: 'view',
+        overrides: [{ access: 'edit', userId: firstPlayerId }],
+      },
+    });
   });
 
   it('keeps scene commit idempotency across repository restarts', async () => {
@@ -443,6 +525,87 @@ describe('SceneRepository', () => {
     const manifest = await repository.readManifest();
     expect(manifest.activeSceneId).toBeNull();
     expect(manifest.scenes).toEqual([]);
+  });
+
+  it('reorders scenes and persists the order as position', async () => {
+    const repository = createRepository();
+    const created = await Promise.all([
+      repository.create(),
+      repository.create(),
+      repository.create(),
+    ]);
+    const ids = created.map((result) => {
+      if (!result.ok) throw new Error('setup failed');
+      return result.value.id;
+    });
+    const revision = (await repository.readManifest()).revision;
+
+    const reordered = await repository.reorderScenes(
+      [ids[2], ids[0], ids[1]],
+      revision,
+    );
+    expect(reordered.ok).toBe(true);
+
+    /* Read back through readManifest so this covers the ORDER BY position
+       round-trip rather than just the returned value. */
+    const manifest = await repository.readManifest();
+    expect(manifest.scenes.map(({ id }) => id)).toEqual([ids[2], ids[0], ids[1]]);
+    expect(manifest.revision).toBe(revision + 1);
+  });
+
+  it('rejects a stale revision or an order that is not the whole list', async () => {
+    const repository = createRepository();
+    const created = await Promise.all([
+      repository.create(),
+      repository.create(),
+    ]);
+    const ids = created.map((result) => {
+      if (!result.ok) throw new Error('setup failed');
+      return result.value.id;
+    });
+    const revision = (await repository.readManifest()).revision;
+
+    /* Someone else changed the manifest since this order was composed. */
+    await expect(
+      repository.reorderScenes([ids[1], ids[0]], revision - 1),
+    ).resolves.toMatchObject({ error: { code: 'conflict' }, ok: false });
+    /* Short of the list, a repeat, and an id belonging to no scene. */
+    await expect(
+      repository.reorderScenes([ids[0]], revision),
+    ).resolves.toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+    await expect(
+      repository.reorderScenes([ids[0], ids[0]], revision),
+    ).resolves.toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+    await expect(
+      repository.reorderScenes(
+        [ids[0], '99999999-9999-4999-8999-999999999999'],
+        revision,
+      ),
+    ).resolves.toMatchObject({ error: { code: 'invalid_input' }, ok: false });
+
+    const manifest = await repository.readManifest();
+    expect(manifest.scenes.map(({ id }) => id)).toEqual(ids);
+    expect(manifest.revision).toBe(revision);
+  });
+
+  it('keeps the presented scene presented across a reorder', async () => {
+    const repository = createRepository();
+    const created = await Promise.all([
+      repository.create(),
+      repository.create(),
+    ]);
+    const ids = created.map((result) => {
+      if (!result.ok) throw new Error('setup failed');
+      return result.value.id;
+    });
+    await repository.present(ids[0]);
+    const revision = (await repository.readManifest()).revision;
+
+    await repository.reorderScenes([ids[1], ids[0]], revision);
+
+    const manifest = await repository.readManifest();
+    expect(manifest.activeSceneId).toBe(ids[0]);
+    expect(manifest.scenes.map(({ id }) => id)).toEqual([ids[1], ids[0]]);
   });
 
   it('refuses to present a scene that does not exist', async () => {
@@ -1317,8 +1480,10 @@ describe('SceneRepository', () => {
     const repository = createRepository();
     database.connection
       .prepare(
-        `INSERT INTO scenes (id, position, record_json)
-         VALUES (?, 0, ?)`,
+        `INSERT INTO scenes (
+           id, position, record_json, default_access, permission_revision
+         )
+         VALUES (?, 0, ?, 'none', 0)`,
       )
       .run(
         'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',

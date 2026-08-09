@@ -108,7 +108,7 @@ describe('JournalRepository', () => {
 
     const granted = await journal.updateEntryPermissions({ kind: 'gm' }, {
       entryId: created.value.id,
-      expectedRevision: created.value.revision,
+      expectedPermissionRevision: created.value.permissionRevision,
       permissions: { allPlayers: 'none', overrides: [{ access: 'edit', userId: playerId }] },
     });
     if (!granted.ok || granted.value.kind !== 'system') throw new Error('permission setup failed');
@@ -273,7 +273,7 @@ describe('JournalRepository', () => {
     const pageId = created.value.pages[0]!.id;
     const parentEdit = await journal.updateNotePermissions({ kind: 'gm' }, {
       entryId: created.value.id,
-      expectedRevision: created.value.revision,
+      expectedPermissionRevision: created.value.permissionRevision,
       permissions: { allPlayers: 'view', overrides: [{ access: 'edit', userId: playerId }] },
     });
     expect(parentEdit.ok && parentEdit.value.capabilities.managePermissions).toBe(true);
@@ -291,7 +291,7 @@ describe('JournalRepository', () => {
     if (!latest.ok) throw new Error('setup failed');
     await journal.updateNotePermissions({ kind: 'gm' }, {
       entryId: created.value.id,
-      expectedRevision: latest.value.revision,
+      expectedPermissionRevision: latest.value.permissionRevision,
       permissions: { allPlayers: 'none', overrides: [] },
     });
     expect(await journal.getNote(player, created.value.id)).toMatchObject({ ok: false, error: { code: 'permission_denied' } });
@@ -331,7 +331,7 @@ describe('JournalRepository', () => {
     if (!created.ok) throw new Error('setup failed');
     const shared = await journal.updateNotePermissions({ kind: 'gm' }, {
       entryId: created.value.id,
-      expectedRevision: created.value.revision,
+      expectedPermissionRevision: created.value.permissionRevision,
       permissions: { allPlayers: 'none', overrides: [{ access: 'edit', userId: playerId }] },
     });
     if (!shared.ok) throw new Error('setup failed');
@@ -366,7 +366,7 @@ describe('JournalRepository', () => {
     }
     const granted = await journal.updateNotePermissions({ kind: 'gm' }, {
       entryId: note.id,
-      expectedRevision: note.revision,
+      expectedPermissionRevision: note.permissionRevision,
       permissions: { allPlayers: 'none', overrides: [{ access: 'edit', userId: playerId }] },
     });
     if (!granted.ok) throw new Error('setup failed');
@@ -441,7 +441,8 @@ describe('JournalRepository', () => {
     const page = created.value.pages[0]!;
     const assetId = '77777777-7777-4777-8777-777777777777';
     database.connection.prepare(
-      'INSERT INTO assets (id, position, record_json) VALUES (?, 0, ?)',
+      `INSERT INTO assets (id, position, record_json, default_access, permission_revision)
+       VALUES (?, 0, ?, 'none', 0)`,
     ).run(assetId, '{}');
     const lease = await journal.acquireLease({ kind: 'gm' }, created.value.id, page.id);
     if (!lease.ok) throw new Error('setup failed');

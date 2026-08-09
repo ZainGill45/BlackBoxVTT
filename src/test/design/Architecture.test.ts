@@ -292,6 +292,24 @@ describe('architecture boundaries', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('keeps permission editing to the one shared editor', () => {
+    /* Reaching for the access contract and a dropdown in the same module is
+       what building a second permissions editor looks like. Subjects describe
+       their own levels and labels but never render a control, so they pass. */
+    const editor = 'src/components/ui/PermissionsModal.tsx';
+    const offenders = files
+      .filter((file) => {
+        const dependencies = (imports.get(file) ?? []).map(label);
+        return (
+          label(file) !== editor &&
+          dependencies.includes('src/shared/permissions.ts') &&
+          dependencies.includes('src/components/ui/Dropdown.tsx')
+        );
+      })
+      .map(label);
+    expect(offenders).toEqual([]);
+  });
+
   it('keeps canvas interaction rules independent of Pixi and the DOM', () => {
     const interactionFiles = files.filter((file) => {
       const name = label(file);

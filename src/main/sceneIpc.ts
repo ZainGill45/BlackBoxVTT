@@ -12,8 +12,10 @@ import {
   setSceneImagesInputSchema as setImagesSchema,
   setSceneObjectsInputSchema as setObjectsSchema,
   setSceneFogInputSchema as setFogSchema,
+  reorderScenesInputSchema as reorderSchema,
   trashSceneInputSchema as trashSchema,
   updateSceneInputSchema as updateSchema,
+  updateScenePermissionsInputSchema as updatePermissionsSchema,
 } from '../shared/sceneContracts';
 
 function invalid<T>(): SceneResult<T> {
@@ -44,9 +46,12 @@ export function registerSceneIpcHandlers(
     sceneIpcChannels.setImages,
     sceneIpcChannels.setObjects,
     sceneIpcChannels.setFog,
+    sceneIpcChannels.reorder,
     sceneIpcChannels.trash,
     sceneIpcChannels.undo,
     sceneIpcChannels.update,
+    sceneIpcChannels.listUsers,
+    sceneIpcChannels.updatePermissions,
   ];
   requestChannels.forEach((channel) => ipc.removeHandler(channel));
   const isAllowed = (event: IpcMainInvokeEvent) =>
@@ -60,6 +65,14 @@ export function registerSceneIpcHandlers(
   handle(sceneIpcChannels.list, (input) => {
     const parsed = campaignSchema.safeParse(input);
     return parsed.success ? manager.list(parsed.data.campaignId) : invalid();
+  });
+  handle(sceneIpcChannels.listUsers, (input) => {
+    const parsed = campaignSchema.safeParse(input);
+    return parsed.success ? manager.listUsers(parsed.data.campaignId) : invalid();
+  });
+  handle(sceneIpcChannels.updatePermissions, (input) => {
+    const parsed = updatePermissionsSchema.safeParse(input);
+    return parsed.success ? manager.updatePermissions(parsed.data) : invalid();
   });
   handle(sceneIpcChannels.create, (input) => {
     const parsed = campaignSchema.safeParse(input);
@@ -109,6 +122,10 @@ export function registerSceneIpcHandlers(
       return manager.previewCancel(parsed.data);
     }
     return undefined;
+  });
+  handle(sceneIpcChannels.reorder, (input) => {
+    const parsed = reorderSchema.safeParse(input);
+    return parsed.success ? manager.reorder(parsed.data) : invalid();
   });
   handle(sceneIpcChannels.trash, (input) => {
     const parsed = trashSchema.safeParse(input);

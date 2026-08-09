@@ -61,10 +61,13 @@ export function makeImageAsset(
 ): AssetView {
   return {
     available: true,
+    permissionRevision: 0,
+    permissions: { allPlayers: 'none', overrides: [] },
     capabilities: {
       delete: true,
       import: true,
       list: true,
+      managePermissions: true,
       preview: true,
       read: true,
       rename: true,
@@ -93,18 +96,44 @@ export function makeImageAsset(
 
 /** An in-memory scene API that behaves like the real repository contract. */
 export function createFakeSceneApi(initial: SceneRecord[] = []) {
-  let manifest = { ...createEmptySceneManifest(), scenes: initial };
+  /* Every fake is the Game Master's view of the library, so access follows the
+     scenes rather than being declared per test. */
+  const gmAccess = (scenes: SceneRecord[]) =>
+    scenes.map((scene) => ({
+      capabilities: {
+        delete: true,
+        managePermissions: true,
+        present: true,
+        reorder: true,
+        update: true,
+        view: true,
+      },
+      permissionRevision: 0,
+      permissions: { allPlayers: 'none' as const, overrides: [] },
+      sceneId: scene.id,
+    }));
+  let manifest = {
+    ...createEmptySceneManifest(),
+    access: gmAccess(initial),
+    scenes: initial,
+  };
   const listeners = new Set<(event: SceneChangedEvent) => void>();
   let nextId = 0;
 
   const publish = () => {
-    manifest = { ...manifest, revision: manifest.revision + 1 };
+    manifest = {
+      ...manifest,
+      access: gmAccess(manifest.scenes),
+      revision: manifest.revision + 1,
+    };
     for (const listener of listeners) {
       listener({ campaignId: testCampaignId, manifest });
     }
   };
 
   const api: SceneApi = {
+    listUsers: vi.fn(async () => ({ ok: true as const, value: [] })),
+    updatePermissions: vi.fn(async () => ({ ok: true as const, value: manifest })),
     create: vi.fn(async () => {
       nextId += 1;
       const scene = makeScene({
@@ -176,6 +205,17 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
     },
     present: vi.fn(async ({ sceneId }) => {
       manifest = { ...manifest, activeSceneId: sceneId };
+      publish();
+      return { ok: true as const, value: manifest };
+    }),
+    /* Mirrors the repository: the whole list is rewritten in the requested
+       order, so a test can assert on rendered order. */
+    reorder: vi.fn(async ({ orderedSceneIds }) => {
+      const byId = new Map(manifest.scenes.map((scene) => [scene.id, scene]));
+      manifest = {
+        ...manifest,
+        scenes: orderedSceneIds.map((id: string) => byId.get(id)!),
+      };
       publish();
       return { ok: true as const, value: manifest };
     }),
@@ -371,6 +411,11 @@ export function createFakeAssetApi(assets: AssetView[] = []): AssetApi {
     releasePreview: vi.fn(async () => undefined),
     rename: vi.fn(async () => ({ ok: true as const, value: assets[0] })),
     reorder: vi.fn(async () => ({ ok: true as const, value: assets })),
+    listUsers: vi.fn(async () => ({ ok: true as const, value: [] })),
+    updatePermissions: vi.fn(async () => ({
+      error: { code: 'permission_denied' as const, message: 'Not supported here.' },
+      ok: false as const,
+    })),
     trash: vi.fn(async () => ({ ok: true as const, value: null })),
   };
 }

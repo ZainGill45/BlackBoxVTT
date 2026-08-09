@@ -319,6 +319,7 @@ export class CampaignHostServer {
       onSceneMutation: async () => {
         this.onSceneChanged();
         await this.broadcastActiveScene();
+        await this.broadcastSceneLibraries();
       },
       scenes: this.scenes,
     });
@@ -964,6 +965,28 @@ export class CampaignHostServer {
   /** Pushes the presented scene to every ready client. */
   async broadcastActiveScene(): Promise<void> {
     await this.sceneRealtime.broadcastActiveScene();
+  }
+
+  /**
+   * Re-projects the scene library for every connected player.
+   *
+   * Each player's library is their own, so this cannot be one payload sent to
+   * everyone: a scene the Game Master granted to one player is not in anyone
+   * else's list.
+   */
+  async broadcastSceneLibraries(): Promise<void> {
+    for (const client of this.clients) {
+      if (client.state !== 'ready' || !client.user) continue;
+      try {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.scenes_changed',
+          await this.scenes.listForPlayer(client.user.id),
+        );
+      } catch (error) {
+        this.warn('Failed to send the scene library to a player.', error);
+      }
+    }
   }
 
   async broadcastJournalChanged(event: {

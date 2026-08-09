@@ -105,11 +105,14 @@ test.describe('networked D&D character sheets', () => {
     });
     await gmRow.click({ button: 'right' });
     await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
-    const permissions = gm.window.getByRole('dialog', {
-      name: 'Edit permissions for New Character',
-    });
-    await permissions.getByLabel(`${USERNAME} permission`).selectOption('view');
-    await permissions.getByRole('button', { name: 'Save changes' }).click();
+    const permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
+    await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
+    await permissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'View' })
+      .click();
+    // The choice is the save, so closing is all that is left to do.
+    await permissions.press('Escape');
     await expect(permissions).not.toBeVisible();
 
     await openTab(player.window, 'Journal');

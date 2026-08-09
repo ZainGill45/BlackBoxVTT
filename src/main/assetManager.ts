@@ -19,8 +19,10 @@ import type {
   RenameAssetInput,
   ReorderAssetsInput,
   TrashAssetInput,
+  UpdateAssetPermissionsInput,
 } from '../shared/assets';
 import { MAX_EMBEDDED_IMAGE_BYTES } from '../shared/assets';
+import type { PermissionSubject } from '../shared/permissions';
 
 interface AssetManagerOptions {
   getWindow: () => BrowserWindow | null;
@@ -234,6 +236,28 @@ export class AssetManager extends EventEmitter {
     if (outcome.releasePreviews) {
       this.previewRegistry.releaseCampaign(input.campaignId);
     }
+    if (outcome.changed) {
+      this.emitChanged(input.campaignId, outcome.changed);
+    }
+    return outcome.result;
+  }
+
+  async listUsers(campaignId: string): Promise<AssetResult<PermissionSubject[]>> {
+    const runtime = await this.runtimes.resolve(campaignId);
+    if (!runtime) {
+      return failure('not_found', 'Campaign storage is unavailable.');
+    }
+    return runtime.assets.listUsers(this.policy);
+  }
+
+  async updatePermissions(
+    input: UpdateAssetPermissionsInput,
+  ): Promise<AssetResult<AssetView>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    if (!runtime) {
+      return failure('not_found', 'Campaign storage is unavailable.', input.assetId);
+    }
+    const outcome = await runtime.assets.updatePermissions(input, this.policy);
     if (outcome.changed) {
       this.emitChanged(input.campaignId, outcome.changed);
     }

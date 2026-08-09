@@ -19,6 +19,12 @@ make those relationships clear in the code instead.
   historical readers, conversion logic, fixtures, and reports stay localized
   there. Import always constructs and validates a fresh canonical campaign and
   commits it atomically rather than upgrading a live campaign in place.
+- A campaign on disk carries no archive envelope, so salvage recognizes the
+  format its data was written in rather than reading a declared one. Format
+  recognition is permitted only at the archive boundary: it matches a frozen
+  historical shape exactly or refuses, and never runs in normal runtime
+  repositories or validators. A near match is not a match, and a recognized
+  format is converted by the same direct converter an import would use.
 - A change to the canonical campaign persistence or authored-data shape is
   incomplete until the archive pipeline has been reviewed and updated in the
   same change. When the encoded archive shape changes, preserve a representative
@@ -45,6 +51,12 @@ make those relationships clear in the code instead.
 - Scene operation idempotency is durable. Undo/redo history and transform locks
   are intentionally process-lifetime state: committed scene data survives a
   restart, but edit history and live leases do not.
+- Access control is one model wherever it appears: a default for every player
+  plus per-user overrides, edited one subject at a time, and saved as it is
+  changed rather than confirmed. Introducing a confirm step, a second editor, or
+  a per-feature permission shape is a product change, not an implementation
+  detail. Which subjects offer permissions at all is a product decision; today
+  Journal entries and pages, Storage assets, and scenes do.
 
 ## Game systems and authored Journal content
 

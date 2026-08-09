@@ -297,6 +297,7 @@ describe('host asset request handler', () => {
     const handler = new HostAssetTransfer({
       assetPolicy: { authorize } as AssetPolicy,
       assetRepository: {
+        accessByAsset: () => new Map(),
         readManifest,
         renameAsset,
       } as unknown as AssetRepository,
