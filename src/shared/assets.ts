@@ -16,6 +16,7 @@ export const assetIpcChannels = {
   progress: 'assets:progress',
   releasePreview: 'assets:release-preview',
   rename: 'assets:rename',
+  reorder: 'assets:reorder',
   trash: 'assets:trash',
 } as const;
 
@@ -40,7 +41,10 @@ export type AssetAction =
   | 'list'
   | 'preview'
   | 'read'
-  | 'rename';
+  | 'rename'
+  /* List-level rather than per-asset: it orders the shared library, so it is
+     reported on every asset but only ever granted to the Game Master. */
+  | 'reorder';
 
 export type AssetCapability = Record<AssetAction, boolean>;
 
@@ -122,6 +126,22 @@ export interface TrashAssetInput extends AssetCampaignInput {
   expectedRevision: number;
 }
 
+/**
+ * Ordering is scoped to one kind group because that is how Storage presents it.
+ *
+ * There is no expected-revision field. Reordering touches no asset, so no asset
+ * revision moves, and the manifest revision never reaches the renderer — the
+ * `revision` on AssetChangedEvent is the highest asset revision, not the
+ * manifest's. The guard instead is that `orderedAssetIds` must match the kind
+ * group exactly, which rejects the changes that would corrupt an order (an
+ * asset imported or deleted underneath the caller) and lets the harmless one
+ * through as last-write-wins (two clients reordering the same set).
+ */
+export interface ReorderAssetsInput extends AssetCampaignInput {
+  kind: AssetKind;
+  orderedAssetIds: string[];
+}
+
 export interface AssetPreviewInput extends AssetCampaignInput {
   assetId: string;
 }
@@ -179,6 +199,7 @@ export interface AssetApi {
   prepareRemote(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
   releasePreview(input: ReleaseAssetPreviewInput): Promise<void>;
   rename(input: RenameAssetInput): Promise<AssetResult<AssetView>>;
+  reorder(input: ReorderAssetsInput): Promise<AssetResult<AssetView[]>>;
   trash(input: TrashAssetInput): Promise<AssetResult<null>>;
 }
 

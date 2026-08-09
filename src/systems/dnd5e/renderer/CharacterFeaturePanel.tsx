@@ -69,12 +69,7 @@ export function CharacterFeaturePanel({
   const orderRef = useRef<OrderedCollectionController | null>(null);
 
   useEffect(() => {
-    menuRef.current = new ContextMenuController({
-      deleteItem: styles.contextMenuDelete,
-      divider: styles.contextMenuDivider,
-      item: styles.contextMenuItem,
-      menu: styles.contextMenu,
-    });
+    menuRef.current = new ContextMenuController();
     return () => menuRef.current?.close();
   }, []);
 

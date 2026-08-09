@@ -19,6 +19,7 @@ import { CHAT_ROLL_SEND_TIMEOUT_MS } from '../../shared/chatRoll';
 import {
   ASSET_CHUNK_BYTES,
   type AssetError,
+  type AssetKind,
   type AssetNetworkSnapshot,
   type AssetProgressEvent,
   type AssetRecord,
@@ -712,6 +713,24 @@ export class CampaignClient {
       : this.assetFailure('sync_error', 'The host did not return the renamed asset.', input.assetId);
   }
 
+  /*
+   * Resolves to the new manifest revision rather than a record: reordering
+   * changes no asset, so the host has nothing per-asset to echo back. The
+   * caller refreshes from the manifest broadcast that follows.
+   */
+  async reorderAssets(input: {
+    kind: AssetKind;
+    orderedAssetIds: string[];
+  }): Promise<AssetResult<number>> {
+    const response = await this.assetMutation('client.asset_reorder', {
+      kind: input.kind,
+      orderedAssetIds: input.orderedAssetIds,
+    });
+    return response.ok
+      ? { ok: true, value: response.value.revision }
+      : response;
+  }
+
   async trashAsset(input: {
     assetId: string;
     expectedRevision: number;
@@ -1133,7 +1152,7 @@ export class CampaignClient {
   }
 
   private async assetMutation(
-    type: 'client.asset_delete' | 'client.asset_rename',
+    type: 'client.asset_delete' | 'client.asset_rename' | 'client.asset_reorder',
     payload: unknown,
   ): Promise<
     AssetResult<{ asset?: AssetRecord; imported?: AssetRecord[]; revision: number }>

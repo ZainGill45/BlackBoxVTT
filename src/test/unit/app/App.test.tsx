@@ -100,6 +100,7 @@ function createMockAssetApi(
     prepareRemote: vi.fn(async () => ({ ok: true as const, value: [] })),
     releasePreview: vi.fn(),
     rename: vi.fn(),
+    reorder: vi.fn(),
     trash: vi.fn(),
     ...overrides,
   };

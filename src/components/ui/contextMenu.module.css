@@ -1,0 +1,94 @@
+/*
+ * The one context menu appearance in the application.
+ *
+ * ContextMenuController owns these classes directly rather than accepting them
+ * from a caller, so every menu — Journal rows, note pages, character features
+ * and resources, and the scene canvas — is the same menu rather than four
+ * copies that drift apart.
+ */
+
+.menu {
+  position: fixed;
+  /* Above the modal layer at 1400: a context menu is opened from inside those
+     dialogs and has to sit on top of the surface that triggered it. */
+  z-index: 1500;
+  display: grid;
+  min-width: 13rem;
+  color: var(--color-text);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+}
+
+.item {
+  appearance: none;
+  width: 100%;
+  min-height: var(--control-height);
+  padding-inline: var(--space-2);
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+/*
+ * background-color, not the background shorthand: the shorthand resets
+ * background-image, which would erase the hatch on destructive entries.
+ */
+.item:hover:not(:disabled),
+.item:focus-visible {
+  color: var(--color-text);
+  background-color: var(--color-overlay-hover);
+}
+
+.item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.divider {
+  height: var(--border-width);
+  background: var(--color-border);
+}
+
+/*
+ * Destructive entries carry the same hatched treatment as every other delete
+ * affordance in the application, but not its border: a menu entry runs edge to
+ * edge inside the menu's own border, so a border here would stack against it
+ * and read as a doubled 2px rule on three sides. The hatch and the text
+ * colour carry the meaning; the item keeps the `border: 0` it gets from .item.
+ */
+.delete {
+  color: var(--color-delete-text);
+  background-color: var(--color-delete);
+  background-image:
+    repeating-linear-gradient(45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem),
+    repeating-linear-gradient(-45deg,
+      transparent 0,
+      transparent 0.1875rem,
+      var(--color-delete-hatch) 0.1875rem,
+      var(--color-delete-hatch) 0.25rem);
+}
+
+.delete:hover:not(:disabled),
+.delete:focus-visible {
+  color: var(--color-delete-text);
+  background-color: var(--color-delete-hover);
+}
+
+/*
+ * Armed, for the destructive entries that ask for a second press. The hover and
+ * focus variants have to be spelled out: arming happens under the pointer, so
+ * without them .delete:hover would outrank the armed fill and hide it.
+ */
+.delete[aria-pressed='true'],
+.delete[aria-pressed='true']:hover:not(:disabled),
+.delete[aria-pressed='true']:focus-visible {
+  color: var(--color-confirm-text);
+  background-color: var(--color-confirm);
+  background-image: none;
+}

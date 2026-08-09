@@ -24,6 +24,7 @@ const capabilities: AssetCapability = {
   preview: true,
   read: true,
   rename: true,
+  reorder: true,
 };
 
 function asset(format: AssetView['format'], kind: AssetView['kind']): AssetView {

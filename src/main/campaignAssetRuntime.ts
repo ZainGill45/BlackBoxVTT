@@ -5,6 +5,7 @@ import type {
   AssetResult,
   AssetView,
   RenameAssetInput,
+  ReorderAssetsInput,
   TrashAssetInput,
 } from '../shared/assets';
 import {
@@ -25,6 +26,7 @@ export interface JoinedAssetTransport {
     onProgress: (event: AssetProgressEvent) => void,
   ): Promise<AssetResult<AssetView[]>>;
   rename(input: RenameAssetInput): Promise<AssetResult<AssetView>>;
+  reorder(input: ReorderAssetsInput): Promise<AssetResult<AssetView[]>>;
   trash(input: TrashAssetInput): Promise<AssetResult<null>>;
 }
 
@@ -51,6 +53,10 @@ export interface CampaignAssetRuntime {
     input: RenameAssetInput,
     policy: AssetPolicy,
   ): Promise<AssetRuntimeMutation<AssetView>>;
+  reorder(
+    input: ReorderAssetsInput,
+    policy: AssetPolicy,
+  ): Promise<AssetRuntimeMutation<AssetView[]>>;
   trash(
     input: TrashAssetInput,
     policy: AssetPolicy,
@@ -106,6 +112,16 @@ class JoinedAssetRuntime implements CampaignAssetRuntime {
       changed: null,
       releasePreviews: false,
       result: await this.transport.rename(input),
+    };
+  }
+
+  async reorder(
+    input: ReorderAssetsInput,
+  ): Promise<AssetRuntimeMutation<AssetView[]>> {
+    return {
+      changed: null,
+      releasePreviews: false,
+      result: await this.transport.reorder(input),
     };
   }
 
@@ -222,6 +238,37 @@ class LocalAssetRuntime implements CampaignAssetRuntime {
         ok: true,
         value: this.toView(result.value, policy, true),
       },
+    };
+  }
+
+  async reorder(
+    input: ReorderAssetsInput,
+    policy: AssetPolicy,
+  ): Promise<AssetRuntimeMutation<AssetView[]>> {
+    /* No asset argument: ordering is a property of the list, so it is
+       authorized on the actor alone. */
+    if (!policy.authorize({ action: 'reorder', subject: this.actor })) {
+      return {
+        changed: null,
+        releasePreviews: false,
+        result: failure(
+          'permission_denied',
+          'You cannot reorder campaign assets.',
+        ),
+      };
+    }
+    const result = await this.workspace.assetRepository.reorderAssets(
+      input.kind,
+      input.orderedAssetIds,
+    );
+    if (!result.ok) {
+      return { changed: null, releasePreviews: false, result };
+    }
+    const listed = await this.list(policy);
+    return {
+      changed: listed.ok ? listed.value : null,
+      releasePreviews: false,
+      result: listed,
     };
   }
 

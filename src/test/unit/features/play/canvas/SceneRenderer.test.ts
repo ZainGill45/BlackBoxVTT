@@ -2465,7 +2465,7 @@ describe('SceneRenderer', () => {
     );
     const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
     expect(menu).not.toBeNull();
-    expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(2);
+    expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(3);
     const labels = [...menu.querySelectorAll('button')].map(
       (button) => button.textContent,
     );
@@ -2483,8 +2483,13 @@ describe('SceneRenderer', () => {
     expect(menu.children[1].getAttribute('role')).toBe('separator');
     expect(menu.children[5].getAttribute('role')).toBe('separator');
     expect(
-      [...menu.children].at(-2)?.textContent,
+      [...menu.children].at(-3)?.textContent,
     ).toBe('Send to back');
+    /* Destructive entries are fenced off from the rest of the menu everywhere
+       they appear, so Delete is preceded by a separator here too. */
+    expect(
+      [...menu.children].at(-2)?.getAttribute('role'),
+    ).toBe('separator');
     expect(
       [...menu.children].at(-1)?.textContent,
     ).toBe('Delete');
@@ -3111,7 +3116,7 @@ describe('SceneRenderer', () => {
     ).toHaveLength(0);
   });
 
-  it('deletes immediately from the context menu', async () => {
+  it('arms before deleting from the context menu', async () => {
     const tokenId = '44444444-4444-4444-8444-444444444444';
     const current = scene({
       images: {
@@ -3152,6 +3157,20 @@ describe('SceneRenderer', () => {
     const deleteButton = document.querySelector<HTMLButtonElement>(
       '[aria-label="Delete selection"]',
     )!;
+
+    /* First press only arms: the menu stays open so the second press has
+       somewhere to land, and nothing is committed yet. */
+    expect(deleteButton).toHaveAttribute('aria-pressed', 'false');
+    deleteButton.click();
+    await settle();
+    expect(deleteButton).toHaveAttribute('aria-pressed', 'true');
+    expect(deleteButton.textContent).toBe('Confirm Delete');
+    expect(deleteButton.getAttribute('aria-label')).toBe(
+      'Confirm deletion of selection',
+    );
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+
     deleteButton.click();
     await settle();
     expect(onCommit).toHaveBeenCalledTimes(1);

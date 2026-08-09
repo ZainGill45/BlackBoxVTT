@@ -8,15 +8,20 @@ import {
 } from 'lucide-react';
 import {
   useEffect,
-  useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { Button } from '../../components/ui/Button';
 import { CanonicalLoader } from '../../components/ui/CanonicalLoader';
 import { ConfirmModal } from '../../components/ui/ConfirmModal';
+import {
+  ContextMenuController,
+  type ContextMenuEntry,
+} from '../../components/ui/contextMenu';
 import { ErrorModal } from '../../components/ui/ErrorModal';
 import { InlineRename } from '../../components/ui/InlineRename';
+import { OrderedCollectionController } from '../../components/ui/orderedCollection';
 import type {
   AssetApi,
   AssetErrorEvent,
@@ -28,7 +33,10 @@ import type {
 import { CANVAS_IMAGE_DRAG_TYPE } from '../../shared/assets';
 import type { SceneRecord } from '../../shared/scenes';
 import type { JournalAssetDependent } from '../../shared/journal';
-import { useDeleteConfirmation } from '../connection/useDeleteConfirmation';
+import {
+  DELETE_CONFIRMATION_TIMEOUT_MS,
+  useDeleteConfirmation,
+} from '../connection/useDeleteConfirmation';
 import { AssetPreviewModal } from './AssetPreviewModal';
 import {
   SidebarCollectionGroup,
@@ -36,10 +44,12 @@ import {
 } from './SidebarCollectionPanel';
 import styles from './StoragePanel.module.css';
 
-const GROUPS: Array<{ id: AssetKind; label: string }> = [
-  { id: 'image', label: 'Images' },
-  { id: 'audio', label: 'Audio' },
-  { id: 'document', label: 'Documents' },
+/* `singular` names one member of the group, for menu entries that act on a
+   single asset ("Move Image Up") rather than on the group heading. */
+const GROUPS: Array<{ id: AssetKind; label: string; singular: string }> = [
+  { id: 'image', label: 'Images', singular: 'Image' },
+  { id: 'audio', label: 'Audio', singular: 'Audio File' },
+  { id: 'document', label: 'Documents', singular: 'Document' },
 ];
 
 const GROUP_ICONS = {
@@ -65,22 +75,33 @@ function formatBytes(bytes: number): string {
 function AssetRow({
   asset,
   deleteArmed,
+  onContextMenu,
   onDelete,
   onPreview,
   onRename,
   canDrag,
+  reordering,
 }: {
   asset: AssetView;
   deleteArmed: boolean;
+  onContextMenu: (event: ReactMouseEvent) => void;
   onDelete: () => void;
   onPreview: (button: HTMLButtonElement) => void;
   onRename: (displayName: string) => Promise<boolean>;
   canDrag: boolean;
+  reordering: boolean;
 }) {
   const Icon = GROUP_ICONS[asset.kind];
 
   return (
-    <li className={styles.assetRow} data-sync-state={asset.syncState}>
+    <li
+      className={styles.assetRow}
+      data-asset-kind={asset.kind}
+      data-asset-order-id={asset.id}
+      data-reordering={reordering}
+      data-sync-state={asset.syncState}
+      onContextMenu={onContextMenu}
+    >
       <button
         type="button"
         className={styles.assetIcon}
@@ -179,8 +200,18 @@ export function StoragePanel({
     journal: JournalAssetDependent[];
     scenes: SceneRecord[];
   } | null>(null);
+  const [reorderState, setReorderState] = useState<{
+    activeId: string;
+    kind: AssetKind;
+    orderedIds: readonly string[];
+    x: number;
+    y: number;
+  } | null>(null);
   const previewButtonRef = useRef<HTMLElement | null>(null);
   const previewTokenRef = useRef<string | null>(null);
+  const menu = useRef<ContextMenuController | null>(null);
+  const reorder = useRef<OrderedCollectionController | null>(null);
+  const listsRef = useRef(new Map<AssetKind, HTMLUListElement>());
   const {
     pendingId: pendingDeleteId,
     request: requestDelete,
@@ -195,6 +226,11 @@ export function StoragePanel({
     },
     [assetApi],
   );
+
+  useEffect(() => {
+    menu.current = new ContextMenuController();
+    return () => menu.current?.close();
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -264,25 +300,199 @@ export function StoragePanel({
     };
   }, [assetApi, assets, campaignId, preview, selected]);
 
-  const sorted = useMemo(
-    () =>
-      [...assets].sort(
-        (left, right) =>
-          left.displayName.localeCompare(right.displayName, 'en-US', {
-            sensitivity: 'base',
-          }) || left.id.localeCompare(right.id),
-      ),
-    [assets],
-  );
+  const commitOrder = async (
+    kind: AssetKind,
+    orderedAssetIds: readonly string[],
+  ) => {
+    const result = await assetApi.reorder({
+      campaignId,
+      kind,
+      orderedAssetIds: [...orderedAssetIds],
+    });
+    if (!result.ok) {
+      setError({
+        ...result.error,
+        campaignId,
+        title: 'Asset order could not be saved',
+      });
+      return false;
+    }
+    setAssets(result.value);
+    return true;
+  };
+
+  const beginReorder = (asset: AssetView, event: ReactMouseEvent) => {
+    /* Cleared because reordering acts on the group as displayed, and a search
+       filter would hide members of the very list being rearranged. */
+    setQuery('');
+    setExpanded((current) => ({ ...current, [asset.kind]: true }));
+    const controller = new OrderedCollectionController(
+      () => assets.filter(({ kind }) => kind === asset.kind).map(({ id }) => id),
+      (orderedIds) => commitOrder(asset.kind, orderedIds),
+    );
+    reorder.current = controller;
+    const snapshot = controller.begin(asset.id);
+    if (snapshot) {
+      setReorderState({
+        activeId: asset.id,
+        kind: asset.kind,
+        orderedIds: snapshot.orderedIds,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (!reorderState) return undefined;
+    const list = listsRef.current.get(reorderState.kind);
+    const move = (event: PointerEvent) => {
+      if (list) {
+        const bounds = list.getBoundingClientRect();
+        if (event.clientY < bounds.top + 30) list.scrollBy({ top: -20 });
+        else if (event.clientY > bounds.bottom - 30) list.scrollBy({ top: 20 });
+      }
+      const target = (event.target as Element | null)?.closest<HTMLElement>('[data-asset-order-id]');
+      let snapshot = reorder.current?.active;
+      if (target && target.dataset.assetKind === reorderState.kind) {
+        const index = snapshot?.orderedIds.indexOf(target.dataset.assetOrderId!) ?? 0;
+        const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+        snapshot = reorder.current?.placeAt(index + (after ? 1 : 0));
+      }
+      if (snapshot) {
+        setReorderState((current) => current ? {
+          ...current,
+          orderedIds: snapshot!.orderedIds,
+          x: event.clientX,
+          y: event.clientY,
+        } : current);
+      }
+    };
+    const down = (event: PointerEvent) => {
+      if (event.button === 2 || !list?.contains(event.target as Node)) {
+        reorder.current?.cancel();
+        setReorderState(null);
+      } else if (event.button === 0) {
+        event.preventDefault();
+        void reorder.current?.commit().then(() => setReorderState(null));
+      }
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        reorder.current?.cancel();
+        setReorderState(null);
+      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const snapshot = reorder.current?.step(event.key === 'ArrowUp' ? 'up' : 'down');
+        if (snapshot) setReorderState((current) => current ? { ...current, orderedIds: snapshot.orderedIds } : current);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        void reorder.current?.commit().then(() => setReorderState(null));
+      }
+    };
+    document.addEventListener('pointermove', move, true);
+    document.addEventListener('pointerdown', down, true);
+    window.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('pointermove', move, true);
+      document.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('keydown', key);
+    };
+  }, [reorderState]);
+
+  const openContext = (event: ReactMouseEvent, asset: AssetView) => {
+    event.preventDefault();
+    const group = assets.filter(({ kind }) => kind === asset.kind);
+    const index = group.findIndex(({ id }) => id === asset.id);
+    const label = GROUPS.find(({ id }) => id === asset.kind)?.singular ?? 'Asset';
+    const entries: ContextMenuEntry[] = [];
+    let deleteArmedUntil = 0;
+    const step = (direction: -1 | 1) => {
+      const ordered = group.map(({ id }) => id);
+      const [moved] = ordered.splice(index, 1);
+      ordered.splice(index + direction, 0, moved);
+      void commitOrder(asset.kind, ordered);
+    };
+    if (asset.capabilities.reorder) {
+      entries.push(
+        {
+          disabled: index <= 0,
+          kind: 'action',
+          label: `Move ${label} Up`,
+          onSelect: () => step(-1),
+        },
+        {
+          disabled: index === group.length - 1,
+          kind: 'action',
+          label: `Move ${label} Down`,
+          onSelect: () => step(1),
+        },
+        {
+          kind: 'action',
+          label: `Reorder ${label} Freely`,
+          onSelect: () => beginReorder(asset, event),
+        },
+      );
+    }
+    if (asset.capabilities.delete) {
+      /* Guarded because reorder is Game Master only: for a player, delete can
+         be the sole entry and the menu would otherwise open on a separator. */
+      if (entries.length > 0) entries.push({ kind: 'divider' });
+      entries.push({
+        danger: true,
+        kind: 'action',
+        label: `Delete ${label}`,
+        onSelect: (button) => {
+          const now = Date.now();
+          if (now > deleteArmedUntil) {
+            deleteArmedUntil = now + DELETE_CONFIRMATION_TIMEOUT_MS;
+            const armedUntil = deleteArmedUntil;
+            button.textContent = `Confirm Delete ${label}`;
+            button.setAttribute('aria-label', `Confirm deletion of ${asset.displayName}`);
+            button.setAttribute('aria-pressed', 'true');
+            window.setTimeout(() => {
+              if (
+                button.isConnected &&
+                deleteArmedUntil === armedUntil &&
+                Date.now() >= armedUntil
+              ) {
+                button.textContent = `Delete ${label}`;
+                button.removeAttribute('aria-label');
+                button.setAttribute('aria-pressed', 'false');
+              }
+            }, DELETE_CONFIRMATION_TIMEOUT_MS);
+            return false;
+          }
+          void resolveAssetDelete(asset);
+        },
+      });
+    }
+    if (entries.length === 0) return;
+    menu.current?.open(
+      event.clientX,
+      event.clientY,
+      `${asset.displayName} actions`,
+      entries,
+      () => document
+        .querySelector<HTMLElement>(`[data-asset-order-id="${asset.id}"] button`)
+        ?.focus(),
+    );
+  };
+
+  /*
+   * Manifest order, not an alphabetical sort. The manifest array is the stored
+   * order, so re-sorting here would silently discard whatever the Game Master
+   * arranged. Newly imported assets therefore land at the end of their group.
+   */
   const normalizedQuery = query.normalize('NFKC').trim().toLocaleLowerCase('en-US');
   const filtered = normalizedQuery
-    ? sorted.filter((asset) =>
+    ? assets.filter((asset) =>
         asset.displayName
           .normalize('NFKC')
           .toLocaleLowerCase('en-US')
           .includes(normalizedQuery),
       )
-    : sorted;
+    : assets;
 
   const importAssets = async () => {
     setImporting(true);
@@ -328,10 +538,13 @@ export function StoragePanel({
       });
   };
 
-  const requestAssetDelete = async (asset: AssetView) => {
-    if (!requestDelete(asset.id)) {
-      return;
-    }
+  /*
+   * Everything after the confirming press. Split out because the row button and
+   * the context menu prime independently — the row through
+   * useDeleteConfirmation, the menu through its own armed entry — and the menu
+   * must not be made to ask a second time.
+   */
+  const resolveAssetDelete = async (asset: AssetView) => {
     const [scenes, journal] = await Promise.all([
       onFindSceneDependents?.(asset.id) ?? Promise.resolve([]),
       onFindJournalDependents?.(asset.id) ?? Promise.resolve([]),
@@ -341,6 +554,13 @@ export function StoragePanel({
       return;
     }
     deleteAsset(asset);
+  };
+
+  const requestAssetDelete = async (asset: AssetView) => {
+    if (!requestDelete(asset.id)) {
+      return;
+    }
+    await resolveAssetDelete(asset);
   };
 
   const dismissPreview = () => {
@@ -367,7 +587,14 @@ export function StoragePanel({
         showEmpty={filtered.length === 0}
       >
         {GROUPS.map((group) => {
-          const entries = filtered.filter((asset) => asset.kind === group.id);
+          const matching = filtered.filter((asset) => asset.kind === group.id);
+          /* While reordering, the in-flight snapshot drives the order so the
+             rows follow the pointer before anything is persisted. */
+          const entries = reorderState?.kind === group.id
+            ? reorderState.orderedIds.flatMap(
+                (id) => matching.find((asset) => asset.id === id) ?? [],
+              )
+            : matching;
           if (entries.length === 0) {
             return null;
           }
@@ -385,13 +612,21 @@ export function StoragePanel({
                 }
               }}
             >
-              <ul className={styles.assetList}>
+              <ul
+                className={styles.assetList}
+                ref={(node) => {
+                  if (node) listsRef.current.set(group.id, node);
+                  else listsRef.current.delete(group.id);
+                }}
+              >
                 {entries.map((asset) => (
                   <AssetRow
                     key={`${asset.id}:${asset.revision}`}
                     asset={asset}
                     canDrag={canDragImages}
                     deleteArmed={pendingDeleteId === asset.id}
+                    reordering={reorderState?.activeId === asset.id}
+                    onContextMenu={(event) => openContext(event, asset)}
                     onPreview={(button) => {
                       previewButtonRef.current = button;
                       setSelected(asset);
@@ -444,6 +679,15 @@ export function StoragePanel({
           );
         })}
       </SidebarCollectionPanel>
+
+      {reorderState ? (
+        <div
+          className={styles.reorderGhost}
+          style={{ left: reorderState.x + 12, top: reorderState.y + 12 }}
+        >
+          Move {assets.find(({ id }) => id === reorderState.activeId)?.displayName}
+        </div>
+      ) : null}
 
       {importing ? (
         <CanonicalLoader

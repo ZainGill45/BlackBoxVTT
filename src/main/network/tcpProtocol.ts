@@ -107,6 +107,7 @@ const assetCapabilitySchema = z
     preview: z.boolean(),
     read: z.boolean(),
     rename: z.boolean(),
+    reorder: z.boolean(),
   })
   .strict();
 
@@ -570,6 +571,12 @@ export const protocolPayloadSchemas = {
       assetId: z.string().uuid(),
       displayName: z.string().min(1).max(1024),
       expectedRevision: z.number().int().nonnegative(),
+    })
+    .strict(),
+  'client.asset_reorder': z
+    .object({
+      kind: z.enum(['audio', 'document', 'image']),
+      orderedAssetIds: z.array(z.string().uuid()).max(10_000),
     })
     .strict(),
   'client.asset_sync_error': z

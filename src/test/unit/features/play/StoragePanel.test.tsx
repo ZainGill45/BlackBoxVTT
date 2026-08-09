@@ -1,4 +1,4 @@
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import type {
@@ -16,6 +16,7 @@ const capabilities: AssetCapability = {
   preview: true,
   read: true,
   rename: true,
+  reorder: true,
 };
 
 function asset(
@@ -62,6 +63,21 @@ function createApi(initial: AssetView[]) {
     };
   });
   const trash = vi.fn(async () => ({ ok: true as const, value: null }));
+  /* Applies the permutation the way the repository does — the group's assets
+     are written back into the slots that group already occupied — so a test can
+     assert on rendered order rather than only on the call arguments. */
+  const reorder = vi.fn(async (input) => {
+    const slots: number[] = [];
+    initial.forEach((candidate, index) => {
+      if (candidate.kind === input.kind) slots.push(index);
+    });
+    const byId = new Map(initial.map((candidate) => [candidate.id, candidate]));
+    const value = [...initial];
+    slots.forEach((slot, position) => {
+      value[slot] = byId.get(input.orderedAssetIds[position])!;
+    });
+    return { ok: true as const, value };
+  });
   const pickAndImport = vi.fn(async () => ({
     ok: true as const,
     value: initial,
@@ -78,9 +94,10 @@ function createApi(initial: AssetView[]) {
     prepareRemote: vi.fn(),
     releasePreview: vi.fn(),
     rename,
+    reorder,
     trash,
   };
-  return { api, pickAndImport, rename, trash };
+  return { api, pickAndImport, rename, reorder, trash };
 }
 
 describe('StoragePanel', () => {
@@ -268,6 +285,66 @@ describe('StoragePanel', () => {
         name: 'Delete an image that campaign content uses?',
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it('moves an asset within its group from the context menu', async () => {
+    const user = userEvent.setup();
+    const first = '11111111-1111-4111-8111-111111111111';
+    const second = '22222222-2222-4222-8222-222222222222';
+    const { api, reorder } = createApi([
+      asset(first, 'Alpha.png', 'image', 'png'),
+      asset(second, 'Beta.png', 'image', 'png'),
+    ]);
+    render(
+      <StoragePanel
+        assetApi={api}
+        campaignId="33333333-3333-4333-8333-333333333333"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Images' }));
+
+    /* The topmost asset cannot move up, so its Move Image Up is disabled. */
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Preview Alpha.png' }));
+    expect(screen.getByRole('menuitem', { name: 'Move Image Up' })).toBeDisabled();
+    await user.keyboard('{Escape}');
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Preview Beta.png' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Move Image Up' }));
+
+    await waitFor(() => expect(reorder).toHaveBeenCalledWith({
+      campaignId: '33333333-3333-4333-8333-333333333333',
+      kind: 'image',
+      orderedAssetIds: [second, first],
+    }));
+    await waitFor(() => {
+      const names = screen
+        .getAllByRole('textbox')
+        .map((input) => (input as HTMLInputElement).value);
+      expect(names).toEqual(['Beta.png', 'Alpha.png']);
+    });
+  });
+
+  it('arms deletion from the context menu before committing it', async () => {
+    const user = userEvent.setup();
+    const { api, trash } = createApi([
+      asset('11111111-1111-4111-8111-111111111111', 'Map.png', 'image', 'png'),
+    ]);
+    render(
+      <StoragePanel
+        assetApi={api}
+        campaignId="33333333-3333-4333-8333-333333333333"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Images' }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Preview Map.png' }));
+
+    const item = screen.getByRole('menuitem', { name: 'Delete Image' });
+    await user.click(item);
+    expect(item).toHaveAttribute('aria-pressed', 'true');
+    expect(trash).not.toHaveBeenCalled();
+
+    await user.click(item);
+    await waitFor(() => expect(trash).toHaveBeenCalledOnce());
   });
 
   it('offers asset import when no assets exist', async () => {

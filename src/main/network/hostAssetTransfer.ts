@@ -166,6 +166,32 @@ export class HostAssetTransfer {
       }
       return true;
     }
+    if (envelope.type === 'client.asset_reorder') {
+      const input = parsePayload('client.asset_reorder', envelope.payload);
+      /* No asset passed: ordering belongs to the list, and the policy grants
+         it to the Game Master alone. */
+      if (!this.assetPolicy.authorize({
+        action: 'reorder',
+        subject: actorFor(client),
+      })) {
+        this.sendAssetError(
+          client,
+          'permission_denied',
+          'You cannot reorder campaign assets.',
+          envelope.requestId,
+        );
+        return true;
+      }
+      const result = await this.assetRepository.reorderAssets(
+        input.kind,
+        input.orderedAssetIds,
+      );
+      await this.sendMutationResult(client, result, envelope.requestId);
+      if (result.ok) {
+        await this.broadcastAssetsChanged();
+      }
+      return true;
+    }
     if (envelope.type === 'client.asset_delete') {
       const input = parsePayload('client.asset_delete', envelope.payload);
       const asset = (await this.assetRepository.readManifest()).assets.find(

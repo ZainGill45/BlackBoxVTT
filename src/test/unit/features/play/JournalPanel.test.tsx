@@ -1330,7 +1330,7 @@ describe('JournalPanel', () => {
 
     fireEvent.contextMenu(renamedCharacter);
     expect(screen.queryByRole('menuitem', { name: 'Rename Character' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem', { name: 'Delete Character' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Delete Character' })).toBeVisible();
     await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
 
     const permissions = screen.getByRole('dialog', {
@@ -2115,6 +2115,58 @@ describe('JournalPanel', () => {
       }),
     );
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('arms note deletion from the entry context menu independently of the row control', async () => {
+    const user = userEvent.setup();
+    const prepareDelete = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        assets: [],
+        target: { entryId: note.id, kind: 'note' as const },
+      },
+    }));
+    const deleteTarget = vi.fn(async () => ({
+      ok: true as const,
+      value: { cleanupFailures: [] },
+    }));
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({ deleteTarget, prepareDelete })}
+        role="gm"
+      />,
+    );
+
+    await expandNotes(user);
+    fireEvent.contextMenu(
+      await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+    const deleteItem = screen.getByRole('menuitem', { name: 'Delete Note' });
+    expect(deleteItem).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(deleteItem);
+    expect(deleteItem).toHaveAccessibleName('Confirm deletion of Gathered Magic Items');
+    expect(deleteItem).toHaveAttribute('aria-pressed', 'true');
+    expect(prepareDelete).not.toHaveBeenCalled();
+    /* The menu stays open so the confirming press has somewhere to land. */
+    expect(screen.getByRole('menu')).toBeVisible();
+
+    /* The row's own trash button arms separately, so it is untouched by the
+       menu having been armed. */
+    expect(screen.getByRole('button', { name: 'Delete Gathered Magic Items' }))
+      .toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(deleteItem);
+    await waitFor(() =>
+      expect(deleteTarget).toHaveBeenCalledWith({
+        campaignId,
+        cleanupAssetIds: [],
+        expectedRevision: note.revision,
+        target: { entryId: note.id, kind: 'note' },
+      }),
+    );
   });
 
   it('opens the top note cleanup modal only when embedded images need a choice', async () => {

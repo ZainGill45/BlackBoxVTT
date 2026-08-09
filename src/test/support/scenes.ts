@@ -68,6 +68,7 @@ export function makeImageAsset(
       preview: true,
       read: true,
       rename: true,
+      reorder: true,
     },
     chunkHashes: [],
     createdAt: '2026-07-28T00:00:00.000Z',
@@ -369,6 +370,7 @@ export function createFakeAssetApi(assets: AssetView[] = []): AssetApi {
     prepareRemote: vi.fn(async () => ({ ok: true as const, value: assets })),
     releasePreview: vi.fn(async () => undefined),
     rename: vi.fn(async () => ({ ok: true as const, value: assets[0] })),
+    reorder: vi.fn(async () => ({ ok: true as const, value: assets })),
     trash: vi.fn(async () => ({ ok: true as const, value: null })),
   };
 }

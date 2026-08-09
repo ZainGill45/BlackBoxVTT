@@ -1,3 +1,5 @@
+import styles from './contextMenu.module.css';
+
 export type ContextMenuEntry =
   | {
       ariaLabel?: string;
@@ -10,19 +12,17 @@ export type ContextMenuEntry =
     }
   | { kind: 'divider' };
 
-export interface ContextMenuStyles {
-  deleteItem: string;
-  divider: string;
-  item: string;
-  menu: string;
-}
-
-/** Accessible, viewport-aware context menu shared by canvas and DOM collections. */
+/**
+ * Accessible, viewport-aware context menu shared by canvas and DOM collections.
+ *
+ * Appearance is owned here rather than passed in. Callers described their own
+ * classes once, and four near-identical copies drifted apart; the menu a user
+ * opens on a Journal row and the one they open on the scene are the same menu,
+ * so they are also the same stylesheet.
+ */
 export class ContextMenuController {
   private menu: HTMLDivElement | null = null;
   private outsideListener: ((event: Event) => void) | null = null;
-
-  constructor(private readonly styles: ContextMenuStyles) {}
 
   close(): void {
     this.menu?.remove();
@@ -45,13 +45,13 @@ export class ContextMenuController {
     const menu = document.createElement('div');
     menu.setAttribute('role', 'menu');
     menu.setAttribute('aria-label', ariaLabel);
-    menu.className = this.styles.menu;
+    menu.className = styles.menu;
     menu.style.left = `${clientX}px`;
     menu.style.top = `${clientY}px`;
     for (const entry of entries) {
       if (entry.kind === 'divider') {
         const divider = document.createElement('div');
-        divider.className = this.styles.divider;
+        divider.className = styles.divider;
         divider.role = 'separator';
         menu.appendChild(divider);
         continue;
@@ -62,8 +62,8 @@ export class ContextMenuController {
       button.textContent = entry.label;
       button.disabled = entry.disabled ?? false;
       button.className = entry.danger
-        ? `${this.styles.item} ${this.styles.deleteItem}`
-        : this.styles.item;
+        ? `${styles.item} ${styles.delete}`
+        : styles.item;
       if (entry.danger) button.setAttribute('aria-pressed', 'false');
       if (entry.ariaLabel) button.setAttribute('aria-label', entry.ariaLabel);
       button.addEventListener('click', () => {

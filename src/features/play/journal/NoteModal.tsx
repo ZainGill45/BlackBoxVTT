@@ -733,12 +733,7 @@ export function NoteModal({
   }, [campaignId, journalApi, refreshCurrent]);
 
   useEffect(() => {
-    pageMenu.current = new ContextMenuController({
-      deleteItem: styles.contextDelete,
-      divider: styles.contextDivider,
-      item: styles.contextItem,
-      menu: styles.contextMenu,
-    });
+    pageMenu.current = new ContextMenuController();
     return () => pageMenu.current?.close();
   }, []);
 

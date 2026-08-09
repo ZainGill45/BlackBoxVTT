@@ -117,6 +117,9 @@ const assetApi: AssetApi = {
   async rename() {
     return assetUnavailable();
   },
+  async reorder() {
+    return assetUnavailable();
+  },
   async trash() {
     return assetUnavailable();
   },

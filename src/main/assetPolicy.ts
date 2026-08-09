@@ -12,6 +12,7 @@ const ACTIONS: AssetAction[] = [
   'import',
   'rename',
   'delete',
+  'reorder',
 ];
 
 interface AssetAuthorizationContext {
@@ -25,7 +26,10 @@ export interface AssetPolicy {
 }
 
 export const authenticatedAssetPolicy: AssetPolicy = {
-  authorize({ subject }) {
+  authorize({ action, subject }) {
+    /* Ordering the shared library is the Game Master's, so that a player
+       cannot rearrange what everyone else sees. */
+    if (action === 'reorder') return subject.role === 'gm';
     return subject.role === 'gm' || subject.role === 'player';
   },
 };

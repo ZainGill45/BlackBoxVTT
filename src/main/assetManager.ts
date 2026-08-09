@@ -17,6 +17,7 @@ import type {
   AssetView,
   ImportImageBytesInput,
   RenameAssetInput,
+  ReorderAssetsInput,
   TrashAssetInput,
 } from '../shared/assets';
 import { MAX_EMBEDDED_IMAGE_BYTES } from '../shared/assets';
@@ -206,6 +207,18 @@ export class AssetManager extends EventEmitter {
       return failure('not_found', 'Campaign storage is unavailable.', input.assetId);
     }
     const outcome = await runtime.assets.rename(input, this.policy);
+    if (outcome.changed) {
+      this.emitChanged(input.campaignId, outcome.changed);
+    }
+    return outcome.result;
+  }
+
+  async reorder(input: ReorderAssetsInput): Promise<AssetResult<AssetView[]>> {
+    const runtime = await this.runtimes.resolve(input.campaignId);
+    if (!runtime) {
+      return failure('not_found', 'Campaign storage is unavailable.');
+    }
+    const outcome = await runtime.assets.reorder(input, this.policy);
     if (outcome.changed) {
       this.emitChanged(input.campaignId, outcome.changed);
     }

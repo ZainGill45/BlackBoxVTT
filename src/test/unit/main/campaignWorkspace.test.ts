@@ -85,6 +85,7 @@ describe('CampaignRuntimeRegistry', () => {
         list: vi.fn(),
         prepare: vi.fn(),
         rename: vi.fn(),
+        reorder: vi.fn(),
         trash: vi.fn(),
       },
       campaignId,

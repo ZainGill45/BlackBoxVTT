@@ -11,6 +11,7 @@ import type {
   AssetResult,
   AssetView,
   RenameAssetInput,
+  ReorderAssetsInput,
 } from '../../shared/assets';
 import type { JoinedAssetTransport } from '../campaignAssetRuntime';
 import {
@@ -28,6 +29,7 @@ type AssetClient = Pick<
   | 'getAssetManifest'
   | 'getSession'
   | 'renameAsset'
+  | 'reorderAssets'
   | 'reportAssetSyncError'
   | 'trashAsset'
   | 'uploadAssets'
@@ -80,6 +82,7 @@ export class JoinedAssetSession {
       list: () => this.list(campaignId),
       prepare: (onProgress) => this.prepare(campaignId, onProgress),
       rename: (input) => this.rename(input),
+      reorder: (input) => this.reorder(campaignId, input),
       trash: (input) => this.client.trashAsset(input),
     };
   }
@@ -200,6 +203,31 @@ export class JoinedAssetSession {
     return uploaded.ok
       ? this.prepare(campaignId, onProgress)
       : uploaded;
+  }
+
+  /*
+   * The host answers with a revision only, so the reordered list comes back
+   * through the manifest broadcast rather than this response; re-listing here
+   * gives the caller the order the host actually committed.
+   */
+  private async reorder(
+    campaignId: string,
+    input: ReorderAssetsInput,
+  ): Promise<AssetResult<AssetView[]>> {
+    if (!this.actor(campaignId)) {
+      return {
+        error: {
+          code: 'sync_error',
+          message: 'The remote campaign connection is not active.',
+        },
+        ok: false,
+      };
+    }
+    const result = await this.client.reorderAssets({
+      kind: input.kind,
+      orderedAssetIds: input.orderedAssetIds,
+    });
+    return result.ok ? this.list(campaignId) : result;
   }
 
   private async rename(input: RenameAssetInput): Promise<AssetResult<AssetView>> {

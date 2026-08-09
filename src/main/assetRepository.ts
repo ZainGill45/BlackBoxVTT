@@ -644,6 +644,59 @@ export class AssetRepository {
     });
   }
 
+  /**
+   * Reorders one kind group in place.
+   *
+   * Manifest array order is already the stored order — `readManifest` reads
+   * `ORDER BY position` and `writeManifest` writes the array index back — so
+   * ordering only has to permute the array. The group's assets are rewritten
+   * into the slots that group already occupies, which leaves assets of other
+   * kinds sitting exactly where they were rather than clustering the manifest
+   * by kind as a side effect.
+   *
+   * Individual records are untouched, so their revisions do not move. Conflict
+   * detection is the ID-set check below rather than an expected revision: the
+   * manifest revision is not visible to callers, and a mismatched set is
+   * exactly the case where honouring the order would be wrong.
+   */
+  reorderAssets(
+    kind: AssetKind,
+    orderedAssetIds: readonly string[],
+  ): Promise<AssetResult<AssetManifest>> {
+    return this.mutations.run(async () => {
+      const manifest = await this.readManifest();
+      const slots: number[] = [];
+      const groupIds: string[] = [];
+      manifest.assets.forEach((asset, index) => {
+        if (asset.kind === kind) {
+          slots.push(index);
+          groupIds.push(asset.id);
+        }
+      });
+      const requested = [...orderedAssetIds];
+      if (
+        requested.length !== groupIds.length ||
+        new Set(requested).size !== requested.length ||
+        !requested.every((id) => groupIds.includes(id))
+      ) {
+        return failure(
+          'invalid_input',
+          'The requested asset order is invalid.',
+        );
+      }
+      const byId = new Map(manifest.assets.map((asset) => [asset.id, asset]));
+      const assets = [...manifest.assets];
+      slots.forEach((slot, position) => {
+        assets[slot] = byId.get(requested[position])!;
+      });
+      const nextRevision = manifest.revision + 1;
+      const next: AssetManifest = { assets, revision: nextRevision };
+      await this.writeManifest(next);
+      await this.touchCampaign();
+      return { ok: true, value: next };
+    });
+  }
+
   trashAsset(
     assetId: string,
     expectedRevision: number,

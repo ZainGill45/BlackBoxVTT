@@ -78,7 +78,8 @@ import {
 import {
   ContextMenuController,
   type ContextMenuEntry,
-} from './contextMenu';
+} from '../../../components/ui/contextMenu';
+import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
 import { SceneImageClipboard } from './sceneImageClipboard';
 import {
   loadImageResource,
@@ -502,12 +503,7 @@ export class SceneRenderer implements SceneRendererHandle {
     { base: SceneRecord; input: SceneTransformPreviewStart }
   >();
   private readonly selectionOverlay = new SceneSelectionOverlay(readCssColor);
-  private readonly contextMenu = new ContextMenuController({
-    deleteItem: styles.contextMenuDelete,
-    divider: styles.contextMenuDivider,
-    item: styles.contextMenuItem,
-    menu: styles.contextMenu,
-  });
+  private readonly contextMenu = new ContextMenuController();
   private readonly imageClipboard = new SceneImageClipboard();
   private lastSentPingAt: number | null = null;
   private mapSprite: Sprite | null = null;
@@ -2588,6 +2584,9 @@ export class SceneRenderer implements SceneRendererHandle {
     }
 
     const entries: ContextMenuEntry[] = [];
+    /* Scoped to this opening of the menu, so arming never carries over from a
+       menu the user dismissed. */
+    let deleteArmedUntil = 0;
 
     if (canPing) {
       entries.push(
@@ -2652,12 +2651,37 @@ export class SceneRenderer implements SceneRendererHandle {
           label: 'Send to back',
           onSelect: () => void this.reorderSelection('back'),
         },
+        { kind: 'divider' },
         {
           ariaLabel: 'Delete selection',
           danger: true,
           kind: 'action',
           label: 'Delete',
-          onSelect: () => void this.deleteSelection(),
+          onSelect: (button) => {
+            const now = Date.now();
+            if (now > deleteArmedUntil) {
+              deleteArmedUntil = now + DELETE_CONFIRMATION_TIMEOUT_MS;
+              const armedUntil = deleteArmedUntil;
+              button.textContent = 'Confirm Delete';
+              button.setAttribute('aria-label', 'Confirm deletion of selection');
+              button.setAttribute('aria-pressed', 'true');
+              window.setTimeout(() => {
+                if (
+                  button.isConnected &&
+                  deleteArmedUntil === armedUntil &&
+                  Date.now() >= armedUntil
+                ) {
+                  button.textContent = 'Delete';
+                  /* Restored rather than removed: unlike the sheet menus, this
+                     entry carries an ariaLabel of its own to fall back to. */
+                  button.setAttribute('aria-label', 'Delete selection');
+                  button.setAttribute('aria-pressed', 'false');
+                }
+              }, DELETE_CONFIRMATION_TIMEOUT_MS);
+              return false;
+            }
+            void this.deleteSelection();
+          },
         },
       );
     }

@@ -38,7 +38,10 @@ import {
   hasSystemJournalEntryRenderer,
   SystemJournalEntryModal,
 } from '../../systems/rendererRegistry';
-import { useDeleteConfirmation } from '../connection/useDeleteConfirmation';
+import {
+  DELETE_CONFIRMATION_TIMEOUT_MS,
+  useDeleteConfirmation,
+} from '../connection/useDeleteConfirmation';
 import {
   SidebarCollectionGroup,
   SidebarCollectionPanel,
@@ -282,12 +285,7 @@ function ConnectedJournalPanel({
   }, [campaignId, journalApi, refresh, role]);
 
   useEffect(() => {
-    menu.current = new ContextMenuController({
-      deleteItem: styles.contextDelete,
-      divider: styles.contextDivider,
-      item: styles.contextItem,
-      menu: styles.contextMenu,
-    });
+    menu.current = new ContextMenuController();
     return () => menu.current?.close();
   }, []);
 
@@ -477,6 +475,10 @@ function ConnectedJournalPanel({
     const groupEntries = manifest?.entries.filter(({ groupId }) => groupId === entry.groupId) ?? [];
     const groupIndex = groupEntries.findIndex(({ id }) => id === entry.id);
     const entries: ContextMenuEntry[] = [];
+    /* Scoped to this opening of the menu, so arming never carries over from a
+       menu the user dismissed. Independent of the row's own trash button,
+       which arms through useDeleteConfirmation. */
+    let deleteArmedUntil = 0;
     if (entry.capabilities.managePermissions) {
       entries.push({
         kind: 'action',
@@ -518,6 +520,40 @@ function ConnectedJournalPanel({
         },
         { kind: 'action', label: `Reorder ${label} Freely`, onSelect: () => beginReorder(entry, event) },
       );
+    }
+    if (entry.capabilities.delete) {
+      /* Guarded because permissions and reorder are both conditional: with
+         delete as the only available action the menu would otherwise open on
+         a separator. */
+      if (entries.length > 0) entries.push({ kind: 'divider' });
+      entries.push({
+        danger: true,
+        kind: 'action',
+        label: `Delete ${label}`,
+        onSelect: (button) => {
+          const now = Date.now();
+          if (now > deleteArmedUntil) {
+            deleteArmedUntil = now + DELETE_CONFIRMATION_TIMEOUT_MS;
+            const armedUntil = deleteArmedUntil;
+            button.textContent = `Confirm Delete ${label}`;
+            button.setAttribute('aria-label', `Confirm deletion of ${entry.name}`);
+            button.setAttribute('aria-pressed', 'true');
+            window.setTimeout(() => {
+              if (
+                button.isConnected &&
+                deleteArmedUntil === armedUntil &&
+                Date.now() >= armedUntil
+              ) {
+                button.textContent = `Delete ${label}`;
+                button.removeAttribute('aria-label');
+                button.setAttribute('aria-pressed', 'false');
+              }
+            }, DELETE_CONFIRMATION_TIMEOUT_MS);
+            return false;
+          }
+          void requestEntryDelete(entry);
+        },
+      });
     }
     if (entries.length === 0) return;
     menu.current?.open(event.clientX, event.clientY, `${entry.name} actions`, entries, () =>

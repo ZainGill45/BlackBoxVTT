@@ -57,6 +57,10 @@ export function createAssetApi(ipc: AssetIpcRenderer): AssetApi {
       ipc.invoke(assetIpcChannels.rename, input) as ReturnType<
         AssetApi['rename']
       >,
+    reorder: (input) =>
+      ipc.invoke(assetIpcChannels.reorder, input) as ReturnType<
+        AssetApi['reorder']
+      >,
     trash: (input) =>
       ipc.invoke(assetIpcChannels.trash, input) as ReturnType<
         AssetApi['trash']

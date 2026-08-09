@@ -18,6 +18,12 @@ const renameSchema = assetSchema.extend({
 const trashSchema = assetSchema.extend({
   expectedRevision: z.number().int().nonnegative(),
 });
+/* Extends campaignSchema, not assetSchema: reordering names a kind group
+   rather than a single asset. */
+const reorderSchema = campaignSchema.extend({
+  kind: z.enum(['audio', 'document', 'image']),
+  orderedAssetIds: z.array(z.string().uuid()).max(10_000),
+});
 const releaseSchema = z.object({ token: z.string().uuid() }).strict();
 const importImageSchema = campaignSchema.extend({
   bytesBase64: z.string().max(Math.ceil((MAX_EMBEDDED_IMAGE_BYTES * 4) / 3) + 8),
@@ -49,6 +55,7 @@ export function registerAssetIpcHandlers(
     assetIpcChannels.prepareRemote,
     assetIpcChannels.releasePreview,
     assetIpcChannels.rename,
+    assetIpcChannels.reorder,
     assetIpcChannels.trash,
   ];
   requestChannels.forEach((channel) => ipc.removeHandler(channel));
@@ -90,6 +97,10 @@ export function registerAssetIpcHandlers(
   handle(assetIpcChannels.rename, (input) => {
     const parsed = renameSchema.safeParse(input);
     return parsed.success ? manager.rename(parsed.data) : invalid();
+  });
+  handle(assetIpcChannels.reorder, (input) => {
+    const parsed = reorderSchema.safeParse(input);
+    return parsed.success ? manager.reorder(parsed.data) : invalid();
   });
   handle(assetIpcChannels.trash, (input) => {
     const parsed = trashSchema.safeParse(input);
