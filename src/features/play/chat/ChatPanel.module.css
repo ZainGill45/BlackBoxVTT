@@ -115,28 +115,9 @@
   user-select: text;
 }
 
-.rollCommand {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.rollCommand span {
-  color: var(--color-text-muted);
-}
-
 .rollTitle {
-  margin: 0 0 var(--space-1);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-tight);
+  margin: 0;
+  margin-top: var(--space-1);
   overflow-wrap: anywhere;
 }
 
@@ -147,23 +128,60 @@
 
 .rollSection {
   --roll-outcome: var(--color-text);
+  --roll-type-accent: var(--color-roll-general);
 
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) 4.25rem;
   background: rgb(255 255 255 / 2%);
   border: var(--border-width) solid var(--color-border);
-  border-left: 0.1875rem solid var(--color-text);
+  border-left: 0.1875rem solid var(--roll-type-accent);
+}
+
+.rollSection[data-roll-kind="attack"] {
+  --roll-type-accent: var(--color-roll-attack);
+}
+
+.rollSection[data-roll-kind="damage"] {
+  --roll-type-accent: var(--color-roll-damage);
+}
+
+.rollSection[data-roll-kind="healing"] {
+  --roll-type-accent: var(--color-roll-healing);
+}
+
+.rollSection[data-roll-kind="save"] {
+  --roll-type-accent: var(--color-roll-save);
+}
+
+.rollSection[data-prompt="true"] {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .rollSection[data-static="true"] {
   grid-template-columns: minmax(0, 1fr);
+  background: transparent;
+  border: 0;
+}
+
+.rollSection[data-static="true"] .rollSectionBody {
+  padding: var(--space-1) 0 var(--space-2);
 }
 
 .rollStaticText {
   margin: 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
+}
+
+.rollPromptValue {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-standard);
+}
+
+.rollPromptDetail {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
 }
 
 .rollCritical {
@@ -200,12 +218,16 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   letter-spacing: 0.025em;
-  text-transform: uppercase;
+  text-transform: capitalize;
 }
 
 .rollSectionHeading strong,
 .rollSectionHeading span {
   overflow-wrap: anywhere;
+}
+
+.rollSectionLabel {
+  font-weight: var(--font-weight-medium);
 }
 
 .rollEquation {

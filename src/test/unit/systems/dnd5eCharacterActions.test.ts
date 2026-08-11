@@ -124,7 +124,7 @@ describe('D&D Character Action compilation', () => {
             'Failure: The target falls prone.',
           kind: 'prompt',
           label: 'Resist',
-          value: 'DC 14 DEXTERITY save',
+          value: 'DC 14 Dexterity Save',
         },
         {
           kind: 'effect',

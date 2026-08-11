@@ -128,7 +128,7 @@ describe('DiceRollCard', () => {
       'neutral',
     ]);
     expect(results[3]).toHaveAttribute('data-included', 'false');
-    expect(screen.getByText('4D4 + 4')).toBeInTheDocument();
+    expect(screen.getByText('4d4 + 4')).toBeInTheDocument();
   });
 
   it('reveals every dice term, operator, and literal value in the audit trail', () => {
@@ -179,7 +179,9 @@ describe('DiceRollCard', () => {
       typeLabel: 'Fire',
     });
     const { rerender } = render(<DiceRollCard card={fixture} />);
-    expect(screen.getByText('Fixture - Roll')).toBeInTheDocument();
+    expect(screen.getByText('Fixture')).toBeInTheDocument();
+    expect(screen.queryByText('/R')).not.toBeInTheDocument();
+    expect(screen.queryByText('ROLL')).not.toBeInTheDocument();
     expect(screen.getByText('Fire')).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: /Show rolls/ })).toHaveLength(2);
     fireEvent.click(
@@ -212,6 +214,8 @@ describe('DiceRollCard', () => {
       />,
     );
     expect(screen.getAllByLabelText('Roll pending')).toHaveLength(2);
+    expect(screen.queryByText('/R')).not.toBeInTheDocument();
+    expect(screen.queryByText('ROLL')).not.toBeInTheDocument();
   });
 
   it('renders ordered Details, prompts, effects, and critical branch results', () => {
@@ -255,6 +259,8 @@ describe('DiceRollCard', () => {
     };
     const { rerender } = render(<DiceRollCard card={fixture} />);
     expect(screen.getByText('Range: 5 feet')).toBeInTheDocument();
+    expect(screen.queryByText('Details')).not.toBeInTheDocument();
+    expect(screen.getByText('Effect')).toBeInTheDocument();
     expect(screen.getByText(/DC 14 DEXTERITY save/)).toBeInTheDocument();
     expect(screen.getByText(/Failure: knocked prone/)).toBeInTheDocument();
     expect(screen.getByText('The weapon hums.')).toBeInTheDocument();

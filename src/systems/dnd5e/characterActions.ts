@@ -264,7 +264,7 @@ export function compileDnd5eCharacterAction(
         normalize(step.success) ? `Success: ${normalize(step.success)}` : '',
         normalize(step.failure) ? `Failure: ${normalize(step.failure)}` : '',
       ].filter(Boolean).join('\n') || null;
-      const value = `DC ${dc} ${step.ability.toLocaleUpperCase()} save`;
+      const value = `DC ${dc} ${titleCase(step.ability)} Save`;
       sections.push({ detail, kind: 'prompt', label, value });
       previews.push({ label, purpose: step.purpose, stepId: step.id, summary: value });
       continue;

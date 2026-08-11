@@ -232,9 +232,9 @@ test.describe('networked D&D character sheets', () => {
     await playerSheet.press('Escape');
     await openTab(player.window, 'Chat');
     await openTab(gm.window, 'Chat');
-    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Strike - Roll' }))
+    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Strike' }))
       .toHaveCount(1);
-    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Strike - Roll' }))
+    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Strike' }))
       .toHaveCount(1);
     await openTab(player.window, 'Journal');
     await openTab(gm.window, 'Journal');

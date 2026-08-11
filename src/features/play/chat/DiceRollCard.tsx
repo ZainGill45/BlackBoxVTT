@@ -9,6 +9,7 @@ import {
   type ChatRollDieNode,
   type ChatRollExpressionNode,
   type ChatRollOrdinarySectionResult,
+  type ChatRollPromptSectionDefinition,
 } from '../../../shared/chatRoll';
 import styles from './ChatPanel.module.css';
 
@@ -66,6 +67,57 @@ function Shape({ shape }: { shape: DieShape }) {
 type RolledSection =
   | ChatRollOrdinarySectionResult
   | ChatRollConditionalSectionResult;
+
+function rollKind(section: {
+  kind?: string;
+  typeLabel: string | null;
+}): 'attack' | 'damage' | 'general' | 'healing' {
+  if (section.kind === 'conditional-roll') return 'damage';
+  const type = section.typeLabel?.trim().toLocaleLowerCase() ?? '';
+  if (type === 'attack') return 'attack';
+  if (type === 'healing') return 'healing';
+  return type ? 'damage' : 'general';
+}
+
+function distinctTypeLabel(section: {
+  label: string;
+  typeLabel: string | null;
+}): string | null {
+  const type = section.typeLabel?.trim() ?? '';
+  return type && type.toLocaleLowerCase() !== section.label.trim().toLocaleLowerCase()
+    ? type
+    : null;
+}
+
+function SavePromptCard({
+  section,
+}: {
+  section: ChatRollPromptSectionDefinition;
+}) {
+  return (
+    <section
+      className={styles.rollSection}
+      data-outcome="neutral"
+      data-prompt="true"
+      data-roll-kind="save"
+    >
+      <div className={styles.rollSectionBody}>
+        <div className={styles.rollSectionHeading}>
+          <strong className={styles.rollSectionLabel}>{section.label}</strong>
+          <span>Save Prompt</span>
+        </div>
+        <strong className={styles.rollPromptValue}>{section.value}</strong>
+        {section.detail ? (
+          <div className={`${styles.messageBody} ${styles.rollPromptDetail}`}>
+            {section.detail.split('\n').map((line, index) => (
+              <span key={`${line}:${index}`}>{line}</span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
 
 function DiceTotalIcon({ section }: { section: RolledSection }) {
   const total = String(section.total);
@@ -225,19 +277,15 @@ function RollAudit({ section }: { section: RolledSection }) {
 export function DiceRollCard({ card }: { card: ChatRollCard }) {
   return (
     <div className={styles.rollContent}>
-      <div className={styles.rollCommand}>
-        <span>{card.category.toLocaleUpperCase()}</span>
-        <strong>/R</strong>
-      </div>
       {card.title ? (
-        <h3 className={styles.rollTitle}>{card.title} - Roll</h3>
+        <h3 className={styles.rollTitle}>{card.title}</h3>
       ) : null}
       <div className={styles.rollSections}>
         {card.sections.map((section, index) => {
-          if ('kind' in section && section.kind !== 'conditional-roll') {
-            const content = section.kind === 'prompt'
-              ? `${section.value}${section.detail ? ` — ${section.detail}` : ''}`
-              : section.text;
+          if ('kind' in section && section.kind === 'prompt') {
+            return <SavePromptCard key={`${section.label}:${index}`} section={section} />;
+          }
+          if ('kind' in section && section.kind === 'effect') {
             return (
               <section
                 className={styles.rollSection}
@@ -246,12 +294,14 @@ export function DiceRollCard({ card }: { card: ChatRollCard }) {
                 key={`${section.label}:${index}`}
               >
                 <div className={styles.rollSectionBody}>
-                  <div className={styles.rollSectionHeading}>
-                    <strong className={styles.rollBadge}>
-                      {section.label.toLocaleUpperCase()}
-                    </strong>
+                  {section.label.trim().toLocaleLowerCase() === 'details' ? null : (
+                    <div className={styles.rollSectionHeading}>
+                      <strong className={styles.rollSectionLabel}>{section.label}</strong>
+                    </div>
+                  )}
+                  <div className={`${styles.messageBody} ${styles.rollStaticText}`}>
+                    {section.text}
                   </div>
-                  <p className={styles.rollStaticText}>{content}</p>
                 </div>
               </section>
             );
@@ -260,14 +310,13 @@ export function DiceRollCard({ card }: { card: ChatRollCard }) {
             <section
               className={styles.rollSection}
               data-outcome={classifyRollOutcome(section.expression)}
+              data-roll-kind={rollKind(section)}
               key={`${section.label}:${index}`}
             >
               <div className={styles.rollSectionBody}>
                 <div className={styles.rollSectionHeading}>
-                  <strong className={styles.rollBadge}>
-                    {section.label.toLocaleUpperCase()}
-                  </strong>
-                  {section.typeLabel ? <span>{section.typeLabel}</span> : null}
+                  <strong className={styles.rollSectionLabel}>{section.label}</strong>
+                  {distinctTypeLabel(section) ? <span>{distinctTypeLabel(section)}</span> : null}
                 </div>
                 {'kind' in section && section.usedAlternate ? (
                   <small className={styles.rollCritical}>Critical damage</small>
@@ -292,19 +341,15 @@ export function PendingDiceRollCard({
 }) {
   return (
     <div className={styles.rollContent}>
-      <div className={styles.rollCommand}>
-        <span>{definition.category.toLocaleUpperCase()}</span>
-        <strong>/R</strong>
-      </div>
       {definition.title ? (
-        <h3 className={styles.rollTitle}>{definition.title} - Roll</h3>
+        <h3 className={styles.rollTitle}>{definition.title}</h3>
       ) : null}
       <div className={styles.rollSections}>
         {definition.sections.map((section, index) => {
-          if ('kind' in section && section.kind !== 'conditional-roll') {
-            const content = section.kind === 'prompt'
-              ? `${section.value}${section.detail ? ` — ${section.detail}` : ''}`
-              : section.text;
+          if ('kind' in section && section.kind === 'prompt') {
+            return <SavePromptCard key={index} section={section} />;
+          }
+          if ('kind' in section && section.kind === 'effect') {
             return (
               <section
                 className={styles.rollSection}
@@ -313,24 +358,29 @@ export function PendingDiceRollCard({
                 key={index}
               >
                 <div className={styles.rollSectionBody}>
-                  <div className={styles.rollSectionHeading}>
-                    <strong className={styles.rollBadge}>
-                      {section.label.toLocaleUpperCase()}
-                    </strong>
+                  {section.label.trim().toLocaleLowerCase() === 'details' ? null : (
+                    <div className={styles.rollSectionHeading}>
+                      <strong className={styles.rollSectionLabel}>{section.label}</strong>
+                    </div>
+                  )}
+                  <div className={`${styles.messageBody} ${styles.rollStaticText}`}>
+                    {section.text}
                   </div>
-                  <p className={styles.rollStaticText}>{content}</p>
                 </div>
               </section>
             );
           }
           return (
-          <section className={styles.rollSection} data-outcome="neutral" key={index}>
+          <section
+            className={styles.rollSection}
+            data-outcome="neutral"
+            data-roll-kind={rollKind(section)}
+            key={index}
+          >
             <div className={styles.rollSectionBody}>
               <div className={styles.rollSectionHeading}>
-                <strong className={styles.rollBadge}>
-                  {section.label.toLocaleUpperCase()}
-                </strong>
-                {section.typeLabel ? <span>{section.typeLabel}</span> : null}
+                <strong className={styles.rollSectionLabel}>{section.label}</strong>
+                {distinctTypeLabel(section) ? <span>{distinctTypeLabel(section)}</span> : null}
               </div>
               <div className={styles.rollEquation}>
                 <span className={styles.rollBadge}>{section.notation}</span>

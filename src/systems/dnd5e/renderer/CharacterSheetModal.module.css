@@ -1110,6 +1110,12 @@
   max-height: 10.5rem;
   overflow: auto;
   align-content: start;
+  gap: var(--space-1);
+}
+
+.resourceList:not(:empty) {
+  padding: var(--space-1);
+  padding-bottom: 0;
 }
 
 .resourceRow {
@@ -1122,11 +1128,8 @@
   gap: var(--space-2);
   grid-template-columns: minmax(0, 1fr) auto;
   color: var(--color-text-muted);
-  background: transparent;
-}
-
-.resourceRow:not(:last-child) {
-  border-bottom: var(--border-width) solid var(--color-action-soft);
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border);
 }
 
 .resourceRow[data-reordering='true'] {
@@ -1207,6 +1210,7 @@
 
 .featureList:not(:empty) {
   padding: var(--space-1);
+  padding-bottom: 0;
 }
 
 .featureCardWrapper {

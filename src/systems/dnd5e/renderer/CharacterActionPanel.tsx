@@ -547,53 +547,34 @@ function StepEditor({
           <>
             {step.purpose === 'damage' ? (
               <div className={styles.stepGrid}>
-                <div className={styles.inlineControl}>
-                  <EditorField label="Damage type">
-                    <Dropdown
-                      accessibleLabel={`${stepLabel(step)} damage type`}
-                      disabled={!canEdit}
-                      label={step.damageType || 'None'}
-                    >
-                      <DropdownOption label="None" onSelect={() => {
-                        onChange({ ...step, damageType: null });
-                        onSave();
-                      }} />
-                      {DND5E_DAMAGE_TYPES.map((damageType) => (
-                        <DropdownOption
-                          active={damageType === step.damageType}
-                          key={damageType}
-                          label={damageType}
-                          onSelect={() => {
-                            onChange({ ...step, damageType });
-                            onSave();
-                          }}
-                        />
-                      ))}
-                      <DropdownOption label="Custom" onSelect={() => {
-                        onChange({ ...step, damageType: 'Custom' });
-                        onSave();
-                      }} />
-                    </Dropdown>
-                  </EditorField>
-                  {step.damageType && !DND5E_DAMAGE_TYPES.includes(
-                    step.damageType as (typeof DND5E_DAMAGE_TYPES)[number],
-                  ) ? (
-                    <EditorField label="Custom type">
-                      <TextInput
-                        aria-label={`${stepLabel(step)} custom damage type`}
-                        maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
-                        readOnly={!canEdit}
-                        value={step.damageType}
-                        onBlur={onSave}
-                        onChange={(event) => onChange({
-                          ...step,
-                          damageType: event.currentTarget.value,
-                        })}
+                <EditorField label="Damage type">
+                  <Dropdown
+                    accessibleLabel={`${stepLabel(step)} damage type`}
+                    disabled={!canEdit}
+                    label={step.damageType || 'None'}
+                  >
+                    <DropdownOption label="None" onSelect={() => {
+                      onChange({ ...step, damageType: null });
+                      onSave();
+                    }} />
+                    {DND5E_DAMAGE_TYPES.map((damageType) => (
+                      <DropdownOption
+                        active={damageType === step.damageType}
+                        key={damageType}
+                        label={damageType}
+                        onSelect={() => {
+                          onChange({ ...step, damageType });
+                          onSave();
+                        }}
                       />
-                    </EditorField>
-                  ) : null}
-                </div>
-                <EditorField className={styles.inlineControl} label="Critical source">
+                    ))}
+                    <DropdownOption label="Custom" onSelect={() => {
+                      onChange({ ...step, damageType: 'Custom' });
+                      onSave();
+                    }} />
+                  </Dropdown>
+                </EditorField>
+                <EditorField label="Critical source">
                   <Dropdown
                     accessibleLabel={`${stepLabel(step)} critical source`}
                     disabled={!canEdit}
@@ -617,6 +598,23 @@ function StepEditor({
                     ))}
                   </Dropdown>
                 </EditorField>
+                {step.damageType && !DND5E_DAMAGE_TYPES.includes(
+                  step.damageType as (typeof DND5E_DAMAGE_TYPES)[number],
+                ) ? (
+                  <EditorField label="Custom type">
+                    <TextInput
+                      aria-label={`${stepLabel(step)} custom damage type`}
+                      maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                      readOnly={!canEdit}
+                      value={step.damageType}
+                      onBlur={onSave}
+                      onChange={(event) => onChange({
+                        ...step,
+                        damageType: event.currentTarget.value,
+                      })}
+                    />
+                  </EditorField>
+                ) : null}
               </div>
             ) : null}
             <TermEditor allowDice onChange={updateTerms} terms={step.terms} />

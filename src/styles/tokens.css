@@ -60,6 +60,11 @@
   --color-overlay-active: rgb(37 37 37 / 98%);
   --color-status-online: oklch(79.2% 0.209 151.711);
   --color-status-offline: oklch(70.4% 0.191 22.216);
+  --color-roll-general: oklch(76% 0.12 250);
+  --color-roll-attack: oklch(78% 0.14 75);
+  --color-roll-damage: var(--color-status-offline);
+  --color-roll-healing: var(--color-status-online);
+  --color-roll-save: oklch(76% 0.13 300);
 
   --font-sans: "Inter", ui-sans-serif, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
