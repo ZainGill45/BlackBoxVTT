@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { AppFixture, availablePort } from './support/app';
 import {
   addPlayer,
+  chatLog,
   createAndOpenCampaign,
   joinCampaign,
   openTab,
@@ -76,6 +77,52 @@ test.describe('networked D&D character sheets', () => {
     await actionSurgeDescription.fill('Take one additional action.\nOnce per rest.');
     await actionSurgeDescription.blur();
 
+    await gmSheet.getByRole('button', { name: 'Add Item' }).click();
+    await expect(gmSheet.getByLabel('New Item name')).toBeVisible();
+    await expect(gmSheet.getByLabel('New Item quantity')).toHaveValue('1');
+    await gmSheet.getByRole('button', { name: 'Add Container' }).click();
+    await gmSheet.getByLabel('New Container name').fill('Backpack');
+    await gmSheet.getByLabel('Backpack name').blur();
+    await expect(gmSheet.getByLabel('Backpack capacity usage')).toHaveText('0');
+    await gmSheet.getByLabel('Backpack weight in pounds').fill('3');
+    await gmSheet.getByLabel('Backpack weight in pounds').blur();
+    await gmSheet.getByLabel('Backpack capacity in pounds').fill('30');
+    await gmSheet.getByLabel('Backpack capacity in pounds').blur();
+    const gmBackpack = gmSheet.getByRole('group', { name: 'Backpack contents' });
+    await gmBackpack.getByRole('button', { name: 'Add Item' }).click();
+    await gmBackpack.getByLabel('New Item name').fill('Rations');
+    await gmBackpack.getByLabel('Rations name').blur();
+    await gmBackpack.getByLabel('Rations quantity').fill('2');
+    await gmBackpack.getByLabel('Rations quantity').blur();
+    await gmBackpack.getByLabel('Rations weight in pounds').fill('2.25');
+    await gmBackpack.getByLabel('Rations weight in pounds').blur();
+    await gmBackpack.getByRole('button', { name: 'Add Item' }).click();
+    await gmBackpack.getByLabel('New Item name').fill('Torch');
+    await gmBackpack.getByLabel('Torch name').blur();
+    await gmBackpack.getByLabel('Torch name').click({ button: 'right' });
+    await expect(gm.window.getByRole('menu', { name: 'Torch actions' })).toBeVisible();
+    await gm.window.getByRole('menuitem', { name: 'Delete Item' }).click();
+    await gm.window.getByRole('menuitem', { name: 'Confirm deletion of Torch' }).click();
+    await expect(gmBackpack.getByLabel('Torch name')).toHaveCount(0);
+    await expect(gmSheet.getByLabel('Backpack name')).toBeVisible();
+    await gmSheet.getByLabel('Copper').fill('50');
+    await gmSheet.getByLabel('Copper').blur();
+    await gmSheet.getByRole('tab', { name: 'Settings' }).click();
+    await gmSheet.getByText('Use Variant Encumbrance', { exact: true }).click();
+    await gmSheet.getByRole('tab', { name: 'Home' }).click();
+    await expect(gmSheet.getByLabel('L Encumbered weight', { exact: true })).toHaveText('60');
+    await expect(gmSheet.getByLabel('H Encumbered weight', { exact: true }))
+      .toHaveText('120');
+    await expect(gmSheet.getByLabel('Capacity weight', { exact: true })).toHaveCount(0);
+    await expect(gmSheet.getByLabel('Carrying Capacity weight', { exact: true }))
+      .toHaveCount(0);
+    const gmInventoryPanel = gmSheet.getByRole('heading', { name: 'Inventory' }).locator('..');
+    expect(await gmInventoryPanel.evaluate((panel) => panel.scrollWidth <= panel.clientWidth))
+      .toBe(true);
+    await gmSheet.getByRole('button', { name: 'Collapse Backpack' }).click();
+    await expect(gmSheet.getByRole('button', { name: 'Expand Backpack' }))
+      .toHaveAttribute('aria-expanded', 'false');
+
     await gmSheet.getByRole('button', { name: 'Add Feature' }).click();
     await gmSheet.getByLabel('New Feature name').fill('Darkvision');
     await gmSheet.getByLabel('Darkvision name').blur();
@@ -96,6 +143,23 @@ test.describe('networked D&D character sheets', () => {
     await gm.window.getByRole('menuitem', { name: 'Confirm deletion of Delete Me' }).click();
     await expect(gmSheet.getByRole('button', { exact: true, name: 'Delete Me' }))
       .toHaveCount(0);
+    await gmSheet.getByRole('button', { name: 'Add Action' }).click();
+    let actionEditor = gm.window.getByRole('dialog', { name: 'New Action action editor' });
+    await actionEditor.getByRole('textbox', { name: 'Action Name' }).fill('Network Strike');
+    actionEditor = gm.window.getByRole('dialog', { name: 'Network Strike action editor' });
+    await actionEditor.getByRole('textbox', { name: 'Action Name' }).blur();
+    await actionEditor.getByRole('button', { name: 'Add Step' }).click();
+    await gm.window.mouse.click(2, 2);
+    await expect(actionEditor).not.toBeVisible();
+    const useNetworkStrike = gmSheet.getByRole('button', { name: 'Use Network Strike' });
+    await expect(useNetworkStrike).toBeEnabled();
+    await useNetworkStrike.click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Details' }).click();
+    const actionDetails = gm.window.getByRole('dialog', {
+      name: 'Network Strike action details',
+    });
+    await gm.window.mouse.click(2, 2);
+    await expect(actionDetails).not.toBeVisible();
     await gmSheet.press('Escape');
     await expect(gmSheet).not.toBeVisible();
 
@@ -121,7 +185,7 @@ test.describe('networked D&D character sheets', () => {
       exact: true,
       name: 'Open New Character',
     }).click();
-    const playerSheet = player.window.getByRole('dialog', {
+    let playerSheet = player.window.getByRole('dialog', {
       name: 'New Character character sheet',
     });
     await expect(playerSheet.getByLabel('Strength score')).toHaveValue('12');
@@ -134,6 +198,20 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Superiority Dice name')).toHaveAttribute('readonly', '');
     await expect(playerSheet.getByLabel('Superiority Dice current')).toHaveValue('-1');
     await expect(playerSheet.getByLabel('Superiority Dice maximum')).toHaveValue('4');
+    await expect(playerSheet.getByLabel('Copper')).toHaveValue('50');
+    await expect(playerSheet.getByLabel('Current weight')).toHaveText('8.5');
+    await expect(playerSheet.getByLabel('New Item name')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('New Item quantity')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('Backpack name')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('Backpack capacity usage')).toHaveText('4.5/30');
+    await expect(playerSheet.getByLabel('L Encumbered weight', { exact: true })).toHaveText('60');
+    await expect(playerSheet.getByLabel('H Encumbered weight', { exact: true }))
+      .toHaveText('120');
+    await expect(playerSheet.getByLabel('Capacity weight', { exact: true })).toHaveCount(0);
+    await expect(playerSheet.getByLabel('Carrying Capacity weight', { exact: true }))
+      .toHaveCount(0);
+    await expect(playerSheet.getByRole('button', { name: 'Expand Backpack' })).toBeDisabled();
+    await expect(playerSheet.getByLabel('Rations name')).toHaveCount(0);
     const playerFeatures = playerSheet.getByRole('list', { name: 'Character features' })
       .locator('button[aria-expanded]');
     await expect(playerFeatures).toHaveText(['Darkvision', 'Action Surge']);
@@ -148,6 +226,27 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Action Surge source type')).toHaveValue('Fighter');
     await expect(playerSheet.getByLabel('Action Surge description'))
       .toHaveValue('Take one additional action.\nOnce per rest.');
+    await expect(playerSheet.getByRole('button', { name: 'Use Network Strike' })).toBeEnabled();
+    await playerSheet.getByRole('button', { name: 'Use Network Strike' }).click();
+    await expect(playerSheet).toBeVisible();
+    await playerSheet.press('Escape');
+    await openTab(player.window, 'Chat');
+    await openTab(gm.window, 'Chat');
+    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Strike - Roll' }))
+      .toHaveCount(1);
+    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Strike - Roll' }))
+      .toHaveCount(1);
+    await openTab(player.window, 'Journal');
+    await openTab(gm.window, 'Journal');
+    await player.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    await gm.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    await player.window.getByRole('button', {
+      exact: true,
+      name: 'Open New Character',
+    }).click();
+    playerSheet = player.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
 
     await gmRow.click();
     gmSheet = gm.window.getByRole('dialog', {
@@ -159,6 +258,9 @@ test.describe('networked D&D character sheets', () => {
     await expect(gmSheet.getByRole('button', { exact: true, name: 'Action Surge' }))
       .toHaveAttribute('aria-expanded', 'false');
     await gmSheet.getByRole('button', { exact: true, name: 'Action Surge' }).click();
+    await gmSheet.getByRole('button', { name: 'Expand Backpack' }).click();
+    await gmSheet.getByLabel('Rations weight in pounds').fill('5.55');
+    await gmSheet.getByLabel('Rations weight in pounds').blur();
     await gmSheet.getByLabel('Strength score').fill('14');
     await gmSheet.getByLabel('Strength score').blur();
     await gmSheet.getByLabel('Superiority Dice current').fill('2');
@@ -173,7 +275,15 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Athletics bonus and passive score'))
       .toHaveText('+4 / 14');
     await expect(playerSheet.getByLabel('Superiority Dice current')).toHaveValue('2');
+    await expect(playerSheet.getByLabel('Backpack capacity usage')).toHaveText('11.1/30');
     await expect(playerSheet.getByLabel('Action Surge description'))
       .toHaveValue('Take one additional action.\nRecharges after a short rest.');
+    await expect(playerSheet.getByRole('button', { name: 'Collapse Backpack' })).toBeDisabled();
+    await expect(playerSheet.getByLabel('Rations name')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('Current weight')).toHaveText('15.1');
+
+    await gmSheet.getByRole('button', { name: 'Collapse Backpack' }).click();
+    await expect(playerSheet.getByRole('button', { name: 'Expand Backpack' })).toBeDisabled();
+    await expect(playerSheet.getByLabel('Rations name')).toHaveCount(0);
   });
 });

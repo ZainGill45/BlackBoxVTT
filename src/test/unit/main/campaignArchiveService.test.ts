@@ -198,7 +198,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 4 });
+    ))).toMatchObject({ formatVersion: 7 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -313,7 +313,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 7;
+    manifest.formatVersion = 8;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -366,6 +366,8 @@ describe('CampaignArchiveService', () => {
           warnings: [
             'Added empty Resources collections to 1 D&D character imported from archive format 1.',
             'Added empty Features collections to 1 D&D character imported from archive format 1.',
+            'Added an empty Inventory to 1 D&D character imported from archive format 1.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 1.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -385,6 +387,11 @@ describe('CampaignArchiveService', () => {
       identity: { className: 'Fighter', level: 5 },
       importantStats: { armorClass: '17' },
       features: [],
+      inventory: {
+        currency: { copper: 0, gold: 0, platinum: 0, silver: 0 },
+        entries: [],
+        variantEncumbrance: false,
+      },
       resources: [],
     });
     importedDatabase.close();
@@ -416,9 +423,9 @@ describe('CampaignArchiveService', () => {
         },
         report: {
           sourceRelease: '1.0.0-format-3-fixture',
-          /* Nothing the user authored moved, so the only thing worth saying is
-             what the import could not carry over. */
           warnings: [
+            'Added an empty Inventory to 1 D&D character imported from archive format 3.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 3.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -440,6 +447,13 @@ describe('CampaignArchiveService', () => {
       name: 'Archive Hero',
       permission_revision: 0,
     });
+    const characterData = importedDatabase.connection.prepare(
+      `SELECT data_json FROM journal_entries
+       WHERE type_id = 'dnd5e.character' AND name = 'Archive Hero'`,
+    ).get() as { data_json: string };
+    expect(JSON.parse(characterData.data_json).inventory).toEqual(
+      createDefaultDnd5eCharacterData().inventory,
+    );
     for (const [table, column] of [
       ['journal_entries', 'permission_revision'],
       ['assets', 'default_access'],
@@ -499,6 +513,8 @@ describe('CampaignArchiveService', () => {
           sourceRelease: '1.0.0-format-2-fixture',
           warnings: [
             'Added empty Features collections to 1 D&D character imported from archive format 2.',
+            'Added an empty Inventory to 1 D&D character imported from archive format 2.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 2.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -514,6 +530,7 @@ describe('CampaignArchiveService', () => {
     ).get() as { data_json: string } | undefined;
     expect(JSON.parse(row!.data_json)).toMatchObject({
       features: [],
+      inventory: createDefaultDnd5eCharacterData().inventory,
       resources: [{
         current: 2,
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -522,6 +539,121 @@ describe('CampaignArchiveService', () => {
       }],
     });
     importedDatabase.close();
+  });
+
+  it('directly converts the untouched format-4 Character fixture into format 7', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-character-format-4.blackbox-campaign',
+    ));
+
+    const result = await service.importCampaign();
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        campaign: { name: 'Format Three Character' },
+        report: {
+          sourceRelease: '1.0.0-format-4-fixture',
+          warnings: [
+            'Added an empty Inventory to 1 D&D character imported from archive format 4.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 4.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character' AND name = 'Archive Hero'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(row.data_json).inventory).toEqual(
+        createDefaultDnd5eCharacterData().inventory,
+      );
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly converts the untouched format-5 Character fixture into format 7', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-character-format-5.blackbox-campaign',
+    ));
+
+    const result = await service.importCampaign();
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-5-fixture',
+          warnings: [
+            'Set quantity to 1 for 2 Inventory items across 1 D&D character imported from archive format 5.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 5.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character' AND name = 'Archive Hero'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(row.data_json).inventory).toMatchObject({
+        currency: { copper: 25, gold: 12, platinum: 1, silver: 25 },
+        entries: [
+          { kind: 'item', quantity: 1, weight: 2 },
+          {
+            contents: [{ kind: 'item', quantity: 1, weight: 1 }],
+            kind: 'container',
+            weight: 3,
+          },
+        ],
+      });
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly converts the untouched format-6 Character fixture into format 7', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-character-format-6.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-6-fixture',
+          warnings: [
+            'Added an empty Actions collection to 1 D&D character imported from archive format 6.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character' AND name = 'Archive Hero'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(row.data_json).actions).toEqual([]);
+    } finally {
+      importedDatabase.close();
+    }
   });
 
   it('treats canceled dialogs as successful no-ops', async () => {
@@ -663,7 +795,11 @@ describe('CampaignArchiveService', () => {
         originalTrashed: true,
         report: {
           detectedFormat: 3,
-          warnings: [salvagedIdentityWarning],
+          warnings: [
+            'Added an empty Inventory to 1 D&D character imported from archive format 3.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 3.',
+            salvagedIdentityWarning,
+          ],
         },
       },
     });
@@ -682,8 +818,88 @@ describe('CampaignArchiveService', () => {
           )
           .get(),
       ).toEqual({ name: 'Archive Hero' });
+      const row = salvagedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(row.data_json).inventory).toEqual(
+        createDefaultDnd5eCharacterData().inventory,
+      );
     } finally {
       salvagedDatabase.close();
+    }
+  });
+
+  it('salvages format-5 item quantities into the current Character shape', async () => {
+    const { rootDirectory, service } = await fixture();
+    await layUnreadableCampaign(
+      rootDirectory,
+      'dnd5e-character-format-5.blackbox-campaign',
+    );
+
+    await expect(
+      service.salvageCampaign({ id: unreadableId }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: {
+        originalTrashed: true,
+        report: {
+          detectedFormat: 5,
+          warnings: [
+            'Set quantity to 1 for 2 Inventory items across 1 D&D character imported from archive format 5.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 5.',
+            salvagedIdentityWarning,
+          ],
+        },
+      },
+    });
+
+    const salvaged = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = salvaged.connection.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(row.data_json).inventory.entries).toMatchObject([
+        { kind: 'item', quantity: 1 },
+        { contents: [{ kind: 'item', quantity: 1 }], kind: 'container' },
+      ]);
+    } finally {
+      salvaged.close();
+    }
+  });
+
+  it('salvages exact format-6 Characters by supplying empty Actions', async () => {
+    const { rootDirectory, service } = await fixture();
+    await layUnreadableCampaign(
+      rootDirectory,
+      'dnd5e-character-format-6.blackbox-campaign',
+    );
+
+    await expect(
+      service.salvageCampaign({ id: unreadableId }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: {
+        originalTrashed: true,
+        report: {
+          detectedFormat: 6,
+          warnings: [
+            'Added an empty Actions collection to 1 D&D character imported from archive format 6.',
+            salvagedIdentityWarning,
+          ],
+        },
+      },
+    });
+
+    const salvaged = CampaignDatabase.open(path.join(rootDirectory, importedId));
+    try {
+      const row = salvaged.connection.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(row.data_json).actions).toEqual([]);
+    } finally {
+      salvaged.close();
     }
   });
 
@@ -713,7 +929,11 @@ describe('CampaignArchiveService', () => {
         originalTrashed: true,
         report: {
           detectedFormat: 4,
-          warnings: [salvagedIdentityWarning],
+          warnings: [
+            'Added an empty Inventory to 1 D&D character imported from archive format 4.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 4.',
+            salvagedIdentityWarning,
+          ],
         },
       },
     });
@@ -770,6 +990,8 @@ describe('CampaignArchiveService', () => {
         originalTrashed: false,
         report: {
           warnings: [
+            'Added an empty Inventory to 1 D&D character imported from archive format 3.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 3.',
             salvagedIdentityWarning,
             'The unreadable campaign could not be moved to the trash; ' +
               'delete it from the campaign list.',
@@ -801,6 +1023,8 @@ describe('CampaignArchiveService', () => {
           warnings: [
             'Added empty Resources collections to 1 D&D character imported from archive format 1.',
             'Added empty Features collections to 1 D&D character imported from archive format 1.',
+            'Added an empty Inventory to 1 D&D character imported from archive format 1.',
+            'Added an empty Actions collection to 1 D&D character imported from archive format 1.',
             salvagedIdentityWarning,
           ],
         },

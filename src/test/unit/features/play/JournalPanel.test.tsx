@@ -24,6 +24,7 @@ import {
   emptyRichTextDocument,
 } from '../../../../shared/journal';
 import { createFakeAssetApi, makeImageAsset } from '../../../support/scenes';
+import { createMockNetworkApi } from '../../../support/networkApi';
 
 const campaignId = '11111111-1111-4111-8111-111111111111';
 const page: JournalPage = {
@@ -236,7 +237,9 @@ describe('JournalPanel', () => {
     await user.click(within(characterSheet).getByRole('tab', { name: 'Spells' }));
     expect(within(characterSheet).getByRole('tabpanel')).toBeEmptyDOMElement();
     await user.click(within(characterSheet).getByRole('tab', { name: 'Settings' }));
-    expect(within(characterSheet).getByRole('tabpanel')).toBeEmptyDOMElement();
+    expect(within(characterSheet).getByRole('checkbox', {
+      name: 'Use Variant Encumbrance',
+    })).not.toBeChecked();
     expect(createEntry).toHaveBeenCalledWith({ campaignId, typeId: DND5E_CHARACTER_ENTRY_TYPE_ID });
 
     fireEvent(
@@ -764,6 +767,492 @@ describe('JournalPanel', () => {
       .toHaveAttribute('aria-expanded', 'false');
   }, 15_000);
 
+  it('autosaves Character inventory, container rules, currency, warnings, and settings', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    expect(within(sheet).getByLabelText('Current weight')).toHaveTextContent('0');
+    expect(within(sheet).getByLabelText('Carrying Capacity weight')).toHaveTextContent('150');
+
+    const copper = within(sheet).getByRole('textbox', { name: 'Copper' });
+    await user.clear(copper);
+    await user.type(copper, '50');
+    await user.tab();
+    await waitFor(() => expect(server.data.inventory.currency.copper).toBe(50));
+    expect(within(sheet).getByLabelText('Current weight')).toHaveTextContent('1');
+
+    await user.click(within(sheet).getByRole('button', { name: 'Add Container' }));
+    let containerName = within(sheet).getByRole('textbox', { name: 'New Container name' });
+    expect(containerName).toHaveFocus();
+    expect((containerName as HTMLInputElement).selectionStart).toBe(0);
+    expect((containerName as HTMLInputElement).selectionEnd).toBe('New Container'.length);
+    await user.clear(containerName);
+    await user.type(containerName, 'Backpack');
+    await user.tab();
+    await waitFor(() => expect(server.data.inventory.entries[0]?.name).toBe('Backpack'));
+
+    const containerRow = within(sheet).getByRole('textbox', { name: 'Backpack name' })
+      .closest<HTMLElement>('[data-inventory-entry-id]')!;
+    const containerWeight = within(containerRow).getByRole('textbox', {
+      name: 'Backpack weight in pounds',
+    });
+    await user.clear(containerWeight);
+    await user.type(containerWeight, '3');
+    await user.tab();
+    const capacity = within(containerRow).getByRole('textbox', {
+      name: 'Backpack capacity in pounds',
+    });
+    await user.type(capacity, '-1');
+    await user.tab();
+    expect(capacity).toHaveValue('');
+    await user.type(capacity, '5');
+    await user.tab();
+    await waitFor(() => expect(server.data.inventory.entries[0]).toMatchObject({
+      capacity: 5,
+      weight: 3,
+    }));
+
+    await user.click(within(containerRow).getByRole('button', { name: 'Add Item' }));
+    const itemName = within(containerRow).getByRole('textbox', { name: 'New Item name' });
+    expect(itemName).toHaveAttribute('title', 'Name');
+    await user.clear(itemName);
+    await user.type(itemName, 'Rations');
+    await user.tab();
+    const itemWeight = within(containerRow).getByRole('textbox', {
+      name: 'Rations weight in pounds',
+    });
+    expect(itemWeight).toHaveAttribute('title', 'Weight');
+    await user.clear(itemWeight);
+    await user.type(itemWeight, '6.555');
+    await user.tab();
+    expect(itemWeight).toHaveValue('0');
+    await user.clear(itemWeight);
+    await user.type(itemWeight, '6.5');
+    await user.tab();
+    const itemQuantity = within(containerRow).getByRole('textbox', {
+      name: 'Rations quantity',
+    });
+    expect(itemQuantity).toHaveAttribute('title', 'Quantity');
+    expect(itemQuantity).toHaveValue('1');
+    await user.clear(itemQuantity);
+    await user.type(itemQuantity, '1.5');
+    await user.tab();
+    expect(itemQuantity).toHaveValue('1');
+    await user.clear(itemQuantity);
+    await user.type(itemQuantity, '2');
+    await user.tab();
+    await waitFor(() => expect(server.data.inventory.entries[0]).toMatchObject({
+      contents: [{ equipped: true, name: 'Rations', quantity: 2, weight: 6.5 }],
+    }));
+    expect(within(sheet).getByLabelText('Backpack capacity usage')).toHaveTextContent('13/5');
+    const warningPanel = within(sheet).getByRole('alert', {
+      name: 'Inventory warnings',
+    });
+    expect(warningPanel).toHaveTextContent('Backpack is over capacity.');
+    const weightSummary = within(sheet).getByRole('group', {
+      name: 'Inventory weight summary',
+    });
+    expect(warningPanel.compareDocumentPosition(weightSummary) &
+      Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(sheet).getByLabelText('Current weight')).toHaveTextContent('17');
+
+    await user.click(within(containerRow).getByRole('button', {
+      name: 'Backpack contents weight',
+    }));
+    await user.click(within(sheet).getByRole('button', { name: 'Weightless' }));
+    await waitFor(() => expect(server.data.inventory.entries[0]).toMatchObject({
+      contentsWeight: 'weightless',
+    }));
+    expect(within(sheet).getByLabelText('Current weight')).toHaveTextContent('4');
+    expect(within(sheet).getByLabelText('Backpack capacity usage')).toHaveTextContent('13/5');
+
+    await user.click(within(containerRow).getByRole('button', { name: 'Add Item' }));
+    const secondItemName = within(containerRow).getByRole('textbox', {
+      name: 'New Item name',
+    });
+    await user.clear(secondItemName);
+    await user.type(secondItemName, 'Torch');
+    await user.tab();
+    await waitFor(() => expect(server.data.inventory.entries[0]).toMatchObject({
+      contents: [{ name: 'Rations' }, { name: 'Torch' }],
+    }));
+    fireEvent.contextMenu(secondItemName);
+    expect(screen.getByRole('menu', { name: 'Torch actions' })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Item' }));
+    await user.click(screen.getByRole('menuitem', {
+      name: 'Confirm deletion of Torch',
+    }));
+    await waitFor(() => expect(server.data.inventory.entries).toMatchObject([{
+      contents: [{ name: 'Rations' }],
+      name: 'Backpack',
+    }]));
+
+    await user.click(within(containerRow).getByRole('button', { name: 'Backpack equipped' }));
+    await waitFor(() => expect(server.data.inventory.entries[0]?.equipped).toBe(false));
+    expect(within(sheet).getByLabelText('Current weight')).toHaveTextContent('1');
+
+    await user.click(within(containerRow).getByRole('button', { name: 'Collapse Backpack' }));
+    await waitFor(() => expect(server.data.inventory.entries[0]).toMatchObject({
+      collapsed: true,
+    }));
+    expect(within(sheet).queryByRole('textbox', { name: 'Rations name' }))
+      .not.toBeInTheDocument();
+
+    await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
+    const variant = within(sheet).getByRole('checkbox', { name: 'Use Variant Encumbrance' });
+    await user.click(variant);
+    await waitFor(() => expect(server.data.inventory.variantEncumbrance).toBe(true));
+    await user.click(within(sheet).getByRole('tab', { name: 'Home' }));
+    expect(within(sheet).getByLabelText('L Encumbered weight')).toHaveTextContent('50');
+    expect(within(sheet).getByLabelText('H Encumbered weight')).toHaveTextContent('100');
+    expect(within(sheet).queryByLabelText('Capacity weight')).not.toBeInTheDocument();
+    expect(within(sheet).queryByLabelText('Carrying Capacity weight')).not.toBeInTheDocument();
+
+    containerName = within(sheet).getByRole('textbox', { name: 'Backpack name' });
+    fireEvent.contextMenu(containerName);
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Container' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Confirm deletion of Backpack' }));
+    await waitFor(() => expect(server.data.inventory.entries).toEqual([]));
+    expect(within(sheet).queryByRole('textbox', { name: 'Backpack name' }))
+      .not.toBeInTheDocument();
+  }, 20_000);
+
+  it('previews and places an Inventory subtree inside a temporarily expanded container', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const itemId = '11111111-1111-4111-8111-111111111111';
+    const containerId = '22222222-2222-4222-8222-222222222222';
+    server.data.inventory.entries = [
+      {
+        equipped: false,
+        id: itemId,
+        kind: 'item',
+        name: 'Bedroll',
+        quantity: 1,
+        weight: 7,
+      },
+      {
+        capacity: null,
+        collapsed: true,
+        contents: [],
+        contentsWeight: 'normal',
+        equipped: true,
+        id: containerId,
+        kind: 'container',
+        name: 'Satchel',
+        weight: 1,
+      },
+    ];
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({ ok: true, value: { entries: [server], revision: 0 } }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const bedroll = within(sheet).getByRole('textbox', { name: 'Bedroll name' });
+    const satchel = within(sheet).getByRole('textbox', { name: 'Satchel name' });
+    fireEvent.contextMenu(bedroll);
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Item Freely' }));
+    expect(within(sheet).getByText('Move Bedroll')).toBeVisible();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    const rootList = within(sheet).getByRole('list', { name: 'Character inventory entries' });
+    expect(within(rootList).getAllByRole('textbox', { name: /name$/u })
+      .map((input) => input.getAttribute('aria-label')))
+      .toEqual(['Satchel name', 'Bedroll name']);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(within(rootList).getAllByRole('textbox', { name: /name$/u })
+      .map((input) => input.getAttribute('aria-label')))
+      .toEqual(['Bedroll name', 'Satchel name']);
+    expect(within(sheet).queryByText('Move Bedroll')).not.toBeInTheDocument();
+
+    fireEvent.contextMenu(within(sheet).getByRole('textbox', { name: 'Bedroll name' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Item Freely' }));
+
+    fireEvent(satchel, new MouseEvent('pointermove', {
+      bubbles: true,
+      clientX: 12,
+      clientY: 12,
+    }));
+    await waitFor(() => expect(within(sheet).getByRole('button', {
+      name: 'Collapse Satchel',
+    })).toBeVisible());
+    const nestedList = sheet.querySelector<HTMLElement>(
+      `[data-inventory-list-parent="${containerId}"]`,
+    )!;
+    fireEvent(nestedList, new MouseEvent('pointermove', {
+      bubbles: true,
+      clientX: 14,
+      clientY: 14,
+    }));
+    await waitFor(() => expect(within(nestedList).getByRole('textbox', {
+      name: 'Bedroll name',
+    })).toBeVisible());
+    expect(server.data.inventory.entries.map(({ id }) => id)).toEqual([itemId, containerId]);
+    fireEvent(nestedList, new MouseEvent('pointerdown', {
+      bubbles: true,
+      button: 0,
+      clientX: 14,
+      clientY: 14,
+    }));
+
+    await waitFor(() => expect(server.data.inventory.entries).toMatchObject([{
+      collapsed: true,
+      contents: [{ equipped: true, id: itemId, name: 'Bedroll' }],
+      id: containerId,
+    }]));
+    expect(within(sheet).getByRole('button', { name: 'Expand Satchel' }))
+      .toHaveAttribute('aria-expanded', 'false');
+    expect(within(sheet).queryByRole('textbox', { name: 'Bedroll name' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('autosaves guided Character Actions without a modal confirmation step', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        networkApi={createMockNetworkApi()}
+        role="gm"
+        system={{
+          id: 'dnd5e',
+          settings: { defaultRulesVersion: '5.5e' },
+        }}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Add Action' }));
+    const editor = await screen.findByRole('dialog', { name: 'New Action action editor' });
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actions: [expect.objectContaining({ name: 'New Action', steps: [] })],
+        }),
+        expectedRevision: 0,
+      }),
+    ));
+
+    await user.click(within(editor).getByRole('button', { name: 'Add Step' }));
+    await waitFor(() => expect(server.data.actions[0]?.steps).toEqual([
+      expect.objectContaining({
+        label: 'Roll',
+        purpose: 'roll',
+        terms: [{ count: 1, kind: 'dice', sides: 20, tiers: [] }],
+      }),
+    ]));
+    expect(within(editor).getByText('1d20')).toBeInTheDocument();
+
+    const actionName = within(editor).getByRole('textbox', { name: 'Action Name' });
+    await user.clear(actionName);
+    await user.type(actionName, 'Longsword');
+    await user.tab();
+    await waitFor(() => expect(server.data.actions[0]?.name).toBe('Longsword'));
+    fireEvent.mouseDown(editor);
+    fireEvent.click(editor);
+    expect(within(sheet).getByRole('button', { name: 'Use Longsword' })).toBeEnabled();
+  });
+
+  it('rebases Inventory edits by id without replacing remotely added entries', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const localId = '11111111-1111-4111-8111-111111111111';
+    server.data.inventory.entries = [{
+      equipped: true,
+      id: localId,
+      kind: 'item',
+      name: 'Local Item',
+      quantity: 1,
+      weight: 1,
+    }];
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      if (updateEntryData.mock.calls.length === 1) {
+        server = {
+          ...server,
+          data: {
+            ...server.data,
+            inventory: {
+              ...server.data.inventory,
+              entries: [
+                {
+                  equipped: true,
+                  id: '22222222-2222-4222-8222-222222222222',
+                  kind: 'item',
+                  name: 'Remote Item',
+                  quantity: 1,
+                  weight: 2,
+                },
+                { ...server.data.inventory.entries[0], weight: 7 },
+              ],
+            },
+          },
+          revision: 1,
+        };
+        return {
+          error: { code: 'conflict', entryId: server.id, message: 'Changed remotely.' },
+          ok: false,
+        };
+      }
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({ ok: true, value: { entries: [server], revision: 0 } }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const name = within(sheet).getByRole('textbox', { name: 'Local Item name' });
+    await user.clear(name);
+    await user.type(name, 'Rebased Item');
+    await user.tab();
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(2));
+    expect(server.data.inventory.entries).toMatchObject([
+      { name: 'Remote Item', weight: 2 },
+      { id: localId, name: 'Rebased Item', weight: 7 },
+    ]);
+  });
+
+  it('lets remote Inventory deletion win over a pending local edit', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.inventory.entries = [{
+      equipped: true,
+      id: '11111111-1111-4111-8111-111111111111',
+      kind: 'item',
+      name: 'Vanishing Item',
+      quantity: 1,
+      weight: 1,
+    }];
+    const updateEntryData = vi.fn(async (): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: {
+          ...server.data,
+          inventory: { ...server.data.inventory, entries: [] },
+        },
+        revision: 1,
+      };
+      return {
+        error: { code: 'conflict', entryId: server.id, message: 'Deleted remotely.' },
+        ok: false,
+      };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({ ok: true, value: { entries: [server], revision: 0 } }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const name = within(sheet).getByRole('textbox', { name: 'Vanishing Item name' });
+    await user.type(name, ' local');
+    await user.tab();
+
+    const error = await screen.findByRole('dialog', { name: 'Character sheet error' });
+    expect(within(error).getByRole('alert')).toHaveTextContent(
+      'An Inventory entry was deleted remotely, so its pending local edit was discarded.',
+    );
+    expect(within(sheet).queryByRole('textbox', { name: /Vanishing Item/u }))
+      .not.toBeInTheDocument();
+    expect(updateEntryData).toHaveBeenCalledTimes(1);
+  });
+
   it('merges dirty Character fields over a newer server revision and retries safely', async () => {
     const user = userEvent.setup();
     let server = structuredClone(character);
@@ -1168,6 +1657,31 @@ describe('JournalPanel', () => {
           sourceType: 'Dwarf',
           type: 'trait' as const,
         }],
+        inventory: {
+          ...structuredClone(character.data.inventory),
+          currency: {
+            ...structuredClone(character.data.inventory.currency),
+            copper: 50,
+          },
+          entries: [{
+            capacity: 30,
+            collapsed: true,
+            contents: [{
+              equipped: true,
+              id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              kind: 'item' as const,
+              name: 'Hidden Rations',
+              quantity: 1,
+              weight: 2,
+            }],
+            contentsWeight: 'normal' as const,
+            equipped: true,
+            id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            kind: 'container' as const,
+            name: 'Locked Pack',
+            weight: 3,
+          }],
+        },
         resources: [{
           current: -1,
           id: '99999999-9999-4999-8999-999999999999',
@@ -1227,13 +1741,30 @@ describe('JournalPanel', () => {
     for (const control of skillTrainingControls) expect(control).toBeDisabled();
     for (const name of [
       'Add Custom Skill',
-      'Add Action',
-      'Add Inventory Item',
+      'Add Item',
+      'Add Container',
       'Add Resource',
       'Add Feature',
     ]) {
       expect(within(sheet).getByRole('button', { name })).toBeDisabled();
     }
+    expect(within(sheet).queryByRole('button', { name: 'Add Action' }))
+      .not.toBeInTheDocument();
+    expect(within(sheet).getByRole('textbox', { name: 'Copper' }))
+      .toHaveAttribute('readonly');
+    const inventoryName = within(sheet).getByRole('textbox', { name: 'Locked Pack name' });
+    expect(inventoryName).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Locked Pack weight in pounds' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('button', { name: 'Locked Pack equipped' })).toBeDisabled();
+    const expandPack = within(sheet).getByRole('button', { name: 'Expand Locked Pack' });
+    expect(expandPack).toBeDisabled();
+    await user.click(expandPack);
+    expect(within(sheet).queryByRole('textbox', { name: 'Hidden Rations name' }))
+      .not.toBeInTheDocument();
+    fireEvent.contextMenu(inventoryName);
+    expect(screen.queryByRole('menu', { name: 'Locked Pack actions' }))
+      .not.toBeInTheDocument();
     const resourceName = within(sheet).getByRole('textbox', { name: 'Luck name' });
     expect(resourceName).toHaveAttribute('readonly');
     expect(within(sheet).getByRole('textbox', { name: 'Luck current' }))
@@ -1260,6 +1791,9 @@ describe('JournalPanel', () => {
       .not.toBeInTheDocument();
     expect(within(sheet).getByLabelText('Acrobatics bonus and passive score'))
       .toHaveTextContent('0 / 10');
+    await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
+    expect(within(sheet).getByRole('checkbox', { name: 'Use Variant Encumbrance' }))
+      .toBeDisabled();
     expect(renameEntry).not.toHaveBeenCalled();
     expect(updateEntryData).not.toHaveBeenCalled();
   });

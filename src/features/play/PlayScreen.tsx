@@ -534,6 +534,7 @@ export function PlayScreen({
                   assetApi={assetApi}
                   campaignId={session.campaignId}
                   journalApi={journalApi}
+                  networkApi={networkApi}
                   role={session.role}
                   system={session.system}
                 />

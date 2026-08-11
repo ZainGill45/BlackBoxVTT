@@ -1,6 +1,7 @@
 import { createElement } from 'react';
 import type { CampaignSystemState } from '../shared/gameSystems';
 import type { JournalApi, SystemJournalEntry } from '../shared/journal';
+import type { NetworkApi } from '../shared/network';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from './dnd5e/definition';
 import { CharacterSheetModal } from './dnd5e/renderer/CharacterSheetModal';
 
@@ -8,6 +9,7 @@ export interface SystemJournalEntryRendererProps {
   campaignId: string;
   entry: SystemJournalEntry;
   journalApi: JournalApi;
+  networkApi?: NetworkApi;
   onDismiss: () => void;
   onUpdated: (entry: SystemJournalEntry) => void;
   system: CampaignSystemState;

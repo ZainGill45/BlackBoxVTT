@@ -156,6 +156,23 @@
   border-left: 0.1875rem solid var(--color-text);
 }
 
+.rollSection[data-static="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.rollStaticText {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.rollCritical {
+  margin-bottom: var(--space-1);
+  color: var(--color-status-online);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+}
+
 .rollSection[data-outcome="success"] {
   --roll-outcome: var(--color-status-online);
 }

@@ -1,7 +1,14 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import type { JsonValue } from '../shared/gameSystems';
 import { parseCampaignSystemState } from '../systems/catalog';
+import {
+  createDefaultDnd5eCharacterInventory,
+  isDnd5eCharacterData,
+} from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
+import { addEmptyDnd5eCharacterActionsToValue } from './campaignArchiveCharacterActions';
+import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFormat5';
 
 /**
  * Reading a campaign database that this release cannot open.
@@ -15,16 +22,19 @@ import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
  * Game Master than being turned away.
  */
 
-export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4;
+export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type CampaignSalvageConversion =
   | 1
   | 2
   | 3
+  | 4
+  | 5
+  | 6
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
-  | { ok: true; version: 1 | 2 | 3 }
+  | { ok: true; version: 1 | 2 | 3 | 4 | 5 | 6 }
   | { conversion: 'permission-defaults'; ok: true; version: 4 }
   | { ok: false; reason: string };
 
@@ -51,6 +61,10 @@ const HISTORICAL_SCHEMA_FINGERPRINT =
  */
 const INTERMEDIATE_PERMISSION_SCHEMA_FINGERPRINT =
   'bd4db2dae28afa69a369503018a8c043cb8a40c8d2da5bb5d1552228157da56e';
+
+/** Canonical database schema used from format 4 onward; Character JSON parts them. */
+const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
+  'f1e073d9f3f5aadf2a640ff56f1cef247d9c13d31601c6c4200e76162b45637f';
 
 function schemaFingerprint(connection: DatabaseSync): string {
   const rows = connection
@@ -185,6 +199,72 @@ function detectCharacterEra(
   }
 }
 
+function detectFormat4To6CharacterEra(
+  connection: DatabaseSync,
+): CampaignFormatDetection {
+  const rows = connection.prepare(
+    `SELECT name, data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_CHARACTER_ENTRY_TYPE_ID) as unknown as Array<{
+    data_json: string;
+    name: string;
+  }>;
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      reason: 'This campaign has no Character data that identifies format 4, 5, or 6.',
+    };
+  }
+  const shapes = new Set<'4' | '5' | '6'>();
+  for (const row of rows) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data_json);
+    } catch {
+      return {
+        ok: false,
+        reason: `This campaign’s character “${row.name}” cannot be read.`,
+      };
+    }
+    const format4 = !!parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      !Object.hasOwn(parsed, 'inventory') &&
+      isDnd5eCharacterData({
+        ...parsed,
+        actions: [],
+        inventory: createDefaultDnd5eCharacterInventory(),
+      } as JsonValue);
+    if (format4) {
+      shapes.add('4');
+      continue;
+    }
+    const format5 = convertDnd5eCharacterDataFromArchiveFormat5(parsed);
+    if (format5 && format5.itemCount > 0) {
+      shapes.add('5');
+      continue;
+    }
+    const format6 = addEmptyDnd5eCharacterActionsToValue(parsed);
+    if (format6) {
+      shapes.add('6');
+      continue;
+    }
+    return {
+      ok: false,
+      reason:
+        'This campaign’s character data does not exactly match archive format 4, 5, or 6.',
+    };
+  }
+  if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
+  if (shapes.has('5') && shapes.size === 1) return { ok: true, version: 5 };
+  if (shapes.has('6') && shapes.size === 1) return { ok: true, version: 6 };
+  return {
+    ok: false,
+    reason: 'This campaign’s characters mix archive formats 4, 5, and 6.',
+  };
+}
+
 /** Which superseded release wrote this campaign, if any release did. */
 export function detectCampaignFormatVersion(
   connection: DatabaseSync,
@@ -199,6 +279,9 @@ export function detectCampaignFormatVersion(
       ok: true,
       version: 4,
     };
+  }
+  if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
+    return detectFormat4To6CharacterEra(connection);
   }
   const schema = readTableColumns(connection);
   return {

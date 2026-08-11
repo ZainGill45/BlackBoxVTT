@@ -6,14 +6,25 @@ import {
   type ChatRollDefinition,
   type ChatRollDieNode,
   type ChatRollExpressionNode,
+  type ChatRollOrdinarySectionDefinition,
+  type ChatRollOrdinarySectionResult,
 } from '../../../shared/chatRoll';
 
-function definition(notation: string): ChatRollDefinition {
+function definition(notation: string): ChatRollDefinition & {
+  sections: ChatRollOrdinarySectionDefinition[];
+} {
   return {
     category: 'Roll',
     sections: [{ label: notation, modifiers: [], notation, typeLabel: null }],
     title: null,
   };
+}
+
+function ordinaryResult(
+  section: ReturnType<typeof rollChatCard>['sections'][number],
+): ChatRollOrdinarySectionResult {
+  if ('kind' in section) throw new Error('Expected an ordinary roll section.');
+  return section;
 }
 
 function die(
@@ -46,7 +57,7 @@ describe('authoritative dice normalization', () => {
     const card = rollChatCard(input, NumberGenerator.engines.max);
 
     expect(card.sections[0]).toMatchObject({ baseTotal: 20, total: 22 });
-    expect(card.sections[0].expression[0]).toMatchObject({
+    expect(ordinaryResult(card.sections[0]).expression[0]).toMatchObject({
       dieKind: 'standard',
       kind: 'die',
       results: [{ initialValue: 20, useInTotal: true }],
@@ -68,10 +79,10 @@ describe('authoritative dice normalization', () => {
     ['critical', '1d6cs=6cf=1', 'standard'],
   ])('normalizes %s notation', (_name, notation, dieKind) => {
     const card = rollChatCard(definition(notation), NumberGenerator.engines.max);
-    expect(card.sections[0].total).toBeTypeOf('number');
-    expect(card.sections[0].expression.length).toBeGreaterThan(0);
+    expect(ordinaryResult(card.sections[0]).total).toBeTypeOf('number');
+    expect(ordinaryResult(card.sections[0]).expression.length).toBeGreaterThan(0);
     if (dieKind) {
-      expect(JSON.stringify(card.sections[0].expression)).toContain(
+      expect(JSON.stringify(ordinaryResult(card.sections[0]).expression)).toContain(
         `"dieKind":"${dieKind}"`,
       );
     }

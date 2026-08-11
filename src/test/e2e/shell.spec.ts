@@ -442,7 +442,8 @@ test.describe('local Journal durability', () => {
     ]);
     const panelAddButtons = [
       'Add Action',
-      'Add Inventory Item',
+      'Add Item',
+      'Add Container',
       'Add Resource',
       'Add Feature',
     ].map((name) => sheet.getByRole('button', { name }));

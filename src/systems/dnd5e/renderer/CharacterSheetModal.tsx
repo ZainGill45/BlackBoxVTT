@@ -26,11 +26,13 @@ import {
   useState,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { Checkbox } from '../../../components/ui/Checkbox';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs, type TabOption } from '../../../components/ui/Tabs';
 import type { CampaignSystemState } from '../../../shared/gameSystems';
+import type { NetworkApi } from '../../../shared/network';
 import {
   JOURNAL_AUTOSAVE_DELAY_MS,
   MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
@@ -40,7 +42,9 @@ import {
   type SystemJournalEntry,
 } from '../../../shared/journal';
 import {
+  applyDnd5eCharacterActionMutations,
   applyDnd5eCharacterFeatureMutations,
+  applyDnd5eCharacterInventoryMutations,
   applyDnd5eCharacterResourceMutations,
   calculateDnd5eOffsetForTotal,
   createDefaultDnd5eCharacterData,
@@ -55,8 +59,10 @@ import {
   nextDnd5eSkillTraining,
   parseDnd5eSafeInteger,
   type Dnd5eAbilityId,
+  type Dnd5eCharacterActionMutation,
   type Dnd5eCharacterData,
   type Dnd5eCharacterFeatureMutation,
+  type Dnd5eCharacterInventoryMutation,
   type Dnd5eCharacterResourceMutation,
   type Dnd5eRulesVersion,
   type Dnd5eSkillTraining,
@@ -65,7 +71,9 @@ import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
   isDnd5eSettings,
 } from '../definition';
+import { CharacterActionPanel } from './CharacterActionPanel';
 import { CharacterFeaturePanel } from './CharacterFeaturePanel';
+import { CharacterInventoryPanel } from './CharacterInventoryPanel';
 import { CharacterResourcePanel } from './CharacterResourcePanel';
 import { CharacterSheetAddEntryButton } from './CharacterSheetAddEntryButton';
 import styles from './CharacterSheetModal.module.css';
@@ -76,6 +84,7 @@ interface CharacterSheetModalProps {
   campaignId: string;
   entry: SystemJournalEntry;
   journalApi: JournalApi;
+  networkApi?: NetworkApi;
   onDismiss: () => void;
   onUpdated: (entry: SystemJournalEntry) => void;
   system: CampaignSystemState;
@@ -239,10 +248,20 @@ function mergeFields(
 function mergeCharacterDraft(
   data: Dnd5eCharacterData,
   fields: ReadonlyMap<string, CharacterFieldValue>,
+  actionMutations: readonly Dnd5eCharacterActionMutation[],
+  inventoryMutations: readonly Dnd5eCharacterInventoryMutation[],
   resourceMutations: readonly Dnd5eCharacterResourceMutation[],
   featureMutations: readonly Dnd5eCharacterFeatureMutation[],
 ) {
   const next = mergeFields(data, fields);
+  const actions = applyDnd5eCharacterActionMutations(
+    next.actions,
+    actionMutations,
+  );
+  const inventory = applyDnd5eCharacterInventoryMutations(
+    next.inventory,
+    inventoryMutations,
+  );
   const resources = applyDnd5eCharacterResourceMutations(
     next.resources,
     resourceMutations,
@@ -254,12 +273,25 @@ function mergeCharacterDraft(
   return {
     data: {
       ...next,
+      actions: actions.actions,
       features: features.features,
+      inventory: inventory.inventory,
       resources: resources.resources,
     },
+    missingActionIds: actions.missingIds,
+    invalidInventory: inventory.invalid,
     missingFeatureIds: features.missingIds,
+    missingInventoryIds: inventory.missingIds,
     missingResourceIds: resources.missingIds,
   };
+}
+
+function actionMutationTarget(
+  mutation: Dnd5eCharacterActionMutation,
+): string | null {
+  return mutation.kind === 'update' || mutation.kind === 'move'
+    ? mutation.id
+    : null;
 }
 
 function featureMutationTarget(
@@ -276,6 +308,24 @@ function resourceMutationTarget(
   return mutation.kind === 'update' || mutation.kind === 'move'
     ? mutation.id
     : null;
+}
+
+function inventoryMutationReferences(
+  mutation: Dnd5eCharacterInventoryMutation,
+): readonly string[] {
+  if (mutation.kind === 'add') {
+    return mutation.parentId === null ? [] : [mutation.parentId];
+  }
+  if (
+    mutation.kind === 'set-currency' ||
+    mutation.kind === 'set-variant-encumbrance' ||
+    mutation.kind === 'delete'
+  ) {
+    return [];
+  }
+  return mutation.kind === 'place' && mutation.parentId !== null
+    ? [mutation.id, mutation.parentId]
+    : [mutation.id];
 }
 
 function CharacterField({
@@ -341,6 +391,7 @@ export function CharacterSheetModal({
   campaignId,
   entry,
   journalApi,
+  networkApi,
   onDismiss,
   onUpdated,
   system,
@@ -361,7 +412,9 @@ export function CharacterSheetModal({
   const draftRef = useRef(initialData);
   const nameRef = useRef(entry.name);
   const dirtyFieldsRef = useRef(new Map<string, CharacterFieldValue>());
+  const actionMutationsRef = useRef<Dnd5eCharacterActionMutation[]>([]);
   const featureMutationsRef = useRef<Dnd5eCharacterFeatureMutation[]>([]);
+  const inventoryMutationsRef = useRef<Dnd5eCharacterInventoryMutation[]>([]);
   const resourceMutationsRef = useRef<Dnd5eCharacterResourceMutation[]>([]);
   const saveTimerRef = useRef<number | null>(null);
   const mutationQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
@@ -389,7 +442,9 @@ export function CharacterSheetModal({
 
   const hasDirtyDraft = useCallback(() => (
     dirtyFieldsRef.current.size > 0 ||
+    actionMutationsRef.current.length > 0 ||
     featureMutationsRef.current.length > 0 ||
+    inventoryMutationsRef.current.length > 0 ||
     resourceMutationsRef.current.length > 0 ||
     nameRef.current !== currentRef.current.name
   ), []);
@@ -397,6 +452,8 @@ export function CharacterSheetModal({
   const applyServerEntry = useCallback((
     updated: SystemJournalEntry,
     savedFields?: ReadonlyMap<string, CharacterFieldValue>,
+    savedActionMutations?: readonly Dnd5eCharacterActionMutation[],
+    savedInventoryMutations?: readonly Dnd5eCharacterInventoryMutation[],
     savedResourceMutations?: readonly Dnd5eCharacterResourceMutation[],
     savedFeatureMutations?: readonly Dnd5eCharacterFeatureMutation[],
     savedName?: string,
@@ -413,9 +470,21 @@ export function CharacterSheetModal({
         }
       }
     }
+    if (savedActionMutations) {
+      const saved = new Set(savedActionMutations);
+      actionMutationsRef.current = actionMutationsRef.current.filter(
+        (mutation) => !saved.has(mutation),
+      );
+    }
     if (savedResourceMutations) {
       const saved = new Set(savedResourceMutations);
       resourceMutationsRef.current = resourceMutationsRef.current.filter(
+        (mutation) => !saved.has(mutation),
+      );
+    }
+    if (savedInventoryMutations) {
+      const saved = new Set(savedInventoryMutations);
+      inventoryMutationsRef.current = inventoryMutationsRef.current.filter(
         (mutation) => !saved.has(mutation),
       );
     }
@@ -439,9 +508,27 @@ export function CharacterSheetModal({
     let merged = mergeCharacterDraft(
       normalized.data,
       dirtyFieldsRef.current,
+      actionMutationsRef.current,
+      inventoryMutationsRef.current,
       resourceMutationsRef.current,
       featureMutationsRef.current,
     );
+    if (merged.missingActionIds.length > 0) {
+      const missingIds = new Set(merged.missingActionIds);
+      actionMutationsRef.current = actionMutationsRef.current.filter((mutation) => {
+        const target = actionMutationTarget(mutation);
+        return target === null || !missingIds.has(target);
+      });
+      merged = mergeCharacterDraft(
+        normalized.data,
+        dirtyFieldsRef.current,
+        actionMutationsRef.current,
+        inventoryMutationsRef.current,
+        resourceMutationsRef.current,
+        featureMutationsRef.current,
+      );
+      setError('An Action was deleted remotely, so its pending local edit was discarded.');
+    }
     if (merged.missingResourceIds.length > 0) {
       const missingIds = new Set(merged.missingResourceIds);
       resourceMutationsRef.current = resourceMutationsRef.current.filter((mutation) => {
@@ -449,12 +536,34 @@ export function CharacterSheetModal({
         return target === null || !missingIds.has(target);
       });
       merged = mergeCharacterDraft(
-        normalized.data,
-        dirtyFieldsRef.current,
+      normalized.data,
+      dirtyFieldsRef.current,
+      actionMutationsRef.current,
+      inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
       );
       setError('A Resource was deleted remotely, so its pending local edit was discarded.');
+    }
+    if (merged.missingInventoryIds.length > 0 || merged.invalidInventory) {
+      const inventoryWasInvalid = merged.invalidInventory;
+      const missingIds = new Set(merged.missingInventoryIds);
+      inventoryMutationsRef.current = inventoryWasInvalid
+        ? []
+        : inventoryMutationsRef.current.filter((mutation) =>
+            !inventoryMutationReferences(mutation).some((id) => missingIds.has(id)),
+          );
+      merged = mergeCharacterDraft(
+      normalized.data,
+      dirtyFieldsRef.current,
+      actionMutationsRef.current,
+      inventoryMutationsRef.current,
+        resourceMutationsRef.current,
+        featureMutationsRef.current,
+      );
+      setError(inventoryWasInvalid
+        ? 'Pending Inventory changes could not be applied to the latest Character.'
+        : 'An Inventory entry was deleted remotely, so its pending local edit was discarded.');
     }
     if (merged.missingFeatureIds.length > 0) {
       const missingIds = new Set(merged.missingFeatureIds);
@@ -463,8 +572,10 @@ export function CharacterSheetModal({
         return target === null || !missingIds.has(target);
       });
       merged = mergeCharacterDraft(
-        normalized.data,
-        dirtyFieldsRef.current,
+      normalized.data,
+      dirtyFieldsRef.current,
+      actionMutationsRef.current,
+      inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
       );
@@ -513,12 +624,16 @@ export function CharacterSheetModal({
     const active = currentRef.current;
     if (!active.capabilities.edit || !isCharacterEntry(active)) return true;
     const dirtyFields = new Map(dirtyFieldsRef.current);
+    const actionMutations = [...actionMutationsRef.current];
+    const inventoryMutations = [...inventoryMutationsRef.current];
     const resourceMutations = [...resourceMutationsRef.current];
     const featureMutations = [...featureMutationsRef.current];
     const pendingName = normalizeJournalTitle(nameRef.current);
     const nameChanged = pendingName !== active.name;
     if (
       dirtyFields.size === 0 &&
+      actionMutations.length === 0 &&
+      inventoryMutations.length === 0 &&
       resourceMutations.length === 0 &&
       featureMutations.length === 0 &&
       !nameChanged
@@ -535,6 +650,8 @@ export function CharacterSheetModal({
 
       if (
         dirtyFields.size > 0 ||
+        actionMutations.length > 0 ||
+        inventoryMutations.length > 0 ||
         resourceMutations.length > 0 ||
         featureMutations.length > 0
       ) {
@@ -542,15 +659,26 @@ export function CharacterSheetModal({
         let merged = mergeCharacterDraft(
           next.data,
           dirtyFields,
+          actionMutations,
+          inventoryMutations,
           resourceMutations,
           featureMutations,
         );
         if (
+          merged.invalidInventory ||
+          merged.missingActionIds.length > 0 ||
+          merged.missingInventoryIds.length > 0 ||
           merged.missingResourceIds.length > 0 ||
           merged.missingFeatureIds.length > 0 ||
           !isDnd5eCharacterData(merged.data)
         ) {
-          setError(merged.missingFeatureIds.length > 0
+          setError(merged.invalidInventory
+            ? 'The Inventory data is invalid.'
+            : merged.missingActionIds.length > 0
+              ? 'An Action was deleted remotely, so its pending local edit was discarded.'
+            : merged.missingInventoryIds.length > 0
+              ? 'An Inventory entry was deleted remotely, so its pending local edit was discarded.'
+              : merged.missingFeatureIds.length > 0
             ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
             : merged.missingResourceIds.length > 0
               ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
@@ -579,15 +707,26 @@ export function CharacterSheetModal({
           merged = mergeCharacterDraft(
             refreshedCharacter.data,
             dirtyFields,
+            actionMutations,
+            inventoryMutations,
             resourceMutations,
             featureMutations,
           );
           if (
+            merged.invalidInventory ||
+            merged.missingActionIds.length > 0 ||
+            merged.missingInventoryIds.length > 0 ||
             merged.missingResourceIds.length > 0 ||
             merged.missingFeatureIds.length > 0 ||
             !isDnd5eCharacterData(merged.data)
           ) {
-            setError(merged.missingFeatureIds.length > 0
+            setError(merged.invalidInventory
+              ? 'The Inventory data is invalid.'
+              : merged.missingActionIds.length > 0
+                ? 'An Action was deleted remotely, so its pending local edit was discarded.'
+              : merged.missingInventoryIds.length > 0
+                ? 'An Inventory entry was deleted remotely, so its pending local edit was discarded.'
+                : merged.missingFeatureIds.length > 0
               ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
               : merged.missingResourceIds.length > 0
                 ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
@@ -611,6 +750,8 @@ export function CharacterSheetModal({
         if (!applyServerEntry(
           dataResult.value,
           dirtyFields,
+          actionMutations,
+          inventoryMutations,
           resourceMutations,
           featureMutations,
         )) return false;
@@ -651,6 +792,8 @@ export function CharacterSheetModal({
         }
         if (!applyServerEntry(
           nameResult.value,
+          undefined,
+          undefined,
           undefined,
           undefined,
           undefined,
@@ -700,6 +843,54 @@ export function CharacterSheetModal({
   const commitResource = async (
     mutation: Dnd5eCharacterResourceMutation,
   ): Promise<boolean> => changeResource(mutation) && save();
+
+  const changeAction = (mutation: Dnd5eCharacterActionMutation): boolean => {
+    const applied = applyDnd5eCharacterActionMutations(
+      draftRef.current.actions,
+      [mutation],
+    );
+    if (applied.missingIds.length > 0) {
+      setError('The Action no longer exists.');
+      return false;
+    }
+    const next = { ...draftRef.current, actions: applied.actions };
+    if (!isDnd5eCharacterData(next)) return false;
+    actionMutationsRef.current.push(mutation);
+    draftRef.current = next;
+    setDraft(next);
+    return true;
+  };
+
+  const commitAction = async (
+    mutation: Dnd5eCharacterActionMutation,
+  ): Promise<boolean> => changeAction(mutation) && save();
+
+  const changeInventory = (
+    mutation: Dnd5eCharacterInventoryMutation,
+  ): boolean => {
+    const applied = applyDnd5eCharacterInventoryMutations(
+      draftRef.current.inventory,
+      [mutation],
+    );
+    if (applied.missingIds.length > 0) {
+      setError('The Inventory entry or destination no longer exists.');
+      return false;
+    }
+    if (applied.invalid) {
+      setError('That Inventory change is not valid.');
+      return false;
+    }
+    const next = { ...draftRef.current, inventory: applied.inventory };
+    if (!isDnd5eCharacterData(next)) return false;
+    inventoryMutationsRef.current.push(mutation);
+    draftRef.current = next;
+    setDraft(next);
+    return true;
+  };
+
+  const commitInventory = async (
+    mutation: Dnd5eCharacterInventoryMutation,
+  ): Promise<boolean> => changeInventory(mutation) && save();
 
   const changeFeature = (mutation: Dnd5eCharacterFeatureMutation): boolean => {
     const applied = applyDnd5eCharacterFeatureMutations(
@@ -1287,21 +1478,29 @@ export function CharacterSheetModal({
                     </section>
                     <section className={styles.collectionPanel}>
                       <h2>Actions</h2>
-                      <div className={styles.panelAddRow}>
-                        <CharacterSheetAddEntryButton
-                          disabled={!canEdit}
-                          label="Add Action"
-                        />
-                      </div>
+                      <CharacterActionPanel
+                        actions={draft.actions}
+                        campaignId={campaignId}
+                        canEdit={canEdit}
+                        data={draft}
+                        derived={derived}
+                        networkApi={networkApi}
+                        onChange={changeAction}
+                        onCommit={commitAction}
+                        onError={setError}
+                        onSave={save}
+                      />
                     </section>
                     <section className={styles.collectionPanel}>
                       <h2>Inventory</h2>
-                      <div className={styles.panelAddRow}>
-                        <CharacterSheetAddEntryButton
-                          disabled={!canEdit}
-                          label="Add Inventory Item"
-                        />
-                      </div>
+                      <CharacterInventoryPanel
+                        canEdit={canEdit}
+                        derived={derived.inventory}
+                        inventory={draft.inventory}
+                        onChange={changeInventory}
+                        onCommit={commitInventory}
+                        onSave={save}
+                      />
                     </section>
                   </div>
                   <div className={styles.rightColumn}>
@@ -1326,6 +1525,31 @@ export function CharacterSheetModal({
                       />
                     </section>
                   </div>
+                </div>
+              ) : activeTab === 'settings' ? (
+                <div
+                  id={`character-${entry.id}-settings`}
+                  aria-labelledby={`character-${entry.id}-settings-tab`}
+                  className={styles.settingsPanel}
+                  role="tabpanel"
+                >
+                  <section className={styles.settingsSection}>
+                    <h2>Inventory</h2>
+                    <Checkbox
+                      checked={draft.inventory.variantEncumbrance}
+                      disabled={!canEdit}
+                      onChange={(event) => void commitInventory({
+                        kind: 'set-variant-encumbrance',
+                        value: event.currentTarget.checked,
+                      })}
+                    >
+                      Use Variant Encumbrance
+                    </Checkbox>
+                    <p>
+                      Shows Encumbered and Heavily Encumbered thresholds based on
+                      Strength and Size. This does not change Speed or rolls.
+                    </p>
+                  </section>
                 </div>
               ) : (
                 <div

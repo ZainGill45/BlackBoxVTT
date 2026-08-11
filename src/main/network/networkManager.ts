@@ -356,13 +356,26 @@ export class NetworkManager extends EventEmitter {
 
   async sendChatRoll(input: SendChatRollInput): Promise<ChatResult<ChatMessage>> {
     const session = this.sessionFor(input.campaignId);
-    return session
-      ? session.sendChatRoll({
-          clientMessageId: input.clientMessageId,
-          definition: input.definition,
-          recipient: input.recipient,
-        })
-      : this.inactiveChat();
+    if (!session) {
+      return this.inactiveChat();
+    }
+    const result = await session.sendChatRoll({
+      clientMessageId: input.clientMessageId,
+      definition: input.definition,
+      recipient: input.recipient,
+    });
+    if (result.ok) {
+      // TCP broadcasts intentionally exclude their sender. Chat's composer can
+      // merge the response itself, but character actions submit through the
+      // same API without owning Chat state, so surface the acknowledged card
+      // through the normal local event stream as well. Consumers merge by ID.
+      this.emit('chat-event', {
+        campaignId: input.campaignId,
+        message: result.value,
+        type: 'message',
+      });
+    }
+    return result;
   }
 
   async clearChatHistory(

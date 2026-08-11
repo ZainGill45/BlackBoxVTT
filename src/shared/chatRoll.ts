@@ -11,12 +11,39 @@ export interface ChatRollModifierDefinition {
   value: number;
 }
 
-export interface ChatRollSectionDefinition {
+export interface ChatRollOrdinarySectionDefinition {
   label: string;
   modifiers: ChatRollModifierDefinition[];
   notation: string;
   typeLabel: string | null;
 }
+
+export interface ChatRollPromptSectionDefinition {
+  detail: string | null;
+  kind: 'prompt';
+  label: string;
+  value: string;
+}
+
+export interface ChatRollEffectSectionDefinition {
+  kind: 'effect';
+  label: string;
+  text: string;
+}
+
+export interface ChatRollConditionalSectionDefinition
+  extends ChatRollOrdinarySectionDefinition {
+  alternateNotation: string;
+  condition: 'first-d20-natural-maximum';
+  kind: 'conditional-roll';
+  sourceSection: number;
+}
+
+export type ChatRollSectionDefinition =
+  | ChatRollOrdinarySectionDefinition
+  | ChatRollPromptSectionDefinition
+  | ChatRollEffectSectionDefinition
+  | ChatRollConditionalSectionDefinition;
 
 export interface ChatRollDefinition {
   category: string;
@@ -68,11 +95,27 @@ export type ChatRollExpressionNode =
   | ChatRollNumberNode
   | ChatRollTokenNode;
 
-export interface ChatRollSectionResult extends ChatRollSectionDefinition {
+export interface ChatRollOrdinarySectionResult
+  extends ChatRollOrdinarySectionDefinition {
   baseTotal: number;
   expression: ChatRollExpressionNode[];
   total: number;
 }
+
+export interface ChatRollConditionalSectionResult
+  extends ChatRollConditionalSectionDefinition {
+  baseTotal: number;
+  expression: ChatRollExpressionNode[];
+  rolledNotation: string;
+  total: number;
+  usedAlternate: boolean;
+}
+
+export type ChatRollSectionResult =
+  | ChatRollOrdinarySectionResult
+  | ChatRollPromptSectionDefinition
+  | ChatRollEffectSectionDefinition
+  | ChatRollConditionalSectionResult;
 
 export interface ChatRollCard {
   category: string;
@@ -95,7 +138,7 @@ export const chatRollModifierDefinitionSchema = z
   })
   .strict();
 
-export const chatRollSectionDefinitionSchema = z
+export const chatRollOrdinarySectionDefinitionSchema = z
   .object({
     label: labelSchema,
     modifiers: z
@@ -105,6 +148,51 @@ export const chatRollSectionDefinitionSchema = z
     typeLabel: labelSchema.nullable(),
   })
   .strict();
+
+const contentSchema = z
+  .string()
+  .min(1)
+  .max(MAX_CHAT_ROLL_LABEL_CHARACTERS)
+  .refine((value) => value.normalize('NFKC').trim() === value, {
+    message: 'Roll content must be normalized and trimmed.',
+  });
+
+export const chatRollPromptSectionDefinitionSchema = z
+  .object({
+    detail: contentSchema.nullable(),
+    kind: z.literal('prompt'),
+    label: labelSchema,
+    value: labelSchema,
+  })
+  .strict();
+
+export const chatRollEffectSectionDefinitionSchema = z
+  .object({
+    kind: z.literal('effect'),
+    label: labelSchema,
+    text: contentSchema,
+  })
+  .strict();
+
+export const chatRollConditionalSectionDefinitionSchema =
+  chatRollOrdinarySectionDefinitionSchema.extend({
+    alternateNotation: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_CHAT_ROLL_NOTATION_CHARACTERS),
+    condition: z.literal('first-d20-natural-maximum'),
+    kind: z.literal('conditional-roll'),
+    sourceSection: z.number().int().nonnegative(),
+  }).strict();
+
+export const chatRollSectionDefinitionSchema: z.ZodType<ChatRollSectionDefinition> =
+  z.union([
+    chatRollOrdinarySectionDefinitionSchema,
+    chatRollPromptSectionDefinitionSchema,
+    chatRollEffectSectionDefinitionSchema,
+    chatRollConditionalSectionDefinitionSchema,
+  ]);
 
 export const chatRollDefinitionSchema = z
   .object({
@@ -117,6 +205,23 @@ export const chatRollDefinitionSchema = z
   })
   .strict()
   .superRefine((definition, context) => {
+    definition.sections.forEach((section, index) => {
+      if (
+        'kind' in section &&
+        section.kind === 'conditional-roll' &&
+        (
+          section.sourceSection === index ||
+          section.sourceSection >= definition.sections.length ||
+          'kind' in definition.sections[section.sourceSection]
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Conditional roll sources must identify an ordinary roll section.',
+          path: ['sections', index, 'sourceSection'],
+        });
+      }
+    });
     if ([...serializeChatRollDefinition(definition)].length > 50_000) {
       context.addIssue({
         code: 'custom',
@@ -162,22 +267,68 @@ const rollExpressionNodeSchema: z.ZodType<ChatRollExpressionNode> = z.lazy(() =>
   ]),
 );
 
+const ordinaryRollResultSchema = chatRollOrdinarySectionDefinitionSchema.extend({
+  baseTotal: z.number().finite(),
+  expression: z.array(rollExpressionNodeSchema).max(1_000_000),
+  total: z.number().finite(),
+}).strict();
+
+const conditionalRollResultSchema =
+  chatRollConditionalSectionDefinitionSchema.extend({
+    baseTotal: z.number().finite(),
+    expression: z.array(rollExpressionNodeSchema).max(1_000_000),
+    rolledNotation: z.string().trim().min(1).max(MAX_CHAT_ROLL_NOTATION_CHARACTERS),
+    total: z.number().finite(),
+    usedAlternate: z.boolean(),
+  }).strict().superRefine((section, context) => {
+    const expected = section.usedAlternate
+      ? section.alternateNotation
+      : section.notation;
+    if (section.rolledNotation !== expected) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Conditional roll result notation does not match its selected branch.',
+        path: ['rolledNotation'],
+      });
+    }
+  });
+
 export const chatRollCardSchema: z.ZodType<ChatRollCard> = z
   .object({
     category: labelSchema,
     sections: z
       .array(
-        chatRollSectionDefinitionSchema.extend({
-          baseTotal: z.number().finite(),
-          expression: z.array(rollExpressionNodeSchema).max(1_000_000),
-          total: z.number().finite(),
-        }),
+        z.union([
+          ordinaryRollResultSchema,
+          chatRollPromptSectionDefinitionSchema,
+          chatRollEffectSectionDefinitionSchema,
+          conditionalRollResultSchema,
+        ]),
       )
       .min(1)
       .max(MAX_CHAT_ROLL_SECTIONS),
     title: labelSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((card, context) => {
+    card.sections.forEach((section, index) => {
+      if (
+        'kind' in section &&
+        section.kind === 'conditional-roll' &&
+        (
+          section.sourceSection === index ||
+          section.sourceSection >= card.sections.length ||
+          'kind' in card.sections[section.sourceSection]
+        )
+      ) {
+        context.addIssue({
+          code: 'custom',
+          message: 'Conditional roll sources must identify an ordinary roll section.',
+          path: ['sections', index, 'sourceSection'],
+        });
+      }
+    });
+  });
 
 function normalizeLabel(value: string): string {
   return value.normalize('NFKC').trim();
@@ -224,7 +375,7 @@ function findClosing(value: string, opening: number, closing: string): number {
 
 function parseSectionHeader(
   source: string,
-): Omit<ChatRollSectionDefinition, 'notation'> | null {
+): Omit<ChatRollOrdinarySectionDefinition, 'notation'> | null {
   let position = 0;
   let labelEnd = source.length;
   for (const delimiter of ['(', '[']) {
@@ -350,15 +501,17 @@ export function parseRollCommand(command: string): ParsedRollDefinition {
 export function serializeChatRollDefinition(
   definition: ChatRollDefinition,
 ): string {
+  const onlySection = definition.sections[0];
   if (
     definition.category === 'Roll' &&
     definition.title === null &&
     definition.sections.length === 1 &&
-    definition.sections[0].label === definition.sections[0].notation &&
-    definition.sections[0].modifiers.length === 0 &&
-    definition.sections[0].typeLabel === null
+    !('kind' in onlySection) &&
+    onlySection.label === onlySection.notation &&
+    onlySection.modifiers.length === 0 &&
+    onlySection.typeLabel === null
   ) {
-    return `/r ${definition.sections[0].notation}`;
+    return `/r ${onlySection.notation}`;
   }
   const heading =
     definition.category === 'Roll'
@@ -367,6 +520,14 @@ export function serializeChatRollDefinition(
   return [
     `/roll${heading ? ` ${heading}` : ''}`,
     ...definition.sections.map((section) => {
+      if ('kind' in section && section.kind === 'effect') {
+        return `${section.label}: ${section.text}`;
+      }
+      if ('kind' in section && section.kind === 'prompt') {
+        return `${section.label}: ${section.value}${
+          section.detail ? ` (${section.detail})` : ''
+        }`;
+      }
       const modifiers = section.modifiers
         .map(
           (modifier) =>
@@ -374,7 +535,10 @@ export function serializeChatRollDefinition(
         )
         .join('');
       const type = section.typeLabel ? ` [${section.typeLabel}]` : '';
-      return `${section.label}${modifiers}${type}: ${section.notation}`;
+      const conditional = 'kind' in section
+        ? ` => ${section.alternateNotation} when section ${section.sourceSection + 1} has a natural maximum d20`
+        : '';
+      return `${section.label}${modifiers}${type}: ${section.notation}${conditional}`;
     }),
   ].join('\n');
 }

@@ -108,12 +108,27 @@ function sameRecipient(
 function definitionFromCard(card: ChatRollCard): ChatRollDefinition {
   return {
     category: card.category,
-    sections: card.sections.map(({ label, modifiers, notation, typeLabel }) => ({
-      label,
-      modifiers,
-      notation,
-      typeLabel,
-    })),
+    sections: card.sections.map((section) => {
+      if ('kind' in section) {
+        if (section.kind !== 'conditional-roll') return section;
+        return {
+          label: section.label,
+          modifiers: section.modifiers,
+          notation: section.notation,
+          typeLabel: section.typeLabel,
+          alternateNotation: section.alternateNotation,
+          condition: section.condition,
+          kind: section.kind,
+          sourceSection: section.sourceSection,
+        };
+      }
+      return {
+        label: section.label,
+        modifiers: section.modifiers,
+        notation: section.notation,
+        typeLabel: section.typeLabel,
+      };
+    }),
     title: card.title,
   };
 }

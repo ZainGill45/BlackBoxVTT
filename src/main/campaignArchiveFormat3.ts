@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { addEmptyDnd5eCharacterInventories } from './campaignArchiveCharacterInventory';
 import {
   addAssetPermissions,
   addJournalEntryPermissionRevision,
@@ -6,7 +7,7 @@ import {
   runDirectArchiveConversion,
 } from './campaignArchiveSteps';
 
-/** Directly converts the previous archive's authored data into today's shape. */
+/** Directly converts format-3 authored data into today's shape. */
 export function convertCampaignArchiveFormat3(
   connection: DatabaseSync,
 ): string[] {
@@ -17,9 +18,10 @@ export function convertCampaignArchiveFormat3(
       ...addAssetPermissions(connection),
       ...addScenePermissions(connection),
     );
+    accessWarnings.push(...addEmptyDnd5eCharacterInventories(connection, 3));
   });
   /* Journal entries keep the permissions they were exported with and only
-     gain a counter guarding edits to them, so the access that could not be
-     carried over is all there is to report. */
+     gain a counter guarding edits to them. Character inventories are added
+     explicitly above and reported alongside any access adjustments. */
   return accessWarnings;
 }

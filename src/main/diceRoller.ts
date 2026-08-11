@@ -8,9 +8,13 @@ import {
 } from '@dice-roller/rpg-dice-roller';
 import {
   type ChatRollCard,
+  type ChatRollConditionalSectionDefinition,
   type ChatRollDefinition,
   type ChatRollExpressionNode,
   type ChatRollGroupNode,
+  type ChatRollOrdinarySectionDefinition,
+  type ChatRollOrdinarySectionResult,
+  type ChatRollSectionResult,
 } from '../shared/chatRoll';
 
 type RandomEngine = typeof NumberGenerator.generator.engine;
@@ -74,9 +78,12 @@ export function rollChatCard(
   const previousEngine = NumberGenerator.generator.engine;
   NumberGenerator.generator.engine = engine;
   try {
-    const sections = definition.sections.map((section) => {
-      const parsed = Parser.parse(section.notation);
-      const roll = new DiceRoll(section.notation);
+    const rollOrdinary = (
+      section: ChatRollOrdinarySectionDefinition,
+      notation = section.notation,
+    ): ChatRollOrdinarySectionResult => {
+      const parsed = Parser.parse(notation);
+      const roll = new DiceRoll(notation);
       const baseTotal = roll.total;
       const total = section.modifiers.reduce(
         (value, modifier) => value + modifier.value,
@@ -91,6 +98,50 @@ export function rollChatCard(
         expression: normalizeSequence(parsed, roll.rolls),
         total,
       };
+    };
+    const ordinaryResults = new Map<number, ChatRollOrdinarySectionResult>();
+    const ordinaryAt = (index: number): ChatRollOrdinarySectionResult => {
+      const existing = ordinaryResults.get(index);
+      if (existing) return existing;
+      const section = definition.sections[index];
+      if (!section || 'kind' in section) {
+        throw new Error('Conditional roll source is not an ordinary roll.');
+      }
+      const result = rollOrdinary(section);
+      ordinaryResults.set(index, result);
+      return result;
+    };
+    const isNaturalMaximumD20 = (source: ChatRollOrdinarySectionResult) => {
+      const die = source.expression.find((node) => node.kind === 'die');
+      return !!die &&
+        die.dieKind === 'standard' &&
+        die.sides === 20 &&
+        die.results.length === 1 &&
+        die.results[0].initialValue === die.max;
+    };
+    const rollConditional = (
+      section: ChatRollConditionalSectionDefinition,
+    ): ChatRollSectionResult => {
+      const usedAlternate = isNaturalMaximumD20(
+        ordinaryAt(section.sourceSection),
+      );
+      const rolledNotation = usedAlternate
+        ? section.alternateNotation
+        : section.notation;
+      const rolled = rollOrdinary(section, rolledNotation);
+      return {
+        ...section,
+        baseTotal: rolled.baseTotal,
+        expression: rolled.expression,
+        rolledNotation,
+        total: rolled.total,
+        usedAlternate,
+      };
+    };
+    const sections = definition.sections.map((section, index) => {
+      if (!('kind' in section)) return ordinaryAt(index);
+      if (section.kind === 'conditional-roll') return rollConditional(section);
+      return section;
     });
     return { ...definition, sections };
   } finally {

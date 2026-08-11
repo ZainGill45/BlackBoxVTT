@@ -42,6 +42,9 @@ import { CampaignDataRefusal } from './campaignArchiveRefusal';
 import { convertCampaignArchiveFormat1 } from './campaignArchiveFormat1';
 import { convertCampaignArchiveFormat2 } from './campaignArchiveFormat2';
 import { convertCampaignArchiveFormat3 } from './campaignArchiveFormat3';
+import { convertCampaignArchiveFormat4 } from './campaignArchiveFormat4';
+import { convertCampaignArchiveFormat5 } from './campaignArchiveFormat5';
+import { convertCampaignArchiveFormat6 } from './campaignArchiveFormat6';
 import { normalizeIntermediatePermissionSchema } from './campaignArchiveSteps';
 import type { CampaignRepository } from './campaignRepository';
 import {
@@ -51,7 +54,7 @@ import {
 import { MutationQueue } from './storage/mutationQueue';
 
 const ARCHIVE_EXTENSION = '.blackbox-campaign';
-const ARCHIVE_FORMAT_VERSION = 4 as const;
+const ARCHIVE_FORMAT_VERSION = 7 as const;
 /**
  * Every superseded format converts straight to the current shape. The map is a
  * set of direct routes, not a ladder: no entry runs another entry to finish.
@@ -60,6 +63,9 @@ const ARCHIVE_FORMAT_CONVERTERS = {
   1: convertCampaignArchiveFormat1,
   2: convertCampaignArchiveFormat2,
   3: convertCampaignArchiveFormat3,
+  4: convertCampaignArchiveFormat4,
+  5: convertCampaignArchiveFormat5,
+  6: convertCampaignArchiveFormat6,
 } as const;
 type SupersededArchiveFormatVersion = keyof typeof ARCHIVE_FORMAT_CONVERTERS;
 const SALVAGE_CONVERTERS = {
@@ -482,7 +488,7 @@ function recognizeCampaign(directory: string): {
       );
     }
     return {
-      conversion: detected.version === 4
+      conversion: 'conversion' in detected
         ? detected.conversion
         : detected.version,
       identity,

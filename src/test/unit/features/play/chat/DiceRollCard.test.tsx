@@ -197,18 +197,91 @@ describe('DiceRollCard', () => {
       <PendingDiceRollCard
         definition={{
           category: fixture.category,
-          sections: fixture.sections.map(
-            ({ label, modifiers, notation, typeLabel }) => ({
+          sections: fixture.sections.map((section) => {
+            if ('kind' in section) throw new Error('Expected an ordinary roll section.');
+            const { label, modifiers, notation, typeLabel } = section;
+            return {
               label,
               modifiers,
               notation,
               typeLabel,
-            }),
-          ),
+            };
+          }),
           title: fixture.title,
         }}
       />,
     );
     expect(screen.getAllByLabelText('Roll pending')).toHaveLength(2);
+  });
+
+  it('renders ordered Details, prompts, effects, and critical branch results', () => {
+    const fixture: ChatRollCard = {
+      category: 'Roll',
+      sections: [
+        { kind: 'effect', label: 'Details', text: 'Range: 5 feet' },
+        {
+          baseTotal: 20,
+          expression: [die(20, 20)],
+          label: 'Attack',
+          modifiers: [],
+          notation: '1d20',
+          total: 20,
+          typeLabel: 'Attack',
+        },
+        {
+          alternateNotation: '2d8',
+          baseTotal: 12,
+          condition: 'first-d20-natural-maximum',
+          expression: [die(8, 6), die(8, 6)],
+          kind: 'conditional-roll',
+          label: 'Damage',
+          modifiers: [{ label: 'Strength', value: 3 }],
+          notation: '1d8',
+          rolledNotation: '2d8',
+          sourceSection: 1,
+          total: 15,
+          typeLabel: 'Slashing',
+          usedAlternate: true,
+        },
+        {
+          detail: 'Failure: knocked prone',
+          kind: 'prompt',
+          label: 'Save',
+          value: 'DC 14 DEXTERITY save',
+        },
+        { kind: 'effect', label: 'Effect', text: 'The weapon hums.' },
+      ],
+      title: 'Longsword',
+    };
+    const { rerender } = render(<DiceRollCard card={fixture} />);
+    expect(screen.getByText('Range: 5 feet')).toBeInTheDocument();
+    expect(screen.getByText(/DC 14 DEXTERITY save/)).toBeInTheDocument();
+    expect(screen.getByText(/Failure: knocked prone/)).toBeInTheDocument();
+    expect(screen.getByText('The weapon hums.')).toBeInTheDocument();
+    expect(screen.getByText('Critical damage')).toBeInTheDocument();
+
+    rerender(<PendingDiceRollCard definition={{
+      category: fixture.category,
+      sections: [
+        fixture.sections[0],
+        { label: 'Attack', modifiers: [], notation: '1d20', typeLabel: 'Attack' },
+        {
+          alternateNotation: '2d8',
+          condition: 'first-d20-natural-maximum',
+          kind: 'conditional-roll',
+          label: 'Damage',
+          modifiers: [{ label: 'Strength', value: 3 }],
+          notation: '1d8',
+          sourceSection: 1,
+          typeLabel: 'Slashing',
+        },
+        fixture.sections[3],
+        fixture.sections[4],
+      ],
+      title: fixture.title,
+    }} />);
+    expect(screen.getAllByLabelText('Roll pending')).toHaveLength(2);
+    expect(screen.getByText('Range: 5 feet')).toBeInTheDocument();
+    expect(screen.getByText(/DC 14 DEXTERITY save/)).toBeInTheDocument();
   });
 });

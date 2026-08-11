@@ -10,6 +10,7 @@ import {
   readCampaignIdentity,
 } from '../../../main/campaignArchiveDetect';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
+import { createDefaultDnd5eCharacterData } from '../../../systems/dnd5e/characterData';
 import { addIntermediatePermissionSchema } from '../../support/campaignArchive';
 
 const temporaryDirectories: string[] = [];
@@ -46,7 +47,7 @@ afterEach(async () => {
 });
 
 describe('detectCampaignFormatVersion', () => {
-  it.each([1, 2, 3])(
+  it.each([1, 2, 3, 4, 5, 6])(
     'recognizes the frozen format-%i fixture from its data alone',
     async (version) => {
       const connection = await openFixture(version);
@@ -116,6 +117,79 @@ describe('detectCampaignFormatVersion', () => {
         conversion: 'permission-defaults',
         ok: true,
         version: 4,
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it('refuses format-4 Character data with a near-match or mixed newer shape', async () => {
+    const nearMatch = await openFixture(4);
+    try {
+      const row = nearMatch.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      nearMatch.prepare(
+        `UPDATE journal_entries SET data_json = ? WHERE type_id = 'dnd5e.character'`,
+      ).run(JSON.stringify({ ...JSON.parse(row.data_json), almostInventory: {} }));
+      expect(detectCampaignFormatVersion(nearMatch)).toEqual({
+        ok: false,
+        reason: expect.stringContaining(
+          'character data does not exactly match archive format 4',
+        ),
+      });
+    } finally {
+      nearMatch.close();
+    }
+
+    const mixed = await openFixture(4);
+    try {
+      const row = mixed.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      mixed.prepare(
+        `INSERT INTO journal_entries (
+           id, type_id, position, name, default_access, revision,
+           created_at, created_by, updated_at, updated_by,
+           name_style_json, data_json, permission_revision
+         )
+         SELECT '99999999-9999-4999-8999-999999999999', type_id, 1,
+                'Current Hero', default_access, revision,
+                created_at, created_by, updated_at, updated_by,
+                name_style_json, ?, permission_revision
+         FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).run(JSON.stringify({
+        ...JSON.parse(row.data_json),
+        inventory: createDefaultDnd5eCharacterData().inventory,
+      }));
+      expect(detectCampaignFormatVersion(mixed)).toEqual({
+        ok: false,
+        reason: expect.stringContaining(
+          'characters mix archive formats 4, 5, and 6',
+        ),
+      });
+    } finally {
+      mixed.close();
+    }
+  });
+
+  it('refuses format-5 Character data with a near-match item shape', async () => {
+    const connection = await openFixture(5);
+    try {
+      const row = connection.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      const data = JSON.parse(row.data_json);
+      data.inventory.entries[0].quantity = 1;
+      connection.prepare(
+        `UPDATE journal_entries SET data_json = ? WHERE type_id = 'dnd5e.character'`,
+      ).run(JSON.stringify(data));
+
+      expect(detectCampaignFormatVersion(connection)).toEqual({
+        ok: false,
+        reason: expect.stringContaining(
+          'character data does not exactly match archive format 4, 5, or 6',
+        ),
       });
     } finally {
       connection.close();

@@ -8,6 +8,13 @@ import {
   CampaignDatabase,
 } from '../../../main/storage/campaignDatabase';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
+import type {
+  ChatRollCard,
+  ChatRollConditionalSectionDefinition,
+  ChatRollDefinition,
+  ChatRollEffectSectionDefinition,
+  ChatRollPromptSectionDefinition,
+} from '../../../shared/chatRoll';
 
 const gm = { displayName: 'Game Master', kind: 'gm' } as const;
 const alice = {
@@ -216,14 +223,26 @@ describe('ChatRepository', () => {
   it('stores immutable roll payloads, deduplicates retries, and fails closed on malformed trees', async () => {
     const { database } = await createCampaignDatabase();
     const repository = new ChatRepository({ database, warn: vi.fn() });
-    const definition = {
+    const definition: ChatRollDefinition = {
       category: 'Roll',
       sections: [
-        { label: '1d20', modifiers: [], notation: '1d20', typeLabel: null },
+        { label: 'Attack', modifiers: [], notation: '1d20', typeLabel: 'Attack' },
+        { kind: 'effect', label: 'Details', text: 'Range: 5 feet' },
+        { detail: 'Failure: knocked prone', kind: 'prompt', label: 'Save', value: 'DC 14 DEXTERITY save' },
+        {
+          alternateNotation: '2d6',
+          condition: 'first-d20-natural-maximum',
+          kind: 'conditional-roll',
+          label: 'Damage',
+          modifiers: [{ label: 'Strength', value: 3 }],
+          notation: '1d6',
+          sourceSection: 0,
+          typeLabel: 'Slashing',
+        },
       ],
-      title: null,
+      title: 'Longsword',
     };
-    const card = {
+    const card: ChatRollCard = {
       ...definition,
       sections: [
         {
@@ -231,6 +250,16 @@ describe('ChatRepository', () => {
           baseTotal: 20,
           expression: [{ kind: 'number' as const, value: 20 }],
           total: 20,
+        },
+        definition.sections[1] as ChatRollEffectSectionDefinition,
+        definition.sections[2] as ChatRollPromptSectionDefinition,
+        {
+          ...(definition.sections[3] as ChatRollConditionalSectionDefinition),
+          baseTotal: 12,
+          expression: [{ kind: 'number', value: 12 }],
+          rolledNotation: '2d6',
+          total: 15,
+          usedAlternate: true,
         },
       ],
     };
@@ -244,6 +273,7 @@ describe('ChatRepository', () => {
     };
     const first = await repository.sendRoll(input);
     const retry = await repository.sendRoll(input);
+    if (!first.ok) throw new Error(first.error.message);
     expect(first).toMatchObject({ ok: true, value: { created: true } });
     expect(retry).toMatchObject({
       ok: true,
@@ -254,7 +284,10 @@ describe('ChatRepository', () => {
         ...input,
         definition: {
           ...definition,
-          sections: [{ ...definition.sections[0], notation: '1d12' }],
+          sections: [
+            { ...definition.sections[0], notation: '1d12' },
+            ...definition.sections.slice(1),
+          ],
         },
       }),
     ).toMatchObject({ error: { code: 'invalid_input' }, ok: false });

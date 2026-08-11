@@ -5,7 +5,7 @@ import {
 } from 'react';
 import styles from './Collapsible.module.css';
 
-function CollapsibleStateIcon({ expanded }: { expanded: boolean }) {
+export function CollapsibleStateIcon({ expanded }: { expanded: boolean }) {
   const paths = expanded
     ? [
         'M2.5 6.5h4v-4',

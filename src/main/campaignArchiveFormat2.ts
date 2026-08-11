@@ -1,7 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { JsonValue } from '../shared/gameSystems';
-import { isDnd5eCharacterData } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
+import { addEmptyDnd5eCharacterInventories } from './campaignArchiveCharacterInventory';
 import {
   addAssetPermissions,
   addJournalEntryPermissionRevision,
@@ -15,7 +14,7 @@ interface CharacterRow {
   name: string;
 }
 
-/** Directly converts the previous archive's authored data into today's shape. */
+/** Directly converts format-2 authored data into today's shape. */
 export function convertCampaignArchiveFormat2(
   connection: DatabaseSync,
 ): string[] {
@@ -53,12 +52,10 @@ export function convertCampaignArchiveFormat2(
         throw new Error(`Archive format 2 contains invalid Character data for ${row.name}.`);
       }
       const converted = { ...parsed, features: [] };
-      if (!isDnd5eCharacterData(converted as JsonValue)) {
-        throw new Error(`Archive format 2 contains invalid Character data for ${row.name}.`);
-      }
       update.run(JSON.stringify(converted), row.id);
       convertedCharacters += 1;
     }
+    accessWarnings.push(...addEmptyDnd5eCharacterInventories(connection, 2));
   });
 
   const characterWarnings = convertedCharacters === 0

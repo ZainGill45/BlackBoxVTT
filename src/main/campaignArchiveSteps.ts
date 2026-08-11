@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { addEmptyDnd5eCharacterInventories } from './campaignArchiveCharacterInventory';
 
 /**
  * Fix-ups that more than one archive format happens to need.
@@ -203,12 +204,14 @@ function rebuildScenes(
 export function normalizeIntermediatePermissionSchema(
   connection: DatabaseSync,
 ): string[] {
+  let warnings: string[] = [];
   runDirectArchiveConversion(connection, () => {
     rebuildJournalEntries(connection, true);
     rebuildAssets(connection, true);
     rebuildScenes(connection, true);
+    warnings = addEmptyDnd5eCharacterInventories(connection, 4);
   });
-  return [];
+  return warnings;
 }
 
 /**

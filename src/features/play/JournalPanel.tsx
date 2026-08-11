@@ -30,6 +30,7 @@ import {
   type SystemJournalEntry,
 } from '../../shared/journal';
 import type { PermissionSubject } from '../../shared/permissions';
+import type { NetworkApi } from '../../shared/network';
 import {
   createDefaultCampaignSystemState,
   listJournalEntryTypeDefinitions,
@@ -55,6 +56,7 @@ interface JournalPanelProps {
   assetApi?: AssetApi;
   campaignId?: string;
   journalApi?: JournalApi;
+  networkApi?: NetworkApi;
   role?: 'gm' | 'player';
   system?: CampaignSystemState;
 }
@@ -139,6 +141,7 @@ export function JournalPanel({
   assetApi,
   campaignId = '',
   journalApi,
+  networkApi,
   role = 'gm',
   system,
 }: JournalPanelProps = {}) {
@@ -148,6 +151,7 @@ export function JournalPanel({
       assetApi={assetApi}
       campaignId={campaignId}
       journalApi={journalApi}
+      networkApi={networkApi}
       role={role}
       system={system ?? createDefaultCampaignSystemState()!}
     />
@@ -176,9 +180,10 @@ function ConnectedJournalPanel({
   assetApi,
   campaignId,
   journalApi,
+  networkApi,
   role,
   system,
-}: Required<JournalPanelProps>) {
+}: Required<Omit<JournalPanelProps, 'networkApi'>> & Pick<JournalPanelProps, 'networkApi'>) {
   const entryTypes = useMemo(
     () => listJournalEntryTypeDefinitions(system),
     [system],
@@ -712,6 +717,7 @@ function ConnectedJournalPanel({
           campaignId={campaignId}
           entry={selectedSystemEntry}
           journalApi={journalApi}
+          networkApi={networkApi}
           onDismiss={() => setSelectedSystemEntry(null)}
           onUpdated={acceptUpdatedEntry}
           system={system}

@@ -5,6 +5,7 @@ import { DiceRollExecutor } from '../../../main/diceRollExecutor';
 import type {
   ChatRollCard,
   ChatRollDefinition,
+  ChatRollOrdinarySectionResult,
 } from '../../../shared/chatRoll';
 
 const definition: ChatRollDefinition = {
@@ -128,7 +129,8 @@ describe('DiceRollExecutor', () => {
 
   it('rejects a normalized result beyond the 512 KiB chat ceiling', async () => {
     const oversized = structuredClone(card);
-    oversized.sections[0].expression = Array.from(
+    const oversizedSection = oversized.sections[0] as ChatRollOrdinarySectionResult;
+    oversizedSection.expression = Array.from(
       { length: 60_000 },
       (_, value) => ({ kind: 'number' as const, value }),
     );

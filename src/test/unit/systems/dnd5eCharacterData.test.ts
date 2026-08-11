@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyDnd5eCharacterActionMutations,
+  applyDnd5eCharacterInventoryMutations,
   applyDnd5eCharacterFeatureMutations,
   applyDnd5eCharacterResourceMutations,
   calculateDnd5eOffsetForTotal,
   calculateDnd5eSkillValues,
   createDefaultDnd5eCharacterData,
+  createDefaultDnd5eActionStep,
+  createDefaultDnd5eCharacterAction,
   deriveDnd5eCharacterValues,
   DND5E_ABILITIES,
   DND5E_SKILLS,
@@ -12,13 +16,166 @@ import {
   isDnd5eCharacterData,
   MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS,
   MAX_DND5E_CHARACTER_FEATURES,
+  MAX_DND5E_CHARACTER_INVENTORY_DEPTH,
+  MAX_DND5E_CHARACTER_INVENTORY_ENTRIES,
   MAX_DND5E_CHARACTER_RESOURCES,
   nextDnd5eSkillTraining,
+  parseDnd5eNonnegativeWeight,
   parseDnd5eSafeInteger,
   type Dnd5eAbilityId,
+  type Dnd5eActionDamageStep,
+  type Dnd5eCharacterInventoryContainer,
+  type Dnd5eCharacterInventoryEntry,
 } from '../../../systems/dnd5e/characterData';
 
+function inventoryUuid(index: number): string {
+  return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+}
+
+function inventoryItem(
+  index: number,
+  overrides: Partial<Extract<Dnd5eCharacterInventoryEntry, { kind: 'item' }>> = {},
+): Extract<Dnd5eCharacterInventoryEntry, { kind: 'item' }> {
+  return {
+    equipped: true,
+    id: inventoryUuid(index),
+    kind: 'item',
+    name: `Item ${index}`,
+    quantity: 1,
+    weight: 0,
+    ...overrides,
+  };
+}
+
+function inventoryContainer(
+  index: number,
+  overrides: Partial<Dnd5eCharacterInventoryContainer> = {},
+): Dnd5eCharacterInventoryContainer {
+  return {
+    capacity: null,
+    collapsed: false,
+    contents: [],
+    contentsWeight: 'normal',
+    equipped: true,
+    id: inventoryUuid(index),
+    kind: 'container',
+    name: `Container ${index}`,
+    weight: 0,
+    ...overrides,
+  };
+}
+
 describe('D&D Character data', () => {
+  it('validates exact Action shapes while allowing incomplete drafts', () => {
+    const data = createDefaultDnd5eCharacterData();
+    const action = createDefaultDnd5eCharacterAction(
+      '10000000-0000-4000-8000-000000000001',
+    );
+    action.name = '';
+    action.steps = [];
+    data.actions = [action];
+    expect(isDnd5eCharacterData(data)).toBe(true);
+
+    expect(isDnd5eCharacterData({
+      ...data,
+      actions: [{ ...action, unexpected: true }],
+    })).toBe(false);
+  });
+
+  it('requires unique Action and step IDs, ordered tiers, and valid critical links', () => {
+    const data = createDefaultDnd5eCharacterData();
+    const action = createDefaultDnd5eCharacterAction(
+      '10000000-0000-4000-8000-000000000001',
+    );
+    const attack = createDefaultDnd5eActionStep(
+      'attack',
+      '20000000-0000-4000-8000-000000000001',
+    );
+    const damage = createDefaultDnd5eActionStep(
+      'damage',
+      '20000000-0000-4000-8000-000000000002',
+    ) as Dnd5eActionDamageStep;
+    damage.criticalSourceStepId = attack.id;
+    damage.terms = [{
+      count: 1,
+      kind: 'dice',
+      sides: 7,
+      tiers: [
+        { count: 2, minimumLevel: 5 },
+        { count: 3, minimumLevel: 11 },
+      ],
+    }];
+    action.steps = [attack, damage];
+    data.actions = [action];
+    expect(isDnd5eCharacterData(data)).toBe(true);
+
+    const badLink = structuredClone(data);
+    (badLink.actions[0].steps[1] as Dnd5eActionDamageStep).criticalSourceStepId =
+      '30000000-0000-4000-8000-000000000001';
+    expect(isDnd5eCharacterData(badLink)).toBe(false);
+
+    const badTiers = structuredClone(data);
+    (badTiers.actions[0].steps[1] as Dnd5eActionDamageStep).terms = [{
+      count: 1,
+      kind: 'dice',
+      sides: 7,
+      tiers: [
+        { count: 3, minimumLevel: 11 },
+        { count: 2, minimumLevel: 5 },
+      ],
+    }];
+    expect(isDnd5eCharacterData(badTiers)).toBe(false);
+
+    const duplicate = structuredClone(data);
+    duplicate.actions.push({ ...structuredClone(action), name: 'Duplicate' });
+    expect(isDnd5eCharacterData(duplicate)).toBe(false);
+  });
+
+  it('applies ordered Action mutations and repairs links when an Attack is removed', () => {
+    const first = createDefaultDnd5eCharacterAction(
+      '10000000-0000-4000-8000-000000000001',
+    );
+    const second = createDefaultDnd5eCharacterAction(
+      '10000000-0000-4000-8000-000000000002',
+    );
+    const attack = createDefaultDnd5eActionStep(
+      'attack',
+      '20000000-0000-4000-8000-000000000001',
+    );
+    const damage = createDefaultDnd5eActionStep(
+      'damage',
+      '20000000-0000-4000-8000-000000000002',
+    ) as Dnd5eActionDamageStep;
+    damage.criticalSourceStepId = attack.id;
+    first.steps = [attack, damage];
+
+    const result = applyDnd5eCharacterActionMutations([first, second], [
+      { direction: 'up', id: second.id, kind: 'move' },
+      {
+        changes: { steps: [damage] },
+        id: first.id,
+        kind: 'update',
+      },
+      { kind: 'reorder', orderedIds: [first.id, second.id] },
+    ]);
+    expect(result.missingIds).toEqual([]);
+    expect(result.actions.map(({ id }) => id)).toEqual([first.id, second.id]);
+    expect((result.actions[0].steps[0] as Dnd5eActionDamageStep).criticalSourceStepId)
+      .toBeNull();
+  });
+
+  it('converts step purposes by preserving identity and resetting mechanics', () => {
+    const id = '20000000-0000-4000-8000-000000000001';
+    const original = createDefaultDnd5eActionStep('roll', id);
+    const converted = createDefaultDnd5eActionStep('save', original.id);
+    expect(converted).toMatchObject({
+      ability: 'dexterity',
+      dcTerms: [{ kind: 'flat', value: 10 }],
+      id,
+      purpose: 'save',
+    });
+    expect(converted).not.toHaveProperty('terms');
+  });
   it('defines the canonical skill order, ability mapping, and untrained defaults', () => {
     expect(DND5E_SKILLS).toEqual([
       { ability: 'dexterity', abbreviation: 'DEX', id: 'acrobatics', label: 'Acrobatics' },
@@ -62,6 +219,11 @@ describe('D&D Character data', () => {
       proficiencyBonusOffset: 0,
     });
     expect(data.features).toEqual([]);
+    expect(data.inventory).toEqual({
+      currency: { copper: 0, gold: 0, platinum: 0, silver: 0 },
+      entries: [],
+      variantEncumbrance: false,
+    });
     expect(data.resources).toEqual([]);
     expect(deriveDnd5eCharacterValues(data, '5.5e')).toMatchObject({
       concentrationSave: 0,
@@ -69,6 +231,295 @@ describe('D&D Character data', () => {
       proficiencyBonus: 2,
     });
     expect(isDnd5eCharacterData(data)).toBe(true);
+  });
+
+  it('validates the exact bounded recursive Inventory contract', () => {
+    const valid = createDefaultDnd5eCharacterData();
+    valid.inventory.entries = [inventoryContainer(1, {
+      capacity: 0,
+      collapsed: true,
+      contents: [inventoryItem(2, { quantity: 0, weight: 0.01 })],
+      contentsWeight: 'weightless',
+      equipped: false,
+      weight: 3.25,
+    })];
+    valid.inventory.currency = { copper: 1, gold: 2, platinum: 3, silver: 4 };
+    expect(isDnd5eCharacterData(valid)).toBe(true);
+
+    const invalidInventories = [
+      { ...valid.inventory, currency: { ...valid.inventory.currency, copper: -1 } },
+      { ...valid.inventory, currency: { ...valid.inventory.currency, silver: 1.5 } },
+      { ...valid.inventory, currency: { ...valid.inventory.currency, electrum: 1 } },
+      { ...valid.inventory, entries: [{ ...inventoryItem(3), extra: true }] },
+      { ...valid.inventory, entries: [{ ...inventoryItem(3), weight: -1 }] },
+      { ...valid.inventory, entries: [{ ...inventoryItem(3), weight: 0.001 }] },
+      { ...valid.inventory, entries: [{ ...inventoryItem(3), quantity: -1 }] },
+      { ...valid.inventory, entries: [{ ...inventoryItem(3), quantity: 1.5 }] },
+      {
+        ...valid.inventory,
+        entries: [{
+          equipped: true,
+          id: inventoryUuid(3),
+          kind: 'item',
+          name: 'Item without quantity',
+          weight: 0,
+        }],
+      },
+      { ...valid.inventory, entries: [inventoryContainer(3, { capacity: -1 })] },
+      { ...valid.inventory, entries: [inventoryContainer(3, { capacity: 0.5 })] },
+      { ...valid.inventory, entries: [inventoryContainer(3, {
+        contentsWeight: 'reduced' as 'normal',
+      })] },
+      { ...valid.inventory, entries: [inventoryContainer(3, {
+        contents: [inventoryItem(4, { equipped: false })],
+      })] },
+      { ...valid.inventory, entries: [inventoryItem(3), inventoryItem(3)] },
+      { ...valid.inventory, entries: [inventoryItem(3, { name: 'x'.repeat(129) })] },
+      { ...valid.inventory, variantEncumbrance: 1 },
+    ];
+    for (const inventory of invalidInventories) {
+      expect(isDnd5eCharacterData({ ...valid, inventory })).toBe(false);
+    }
+
+    const tooMany = createDefaultDnd5eCharacterData();
+    tooMany.inventory.entries = Array.from(
+      { length: MAX_DND5E_CHARACTER_INVENTORY_ENTRIES + 1 },
+      (_, index) => inventoryItem(index),
+    );
+    expect(isDnd5eCharacterData(tooMany)).toBe(false);
+
+    let tooDeep: Dnd5eCharacterInventoryEntry = inventoryItem(100);
+    for (let depth = 0; depth < MAX_DND5E_CHARACTER_INVENTORY_DEPTH; depth += 1) {
+      tooDeep = inventoryContainer(101 + depth, { contents: [tooDeep] });
+    }
+    const excessiveDepth = createDefaultDnd5eCharacterData();
+    excessiveDepth.inventory.entries = [tooDeep];
+    expect(isDnd5eCharacterData(excessiveDepth)).toBe(false);
+  });
+
+  it('derives exact carried weight, weightless contents, coins, and physical capacity usage', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.inventory.currency.copper = 25;
+    data.inventory.currency.silver = 25;
+    data.inventory.entries = [
+      inventoryItem(1, { equipped: false, weight: 100 }),
+      inventoryContainer(2, {
+        capacity: 56,
+        contents: [
+          inventoryItem(3, { weight: 3 }),
+          inventoryContainer(4, {
+            capacity: 50,
+            contents: [inventoryItem(5, { weight: 50 })],
+            contentsWeight: 'weightless',
+            weight: 4,
+          }),
+        ],
+        weight: 2,
+      }),
+      inventoryContainer(6, {
+        contents: [inventoryItem(7, { quantity: 2, weight: 100 })],
+        contentsWeight: 'weightless',
+        weight: 1,
+      }),
+      inventoryContainer(8, {
+        capacity: 0,
+        contents: [inventoryItem(9, { weight: 1 })],
+        equipped: false,
+        weight: 20,
+      }),
+    ];
+
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory).toEqual({
+      carryingCapacityHundredths: 15_000,
+      containers: {
+        [inventoryUuid(2)]: {
+          capacityHundredths: 5_600,
+          overCapacity: true,
+          usedWeightHundredths: 5_700,
+        },
+        [inventoryUuid(4)]: {
+          capacityHundredths: 5_000,
+          overCapacity: false,
+          usedWeightHundredths: 5_000,
+        },
+        [inventoryUuid(6)]: {
+          capacityHundredths: null,
+          overCapacity: false,
+          usedWeightHundredths: 20_000,
+        },
+        [inventoryUuid(8)]: {
+          capacityHundredths: 0,
+          overCapacity: true,
+          usedWeightHundredths: 100,
+        },
+      },
+      currentWeightHundredths: 1_100,
+      encumberedAtHundredths: null,
+      heavilyEncumberedAtHundredths: null,
+      status: 'normal',
+    });
+  });
+
+  it('multiplies hundredth-pound item weight by whole-number quantity', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.inventory.entries = [
+      inventoryItem(1, { quantity: 3, weight: 0.25 }),
+      inventoryContainer(2, {
+        contents: [inventoryItem(3, { quantity: 2, weight: 0.1 })],
+        weight: 1.5,
+      }),
+      inventoryItem(4, { quantity: 0, weight: 99.99 }),
+    ];
+
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory).toMatchObject({
+      containers: {
+        [inventoryUuid(2)]: {
+          usedWeightHundredths: 20,
+        },
+      },
+      currentWeightHundredths: 245,
+    });
+  });
+
+  it('scales thresholds by normalized Size and starts each tier only above its boundary', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.inventory.variantEncumbrance = true;
+    data.inventory.entries = [inventoryItem(1, { weight: 50 })];
+
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory).toMatchObject({
+      carryingCapacityHundredths: 15_000,
+      currentWeightHundredths: 5_000,
+      encumberedAtHundredths: 5_000,
+      heavilyEncumberedAtHundredths: 10_000,
+      status: 'normal',
+    });
+    data.inventory.currency.copper = 1;
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory.status).toBe('encumbered');
+    data.inventory.entries[0].weight = 100;
+    data.inventory.currency.copper = 0;
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory.status).toBe('encumbered');
+    data.inventory.currency.copper = 1;
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory.status)
+      .toBe('heavily-encumbered');
+    data.inventory.entries[0].weight = 150;
+    data.inventory.currency.copper = 0;
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory.status)
+      .toBe('heavily-encumbered');
+    data.inventory.currency.copper = 1;
+    expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory.status)
+      .toBe('over-capacity');
+
+    data.inventory.entries = [];
+    data.inventory.currency.copper = 0;
+    const capacities = new Map([
+      [' tiny ', 7_500],
+      ['SMALL', 15_000],
+      ['Medium', 15_000],
+      ['Large', 30_000],
+      ['Huge', 60_000],
+      ['Gargantuan', 120_000],
+      ['', 15_000],
+      ['homebrew', 15_000],
+    ]);
+    for (const [size, carryingCapacityHundredths] of capacities) {
+      data.appearance.size = size;
+      expect(deriveDnd5eCharacterValues(data, '5.5e')?.inventory)
+        .toMatchObject({ carryingCapacityHundredths });
+    }
+  });
+
+  it('applies Inventory subtree mutations and replay-safe cross-tree placements', () => {
+    const nested = inventoryItem(2, { weight: 2 });
+    const inner = inventoryContainer(3);
+    const first = inventoryContainer(1, { contents: [nested, inner] });
+    const loose = inventoryItem(4, { equipped: false });
+    const last = inventoryItem(5);
+    const data = createDefaultDnd5eCharacterData();
+    data.inventory.entries = [first, loose, last];
+
+    const placed = applyDnd5eCharacterInventoryMutations(data.inventory, [
+      { denomination: 'gold', kind: 'set-currency', value: 50 },
+      { kind: 'set-variant-encumbrance', value: true },
+      { beforeId: nested.id, id: loose.id, kind: 'place', parentId: first.id },
+      {
+        changes: { equipped: false, name: 'Packed', quantity: 4, weight: 0.25 },
+        id: loose.id,
+        kind: 'update',
+      },
+      { direction: 'down', id: loose.id, kind: 'move' },
+      { beforeId: '99999999-9999-4999-8999-999999999999', id: nested.id, kind: 'place', parentId: null },
+    ]);
+    expect(placed).toMatchObject({ invalid: false, missingIds: [] });
+    expect(placed.inventory.currency.gold).toBe(50);
+    expect(placed.inventory.variantEncumbrance).toBe(true);
+    expect(placed.inventory.entries.map(({ id }) => id)).toEqual([
+      first.id,
+      last.id,
+      nested.id,
+    ]);
+    const packed = (placed.inventory.entries[0] as Dnd5eCharacterInventoryContainer)
+      .contents[0];
+    expect(packed).toMatchObject({
+      equipped: true,
+      id: loose.id,
+      name: 'Packed',
+      quantity: 4,
+      weight: 0.25,
+    });
+
+    const deleted = applyDnd5eCharacterInventoryMutations(placed.inventory, [
+      { id: first.id, kind: 'delete' },
+    ]);
+    expect(deleted.inventory.entries.map(({ id }) => id)).toEqual([last.id, nested.id]);
+
+    const missing = applyDnd5eCharacterInventoryMutations(deleted.inventory, [
+      { changes: { name: 'Remote edit' }, id: inner.id, kind: 'update' },
+      { beforeId: null, id: nested.id, kind: 'place', parentId: inner.id },
+    ]);
+    expect(missing.missingIds).toEqual([inner.id]);
+    expect(missing.inventory.entries).toEqual(deleted.inventory.entries);
+  });
+
+  it('rejects Inventory cycles, invalid changes, and placements beyond eight levels', () => {
+    const child = inventoryContainer(2);
+    const root = inventoryContainer(1, { contents: [child] });
+    const data = createDefaultDnd5eCharacterData();
+    data.inventory.entries = [root, inventoryItem(20)];
+
+    const cycle = applyDnd5eCharacterInventoryMutations(data.inventory, [{
+      beforeId: null,
+      id: root.id,
+      kind: 'place',
+      parentId: child.id,
+    }]);
+    expect(cycle.invalid).toBe(true);
+    expect(cycle.inventory).toEqual(data.inventory);
+
+    const negative = applyDnd5eCharacterInventoryMutations(data.inventory, [{
+      changes: { weight: -1 },
+      id: root.id,
+      kind: 'update',
+    }]);
+    expect(negative.invalid).toBe(true);
+    expect(negative.inventory).toEqual(data.inventory);
+
+    let deepest = inventoryContainer(100 + MAX_DND5E_CHARACTER_INVENTORY_DEPTH - 1);
+    const deepestId = deepest.id;
+    for (let depth = MAX_DND5E_CHARACTER_INVENTORY_DEPTH - 2; depth >= 0; depth -= 1) {
+      deepest = inventoryContainer(100 + depth, { contents: [deepest] });
+    }
+    const deepData = createDefaultDnd5eCharacterData();
+    const moving = inventoryItem(200);
+    deepData.inventory.entries = [deepest, moving];
+    expect(isDnd5eCharacterData(deepData)).toBe(true);
+    const tooDeep = applyDnd5eCharacterInventoryMutations(deepData.inventory, [{
+      beforeId: null,
+      id: moving.id,
+      kind: 'place',
+      parentId: deepestId,
+    }]);
+    expect(tooDeep.invalid).toBe(true);
+    expect(tooDeep.inventory).toEqual(deepData.inventory);
   });
 
   it('validates exact, bounded, uniquely identified Feature records and all types', () => {
@@ -377,6 +828,10 @@ describe('D&D Character data', () => {
     expect(parseDnd5eSafeInteger(' +12 ')).toBe(12);
     expect(parseDnd5eSafeInteger('12.5')).toBeNull();
     expect(parseDnd5eSafeInteger('9007199254740992')).toBeNull();
+    expect(parseDnd5eNonnegativeWeight(' 12.34 ')).toBe(12.34);
+    expect(parseDnd5eNonnegativeWeight('0.5')).toBe(0.5);
+    expect(parseDnd5eNonnegativeWeight('1.234')).toBeNull();
+    expect(parseDnd5eNonnegativeWeight('-1')).toBeNull();
     expect(formatDnd5eSignedValue(3)).toBe('+3');
     expect(formatDnd5eSignedValue(0)).toBe('0');
     expect(calculateDnd5eOffsetForTotal(5, 2, 8)).toBe(5);
