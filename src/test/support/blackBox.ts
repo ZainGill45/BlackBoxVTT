@@ -5,6 +5,7 @@ import type { CampaignApi, CampaignResult } from '../../shared/campaigns';
 import type { ChatResult } from '../../shared/chat';
 import type { NetworkApi, NetworkResult } from '../../shared/network';
 import type { JournalApi, JournalResult } from '../../shared/journal';
+import type { JournalWindowApi } from '../../shared/journalWindows';
 import {
   createEmptySceneManifest,
   type SceneApi,
@@ -364,12 +365,19 @@ const journalApi: JournalApi = {
   updatePagePermissions: journalUnavailable,
 };
 
+const journalWindowApi: JournalWindowApi = {
+  closeCampaign: async () => undefined,
+  focusCharacter: async () => ({ ok: true, value: false }),
+  openCharacter: async () => ({ ok: true, value: 'opened' }),
+};
+
 export function installBlackBoxStub(): void {
   window.blackBox = {
     application: applicationApi,
     assets: assetApi,
     campaigns: campaignApi,
     journal: journalApi,
+    journalWindows: journalWindowApi,
     network: networkApi,
     scenes: sceneApi,
   };

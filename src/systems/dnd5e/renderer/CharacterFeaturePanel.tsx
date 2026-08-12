@@ -3,7 +3,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { Collapsible } from '../../../components/ui/Collapsible';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
@@ -28,10 +27,12 @@ import styles from './CharacterSheetModal.module.css';
 
 interface CharacterFeaturePanelProps {
   canEdit: boolean;
+  canSendToChat: boolean;
   features: readonly Dnd5eCharacterFeature[];
   onChange: (mutation: Dnd5eCharacterFeatureMutation) => boolean;
   onCommit: (mutation: Dnd5eCharacterFeatureMutation) => Promise<boolean>;
   onSave: () => Promise<boolean>;
+  onSendToChat: (feature: Dnd5eCharacterFeature) => void;
 }
 
 interface FeatureReorderState {
@@ -54,10 +55,12 @@ function featureLabel(feature: Dnd5eCharacterFeature): string {
 
 export function CharacterFeaturePanel({
   canEdit,
+  canSendToChat,
   features,
   onChange,
   onCommit,
   onSave,
+  onSendToChat,
 }: CharacterFeaturePanelProps) {
   const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -181,14 +184,23 @@ export function CharacterFeaturePanel({
   }, [reorderState]);
 
   const openContextMenu = (
-    event: ReactMouseEvent,
     feature: Dnd5eCharacterFeature,
+    position: { clientX: number; clientY: number },
+    returnFocus: () => void,
+    mount?: HTMLElement,
   ) => {
-    if (!canEdit) return;
-    event.preventDefault();
+    if (!canEdit && !canSendToChat) return;
     const index = features.findIndex(({ id }) => id === feature.id);
     let deleteArmedUntil = 0;
     const entries: ContextMenuEntry[] = [
+      {
+        disabled: !canSendToChat,
+        kind: 'action',
+        label: 'Send To Chat',
+        onSelect: () => onSendToChat(feature),
+      },
+    ];
+    if (canEdit) entries.push(
       {
         disabled: index <= 0,
         kind: 'action',
@@ -204,7 +216,11 @@ export function CharacterFeaturePanel({
       {
         kind: 'action',
         label: 'Reorder Feature Freely',
-        onSelect: () => beginReorder(feature, event.clientX, event.clientY),
+        onSelect: () => beginReorder(
+          feature,
+          position.clientX,
+          position.clientY,
+        ),
       },
       { kind: 'divider' },
       {
@@ -238,16 +254,14 @@ export function CharacterFeaturePanel({
           void onCommit({ id: feature.id, kind: 'delete' });
         },
       },
-    ];
+    );
     menuRef.current?.open(
-      event.clientX,
-      event.clientY,
+      position.clientX,
+      position.clientY,
       `${featureLabel(feature)} actions`,
       entries,
-      () => listRef.current
-        ?.querySelector<HTMLElement>(`[data-feature-order-id="${feature.id}"] button`)
-        ?.focus(),
-      listRef.current?.closest('dialog') ?? undefined,
+      returnFocus,
+      mount,
     );
   };
 
@@ -277,7 +291,36 @@ export function CharacterFeaturePanel({
                 data-feature-order-id={feature.id}
                 data-reordering={reorderState?.activeId === feature.id}
                 key={feature.id}
-                onContextMenu={(event) => openContextMenu(event, feature)}
+                onContextMenu={(event) => {
+                  if (!canEdit && !canSendToChat) return;
+                  event.preventDefault();
+                  const focused = event.target instanceof HTMLElement
+                    ? event.target
+                    : null;
+                  openContextMenu(
+                    feature,
+                    event,
+                    () => focused?.focus(),
+                    event.currentTarget.closest('dialog') ?? undefined,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'ContextMenu' &&
+                    !(event.shiftKey && event.key === 'F10')
+                  ) return;
+                  event.preventDefault();
+                  const focused = event.target instanceof HTMLElement
+                    ? event.target
+                    : null;
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  openContextMenu(
+                    feature,
+                    { clientX: bounds.left + 24, clientY: bounds.bottom },
+                    () => focused?.focus(),
+                    event.currentTarget.closest('dialog') ?? undefined,
+                  );
+                }}
                 role="listitem"
               >
                 <Collapsible

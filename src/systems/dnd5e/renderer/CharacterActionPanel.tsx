@@ -23,7 +23,7 @@ import { OrderedCollectionController } from '../../../components/ui/orderedColle
 import {
   CHAT_ROLL_SEND_TIMEOUT_MS,
 } from '../../../shared/chatRoll';
-import type { NetworkApi } from '../../../shared/network';
+import type { CharacterSheetNetworkApi } from '../../../shared/journalWindows';
 import {
   compileDnd5eCharacterAction,
   dnd5eActionPurposeLabel,
@@ -59,7 +59,7 @@ interface CharacterActionPanelProps {
   canEdit: boolean;
   data: Dnd5eCharacterData;
   derived: Dnd5eDerivedCharacterValues;
-  networkApi?: NetworkApi;
+  networkApi?: CharacterSheetNetworkApi;
   onChange: (mutation: Dnd5eCharacterActionMutation) => boolean;
   onCommit: (mutation: Dnd5eCharacterActionMutation) => Promise<boolean>;
   onError: (message: string) => void;
@@ -979,7 +979,9 @@ export function CharacterActionPanel({
     setPendingIds((current) => new Set(current).add(action.id));
     let timer = 0;
     try {
-      const timeout = new Promise<Awaited<ReturnType<NetworkApi['sendChatRoll']>>>((resolve) => {
+      const timeout = new Promise<
+        Awaited<ReturnType<CharacterSheetNetworkApi['sendChatRoll']>>
+      >((resolve) => {
         timer = window.setTimeout(() => resolve({
           error: { code: 'timeout', message: 'The host did not acknowledge this roll.' },
           ok: false,

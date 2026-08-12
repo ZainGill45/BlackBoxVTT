@@ -31,12 +31,15 @@ import {
 } from '../../shared/journal';
 import type { PermissionSubject } from '../../shared/permissions';
 import type { NetworkApi } from '../../shared/network';
+import type { JournalWindowApi } from '../../shared/journalWindows';
 import {
   createDefaultCampaignSystemState,
   listJournalEntryTypeDefinitions,
 } from '../../systems/catalog';
 import {
   hasSystemJournalEntryRenderer,
+  hasDetachedSystemJournalEntryRenderer,
+  measureDetachedSystemJournalEntry,
   SystemJournalEntryModal,
 } from '../../systems/rendererRegistry';
 import {
@@ -56,6 +59,7 @@ interface JournalPanelProps {
   assetApi?: AssetApi;
   campaignId?: string;
   journalApi?: JournalApi;
+  journalWindowApi?: JournalWindowApi;
   networkApi?: NetworkApi;
   role?: 'gm' | 'player';
   system?: CampaignSystemState;
@@ -141,6 +145,7 @@ export function JournalPanel({
   assetApi,
   campaignId = '',
   journalApi,
+  journalWindowApi,
   networkApi,
   role = 'gm',
   system,
@@ -151,6 +156,7 @@ export function JournalPanel({
       assetApi={assetApi}
       campaignId={campaignId}
       journalApi={journalApi}
+      journalWindowApi={journalWindowApi}
       networkApi={networkApi}
       role={role}
       system={system ?? createDefaultCampaignSystemState()!}
@@ -180,10 +186,12 @@ function ConnectedJournalPanel({
   assetApi,
   campaignId,
   journalApi,
+  journalWindowApi,
   networkApi,
   role,
   system,
-}: Required<Omit<JournalPanelProps, 'networkApi'>> & Pick<JournalPanelProps, 'networkApi'>) {
+}: Required<Omit<JournalPanelProps, 'journalWindowApi' | 'networkApi'>> &
+  Pick<JournalPanelProps, 'journalWindowApi' | 'networkApi'>) {
   const entryTypes = useMemo(
     () => listJournalEntryTypeDefinitions(system),
     [system],
@@ -472,6 +480,20 @@ function ConnectedJournalPanel({
   };
 
   const openSystemEntry = async (entry: JournalEntrySummary) => {
+    if (
+      journalWindowApi &&
+      hasDetachedSystemJournalEntryRenderer(entry.typeId)
+    ) {
+      const focused = await journalWindowApi.focusCharacter({
+        campaignId,
+        entryId: entry.id,
+      });
+      if (!focused.ok) {
+        setError(focused.error.message);
+        return;
+      }
+      if (focused.value) return;
+    }
     const result = await journalApi.getEntry({ campaignId, entryId: entry.id });
     if (!result.ok) {
       setError(result.error.message);
@@ -482,6 +504,21 @@ function ConnectedJournalPanel({
       return;
     }
     setSelectedSystemEntry(result.value);
+  };
+
+  const openDetachedSystemEntry = async (entry: JournalEntrySummary) => {
+    if (!journalWindowApi) return;
+    const geometry = measureDetachedSystemJournalEntry(entry.typeId);
+    if (!geometry) {
+      setError('This Journal entry cannot be opened in a detached window.');
+      return;
+    }
+    const result = await journalWindowApi.openCharacter({
+      campaignId,
+      entryId: entry.id,
+      geometry,
+    });
+    if (!result.ok) setError(result.error.message);
   };
 
   const renameEntry = async (entry: JournalEntrySummary, name: string) => {
@@ -511,6 +548,17 @@ function ConnectedJournalPanel({
        menu the user dismissed. Independent of the row's own trash button,
        which arms through useDeleteConfirmation. */
     let deleteArmedUntil = 0;
+    if (
+      journalWindowApi &&
+      entry.capabilities.view &&
+      hasDetachedSystemJournalEntryRenderer(entry.typeId)
+    ) {
+      entries.push({
+        kind: 'action',
+        label: 'Open Detached',
+        onSelect: () => void openDetachedSystemEntry(entry),
+      });
+    }
     if (entry.capabilities.managePermissions) {
       entries.push({
         kind: 'action',

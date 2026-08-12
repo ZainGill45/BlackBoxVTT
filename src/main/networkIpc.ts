@@ -181,7 +181,7 @@ function invalidInput<T>(): NetworkResult<T> {
 export function registerNetworkIpcHandlers(
   ipc: IpcMain,
   manager: NetworkManager,
-  getAllowedWebContents: () => WebContents | null,
+  getAllowedWebContents: () => readonly WebContents[],
 ) {
   const channels = Object.values(networkIpcChannels).filter(
     (channel) =>
@@ -197,7 +197,7 @@ export function registerNetworkIpcHandlers(
   channels.forEach((channel) => ipc.removeHandler(channel));
 
   const isAllowed = (event: IpcMainInvokeEvent) =>
-    event.sender === getAllowedWebContents();
+    getAllowedWebContents().includes(event.sender);
 
   const handle = <T>(
     channel: string,
@@ -373,9 +373,10 @@ const shapePreviewSchema = campaignIdSchema
   });
 
   const send = (channel: string, value: unknown) => {
-    const webContents = getAllowedWebContents();
-    if (webContents && !webContents.isDestroyed()) {
-      webContents.send(channel, value);
+    for (const webContents of getAllowedWebContents()) {
+      if (!webContents.isDestroyed()) {
+        webContents.send(channel, value);
+      }
     }
   };
   const onHostStatus = (status: unknown) =>

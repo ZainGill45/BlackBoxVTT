@@ -1,7 +1,13 @@
 import { NumberGenerator } from '@dice-roller/rpg-dice-roller';
 import { describe, expect, it } from 'vitest';
 import { rollChatCard } from '../../../main/diceRoller';
-import { compileDnd5eCharacterAction } from '../../../systems/dnd5e/characterActions';
+import {
+  compileDnd5eCharacterAction,
+  createDnd5eAbilityRollDefinition,
+  createDnd5eHitDieRollDefinition,
+  createDnd5eSkillRollDefinition,
+  createDnd5eStatisticRollDefinition,
+} from '../../../systems/dnd5e/characterActions';
 import {
   createDefaultDnd5eCharacterData,
   deriveDnd5eCharacterValues,
@@ -84,6 +90,97 @@ function fixture() {
 }
 
 describe('D&D Character Action compilation', () => {
+  it('builds checks and saving throws from their current derived totals', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.abilities.strength.modifierOffset = 1;
+    data.abilities.strength.savingThrowOffset = 2;
+    data.abilities.strength.score = 16;
+    data.abilities.constitution.score = 14;
+    data.abilities.dexterity.score = 14;
+    data.importantStats.concentrationSaveOffset = 1;
+    data.identity.className = 'Fighter';
+    data.identity.level = 5;
+    const derived = deriveDnd5eCharacterValues(data, '5.5e');
+    if (!derived) throw new Error('Fixture Character must derive.');
+
+    expect(createDnd5eAbilityRollDefinition(
+      'strength',
+      derived,
+      'check',
+    )).toEqual({
+      category: 'Ability Check',
+      sections: [{
+        label: 'Strength',
+        modifiers: [{ label: 'Ability Check', value: 4 }],
+        notation: '1d20',
+        typeLabel: 'Ability Check',
+      }],
+      title: null,
+    });
+    expect(createDnd5eAbilityRollDefinition(
+      'strength',
+      derived,
+      'saving-throw',
+    )).toMatchObject({
+      category: 'Saving Throw',
+      sections: [{
+        modifiers: [{ label: 'Saving Throw', value: 9 }],
+        typeLabel: 'Saving Throw',
+      }],
+    });
+    expect(createDnd5eStatisticRollDefinition(derived, 'initiative')).toEqual({
+      category: 'Initiative',
+      sections: [{
+        label: 'Initiative',
+        modifiers: [{ label: 'Initiative', value: 2 }],
+        notation: '1d20',
+        typeLabel: null,
+      }],
+      title: null,
+    });
+    expect(createDnd5eStatisticRollDefinition(
+      derived,
+      'concentration',
+    )).toEqual({
+      category: 'Saving Throw',
+      sections: [{
+        label: 'Concentration',
+        modifiers: [{ label: 'Saving Throw', value: 6 }],
+        notation: '1d20',
+        typeLabel: 'Saving Throw',
+      }],
+      title: null,
+    });
+  });
+
+  it('builds a healing roll from a configured D&D Hit Die', () => {
+    expect(createDnd5eHitDieRollDefinition(' D10 ')).toEqual({
+      category: 'Hit Dice',
+      sections: [{
+        label: 'Hit Die',
+        modifiers: [],
+        notation: '1d10',
+        typeLabel: 'Healing',
+      }],
+      title: null,
+    });
+    expect(createDnd5eHitDieRollDefinition('d20')).toBeNull();
+    expect(createDnd5eHitDieRollDefinition('not dice')).toBeNull();
+  });
+
+  it('builds skill checks from current derived bonuses', () => {
+    expect(createDnd5eSkillRollDefinition('  Sleight of Hand  ', 7)).toEqual({
+      category: 'Skill Check',
+      sections: [{
+        label: 'Sleight of Hand',
+        modifiers: [{ label: 'Skill Check', value: 7 }],
+        notation: '1d20',
+        typeLabel: 'Skill Check',
+      }],
+      title: null,
+    });
+  });
+
   it('resolves current values, custom dice and types, tiers, prompts, and effects in order', () => {
     const { action, data, derived } = fixture();
     const compiled = compileDnd5eCharacterAction(action, data, derived);

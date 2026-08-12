@@ -18,6 +18,10 @@
   background: var(--color-overlay-surface);
   border: var(--border-width) solid var(--color-border);
   box-shadow: var(--shadow-panel);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-standard);
 }
 
 .item {

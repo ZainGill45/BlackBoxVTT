@@ -753,6 +753,9 @@ describe('chat delivery', () => {
       expect(
         observerChatEvents.filter((event) => event.type === 'message'),
       ).toHaveLength(1);
+      expect(
+        playerChatEvents.filter((event) => event.type === 'message'),
+      ).toHaveLength(1);
     });
   });
 
@@ -774,6 +777,9 @@ describe('chat delivery', () => {
     await vi.waitFor(() => {
       expect(
         observerChatEvents.filter((event) => event.type === 'message'),
+      ).toHaveLength(2);
+      expect(
+        playerChatEvents.filter((event) => event.type === 'message'),
       ).toHaveLength(2);
     });
   });
@@ -803,8 +809,11 @@ describe('chat delivery', () => {
     await vi.waitFor(() => {
       expect(
         playerChatEvents.filter((event) => event.type === 'message'),
-      ).toHaveLength(1);
+      ).toHaveLength(3);
     });
+    expect(
+      hostChatEvents.filter((event) => event.type === 'message'),
+    ).toHaveLength(2);
     expect(
       observerChatEvents.filter((event) => event.type === 'message'),
     ).toHaveLength(2);

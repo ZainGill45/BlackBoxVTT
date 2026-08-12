@@ -28,6 +28,7 @@ test.describe('application launch', () => {
       'assets',
       'campaigns',
       'journal',
+      'journalWindows',
       'network',
       'scenes',
     ]);

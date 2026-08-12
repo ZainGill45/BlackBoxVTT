@@ -88,7 +88,7 @@ async function buildDiceRollWorker() {
   });
 }
 
-async function buildPreload() {
+async function buildPreload(entryName = 'preload') {
   await build({
     configFile: false,
     root,
@@ -102,7 +102,7 @@ async function buildPreload() {
         external: [...external, 'electron/renderer'],
         // Preload can pull in web assets, so Forge uses `input` rather than
         // `lib.entry` here.
-        input: path.join(root, 'src/preload.ts'),
+        input: path.join(root, `src/${entryName}.ts`),
         output: {
           assetFileNames: '[name].[ext]',
           chunkFileNames: '[name].js',
@@ -130,6 +130,12 @@ async function buildRenderer() {
       copyPublicDir: true,
       emptyOutDir: true,
       outDir: path.join(root, `.vite/renderer/${RENDERER_NAME}`),
+      rollupOptions: {
+        input: {
+          detachedCharacter: path.join(root, 'detached-character.html'),
+          main: path.join(root, 'index.html'),
+        },
+      },
     },
   });
 }
@@ -138,6 +144,7 @@ async function buildRenderer() {
 // emptyOutDir disabled, and concurrent writes there have no ordering guarantee.
 await buildMain();
 await buildPreload();
+await buildPreload('detachedCharacterPreload');
 await buildDiceRollWorker();
 await buildRenderer();
 

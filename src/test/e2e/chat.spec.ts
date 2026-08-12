@@ -148,7 +148,7 @@ test.describe('campaign chat', () => {
   test('reveals every term in a compound roll audit', async () => {
     const log = chatLog(gm.window);
     await sendChat(gm.window, '/r 4d4 + 4 + 2d8 + 10');
-    const heading = log.getByText('4D4 + 4 + 2D8 + 10', { exact: true });
+    const heading = log.getByText('4d4 + 4 + 2d8 + 10', { exact: true });
     const revealAudit = log.getByRole('button', {
       name: 'Show rolls for 4d4 + 4 + 2d8 + 10',
     });
@@ -168,8 +168,8 @@ test.describe('campaign chat', () => {
     );
     const log = chatLog(gm.window);
     for (const [label, flag, outcome] of [
-      ['SUCCESS', 'crit', /^(?:mixed|success)$/],
-      ['FAILURE', 'crit-fail', /^(?:failure|mixed)$/],
+      ['Success', 'crit', /^(?:mixed|success)$/],
+      ['Failure', 'crit-fail', /^(?:failure|mixed)$/],
     ] as const) {
       const section = log.getByText(label, { exact: true }).locator('xpath=../../..');
       await expect(section).toHaveAttribute('data-outcome', outcome);

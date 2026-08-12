@@ -71,11 +71,12 @@ type RolledSection =
 function rollKind(section: {
   kind?: string;
   typeLabel: string | null;
-}): 'attack' | 'damage' | 'general' | 'healing' {
+}): 'attack' | 'damage' | 'general' | 'healing' | 'save' {
   if (section.kind === 'conditional-roll') return 'damage';
   const type = section.typeLabel?.trim().toLocaleLowerCase() ?? '';
   if (type === 'attack') return 'attack';
   if (type === 'healing') return 'healing';
+  if (type === 'save' || type === 'saving throw') return 'save';
   return type ? 'damage' : 'general';
 }
 

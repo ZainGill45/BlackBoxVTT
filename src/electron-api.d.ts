@@ -3,6 +3,10 @@ import type { AssetApi } from './shared/assets';
 import type { CampaignApi } from './shared/campaigns';
 import type { NetworkApi } from './shared/network';
 import type { JournalApi } from './shared/journal';
+import type {
+  DetachedCharacterApi,
+  JournalWindowApi,
+} from './shared/journalWindows';
 import type { SceneApi } from './shared/scenes';
 
 declare global {
@@ -14,9 +18,11 @@ declare global {
       assets: AssetApi;
       campaigns: CampaignApi;
       journal: JournalApi;
+      journalWindows: JournalWindowApi;
       network: NetworkApi;
       scenes: SceneApi;
     };
+    blackBoxDetachedCharacter: DetachedCharacterApi;
   }
 }
 

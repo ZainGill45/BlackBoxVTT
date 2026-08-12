@@ -285,10 +285,14 @@ describe('architecture boundaries', () => {
   });
 
   it('keeps preload bridge access at the app composition root', () => {
+    const compositionRoots = new Set([
+      'src/app/App.tsx',
+      'src/detachedCharacterRenderer.tsx',
+    ]);
     const offenders = files
       .filter((file) => readFileSync(file, 'utf8').includes('window.blackBox'))
       .map(label)
-      .filter((file) => file !== 'src/app/App.tsx');
+      .filter((file) => !compositionRoots.has(file));
     expect(offenders).toEqual([]);
   });
 
@@ -337,6 +341,9 @@ describe('architecture boundaries', () => {
       'AssetApi',
       'CampaignApi',
       'CampaignNetworkSession',
+      'DetachedCharacterApi',
+      'DetachedCharacterHostApi',
+      'JournalWindowApi',
       'NetworkApi',
       'SceneApi',
       'SceneRendererHandle',

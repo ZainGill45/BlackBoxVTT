@@ -16,6 +16,8 @@ export default function globalSetup(): void {
     const requiredArtifacts = [
       '.vite/build/main.js',
       '.vite/build/preload.js',
+      '.vite/build/detachedCharacterPreload.js',
+      '.vite/renderer/main_window/detached-character.html',
       '.vite/renderer/main_window/index.html',
     ];
     const missing = requiredArtifacts.filter(

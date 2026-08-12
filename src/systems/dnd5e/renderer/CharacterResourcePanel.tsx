@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
@@ -25,9 +24,11 @@ import styles from './CharacterSheetModal.module.css';
 
 interface CharacterResourcePanelProps {
   canEdit: boolean;
+  canSendToChat: boolean;
   onChange: (mutation: Dnd5eCharacterResourceMutation) => boolean;
   onCommit: (mutation: Dnd5eCharacterResourceMutation) => Promise<boolean>;
   onSave: () => Promise<boolean>;
+  onSendToChat: (resource: Dnd5eCharacterResource) => void;
   resources: readonly Dnd5eCharacterResource[];
 }
 
@@ -44,9 +45,11 @@ function resourceLabel(resource: Dnd5eCharacterResource): string {
 
 export function CharacterResourcePanel({
   canEdit,
+  canSendToChat,
   onChange,
   onCommit,
   onSave,
+  onSendToChat,
   resources,
 }: CharacterResourcePanelProps) {
   const [numericBuffers, setNumericBuffers] = useState<Readonly<Record<string, string>>>({});
@@ -167,14 +170,23 @@ export function CharacterResourcePanel({
   }, [reorderState]);
 
   const openContextMenu = (
-    event: ReactMouseEvent,
     resource: Dnd5eCharacterResource,
+    position: { clientX: number; clientY: number },
+    returnFocus: () => void,
+    mount?: HTMLElement,
   ) => {
-    if (!canEdit) return;
-    event.preventDefault();
+    if (!canEdit && !canSendToChat) return;
     const index = resources.findIndex(({ id }) => id === resource.id);
     let deleteArmedUntil = 0;
     const entries: ContextMenuEntry[] = [
+      {
+        disabled: !canSendToChat,
+        kind: 'action',
+        label: 'Send To Chat',
+        onSelect: () => onSendToChat(resource),
+      },
+    ];
+    if (canEdit) entries.push(
       {
         disabled: index <= 0,
         kind: 'action',
@@ -190,7 +202,11 @@ export function CharacterResourcePanel({
       {
         kind: 'action',
         label: 'Reorder Resource Freely',
-        onSelect: () => beginReorder(resource, event.clientX, event.clientY),
+        onSelect: () => beginReorder(
+          resource,
+          position.clientX,
+          position.clientY,
+        ),
       },
       { kind: 'divider' },
       {
@@ -224,16 +240,14 @@ export function CharacterResourcePanel({
           void onCommit({ id: resource.id, kind: 'delete' });
         },
       },
-    ];
+    );
     menuRef.current?.open(
-      event.clientX,
-      event.clientY,
+      position.clientX,
+      position.clientY,
       `${resourceLabel(resource)} actions`,
       entries,
-      () => listRef.current
-        ?.querySelector<HTMLElement>(`[data-resource-order-id="${resource.id}"] input`)
-        ?.focus(),
-      listRef.current?.closest('dialog') ?? undefined,
+      returnFocus,
+      mount,
     );
   };
 
@@ -280,7 +294,35 @@ export function CharacterResourcePanel({
                 data-reordering={reorderState?.activeId === resource.id}
                 data-resource-order-id={resource.id}
                 key={resource.id}
-                onContextMenu={(event) => openContextMenu(event, resource)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  const focused = event.target instanceof HTMLElement
+                    ? event.target
+                    : null;
+                  openContextMenu(
+                    resource,
+                    event,
+                    () => focused?.focus(),
+                    event.currentTarget.closest('dialog') ?? undefined,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'ContextMenu' &&
+                    !(event.shiftKey && event.key === 'F10')
+                  ) return;
+                  event.preventDefault();
+                  const focused = event.target instanceof HTMLElement
+                    ? event.target
+                    : null;
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  openContextMenu(
+                    resource,
+                    { clientX: bounds.left + 24, clientY: bounds.bottom },
+                    () => focused?.focus(),
+                    event.currentTarget.closest('dialog') ?? undefined,
+                  );
+                }}
                 role="listitem"
               >
                 <InlineInput

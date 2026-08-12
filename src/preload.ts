@@ -4,6 +4,7 @@ import { createAssetApi } from './preload/assetApi';
 import { createCampaignApi } from './preload/campaignApi';
 import { createNetworkApi } from './preload/networkApi';
 import { createJournalApi } from './preload/journalApi';
+import { createJournalWindowApi } from './preload/journalWindowApi';
 import { createSceneApi } from './preload/sceneApi';
 
 contextBridge.exposeInMainWorld('blackBox', {
@@ -16,6 +17,9 @@ contextBridge.exposeInMainWorld('blackBox', {
     ipcRenderer.invoke(channel, input),
   ),
   journal: createJournalApi(ipcRenderer),
+  journalWindows: createJournalWindowApi((channel, input) =>
+    ipcRenderer.invoke(channel, input),
+  ),
   network: createNetworkApi(ipcRenderer),
   scenes: createSceneApi(ipcRenderer),
 });

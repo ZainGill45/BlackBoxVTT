@@ -46,7 +46,7 @@ describe('network IPC sender authorization', () => {
         removeHandler: vi.fn(),
       } as never,
       { connect, off: vi.fn(), on: vi.fn() } as unknown as NetworkManager,
-      () => allowedSender as never,
+      () => [allowedSender as never],
     );
   });
 
@@ -115,7 +115,7 @@ describe('network IPC live traffic', () => {
         sendChatRoll,
         sendMeasurementUpdate,
       } as unknown as NetworkManager,
-      () => webContents as never,
+      () => [webContents as never],
     );
   });
 

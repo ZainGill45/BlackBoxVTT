@@ -778,4 +778,211 @@ test.describe('local Journal durability', () => {
     await expect(sheet.getByLabel('Ki current')).toHaveValue('5');
     await expect(sheet.getByLabel('Ki maximum')).toHaveValue('4');
   });
+
+  test('shares Character values and stops consuming Hit Dice at zero', async () => {
+    const { window } = await apps.launch();
+    await createAndOpenCampaign(window, CAMPAIGN);
+    await window.getByRole('tab', { name: 'Journal' }).click();
+    await window.getByRole('button', { name: 'Add journal entry' }).click();
+    await window.getByRole('menuitem', { name: 'Character' }).click();
+    const sheet = window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+
+    await sheet.getByLabel('Armor Class').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.getByLabel('Temporary hit points').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.getByRole('button', { name: 'Add Resource' }).click();
+    const resourceName = sheet.getByLabel('New Resource name');
+    await resourceName.fill('Focus');
+    await sheet.getByLabel('Focus name').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.getByRole('button', { name: 'Roll Hit Die' }).click();
+    await expect(sheet.getByLabel('Current hit dice')).toHaveValue('0');
+    await sheet.getByRole('button', { name: 'Roll Hit Die' }).click();
+    await expect(sheet.getByLabel('Current hit dice')).toHaveValue('0');
+
+    await sheet.getByRole('button', { name: 'Roll Athletics' }).click();
+
+    await sheet.getByRole('button', { name: 'Add Custom Skill' }).click();
+    await sheet.getByLabel('New Skill name').fill('Recall');
+    await sheet.getByLabel('Recall name').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.getByRole('button', { name: 'Add Item' }).click();
+    await sheet.getByLabel('New Item name').fill('Torch');
+    await sheet.getByLabel('Torch quantity').fill('2');
+    await sheet.getByLabel('Torch weight in pounds').fill('1');
+    await sheet.getByLabel('Torch name').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.getByRole('button', { name: 'Add Container' }).click();
+    await sheet.getByLabel('New Container name').fill('Backpack');
+    await sheet.getByLabel('Backpack weight in pounds').fill('5');
+    await sheet.getByLabel('Backpack capacity in pounds').fill('30');
+    const backpackContents = sheet.getByRole('group', { name: 'Backpack contents' });
+    await backpackContents.getByRole('button', { name: 'Add Item' }).click();
+    await backpackContents.getByLabel('New Item name').fill('Rations');
+    await backpackContents.getByLabel('Rations quantity').fill('3');
+    await backpackContents.getByLabel('Rations weight in pounds').fill('2');
+    await sheet.getByLabel('Backpack name').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.getByRole('button', { name: 'Add Feature' }).click();
+    await sheet.getByLabel('New Feature name').fill('Rage');
+    await sheet.getByRole('button', { name: 'Rage type' }).click();
+    await sheet.getByRole('group', { name: 'Rage type options' })
+      .getByRole('button', { name: 'Feature' })
+      .click();
+    await sheet.getByLabel('Rage source', { exact: true }).fill('Barbarian 1');
+    await sheet.getByLabel('Rage source type').fill('Class Feature');
+    await sheet.getByLabel('Rage description').fill(
+      'Gain advantage on Strength checks.\nUsable while raging.',
+    );
+    await sheet.getByLabel('Rage name').click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Send To Chat' }).click();
+
+    await sheet.press('Escape');
+    await window.getByRole('tab', { name: 'Chat' }).click();
+
+    const chat = window.getByRole('log', { name: 'Campaign chat' });
+    await expect(chat.getByText('Armor Class: 10')).toBeVisible();
+    await expect(chat.getByText('Temp HP: 0')).toBeVisible();
+    await expect(chat.getByText('Focus: 0/0')).toBeVisible();
+    await expect(chat.getByText('Hit Die')).toHaveCount(2);
+    await expect(chat.getByText('Hit Die').first()).toBeVisible();
+    await expect(chat.getByText('Athletics', { exact: true })).toBeVisible();
+    await expect(chat.getByText('Recall', { exact: true })).toBeVisible();
+    await expect(chat.getByText(/Item: Torch/u)).toContainText('Count: 2');
+    const backpackMessage = chat.getByText(/Container: Backpack/u);
+    await expect(backpackMessage).toContainText('Capacity: 30 lb');
+    await expect(backpackMessage).toContainText('Used Capacity: 6 lb');
+    await expect(backpackMessage).toContainText('Item: Rations');
+    const featureMessage = chat.getByText(/Feature: Rage/u);
+    await expect(featureMessage).toContainText('Type: Feature');
+    await expect(featureMessage).toContainText('Source: Barbarian 1');
+    await expect(featureMessage).toContainText('Source Type: Class Feature');
+    await expect(featureMessage).toContainText('Usable while raging.');
+  });
+});
+
+test.describe('detached Character windows', () => {
+  const apps = new AppFixture();
+
+  test.afterEach(() => apps.disposeAll());
+
+  test('matches the Character modal, deduplicates, synchronizes, and closes with the campaign', async () => {
+    const { app, window } = await apps.launch();
+    await createAndOpenCampaign(window, CAMPAIGN);
+    await window.getByRole('tab', { name: 'Journal' }).click();
+    await window.getByRole('button', { name: 'Add journal entry' }).click();
+    await window.getByRole('menuitem', { name: 'Character' }).click();
+    const modal = window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await expect(modal).toBeVisible();
+    const modalBounds = await modal.boundingBox();
+    const mainRootFontSize = await window.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+    );
+    await modal.press('Escape');
+
+    const row = window.getByRole('button', { name: 'Open New Character' });
+    await row.click({ button: 'right' });
+    const detachedPromise = app.waitForEvent('window');
+    await window.getByRole('menuitem', { name: 'Open Detached' }).click();
+    const detached = await detachedPromise;
+    const sheet = detached.getByRole('document', {
+      name: 'New Character character sheet',
+    });
+    await expect(sheet).toBeVisible();
+
+    const detachedGeometry = await detached.evaluate(() => ({
+      height: globalThis.innerHeight,
+      rootFontSize: Number.parseFloat(
+        getComputedStyle(document.documentElement).fontSize,
+      ),
+      width: globalThis.innerWidth,
+    }));
+    const nativeGeometry = await app.evaluate(({ BrowserWindow, screen }) => {
+      const target = BrowserWindow.getAllWindows().find(
+        (candidate) => !candidate.isResizable(),
+      );
+      if (!target) return null;
+      const bounds = target.getBounds();
+      const [contentWidth, contentHeight] = target.getContentSize();
+      return {
+        alwaysOnTop: target.isAlwaysOnTop(),
+        bounds,
+        contentHeight,
+        contentWidth,
+        workArea: screen.getDisplayMatching(bounds).workArea,
+      };
+    });
+    expect(nativeGeometry).not.toBeNull();
+    const frameHeight = nativeGeometry!.bounds.height - nativeGeometry!.contentHeight;
+    expect(detachedGeometry.width).toBe(Math.round(modalBounds!.width));
+    expect(detachedGeometry.height).toBe(Math.min(
+      Math.round(modalBounds!.height),
+      nativeGeometry!.workArea.height - frameHeight,
+    ));
+    expect(nativeGeometry!.contentWidth).toBe(detachedGeometry.width);
+    expect(nativeGeometry!.contentHeight).toBe(detachedGeometry.height);
+    expect(nativeGeometry!.bounds.y + nativeGeometry!.bounds.height).toBeLessThanOrEqual(
+      nativeGeometry!.workArea.y + nativeGeometry!.workArea.height,
+    );
+    expect(nativeGeometry!.alwaysOnTop).toBe(true);
+    expect(detachedGeometry.rootFontSize).toBe(mainRootFontSize);
+    expect(
+      await detached.locator('[data-character-sheet-viewport]').evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+    expect(
+      await app.evaluate(({ BrowserWindow }) => {
+        const target = BrowserWindow.getAllWindows().find(
+          (candidate) => !candidate.isFullScreen(),
+        );
+        return target
+          ? {
+              fullscreenable: target.isFullScreenable(),
+              maximizable: target.isMaximizable(),
+              resizable: target.isResizable(),
+            }
+          : null;
+      }),
+    ).toEqual({
+      fullscreenable: false,
+      maximizable: false,
+      resizable: false,
+    });
+
+    await row.click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Open Detached' }).click();
+    expect(
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+    ).toBe(2);
+    await row.click();
+    await expect(
+      window.getByRole('dialog', { name: 'New Character character sheet' }),
+    ).toHaveCount(0);
+
+    const name = sheet.getByRole('textbox', { name: 'Name' });
+    await name.fill('Aria');
+    await name.blur();
+    await expect(
+      window.getByRole('button', { name: 'Open Aria' }),
+    ).toBeVisible();
+    await expect.poll(() => detached.title()).toBe('Aria');
+
+    await window.getByRole('button', { name: 'Logout' }).click();
+    await expect(window.getByRole('tab', { name: 'Create Campaign' })).toBeVisible();
+    await expect.poll(() => app.evaluate(
+      ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+    )).toBe(1);
+  });
 });

@@ -9,6 +9,7 @@ import type { AssetApi } from '../../shared/assets';
 import type { SceneApi } from '../../shared/scenes';
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import type { JournalApi } from '../../shared/journal';
+import type { JournalWindowApi } from '../../shared/journalWindows';
 
 export type PlaySession =
   | {
@@ -71,6 +72,7 @@ export interface PlayScreenProps {
   applicationApi: ApplicationApi;
   assetApi: AssetApi;
   journalApi?: JournalApi;
+  journalWindowApi?: JournalWindowApi;
   networkApi: NetworkApi;
   onExit: () => void;
   onLayerChange?: (id: PlayLayerId) => void;

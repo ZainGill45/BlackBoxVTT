@@ -23,6 +23,8 @@ import { CampaignRuntimeRegistry } from './main/campaignRuntime';
 import { CampaignWorkspaceRegistry } from './main/campaignWorkspace';
 import { registerJournalIpcHandlers } from './main/journalIpc';
 import { JournalManager } from './main/journalManager';
+import { registerJournalWindowIpcHandlers } from './main/journalWindowIpc';
+import { JournalWindowManager } from './main/journalWindowManager';
 import { ConnectionHistoryRepository } from './main/network/connectionHistoryRepository';
 import { NetworkManager } from './main/network/networkManager';
 import { registerNetworkIpcHandlers } from './main/networkIpc';
@@ -71,6 +73,7 @@ let networkManager: NetworkManager | null = null;
 let assetManager: AssetManager | null = null;
 let sceneManager: SceneManager | null = null;
 let journalManager: JournalManager | null = null;
+let journalWindowManager: JournalWindowManager | null = null;
 const assetPreviewRegistry = new AssetPreviewRegistry();
 let shutdownComplete = false;
 let shutdownPromise: Promise<void> | null = null;
@@ -80,7 +83,9 @@ const requestQuit = () => {
     app.quit();
     return;
   }
-  shutdownPromise ??= (networkManager?.shutdown() ?? Promise.resolve())
+  shutdownPromise ??= (journalWindowManager?.closeAll() ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(() => networkManager?.shutdown())
     .catch(() => undefined)
     .then(() => {
       assetPreviewRegistry.clear();
@@ -246,6 +251,28 @@ app.whenReady().then(() => {
     runtimes,
   });
   journalManager = new JournalManager(runtimes);
+  journalWindowManager = new JournalWindowManager({
+    getMainWindow: () => mainWindow,
+    journalManager,
+    loadWindow: (window) => {
+      if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+        return window.loadURL(
+          new URL(
+            'detached-character.html',
+            MAIN_WINDOW_VITE_DEV_SERVER_URL,
+          ).toString(),
+        );
+      }
+      return window.loadFile(
+        path.join(
+          __dirname,
+          `../renderer/${MAIN_WINDOW_VITE_NAME}/detached-character.html`,
+        ),
+      );
+    },
+    networkManager,
+    preloadPath: path.join(__dirname, 'detachedCharacterPreload.js'),
+  });
   journalManager.on('local-changed', (event: {
     campaignId: string;
     entryId?: string;
@@ -257,6 +284,9 @@ app.whenReady().then(() => {
   networkManager.on('journal-changed', (event) =>
     journalManager?.notifyRemoteChanged(event),
   );
+  networkManager.on('campaign-closed', (event: { campaignId: string }) => {
+    void journalWindowManager?.closeCampaign(event.campaignId);
+  });
   assetManager.on('changed', (event: { campaignId?: string }) => {
     if (event.campaignId) {
       void networkManager?.notifyAssetsChanged(event.campaignId);
@@ -327,12 +357,16 @@ app.whenReady().then(() => {
   );
   mainWindow.on('closed', () => {
     mainWindow = null;
+    void journalWindowManager?.closeAll();
   });
   revealTimer = setTimeout(revealMainWindow, REVEAL_TIMEOUT_MS);
   registerNetworkIpcHandlers(
     ipcMain,
     networkManager,
-    () => mainWindow?.webContents ?? null,
+    () => [
+      ...(mainWindow?.webContents ? [mainWindow.webContents] : []),
+      ...(journalWindowManager?.getWebContents() ?? []),
+    ],
   );
   registerAssetIpcHandlers(
     ipcMain,
@@ -347,8 +381,18 @@ app.whenReady().then(() => {
   registerJournalIpcHandlers(
     ipcMain,
     journalManager,
+    (sender) =>
+      sender === mainWindow?.webContents ||
+      Boolean(journalWindowManager?.isAllowedSender(sender)),
+    () => [
+      ...(mainWindow?.webContents ? [mainWindow.webContents] : []),
+      ...(journalWindowManager?.getWebContents() ?? []),
+    ],
+  );
+  registerJournalWindowIpcHandlers(
+    ipcMain,
+    journalWindowManager,
     (sender) => sender === mainWindow?.webContents,
-    () => (mainWindow?.webContents ? [mainWindow.webContents] : []),
   );
   registerApplicationIpcHandlers(
     ipcMain,
@@ -379,8 +423,12 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createWindow();
+    mainWindow.on('closed', () => {
+      mainWindow = null;
+      void journalWindowManager?.closeAll();
+    });
     // Reopening has no ready signal to wait for, so it shows itself as soon as
     // it can paint. Without this the new window would stay invisible forever.
     mainWindow.once('ready-to-show', () => revealMainWindow());

@@ -318,4 +318,73 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByRole('button', { name: 'Expand Backpack' })).toBeDisabled();
     await expect(playerSheet.getByLabel('Rations name')).toHaveCount(0);
   });
+
+  test('closes a detached player sheet when view permission is revoked', async () => {
+    const gm = await apps.launch();
+    const player = await apps.launch();
+    const port = await availablePort();
+    await createAndOpenCampaign(gm.window, CAMPAIGN);
+    await addPlayer(gm.window, USERNAME, PASSWORD);
+    await setHostPort(gm.window, port);
+    await joinCampaign(player.window, {
+      campaign: CAMPAIGN,
+      password: PASSWORD,
+      port,
+      username: USERNAME,
+    });
+
+    await openTab(gm.window, 'Journal');
+    await gm.window.getByRole('button', { name: 'Add journal entry' }).click();
+    await gm.window.getByRole('menuitem', { name: 'Character' }).click();
+    await gm.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    }).press('Escape');
+    const gmRow = gm.window.getByRole('button', {
+      exact: true,
+      name: 'Open New Character',
+    });
+    await gmRow.click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
+    let permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
+    await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
+    await permissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'View' })
+      .click();
+    await permissions.press('Escape');
+
+    await openTab(player.window, 'Journal');
+    await player.window.locator('button[aria-expanded]', {
+      hasText: 'Characters',
+    }).click();
+    const playerRow = player.window.getByRole('button', {
+      exact: true,
+      name: 'Open New Character',
+    });
+    await playerRow.click({ button: 'right' });
+    const detachedPromise = player.app.waitForEvent('window');
+    await player.window.getByRole('menuitem', { name: 'Open Detached' }).click();
+    const detached = await detachedPromise;
+    const playerSheet = detached.getByRole('document', {
+      name: 'New Character character sheet',
+    });
+    await expect(playerSheet.getByLabel('Strength score')).toHaveAttribute(
+      'readonly',
+      '',
+    );
+
+    await gmRow.click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
+    permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
+    await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
+    await permissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'No access' })
+      .click();
+
+    await expect.poll(() => detached.isClosed()).toBe(true);
+    await expect.poll(() => player.app.evaluate(
+      ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
+    )).toBe(1);
+  });
 });

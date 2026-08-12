@@ -325,7 +325,7 @@ export class NetworkManager extends EventEmitter {
     const session = this.sessionFor(campaignId);
     return session
       ? session.getChatBootstrap()
-      : this.inactiveChat();
+      : this.inactiveChat<ChatBootstrap>();
   }
 
   async getChatHistory(
@@ -338,20 +338,34 @@ export class NetworkManager extends EventEmitter {
           generation: input.generation,
           sequence: input.sequence,
         })
-      : this.inactiveChat();
+      : this.inactiveChat<ChatHistoryPage>();
   }
 
   async sendChatMessage(
     input: SendChatMessageInput,
   ): Promise<ChatResult<ChatMessage>> {
     const session = this.sessionFor(input.campaignId);
-    return session
+    const result = session
       ? session.sendChatMessage({
           clientMessageId: input.clientMessageId,
           content: input.content,
           recipient: input.recipient,
         })
-      : this.inactiveChat();
+      : this.inactiveChat<ChatMessage>();
+    const resolved = await result;
+    if (resolved.ok) {
+      // TCP broadcasts intentionally exclude their sender. The Chat composer
+      // can merge its acknowledgement itself, but other senders such as a
+      // Character sheet do not own Chat state, so surface the authoritative
+      // message through the normal local event stream as well. Consumers
+      // merge by message ID.
+      this.emit('chat-event', {
+        campaignId: input.campaignId,
+        message: resolved.value,
+        type: 'message',
+      });
+    }
+    return resolved;
   }
 
   async sendChatRoll(input: SendChatRollInput): Promise<ChatResult<ChatMessage>> {
@@ -365,10 +379,7 @@ export class NetworkManager extends EventEmitter {
       recipient: input.recipient,
     });
     if (result.ok) {
-      // TCP broadcasts intentionally exclude their sender. Chat's composer can
-      // merge the response itself, but character actions submit through the
-      // same API without owning Chat state, so surface the acknowledged card
-      // through the normal local event stream as well. Consumers merge by ID.
+      // See sendChatMessage: non-Chat surfaces also submit roll definitions.
       this.emit('chat-event', {
         campaignId: input.campaignId,
         message: result.value,
@@ -470,6 +481,11 @@ export class NetworkManager extends EventEmitter {
     input: SceneTransformPreviewCancel,
   ): Promise<void> {
     this.hostFor(input.campaignId)?.notifyTransformCancelled(input);
+  }
+
+  getActiveCampaignSystem(campaignId: string) {
+    const session = this.sessionFor(campaignId);
+    return session ? structuredClone(session.system) : null;
   }
 
   async shutdown(): Promise<void> {

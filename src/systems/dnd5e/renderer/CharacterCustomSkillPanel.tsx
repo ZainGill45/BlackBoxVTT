@@ -3,7 +3,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import { InlineInput } from '../../../components/ui/InlineInput';
@@ -30,10 +29,13 @@ import styles from './CharacterSheetModal.module.css';
 
 interface CharacterCustomSkillPanelProps {
   canEdit: boolean;
+  canSendToChat: boolean;
   derived: Readonly<Record<string, Dnd5eSkillValues>>;
+  isSendPending: (skillId: string) => boolean;
   onChange: (mutation: Dnd5eCharacterCustomSkillMutation) => boolean;
   onCommit: (mutation: Dnd5eCharacterCustomSkillMutation) => Promise<boolean>;
   onSave: () => Promise<boolean>;
+  onSendToChat: (skill: Dnd5eCharacterCustomSkill) => void;
   skills: readonly Dnd5eCharacterCustomSkill[];
 }
 
@@ -64,10 +66,13 @@ function skillLabel(skill: Dnd5eCharacterCustomSkill): string {
 
 export function CharacterCustomSkillPanel({
   canEdit,
+  canSendToChat,
   derived,
+  isSendPending,
   onChange,
   onCommit,
   onSave,
+  onSendToChat,
   skills,
 }: CharacterCustomSkillPanelProps) {
   const [focusSkillId, setFocusSkillId] = useState<string | null>(null);
@@ -188,14 +193,23 @@ export function CharacterCustomSkillPanel({
   }, [reorderState]);
 
   const openContextMenu = (
-    event: ReactMouseEvent,
     skill: Dnd5eCharacterCustomSkill,
+    position: { clientX: number; clientY: number },
+    returnFocus: () => void,
+    mount?: HTMLElement,
   ) => {
-    if (!canEdit) return;
-    event.preventDefault();
+    if (!canEdit && !canSendToChat) return;
     const index = skills.findIndex(({ id }) => id === skill.id);
     let deleteArmedUntil = 0;
     const entries: ContextMenuEntry[] = [
+      {
+        disabled: !canSendToChat || isSendPending(skill.id),
+        kind: 'action',
+        label: 'Send To Chat',
+        onSelect: () => onSendToChat(skill),
+      },
+    ];
+    if (canEdit) entries.push(
       {
         disabled: index <= 0,
         kind: 'action',
@@ -211,7 +225,11 @@ export function CharacterCustomSkillPanel({
       {
         kind: 'action',
         label: 'Reorder Custom Skill Freely',
-        onSelect: () => beginReorder(skill, event.clientX, event.clientY),
+        onSelect: () => beginReorder(
+          skill,
+          position.clientX,
+          position.clientY,
+        ),
       },
       { kind: 'divider' },
       {
@@ -245,18 +263,14 @@ export function CharacterCustomSkillPanel({
           void onCommit({ id: skill.id, kind: 'delete' });
         },
       },
-    ];
+    );
     menuRef.current?.open(
-      event.clientX,
-      event.clientY,
+      position.clientX,
+      position.clientY,
       `${skillLabel(skill)} actions`,
       entries,
-      () => listRef.current
-        ?.querySelector<HTMLElement>(
-          `[data-custom-skill-order-id="${skill.id}"] [data-custom-skill-name]`,
-        )
-        ?.focus(),
-      listRef.current?.closest('dialog') ?? undefined,
+      returnFocus,
+      mount,
     );
   };
 
@@ -314,7 +328,35 @@ export function CharacterCustomSkillPanel({
               data-custom-skill-order-id={skill.id}
               data-reordering={reorderState?.activeId === skill.id}
               key={skill.id}
-              onContextMenu={(event) => openContextMenu(event, skill)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                const focused = event.target instanceof HTMLElement
+                  ? event.target
+                  : null;
+                openContextMenu(
+                  skill,
+                  event,
+                  () => focused?.focus(),
+                  event.currentTarget.closest('dialog') ?? undefined,
+                );
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key !== 'ContextMenu' &&
+                  !(event.shiftKey && event.key === 'F10')
+                ) return;
+                event.preventDefault();
+                const focused = event.target instanceof HTMLElement
+                  ? event.target
+                  : null;
+                const bounds = event.currentTarget.getBoundingClientRect();
+                openContextMenu(
+                  skill,
+                  { clientX: bounds.left + 24, clientY: bounds.bottom },
+                  () => focused?.focus(),
+                  event.currentTarget.closest('dialog') ?? undefined,
+                );
+              }}
               role="listitem"
             >
               <CharacterSkillTrainingButton

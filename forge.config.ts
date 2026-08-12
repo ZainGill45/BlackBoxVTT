@@ -35,6 +35,11 @@ const config: ForgeConfig = {
           target: 'preload',
         },
         {
+          entry: 'src/detachedCharacterPreload.ts',
+          config: 'vite.preload.config.ts',
+          target: 'preload',
+        },
+        {
           entry: 'src/main/diceRollWorker.ts',
           config: 'vite.main.config.ts',
           target: 'main',

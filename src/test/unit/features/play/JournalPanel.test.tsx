@@ -9,9 +9,12 @@ import type {
   JournalResult,
   NoteEntry,
 } from '../../../../shared/journal';
+import type { JournalWindowApi } from '../../../../shared/journalWindows';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
 } from '../../../../systems/dnd5e/definition';
+import { CharacterSheetDetached } from '../../../../systems/dnd5e/renderer/CharacterSheetModal';
+import { createDefaultCampaignSystemState } from '../../../../systems/catalog';
 import {
   createDefaultDnd5eCharacterData,
   DND5E_5_5E_CLASSES,
@@ -3237,5 +3240,147 @@ describe('JournalPanel', () => {
   it('prevents players from creating parent notes', async () => {
     render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi()} role="player" />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add journal entry' })).toBeDisabled());
+  });
+
+  it('attempts one detached close-time save and closes after a failure', async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+    const updateEntryData = vi.fn(async () => ({
+      error: { code: 'storage_error' as const, message: 'Save failed.' },
+      ok: false as const,
+    }));
+    const api = journalApi({ updateEntryData });
+    const system = createDefaultCampaignSystemState()!;
+    const rendered = render(
+      <CharacterSheetDetached
+        campaignId={campaignId}
+        closeRequestId={0}
+        entry={character}
+        journalApi={api}
+        onDismiss={onDismiss}
+        onUpdated={() => undefined}
+        system={system}
+      />,
+    );
+    const sheet = screen.getByRole('document', {
+      name: 'New Character character sheet',
+    });
+    await user.type(
+      within(sheet).getByRole('textbox', { name: 'Subclass' }),
+      'Champion',
+    );
+
+    rendered.rerender(
+      <CharacterSheetDetached
+        campaignId={campaignId}
+        closeRequestId={1}
+        entry={character}
+        journalApi={api}
+        onDismiss={onDismiss}
+        onUpdated={() => undefined}
+        system={system}
+      />,
+    );
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledOnce());
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it('opens viewable Characters detached and focuses that window on normal open', async () => {
+    const user = userEvent.setup();
+    const focusCharacter = vi.fn<JournalWindowApi['focusCharacter']>(
+      async () => ({ ok: true, value: true }),
+    );
+    const openCharacter = vi.fn<JournalWindowApi['openCharacter']>(
+      async () => ({ ok: true, value: 'opened' }),
+    );
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          list: async () => ({
+            ok: true,
+            value: { entries: [character, note], revision: 0 },
+          }),
+        })}
+        journalWindowApi={{
+          closeCampaign: async () => undefined,
+          focusCharacter,
+          openCharacter,
+        }}
+        role="player"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    const row = await screen.findByRole('button', { name: 'Open New Character' });
+    fireEvent.contextMenu(row);
+    expect(
+      screen.getAllByRole('menuitem').slice(0, 2).map((item) => item.textContent),
+    ).toEqual(['Open Detached', 'Edit Permissions']);
+    await user.click(screen.getByRole('menuitem', { name: 'Open Detached' }));
+
+    expect(openCharacter).toHaveBeenCalledWith({
+      campaignId,
+      entryId: character.id,
+      geometry: expect.objectContaining({
+        contentHeight: expect.any(Number),
+        contentWidth: expect.any(Number),
+        rootFontSize: expect.any(Number),
+      }),
+    });
+    await user.click(row);
+    expect(focusCharacter).toHaveBeenCalledWith({
+      campaignId,
+      entryId: character.id,
+    });
+    expect(
+      screen.queryByRole('dialog', { name: 'New Character character sheet' }),
+    ).not.toBeInTheDocument();
+
+    await expandNotes(user);
+    fireEvent.contextMenu(
+      screen.getByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+    expect(
+      screen.queryByRole('menuitem', { name: 'Open Detached' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('falls back to the Character modal when no detached window exists', async () => {
+    const user = userEvent.setup();
+    const focusCharacter = vi.fn<JournalWindowApi['focusCharacter']>(
+      async () => ({ ok: true, value: false }),
+    );
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: character }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [character], revision: 0 },
+          }),
+        })}
+        journalWindowApi={{
+          closeCampaign: async () => undefined,
+          focusCharacter,
+          openCharacter: async () => ({ ok: true, value: 'opened' }),
+        }}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(
+      await screen.findByRole('button', { name: 'Open New Character' }),
+    );
+
+    expect(focusCharacter).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole('dialog', { name: 'New Character character sheet' }),
+    ).toBeVisible();
   });
 });

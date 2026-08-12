@@ -10,6 +10,7 @@ import {
   DND5E_ABILITIES,
   type Dnd5eActionStep,
   type Dnd5eActionValueTerm,
+  type Dnd5eAbilityId,
   type Dnd5eCharacterAction,
   type Dnd5eCharacterData,
   type Dnd5eDerivedCharacterValues,
@@ -40,6 +41,9 @@ export type CompiledDnd5eAction =
       previews: Dnd5eActionStepPreview[];
     };
 
+export type Dnd5eAbilityRollKind = 'check' | 'saving-throw';
+export type Dnd5eStatisticRollKind = 'concentration' | 'initiative';
+
 interface ResolvedTerms {
   criticalNotation: string;
   modifiers: ChatRollModifierDefinition[];
@@ -59,6 +63,84 @@ function titleCase(value: string): string {
   return value.length === 0
     ? value
     : `${value[0].toLocaleUpperCase()}${value.slice(1)}`;
+}
+
+export function createDnd5eAbilityRollDefinition(
+  ability: Dnd5eAbilityId,
+  derived: Dnd5eDerivedCharacterValues,
+  kind: Dnd5eAbilityRollKind,
+): ChatRollDefinition {
+  const abilityLabel = titleCase(ability);
+  const typeLabel = kind === 'check' ? 'Ability Check' : 'Saving Throw';
+  const value = kind === 'check'
+    ? derived.abilities[ability].modifier
+    : derived.abilities[ability].savingThrow;
+  return {
+    category: typeLabel,
+    sections: [{
+      label: abilityLabel,
+      modifiers: [{ label: typeLabel, value }],
+      notation: '1d20',
+      typeLabel,
+    }],
+    title: null,
+  };
+}
+
+export function createDnd5eStatisticRollDefinition(
+  derived: Dnd5eDerivedCharacterValues,
+  kind: Dnd5eStatisticRollKind,
+): ChatRollDefinition {
+  const concentration = kind === 'concentration';
+  const label = concentration ? 'Concentration' : 'Initiative';
+  const typeLabel = concentration ? 'Saving Throw' : null;
+  return {
+    category: concentration ? 'Saving Throw' : 'Initiative',
+    sections: [{
+      label,
+      modifiers: [{
+        label: concentration ? 'Saving Throw' : 'Initiative',
+        value: concentration ? derived.concentrationSave : derived.initiative,
+      }],
+      notation: '1d20',
+      typeLabel,
+    }],
+    title: null,
+  };
+}
+
+export function createDnd5eHitDieRollDefinition(
+  hitDie: string,
+): ChatRollDefinition | null {
+  const match = /^(?:1)?d(4|6|8|10|12)$/iu.exec(normalize(hitDie));
+  if (!match) return null;
+  return {
+    category: 'Hit Dice',
+    sections: [{
+      label: 'Hit Die',
+      modifiers: [],
+      notation: `1d${match[1]}`,
+      typeLabel: 'Healing',
+    }],
+    title: null,
+  };
+}
+
+export function createDnd5eSkillRollDefinition(
+  label: string,
+  bonus: number,
+): ChatRollDefinition {
+  const skillLabel = normalize(label) || 'Unnamed Skill';
+  return {
+    category: 'Skill Check',
+    sections: [{
+      label: skillLabel,
+      modifiers: [{ label: 'Skill Check', value: bonus }],
+      notation: '1d20',
+      typeLabel: 'Skill Check',
+    }],
+    title: null,
+  };
 }
 
 function resolveDiceCount(

@@ -32,6 +32,7 @@ import type {
 } from '../shared/network';
 import type { SceneApi } from '../shared/scenes';
 import type { JournalApi } from '../shared/journal';
+import type { JournalWindowApi } from '../shared/journalWindows';
 import styles from './App.module.css';
 
 interface AppProps {
@@ -39,6 +40,7 @@ interface AppProps {
   assetApi?: AssetApi;
   campaignApi?: CampaignApi;
   journalApi?: JournalApi;
+  journalWindowApi?: JournalWindowApi;
   networkApi?: NetworkApi;
   sceneApi?: SceneApi;
 }
@@ -56,6 +58,7 @@ export function App({
   assetApi = window.blackBox.assets,
   campaignApi = window.blackBox.campaigns,
   journalApi = window.blackBox.journal,
+  journalWindowApi = window.blackBox.journalWindows,
   networkApi = window.blackBox.network,
   sceneApi = window.blackBox.scenes,
 }: AppProps) {
@@ -300,21 +303,22 @@ export function App({
     void action().then(() => refreshServerSettings(activeCampaignId));
   };
 
-  const handleLogout = () => {
-    if (playSession?.source === 'local') {
-      void networkApi
-        .stopHost()
-        .then(async () => {
-          const result = await campaignApi.list();
-          if (result.ok) {
-            setCampaigns(sortCampaigns(result.value));
-          }
-        })
-        .catch(() => undefined);
-    } else if (playSession?.source === 'remote') {
-      void networkApi.disconnect();
+  const handleLogout = async () => {
+    const session = playSession;
+    if (!session) return;
+    await journalWindowApi
+      .closeCampaign({ campaignId: session.campaignId })
+      .catch(() => undefined);
+    if (session.source === 'local') {
+      await networkApi.stopHost().catch(() => undefined);
+      const result = await campaignApi.list();
+      if (result.ok) setCampaigns(sortCampaigns(result.value));
+    } else {
+      await networkApi.disconnect().catch(() => undefined);
     }
-    setPlaySession(null);
+    setPlaySession((current) =>
+      current?.campaignId === session.campaignId ? null : current,
+    );
   };
 
   return (
@@ -373,6 +377,7 @@ export function App({
           assetApi={assetApi}
           networkApi={networkApi}
           journalApi={journalApi}
+          journalWindowApi={journalWindowApi}
           sceneApi={sceneApi}
           session={playSession}
           serverSettings={

@@ -4,7 +4,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { CollapsibleStateIcon } from '../../../components/ui/Collapsible';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
@@ -33,11 +32,13 @@ import styles from './CharacterSheetModal.module.css';
 
 interface CharacterInventoryPanelProps {
   canEdit: boolean;
+  canSendToChat: boolean;
   derived: Dnd5eDerivedInventoryValues;
   inventory: Dnd5eCharacterInventory;
   onChange: (mutation: Dnd5eCharacterInventoryMutation) => boolean;
   onCommit: (mutation: Dnd5eCharacterInventoryMutation) => Promise<boolean>;
   onSave: () => Promise<boolean>;
+  onSendToChat: (entry: Dnd5eCharacterInventoryEntry) => void;
 }
 
 interface InventoryLocation {
@@ -267,11 +268,13 @@ function previewInventoryPlacement(
 
 export function CharacterInventoryPanel({
   canEdit,
+  canSendToChat,
   derived,
   inventory,
   onChange,
   onCommit,
   onSave,
+  onSendToChat,
 }: CharacterInventoryPanelProps) {
   const [numericBuffers, setNumericBuffers] = useState<Readonly<Record<string, string>>>({});
   const [focusEntryId, setFocusEntryId] = useState<string | null>(null);
@@ -483,17 +486,25 @@ export function CharacterInventoryPanel({
   };
 
   const openContextMenu = (
-    event: ReactMouseEvent,
     entry: Dnd5eCharacterInventoryEntry,
+    position: { clientX: number; clientY: number },
+    returnFocus: () => void,
+    mount?: HTMLElement,
   ) => {
-    if (!canEdit) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if (!canEdit && !canSendToChat) return;
     const location = findEntry(inventory.entries, entry.id);
     if (!location) return;
     const typeLabel = entry.kind === 'container' ? 'Container' : 'Item';
     let deleteArmedUntil = 0;
     const entries: ContextMenuEntry[] = [
+      {
+        disabled: !canSendToChat,
+        kind: 'action',
+        label: 'Send To Chat',
+        onSelect: () => onSendToChat(entry),
+      },
+    ];
+    if (canEdit) entries.push(
       {
         disabled: location.index <= 0,
         kind: 'action',
@@ -517,7 +528,11 @@ export function CharacterInventoryPanel({
       {
         kind: 'action',
         label: `Reorder ${typeLabel} Freely`,
-        onSelect: () => beginReorder(entry, event.clientX, event.clientY),
+        onSelect: () => beginReorder(
+          entry,
+          position.clientX,
+          position.clientY,
+        ),
       },
       { kind: 'divider' },
       {
@@ -548,18 +563,14 @@ export function CharacterInventoryPanel({
           void onCommit({ id: entry.id, kind: 'delete' });
         },
       },
-    ];
+    );
     menuRef.current?.open(
-      event.clientX,
-      event.clientY,
+      position.clientX,
+      position.clientY,
       `${entryLabel(entry)} actions`,
       entries,
-      () => treeRef.current
-        ?.querySelector<HTMLElement>(
-          `[data-inventory-entry-id="${entry.id}"] [data-inventory-name]`,
-        )
-        ?.focus(),
-      treeRef.current?.closest('dialog') ?? undefined,
+      returnFocus,
+      mount,
     );
   };
 
@@ -676,7 +687,37 @@ export function CharacterInventoryPanel({
                 data-inventory-reorder-row
                 data-kind={entry.kind}
                 data-nested={depth > 1 || undefined}
-                onContextMenu={(event) => openContextMenu(event, entry)}
+                onContextMenu={(event) => {
+                  if (!canEdit && !canSendToChat) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const focused = event.target instanceof HTMLElement
+                    ? event.target
+                    : null;
+                  openContextMenu(
+                    entry,
+                    event,
+                    () => focused?.focus(),
+                    event.currentTarget.closest('dialog') ?? undefined,
+                  );
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'ContextMenu' &&
+                    !(event.shiftKey && event.key === 'F10')
+                  ) return;
+                  event.preventDefault();
+                  const focused = event.target instanceof HTMLElement
+                    ? event.target
+                    : null;
+                  const bounds = event.currentTarget.getBoundingClientRect();
+                  openContextMenu(
+                    entry,
+                    { clientX: bounds.left + 24, clientY: bounds.bottom },
+                    () => focused?.focus(),
+                    event.currentTarget.closest('dialog') ?? undefined,
+                  );
+                }}
               >
                 {depth === 1 ? (
                   <button

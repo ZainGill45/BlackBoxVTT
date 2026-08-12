@@ -24,23 +24,43 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
+import { ContextMenuController } from '../../../components/ui/contextMenu';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs, type TabOption } from '../../../components/ui/Tabs';
+import { CHAT_SEND_TIMEOUT_MS } from '../../../shared/chat';
+import {
+  CHAT_ROLL_SEND_TIMEOUT_MS,
+  type ChatRollDefinition,
+} from '../../../shared/chatRoll';
 import type { CampaignSystemState } from '../../../shared/gameSystems';
-import type { NetworkApi } from '../../../shared/network';
 import {
   JOURNAL_AUTOSAVE_DELAY_MS,
   MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
   normalizeJournalTitle,
-  type JournalApi,
   type JournalEntry,
   type SystemJournalEntry,
 } from '../../../shared/journal';
+import type {
+  CharacterSheetJournalApi,
+  CharacterSheetNetworkApi,
+  JournalWindowGeometry,
+} from '../../../shared/journalWindows';
+import {
+  createDnd5eAbilityRollDefinition,
+  createDnd5eHitDieRollDefinition,
+  createDnd5eSkillRollDefinition,
+  createDnd5eStatisticRollDefinition,
+  type Dnd5eAbilityRollKind,
+  type Dnd5eStatisticRollKind,
+} from '../characterActions';
 import {
   applyDnd5eCharacterActionMutations,
   applyDnd5eCharacterCustomSkillMutations,
@@ -67,6 +87,8 @@ import {
   type Dnd5eCharacterResourceMutation,
   type Dnd5eRulesVersion,
 } from '../characterData';
+import { createDnd5eFeatureChatContent } from '../characterFeatureChat';
+import { createDnd5eInventoryEntryChatContent } from '../characterInventoryChat';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
   isDnd5eSettings,
@@ -81,14 +103,26 @@ import styles from './CharacterSheetModal.module.css';
 
 type CharacterSheetTab = 'home' | 'settings' | 'spells';
 
-interface CharacterSheetModalProps {
+export interface CharacterSheetProps {
   campaignId: string;
   entry: SystemJournalEntry;
-  journalApi: JournalApi;
-  networkApi?: NetworkApi;
+  journalApi: CharacterSheetJournalApi;
+  networkApi?: CharacterSheetNetworkApi;
   onDismiss: () => void;
   onUpdated: (entry: SystemJournalEntry) => void;
   system: CampaignSystemState;
+}
+
+interface CharacterSheetEditorProps extends CharacterSheetProps {
+  closeRequestId: number;
+  presentation: 'detached' | 'modal';
+}
+
+interface CharacterSheetPresentationProps {
+  accessibleLabel: string;
+  children: ReactNode;
+  onDismiss: () => void;
+  presentation: CharacterSheetEditorProps['presentation'];
 }
 
 interface CharacterFieldProps {
@@ -108,7 +142,11 @@ interface AbilityValueFieldProps {
   label: string;
   onBlur: () => void;
   onChange: (value: string) => void;
+  onRoll: () => void;
   readOnly: boolean;
+  rollAccessibleLabel: string;
+  rollDisabled: boolean;
+  rollPending: boolean;
   value: string;
 }
 
@@ -157,23 +195,56 @@ const IMPORTANT_STATS = [
     derivedKey: 'initiative',
     label: 'Initiative',
     offsetKey: 'initiativeOffset',
+    rollKind: 'initiative',
   },
-  { accessibleLabel: 'Armor Class', label: 'Armor Class', path: 'armorClass' },
-  { accessibleLabel: 'Current Speed', label: 'Speed', path: 'currentSpeed' },
+  {
+    accessibleLabel: 'Armor Class',
+    label: 'Armor Class',
+    path: 'armorClass',
+    shareKey: 'armorClass',
+  },
+  {
+    accessibleLabel: 'Current Speed',
+    label: 'Speed',
+    path: 'currentSpeed',
+    shareKey: 'currentSpeed',
+  },
   {
     accessibleLabel: 'Concentration Save',
     derivedKey: 'concentrationSave',
     label: 'Concentration',
     offsetKey: 'concentrationSaveOffset',
+    rollKind: 'concentration',
   },
   {
     accessibleLabel: 'Proficiency Bonus',
     derivedKey: 'proficiencyBonus',
     label: 'Proficiency',
     offsetKey: 'proficiencyBonusOffset',
+    shareKey: 'proficiencyBonus',
   },
-  { accessibleLabel: 'Inspiration Count', label: 'Inspiration', path: 'inspirationCount' },
+  {
+    accessibleLabel: 'Inspiration Count',
+    label: 'Inspiration',
+    path: 'inspirationCount',
+    shareKey: 'inspirationCount',
+  },
 ] as const;
+
+type ImportantStatShareKey =
+  | 'armorClass'
+  | 'currentSpeed'
+  | 'inspirationCount'
+  | 'proficiencyBonus';
+
+type CharacterShareKey =
+  | ImportantStatShareKey
+  | 'hitDice'
+  | 'hitPoints'
+  | 'temporaryHitPoints'
+  | `feature:${string}`
+  | `inventory:${string}`
+  | `resource:${string}`;
 
 function isCharacterEntry(
   entry: JournalEntry,
@@ -374,12 +445,26 @@ function AbilityValueField({
   label,
   onBlur,
   onChange,
+  onRoll,
   readOnly,
+  rollAccessibleLabel,
+  rollDisabled,
+  rollPending,
   value,
 }: AbilityValueFieldProps) {
   return (
-    <label className={styles.abilityValueField}>
-      <span>{label}</span>
+    <div className={styles.abilityValueField}>
+      <button
+        aria-busy={rollPending}
+        aria-label={rollAccessibleLabel}
+        className={styles.abilityRollButton}
+        disabled={rollDisabled}
+        title={rollDisabled && !rollPending ? 'Chat is unavailable.' : rollAccessibleLabel}
+        type="button"
+        onClick={onRoll}
+      >
+        {label}
+      </button>
       <InlineInput
         aria-label={accessibleLabel}
         autoComplete="off"
@@ -393,19 +478,96 @@ function AbilityValueField({
           if (event.key === 'Enter') event.currentTarget.blur();
         }}
       />
-    </label>
+    </div>
   );
 }
 
-export function CharacterSheetModal({
+export function measureCharacterSheetModal(): JournalWindowGeometry {
+  const rootFontSize = Number.parseFloat(
+    getComputedStyle(document.documentElement).fontSize,
+  ) || 16;
+  const probe = document.createElement('dialog');
+  probe.className = styles.modal;
+  probe.setAttribute('open', '');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.position = 'fixed';
+  probe.style.pointerEvents = 'none';
+  probe.style.visibility = 'hidden';
+  document.body.append(probe);
+  const bounds = probe.getBoundingClientRect();
+  probe.remove();
+  const fallbackHeight = window.innerHeight - rootFontSize * 2;
+  return {
+    contentHeight: Math.round(bounds.height || fallbackHeight),
+    contentWidth: Math.round(
+      bounds.width || Math.min(window.innerWidth - rootFontSize * 2, fallbackHeight * 0.777),
+    ),
+    rootFontSize,
+  };
+}
+
+function CharacterSheetPresentation({
+  accessibleLabel,
+  children,
+  onDismiss,
+  presentation,
+}: CharacterSheetPresentationProps) {
+  return presentation === 'modal' ? (
+    <Modal
+      accessibleLabel={accessibleLabel}
+      className={styles.modal}
+      contentClassName={styles.content}
+      initialFocus="dialog"
+      isOpen
+      onDismiss={onDismiss}
+    >
+      {children}
+    </Modal>
+  ) : (
+    <div
+      aria-label={accessibleLabel}
+      className={styles.detached}
+      role="document"
+    >
+      {children}
+    </div>
+  );
+}
+
+export function CharacterSheetModal(props: CharacterSheetProps) {
+  return (
+    <CharacterSheetEditor
+      {...props}
+      closeRequestId={0}
+      presentation="modal"
+    />
+  );
+}
+
+export function CharacterSheetDetached({
+  closeRequestId,
+  ...props
+}: CharacterSheetProps & { closeRequestId: number }) {
+  return (
+    <CharacterSheetEditor
+      {...props}
+      closeRequestId={closeRequestId}
+      presentation="detached"
+    />
+  );
+}
+
+function CharacterSheetEditor({
   campaignId,
+  closeRequestId,
   entry,
   journalApi,
   networkApi,
   onDismiss,
   onUpdated,
+  presentation,
   system,
-}: CharacterSheetModalProps) {
+}: CharacterSheetEditorProps) {
   const normalizedEntry = parseCharacterEntry(entry);
   const initialEntry = normalizedEntry ?? entry;
   const initialData = normalizedEntry
@@ -418,6 +580,9 @@ export function CharacterSheetModal({
   const [error, setError] = useState<string | null>(null);
   const [closeFailed, setCloseFailed] = useState(false);
   const [numericBuffers, setNumericBuffers] = useState<Readonly<Record<string, string>>>({});
+  const [pendingRolls, setPendingRolls] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const currentRef = useRef(initialEntry);
   const draftRef = useRef(initialData);
   const nameRef = useRef(entry.name);
@@ -431,6 +596,14 @@ export function CharacterSheetModal({
   const mutationQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
   const refreshRequestRef = useRef(0);
+  const pendingRollsRef = useRef(new Set<string>());
+  const pendingShareMessagesRef = useRef(new Set<CharacterShareKey>());
+  const shareMenuRef = useRef<ContextMenuController | null>(null);
+
+  useEffect(() => {
+    shareMenuRef.current = new ContextMenuController();
+    return () => shareMenuRef.current?.close();
+  }, []);
 
   const tabs = useMemo<readonly TabOption<CharacterSheetTab>[]>(() => [
     { id: 'spells', label: 'Spells', panelId: `character-${entry.id}-spells` },
@@ -448,6 +621,7 @@ export function CharacterSheetModal({
     () => requireDnd5eDerivedValues(draft, rulesVersion),
     [draft, rulesVersion],
   );
+  const hitDieCanRoll = createDnd5eHitDieRollDefinition(draft.health.hitDie) !== null;
   const validData = isCharacterEntry(current);
   const canEdit = validData && current.capabilities.edit;
 
@@ -1054,6 +1228,276 @@ export function CharacterSheetModal({
     void save();
   };
 
+  const sendRoll = async (
+    key: string,
+    definition: ChatRollDefinition,
+  ): Promise<boolean> => {
+    if (!networkApi) {
+      setError('Chat is unavailable.');
+      return false;
+    }
+    if (pendingRollsRef.current.has(key)) return false;
+    pendingRollsRef.current.add(key);
+    setPendingRolls(new Set(pendingRollsRef.current));
+    let timer = 0;
+    try {
+      const timeout = new Promise<
+        Awaited<ReturnType<CharacterSheetNetworkApi['sendChatRoll']>>
+      >((resolve) => {
+        timer = window.setTimeout(() => resolve({
+          error: { code: 'timeout', message: 'The host did not acknowledge this roll.' },
+          ok: false,
+        }), CHAT_ROLL_SEND_TIMEOUT_MS);
+      });
+      const result = await Promise.race([
+        networkApi.sendChatRoll({
+          campaignId,
+          clientMessageId: crypto.randomUUID(),
+          definition,
+          recipient: null,
+        }),
+        timeout,
+      ]);
+      if (!result.ok) {
+        setError(result.error.message);
+        return false;
+      }
+      return true;
+    } catch {
+      setError('The roll could not be sent.');
+      return false;
+    } finally {
+      window.clearTimeout(timer);
+      pendingRollsRef.current.delete(key);
+      setPendingRolls(new Set(pendingRollsRef.current));
+    }
+  };
+
+  const rollAbility = (
+    ability: Dnd5eAbilityId,
+    kind: Dnd5eAbilityRollKind,
+  ) => {
+    const latestDerived = deriveDnd5eCharacterValues(draftRef.current, rulesVersion);
+    if (!latestDerived) {
+      setError('The Character values are invalid and could not be rolled.');
+      return;
+    }
+    void sendRoll(
+      `ability:${ability}:${kind}`,
+      createDnd5eAbilityRollDefinition(ability, latestDerived, kind),
+    );
+  };
+
+  const rollImportantStat = (kind: Dnd5eStatisticRollKind) => {
+    const latestDerived = deriveDnd5eCharacterValues(draftRef.current, rulesVersion);
+    if (!latestDerived) {
+      setError('The Character values are invalid and could not be rolled.');
+      return;
+    }
+    void sendRoll(
+      `stat:${kind}`,
+      createDnd5eStatisticRollDefinition(latestDerived, kind),
+    );
+  };
+
+  const rollBuiltInSkill = (skillId: (typeof DND5E_SKILLS)[number]['id']) => {
+    const latestDerived = deriveDnd5eCharacterValues(draftRef.current, rulesVersion);
+    const skill = DND5E_SKILLS.find(({ id }) => id === skillId);
+    if (!latestDerived || !skill) {
+      setError('The Character values are invalid and could not be rolled.');
+      return;
+    }
+    void sendRoll(
+      `skill:${skillId}`,
+      createDnd5eSkillRollDefinition(
+        skill.label,
+        latestDerived.skills[skillId].bonus,
+      ),
+    );
+  };
+
+  const rollCustomSkill = (skillId: string) => {
+    const latestData = draftRef.current;
+    const latestDerived = deriveDnd5eCharacterValues(latestData, rulesVersion);
+    const skill = latestData.customSkills.find(({ id }) => id === skillId);
+    const values = latestDerived?.customSkills[skillId];
+    if (!skill || !values) {
+      setError('The Custom Skill values are invalid and could not be rolled.');
+      return;
+    }
+    void sendRoll(
+      `custom-skill:${skillId}`,
+      createDnd5eSkillRollDefinition(
+        skill.name.trim() || 'Unnamed Skill',
+        values.bonus,
+      ),
+    );
+  };
+
+  const rollHitDie = async () => {
+    const health = draftRef.current.health;
+    const definition = createDnd5eHitDieRollDefinition(health.hitDie);
+    if (!definition) return;
+    if (!(await sendRoll('health:hit-die', definition))) return;
+    const available = parseDnd5eSafeInteger(
+      draftRef.current.health.currentHitDice,
+    );
+    if (available === null || available <= 0) return;
+    changeField('health.currentHitDice', String(available - 1));
+    void save();
+  };
+
+  const characterShareContent = (
+    key: CharacterShareKey,
+  ): string | null => {
+    if (key === 'hitPoints') {
+      const health = draftRef.current.health;
+      return `HP: ${health.currentHitPoints}/${health.maximumHitPoints}`;
+    }
+    if (key === 'temporaryHitPoints') {
+      return `Temp HP: ${draftRef.current.health.temporaryHitPoints}`;
+    }
+    if (key === 'hitDice') {
+      const health = draftRef.current.health;
+      return `Hit Dice: ${health.currentHitDice}/${health.maximumHitDice} ${health.hitDie}`;
+    }
+    if (key.startsWith('resource:')) {
+      const resource = draftRef.current.resources.find(
+        ({ id }) => id === key.slice('resource:'.length),
+      );
+      if (!resource) return null;
+      return `${resource.name.trim() || 'Unnamed Resource'}: ${resource.current}/${resource.maximum}`;
+    }
+    if (key.startsWith('feature:')) {
+      const feature = draftRef.current.features.find(
+        ({ id }) => id === key.slice('feature:'.length),
+      );
+      return feature ? createDnd5eFeatureChatContent(feature) : null;
+    }
+    if (key.startsWith('inventory:')) {
+      const latestData = draftRef.current;
+      const latestDerived = deriveDnd5eCharacterValues(latestData, rulesVersion);
+      return latestDerived
+        ? createDnd5eInventoryEntryChatContent(
+          latestData.inventory,
+          latestDerived.inventory,
+          key.slice('inventory:'.length),
+        )
+        : null;
+    }
+    if (key === 'proficiencyBonus') {
+      const latestDerived = deriveDnd5eCharacterValues(draftRef.current, rulesVersion);
+      return latestDerived
+        ? `Proficiency: ${formatDnd5eSignedValue(latestDerived.proficiencyBonus)}`
+        : null;
+    }
+    if (key === 'armorClass') {
+      return `Armor Class: ${draftRef.current.importantStats.armorClass}`;
+    }
+    if (key === 'currentSpeed') {
+      return `Speed: ${draftRef.current.importantStats.currentSpeed}`;
+    }
+    if (key === 'inspirationCount') {
+      return `Inspiration: ${draftRef.current.importantStats.inspirationCount}`;
+    }
+    return null;
+  };
+
+  const sendCharacterShare = async (key: CharacterShareKey) => {
+    if (!networkApi) {
+      setError('Chat is unavailable.');
+      return;
+    }
+    if (pendingShareMessagesRef.current.has(key)) return;
+    const content = characterShareContent(key);
+    if (content === null) {
+      setError('The Character values are invalid and could not be sent.');
+      return;
+    }
+    pendingShareMessagesRef.current.add(key);
+    let timer = 0;
+    try {
+      const timeout = new Promise<
+        Awaited<ReturnType<CharacterSheetNetworkApi['sendChatMessage']>>
+      >((resolve) => {
+        timer = window.setTimeout(() => resolve({
+          error: { code: 'timeout', message: 'The host did not acknowledge this message.' },
+          ok: false,
+        }), CHAT_SEND_TIMEOUT_MS);
+      });
+      const result = await Promise.race([
+        networkApi.sendChatMessage({
+          campaignId,
+          clientMessageId: crypto.randomUUID(),
+          content,
+          recipient: null,
+        }),
+        timeout,
+      ]);
+      if (!result.ok) setError(result.error.message);
+    } catch {
+      setError('The message could not be sent.');
+    } finally {
+      window.clearTimeout(timer);
+      pendingShareMessagesRef.current.delete(key);
+    }
+  };
+
+  const openCharacterShareMenu = (
+    key: CharacterShareKey,
+    label: string,
+    position: { clientX: number; clientY: number },
+    returnFocus: () => void,
+    mount?: HTMLElement,
+  ) => {
+    shareMenuRef.current?.open(
+      position.clientX,
+      position.clientY,
+      `${label} actions`,
+      [{
+        disabled: !networkApi || pendingShareMessagesRef.current.has(key),
+        kind: 'action',
+        label: 'Send To Chat',
+        onSelect: () => void sendCharacterShare(key),
+      }],
+      returnFocus,
+      mount,
+    );
+  };
+
+  const healthShareHandlers = (
+    key: Extract<CharacterShareKey, 'hitDice' | 'hitPoints' | 'temporaryHitPoints'>,
+    label: string,
+  ) => ({
+    onContextMenu: (event: ReactMouseEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const focused = event.target instanceof HTMLElement ? event.target : null;
+      openCharacterShareMenu(
+        key,
+        label,
+        event,
+        () => focused?.focus(),
+        event.currentTarget.closest('dialog') ?? undefined,
+      );
+    },
+    onKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (
+        event.key !== 'ContextMenu' &&
+        !(event.shiftKey && event.key === 'F10')
+      ) return;
+      event.preventDefault();
+      const focused = event.target instanceof HTMLElement ? event.target : null;
+      const bounds = event.currentTarget.getBoundingClientRect();
+      openCharacterShareMenu(
+        key,
+        label,
+        { clientX: bounds.left + 24, clientY: bounds.bottom },
+        () => focused?.focus(),
+        event.currentTarget.closest('dialog') ?? undefined,
+      );
+    },
+  });
+
   const field = (
     path: string,
     label: string,
@@ -1176,30 +1620,37 @@ export function CharacterSheetModal({
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
   }, []);
 
-  const close = async () => {
+  const close = useCallback(async () => {
     setCloseFailed(false);
     if (!hasDirtyDraft()) {
       onDismiss();
       return;
     }
-    if (await save()) onDismiss();
+    if (await save() || presentation === 'detached') onDismiss();
     else setCloseFailed(true);
-  };
+  }, [hasDirtyDraft, onDismiss, presentation, save]);
 
-  const discard = () => {
+  const discard = useCallback(() => {
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     onDismiss();
-  };
+  }, [onDismiss]);
+
+  const handledCloseRequestRef = useRef(0);
+  useEffect(() => {
+    if (
+      presentation !== 'detached' ||
+      closeRequestId <= handledCloseRequestRef.current
+    ) return;
+    handledCloseRequestRef.current = closeRequestId;
+    void close();
+  }, [close, closeRequestId, presentation]);
 
   return (
     <>
-      <Modal
+      <CharacterSheetPresentation
         accessibleLabel={`${current.name} character sheet`}
-        className={styles.modal}
-        contentClassName={styles.content}
-        initialFocus="dialog"
-        isOpen
         onDismiss={() => void close()}
+        presentation={presentation}
       >
         <div className={styles.workspace}>
           <div className={styles.sheetViewport} data-character-sheet-viewport>
@@ -1301,13 +1752,31 @@ export function CharacterSheetModal({
                   const modifierPath = `abilities.${ability}.modifierOffset`;
                   const savingThrowPath = `abilities.${ability}.savingThrowOffset`;
                   const scorePath = `abilities.${ability}.score`;
+                  const checkPending = pendingRolls.has(`ability:${ability}:check`);
+                  const savingThrowPending = pendingRolls.has(
+                    `ability:${ability}:saving-throw`,
+                  );
                   return (
                     <article
                       aria-label={`${label} ability`}
                       className={styles.abilityCard}
                       key={ability}
                     >
-                      <h2 className={styles.abilityHeading}>{label}</h2>
+                      <h2 className={styles.abilityHeading}>
+                        <button
+                          aria-busy={checkPending}
+                          aria-label={`Roll ${label} check from ability heading`}
+                          className={styles.abilityHeadingButton}
+                          disabled={!networkApi || checkPending}
+                          title={!networkApi
+                            ? 'Chat is unavailable.'
+                            : `Roll ${label} check`}
+                          type="button"
+                          onClick={() => void rollAbility(ability, 'check')}
+                        >
+                          {label}
+                        </button>
+                      </h2>
                       <label className={styles.modifierField}>
                         <InlineInput
                           aria-label={`${label} modifier`}
@@ -1339,7 +1808,11 @@ export function CharacterSheetModal({
                           label="Score"
                           onBlur={() => commitAbilityScore(ability)}
                           onChange={(value) => changeNumericBuffer(scorePath, value)}
+                          onRoll={() => void rollAbility(ability, 'check')}
                           readOnly={!canEdit}
+                          rollAccessibleLabel={`Roll ${label} check`}
+                          rollDisabled={!networkApi || checkPending}
+                          rollPending={checkPending}
                           value={numericValue(scorePath, String(draft.abilities[ability].score))}
                         />
                         <AbilityValueField
@@ -1351,7 +1824,11 @@ export function CharacterSheetModal({
                             draft.abilities[ability].savingThrowOffset,
                           )}
                           onChange={(value) => changeNumericBuffer(savingThrowPath, value)}
+                          onRoll={() => void rollAbility(ability, 'saving-throw')}
                           readOnly={!canEdit}
+                          rollAccessibleLabel={`Roll ${label} saving throw`}
+                          rollDisabled={!networkApi || savingThrowPending}
+                          rollPending={savingThrowPending}
                           value={numericValue(
                             savingThrowPath,
                             formatDnd5eSignedValue(derived.abilities[ability].savingThrow),
@@ -1388,37 +1865,100 @@ export function CharacterSheetModal({
                           const key = derivedStat ? stat.offsetKey : stat.path;
                           const path = `importantStats.${key}`;
                           const total = derivedStat ? derived[stat.derivedKey] : null;
+                          const rollKind = 'rollKind' in stat ? stat.rollKind : null;
+                          const rollPending = rollKind
+                            ? pendingRolls.has(`stat:${rollKind}`)
+                            : false;
+                          const shareKey = 'shareKey' in stat
+                            ? stat.shareKey as ImportantStatShareKey
+                            : null;
                           return (
-                            <label className={styles.statRow} key={key}>
-                              <span>{stat.label}</span>
-                              <InlineInput
-                                aria-label={stat.accessibleLabel}
-                                autoComplete="off"
-                                className={styles.statInput}
-                                maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
-                                readOnly={!canEdit}
-                                value={derivedStat
-                                  ? numericValue(path, formatDnd5eSignedValue(total!))
-                                  : readStringField(draft, path)}
-                                onBlur={derivedStat
-                                  ? () => commitCalculatedTotal(
-                                    path,
-                                    total!,
-                                    draft.importantStats[stat.offsetKey],
-                                  )
-                                  : () => void save()}
-                                onChange={(event) => {
-                                  if (derivedStat) {
-                                    changeNumericBuffer(path, event.currentTarget.value);
-                                  } else {
-                                    changeField(path, event.currentTarget.value);
-                                  }
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter') event.currentTarget.blur();
-                                }}
-                              />
-                            </label>
+                            <div
+                              className={styles.statRow}
+                              key={key}
+                              onContextMenu={(event) => {
+                                if (!shareKey) return;
+                                event.preventDefault();
+                                const focused = event.target instanceof HTMLElement
+                                  ? event.target
+                                  : null;
+                                openCharacterShareMenu(
+                                  shareKey,
+                                  stat.label,
+                                  event,
+                                  () => focused?.focus(),
+                                  event.currentTarget.closest('dialog') ?? undefined,
+                                );
+                              }}
+                              onKeyDown={(event) => {
+                                if (
+                                  !shareKey ||
+                                  (event.key !== 'ContextMenu' &&
+                                    !(event.shiftKey && event.key === 'F10'))
+                                ) return;
+                                event.preventDefault();
+                                const focused = event.target instanceof HTMLElement
+                                  ? event.target
+                                  : null;
+                                const bounds = event.currentTarget.getBoundingClientRect();
+                                openCharacterShareMenu(
+                                  shareKey,
+                                  stat.label,
+                                  { clientX: bounds.left + 24, clientY: bounds.bottom },
+                                  () => focused?.focus(),
+                                  event.currentTarget.closest('dialog') ?? undefined,
+                                );
+                              }}
+                            >
+                              {rollKind ? (
+                                <button
+                                  aria-busy={rollPending}
+                                  aria-label={rollKind === 'concentration'
+                                    ? 'Roll Concentration saving throw'
+                                    : 'Roll Initiative'}
+                                  className={styles.statRollButton}
+                                  disabled={!networkApi || rollPending}
+                                  title={!networkApi
+                                    ? 'Chat is unavailable.'
+                                    : `Roll ${stat.label}`}
+                                  type="button"
+                                  onClick={() => rollImportantStat(rollKind)}
+                                >
+                                  {stat.label}
+                                </button>
+                              ) : (
+                                <span className={styles.statLabel}>{stat.label}</span>
+                              )}
+                              <label className={styles.statInputField}>
+                                <InlineInput
+                                  aria-label={stat.accessibleLabel}
+                                  autoComplete="off"
+                                  className={styles.statInput}
+                                  maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                                  readOnly={!canEdit}
+                                  value={derivedStat
+                                    ? numericValue(path, formatDnd5eSignedValue(total!))
+                                    : readStringField(draft, path)}
+                                  onBlur={derivedStat
+                                    ? () => commitCalculatedTotal(
+                                      path,
+                                      total!,
+                                      draft.importantStats[stat.offsetKey],
+                                    )
+                                    : () => void save()}
+                                  onChange={(event) => {
+                                    if (derivedStat) {
+                                      changeNumericBuffer(path, event.currentTarget.value);
+                                    } else {
+                                      changeField(path, event.currentTarget.value);
+                                    }
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') event.currentTarget.blur();
+                                  }}
+                                />
+                              </label>
+                            </div>
                           );
                         })}
                       </div>
@@ -1440,6 +1980,7 @@ export function CharacterSheetModal({
                             passivePath,
                             String(values.passive),
                           );
+                          const rollPending = pendingRolls.has(`skill:${skill.id}`);
                           return (
                             <div className={styles.skillRow} key={skill.id}>
                               <CharacterSkillTrainingButton
@@ -1456,7 +1997,22 @@ export function CharacterSheetModal({
                               />
                               <span className={styles.skillLabel}>
                                 <span className={styles.skillAbility}>{skill.abbreviation}</span>
-                                <span className={styles.skillName}>{skill.label}</span>
+                                <button
+                                  aria-busy={rollPending}
+                                  aria-label={`Roll ${skill.label}`}
+                                  className={[
+                                    styles.skillName,
+                                    styles.skillNameRollButton,
+                                  ].join(' ')}
+                                  disabled={!networkApi || rollPending}
+                                  title={!networkApi
+                                    ? 'Chat is unavailable.'
+                                    : `Roll ${skill.label}`}
+                                  type="button"
+                                  onClick={() => rollBuiltInSkill(skill.id)}
+                                >
+                                  {skill.label}
+                                </button>
                               </span>
                               <span className={styles.skillValues}>
                                 <InlineInput
@@ -1508,11 +2064,16 @@ export function CharacterSheetModal({
                         })}
                         <CharacterCustomSkillPanel
                           canEdit={canEdit}
+                          canSendToChat={Boolean(networkApi)}
                           derived={derived.customSkills}
+                          isSendPending={(skillId) => pendingRolls.has(
+                            `custom-skill:${skillId}`,
+                          )}
                           skills={draft.customSkills}
                           onChange={changeCustomSkill}
                           onCommit={commitCustomSkill}
                           onSave={save}
+                          onSendToChat={(skill) => rollCustomSkill(skill.id)}
                         />
                       </div>
                     </section>
@@ -1521,27 +2082,54 @@ export function CharacterSheetModal({
                     <section className={[styles.collectionPanel, styles.healthPanel].join(' ')}>
                       <h2>Health</h2>
                       <div className={styles.healthGrid}>
-                        <label className={styles.healthField}>
-                          <span>HP</span>
+                        <div
+                          className={styles.healthField}
+                          {...healthShareHandlers('hitPoints', 'HP')}
+                        >
+                          <span className={styles.healthHeading}>HP</span>
                           <span className={styles.healthPair}>
                             {healthInput('health.currentHitPoints', 'Current hit points')}
                             <span aria-hidden>/</span>
                             {healthInput('health.maximumHitPoints', 'Maximum hit points')}
                           </span>
-                        </label>
-                        <label className={styles.healthField}>
-                          <span>Temp HP</span>
+                        </div>
+                        <div
+                          className={styles.healthField}
+                          {...healthShareHandlers('temporaryHitPoints', 'Temp HP')}
+                        >
+                          <span className={styles.healthHeading}>Temp HP</span>
                           {healthInput('health.temporaryHitPoints', 'Temporary hit points')}
-                        </label>
-                        <label className={styles.healthField}>
-                          <span>Hit Dice</span>
+                        </div>
+                        <div
+                          className={styles.healthField}
+                          {...healthShareHandlers('hitDice', 'Hit Dice')}
+                        >
+                          <button
+                            aria-busy={pendingRolls.has('health:hit-die')}
+                            aria-label="Roll Hit Die"
+                            className={styles.healthRollButton}
+                            disabled={
+                              !networkApi ||
+                              !hitDieCanRoll ||
+                              pendingRolls.has('health:hit-die')
+                            }
+                            title={!networkApi
+                              ? 'Chat is unavailable.'
+                              : !hitDieCanRoll
+                                ? 'Set the Hit Die to d4, d6, d8, d10, or d12.'
+                              : 'Roll one Hit Die'}
+                            type="button"
+                            onClick={() => void rollHitDie()}
+                          >
+                            Hit Dice
+                          </button>
                           <span className={styles.hitDiceValues}>
                             {healthInput('health.currentHitDice', 'Current hit dice')}
                             <span aria-hidden>/</span>
                             {healthInput('health.maximumHitDice', 'Maximum hit dice')}
                             {healthInput('health.hitDie', 'Hit die', styles.hitDieInput, 'text')}
                           </span>
-                        </label>
+                        </div>
                       </div>
                     </section>
                     <section className={styles.collectionPanel}>
@@ -1563,11 +2151,15 @@ export function CharacterSheetModal({
                       <h2>Inventory</h2>
                       <CharacterInventoryPanel
                         canEdit={canEdit}
+                        canSendToChat={Boolean(networkApi)}
                         derived={derived.inventory}
                         inventory={draft.inventory}
                         onChange={changeInventory}
                         onCommit={commitInventory}
                         onSave={save}
+                        onSendToChat={(entry) => void sendCharacterShare(
+                          `inventory:${entry.id}`,
+                        )}
                       />
                     </section>
                   </div>
@@ -1576,20 +2168,28 @@ export function CharacterSheetModal({
                       <h2>Resources</h2>
                       <CharacterResourcePanel
                         canEdit={canEdit}
+                        canSendToChat={Boolean(networkApi)}
                         resources={draft.resources}
                         onChange={changeResource}
                         onCommit={commitResource}
                         onSave={save}
+                        onSendToChat={(resource) => void sendCharacterShare(
+                          `resource:${resource.id}`,
+                        )}
                       />
                     </section>
                     <section className={styles.collectionPanel}>
                       <h2>Features</h2>
                       <CharacterFeaturePanel
                         canEdit={canEdit}
+                        canSendToChat={Boolean(networkApi)}
                         features={draft.features}
                         onChange={changeFeature}
                         onCommit={commitFeature}
                         onSave={save}
+                        onSendToChat={(feature) => void sendCharacterShare(
+                          `feature:${feature.id}`,
+                        )}
                       />
                     </section>
                   </div>
@@ -1630,7 +2230,7 @@ export function CharacterSheetModal({
             </main>
           </div>
         </div>
-      </Modal>
+      </CharacterSheetPresentation>
 
       <Modal
         accessibleLabel="Character sheet error"

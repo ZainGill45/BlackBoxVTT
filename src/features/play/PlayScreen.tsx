@@ -80,6 +80,7 @@ export function PlayScreen({
   applicationApi,
   assetApi,
   journalApi,
+  journalWindowApi,
   networkApi,
   onExit,
   onCreateServerUser,
@@ -509,6 +510,7 @@ export function PlayScreen({
                   assetApi={assetApi}
                   campaignId={session.campaignId}
                   journalApi={journalApi}
+                  journalWindowApi={journalWindowApi}
                   networkApi={networkApi}
                   role={session.role}
                   system={session.system}
