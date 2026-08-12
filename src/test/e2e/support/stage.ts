@@ -3,7 +3,7 @@ import { expect } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import type { SceneRecord } from '../../../shared/scenes';
 import { openTab } from './flows';
-import { decodePng, largestPixelColorRegion, type Rgb } from './png';
+import { decodePng, pixelColorBounds, type Rgb } from './png';
 
 /**
  * Driving the map stage the way a person does — real pointer input against a
@@ -342,7 +342,7 @@ export async function mapFixtureCentre(
     .poll(async () => {
       const screenshot = await canvas.screenshot();
       const image = decodePng(screenshot);
-      const bounds = largestPixelColorRegion(
+      const bounds = pixelColorBounds(
         screenshot,
         MAP_FIXTURE_COLORS,
         40,
@@ -354,7 +354,7 @@ export async function mapFixtureCentre(
     .toBeGreaterThan(90);
   const screenshot = await canvas.screenshot();
   const image = decodePng(screenshot);
-  const bounds = largestPixelColorRegion(
+  const bounds = pixelColorBounds(
     screenshot,
     MAP_FIXTURE_COLORS,
     40,

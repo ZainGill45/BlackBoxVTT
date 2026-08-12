@@ -1,4 +1,4 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
 import {
   DEFAULT_TRANSFORM_PREVIEW_RATE,
@@ -32,10 +32,6 @@ import { snapMove } from './canvas/imageGeometry';
 import { useSceneImageUrls } from './useSceneImageUrls';
 import styles from './PlayScreen.module.css';
 
-export interface MapStageControls {
-  centerView: () => void;
-}
-
 function rememberPing(seen: Set<string>, id: string): boolean {
   if (seen.has(id)) {
     return false;
@@ -52,7 +48,6 @@ function rememberPing(seen: Set<string>, id: string): boolean {
 
 interface MapStageProps {
   assetApi: AssetApi;
-  controlsRef?: Ref<MapStageControls>;
   /** Injected so tests can drive the stage without a WebGL context. */
   createRenderer?: () => SceneRendererHandle;
   networkApi: NetworkApi;
@@ -105,7 +100,6 @@ export function MapStage({
   assetApi,
   activeLayer = 'token',
   activeTool = 'select',
-  controlsRef,
   createRenderer,
   networkApi,
   networkUpdateRate = DEFAULT_TRANSFORM_PREVIEW_RATE,
@@ -389,14 +383,6 @@ export function MapStage({
     sessionUserId,
     textSettings,
   ]);
-
-  useImperativeHandle(
-    controlsRef,
-    () => ({
-      centerView: () => renderer?.fitToScene(),
-    }),
-    [renderer],
-  );
 
   return (
     <section

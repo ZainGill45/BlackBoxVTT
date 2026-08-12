@@ -213,6 +213,10 @@ describe('JournalPanel', () => {
     }
     expect(within(characterSheet).getByRole('heading', { name: 'Skills' }))
       .toBeVisible();
+    expect(within(characterSheet).getByRole('textbox', { name: 'Acrobatics bonus' }))
+      .toHaveValue('0');
+    expect(within(characterSheet).getByRole('textbox', { name: 'Acrobatics passive score' }))
+      .toHaveValue('10');
     const health = within(characterSheet).getByRole('heading', { name: /^Health$/u })
       .parentElement!;
     for (const [label, defaultValue] of [
@@ -225,10 +229,6 @@ describe('JournalPanel', () => {
     ] as const) {
       expect(within(health).getByRole('textbox', { name: label })).toHaveValue(defaultValue);
     }
-    expect(within(health).getByRole('group', { name: 'Death save successes' })
-      .querySelectorAll('button')).toHaveLength(3);
-    expect(within(health).getByRole('group', { name: 'Death save failures' })
-      .querySelectorAll('button')).toHaveLength(3);
     expect(within(characterSheet).getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Spells',
       'Home',
@@ -402,14 +402,18 @@ describe('JournalPanel', () => {
     const strengthScore = within(sheet).getByRole('textbox', { name: 'Strength score' });
     const strengthModifier = within(sheet).getByRole('textbox', { name: 'Strength modifier' });
     const strengthSave = within(sheet).getByRole('textbox', { name: 'Strength saving throw' });
-    const athletics = within(sheet).getByLabelText('Athletics bonus and passive score');
+    const athleticsBonus = within(sheet).getByRole('textbox', { name: 'Athletics bonus' });
+    const athleticsPassive = within(sheet).getByRole('textbox', {
+      name: 'Athletics passive score',
+    });
     await user.clear(strengthScore);
     await user.type(strengthScore, '12');
     await user.tab();
     await waitFor(() => {
       expect(strengthModifier).toHaveValue('+1');
       expect(strengthSave).toHaveValue('+4');
-      expect(athletics).toHaveTextContent('+1 / 11');
+      expect(athleticsBonus).toHaveValue('+1');
+      expect(athleticsPassive).toHaveValue('11');
     });
 
     await user.clear(strengthModifier);
@@ -418,12 +422,16 @@ describe('JournalPanel', () => {
     await waitFor(() => {
       expect(server.data.abilities.strength.modifierOffset).toBe(2);
       expect(strengthSave).toHaveValue('+6');
-      expect(athletics).toHaveTextContent('+3 / 13');
+      expect(athleticsBonus).toHaveValue('+3');
+      expect(athleticsPassive).toHaveValue('13');
     });
     await user.click(within(sheet).getByRole('button', {
       name: 'Athletics training: Untrained',
     }));
-    await waitFor(() => expect(athletics).toHaveTextContent('+6 / 16'));
+    await waitFor(() => {
+      expect(athleticsBonus).toHaveValue('+6');
+      expect(athleticsPassive).toHaveValue('16');
+    });
 
     await user.clear(strengthScore);
     await user.type(strengthScore, '14');
@@ -431,7 +439,8 @@ describe('JournalPanel', () => {
     await waitFor(() => {
       expect(strengthModifier).toHaveValue('+4');
       expect(strengthSave).toHaveValue('+7');
-      expect(athletics).toHaveTextContent('+7 / 17');
+      expect(athleticsBonus).toHaveValue('+7');
+      expect(athleticsPassive).toHaveValue('17');
     });
     await user.clear(strengthModifier);
     await user.tab();
@@ -439,7 +448,8 @@ describe('JournalPanel', () => {
       expect(server.data.abilities.strength.modifierOffset).toBe(0);
       expect(strengthModifier).toHaveValue('+2');
       expect(strengthSave).toHaveValue('+5');
-      expect(athletics).toHaveTextContent('+5 / 15');
+      expect(athleticsBonus).toHaveValue('+5');
+      expect(athleticsPassive).toHaveValue('15');
     });
 
     await user.clear(strengthModifier);
@@ -454,15 +464,57 @@ describe('JournalPanel', () => {
     await waitFor(() => {
       expect(server.data.importantStats.proficiencyBonusOffset).toBe(1);
       expect(strengthSave).toHaveValue('+6');
-      expect(athletics).toHaveTextContent('+6 / 16');
+      expect(athleticsBonus).toHaveValue('+6');
+      expect(athleticsPassive).toHaveValue('16');
     });
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
     await user.click(within(sheet).getByRole('button', { name: '9' }));
     await waitFor(() => {
       expect(proficiency).toHaveValue('+5');
       expect(strengthSave).toHaveValue('+7');
-      expect(athletics).toHaveTextContent('+7 / 17');
+      expect(athleticsBonus).toHaveValue('+7');
+      expect(athleticsPassive).toHaveValue('17');
     });
+
+    await user.clear(athleticsBonus);
+    await user.type(athleticsBonus, '+9');
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.skills.athletics.bonusOffset).toBe(2);
+      expect(athleticsBonus).toHaveValue('+9');
+      expect(athleticsPassive).toHaveValue('19');
+    });
+    await user.clear(athleticsPassive);
+    await user.type(athleticsPassive, '22');
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.skills.athletics.passiveOffset).toBe(3);
+      expect(athleticsPassive).toHaveValue('22');
+    });
+    await user.clear(strengthScore);
+    await user.type(strengthScore, '16');
+    await user.tab();
+    await waitFor(() => {
+      expect(athleticsBonus).toHaveValue('+10');
+      expect(athleticsPassive).toHaveValue('23');
+    });
+    await user.clear(athleticsBonus);
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.skills.athletics.bonusOffset).toBe(0);
+      expect(athleticsBonus).toHaveValue('+8');
+      expect(athleticsPassive).toHaveValue('21');
+    });
+    await user.clear(athleticsPassive);
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.skills.athletics.passiveOffset).toBe(0);
+      expect(athleticsPassive).toHaveValue('18');
+    });
+    await user.clear(athleticsPassive);
+    await user.type(athleticsPassive, 'invalid');
+    await user.tab();
+    expect(athleticsPassive).toHaveValue('18');
 
     const constitutionSave = within(sheet).getByRole('textbox', {
       name: 'Constitution saving throw',
@@ -485,6 +537,117 @@ describe('JournalPanel', () => {
      seconds on its own, which the default five-second budget cannot absorb
      once the suite is running files in parallel. */
   }, 20_000);
+
+  it('adds and fully edits Custom Skills using the standard Skill row behavior', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('button', { name: 'Add Custom Skill' }));
+    const firstName = within(sheet).getByRole('textbox', { name: 'New Skill name' });
+    expect(firstName).toHaveFocus();
+    expect(firstName).toHaveValue('New Skill');
+    expect((firstName as HTMLInputElement).selectionStart).toBe(0);
+    expect((firstName as HTMLInputElement).selectionEnd).toBe('New Skill'.length);
+    expect(within(sheet).getByRole('button', { name: 'New Skill ability' }))
+      .toHaveTextContent('NON');
+    expect(within(sheet).getByRole('textbox', { name: 'New Skill bonus' }))
+      .toHaveValue('0');
+    expect(within(sheet).getByRole('textbox', { name: 'New Skill passive score' }))
+      .toHaveValue('10');
+
+    await user.clear(firstName);
+    await user.type(firstName, 'Recall');
+    await user.tab();
+    await user.click(within(sheet).getByRole('button', { name: 'Recall ability' }));
+    await user.click(within(sheet).getByRole('button', { name: 'WIS — Wisdom' }));
+    await user.click(within(sheet).getByRole('button', {
+      name: 'Recall training: Untrained',
+    }));
+    const bonus = within(sheet).getByRole('textbox', { name: 'Recall bonus' });
+    const passive = within(sheet).getByRole('textbox', { name: 'Recall passive score' });
+    await waitFor(() => {
+      expect(bonus).toHaveValue('+2');
+      expect(passive).toHaveValue('12');
+    });
+
+    await user.clear(bonus);
+    await user.type(bonus, '+6');
+    await user.tab();
+    await user.clear(passive);
+    await user.type(passive, '19');
+    await user.tab();
+    await waitFor(() => expect(server.data.customSkills[0]).toMatchObject({
+      ability: 'wisdom',
+      bonusOffset: 4,
+      name: 'Recall',
+      passiveOffset: 3,
+      training: 'proficient',
+    }));
+
+    await user.clear(bonus);
+    await user.tab();
+    await user.clear(passive);
+    await user.tab();
+    await waitFor(() => expect(server.data.customSkills[0]).toMatchObject({
+      bonusOffset: 0,
+      passiveOffset: 0,
+    }));
+    expect(bonus).toHaveValue('+2');
+    expect(passive).toHaveValue('12');
+
+    await user.click(within(sheet).getByRole('button', { name: 'Add Custom Skill' }));
+    const secondName = within(sheet).getByRole('textbox', { name: 'New Skill name' });
+    await user.clear(secondName);
+    await user.type(secondName, 'Second');
+    await user.tab();
+    await waitFor(() => expect(server.data.customSkills.map(({ name }) => name))
+      .toEqual(['Recall', 'Second']));
+    fireEvent.contextMenu(secondName);
+    await user.click(screen.getByRole('menuitem', { name: 'Move Custom Skill Up' }));
+    await waitFor(() => expect(server.data.customSkills.map(({ name }) => name))
+      .toEqual(['Second', 'Recall']));
+    fireEvent.contextMenu(secondName);
+    await user.click(screen.getByRole('menuitem', { name: 'Reorder Custom Skill Freely' }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await waitFor(() => expect(server.data.customSkills.map(({ name }) => name))
+      .toEqual(['Recall', 'Second']));
+
+    const recallName = within(sheet).getByRole('textbox', { name: 'Recall name' });
+    fireEvent.contextMenu(recallName);
+    await user.click(screen.getByRole('menuitem', { name: 'Delete Custom Skill' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Confirm deletion of Recall' }));
+    await waitFor(() => expect(server.data.customSkills.map(({ name }) => name))
+      .toEqual(['Second']));
+  });
 
   it('adds, edits, reorders, and deletes signed Character Resources', async () => {
     const user = userEvent.setup();
@@ -1308,6 +1471,151 @@ describe('JournalPanel', () => {
     expect(within(sheet).getByRole('button', { name: 'Class' })).toHaveTextContent('Fighter');
   });
 
+  it('rebases Custom Skill edits by id without replacing remotely added skills', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.customSkills = [{
+      ability: 'none',
+      bonusOffset: 0,
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Local',
+      passiveOffset: 0,
+      training: 'untrained',
+    }];
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      if (updateEntryData.mock.calls.length === 1) {
+        server = {
+          ...server,
+          data: {
+            ...server.data,
+            customSkills: [
+              {
+                ability: 'dexterity',
+                bonusOffset: 1,
+                id: '22222222-2222-4222-8222-222222222222',
+                name: 'Remote',
+                passiveOffset: 2,
+                training: 'expertise',
+              },
+              { ...server.data.customSkills[0], ability: 'wisdom' },
+            ],
+          },
+          revision: 1,
+        };
+        return {
+          error: { code: 'conflict', entryId: server.id, message: 'Changed remotely.' },
+          ok: false,
+        };
+      }
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const name = within(sheet).getByRole('textbox', { name: 'Local name' });
+    await user.clear(name);
+    await user.type(name, 'Rebased');
+    await user.tab();
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(2));
+    expect(server.data.customSkills).toEqual([
+      {
+        ability: 'dexterity',
+        bonusOffset: 1,
+        id: '22222222-2222-4222-8222-222222222222',
+        name: 'Remote',
+        passiveOffset: 2,
+        training: 'expertise',
+      },
+      {
+        ability: 'wisdom',
+        bonusOffset: 0,
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Rebased',
+        passiveOffset: 0,
+        training: 'untrained',
+      },
+    ]);
+  });
+
+  it('lets remote Custom Skill deletion win over a pending local edit', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    server.data.customSkills = [{
+      ability: 'none',
+      bonusOffset: 0,
+      id: '11111111-1111-4111-8111-111111111111',
+      name: 'Vanishing',
+      passiveOffset: 0,
+      training: 'untrained',
+    }];
+    const updateEntryData = vi.fn(async (): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: { ...server.data, customSkills: [] },
+        revision: 1,
+      };
+      return {
+        error: { code: 'conflict', entryId: server.id, message: 'Deleted remotely.' },
+        ok: false,
+      };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    const bonus = within(sheet).getByRole('textbox', { name: 'Vanishing bonus' });
+    await user.clear(bonus);
+    await user.type(bonus, '+8');
+    await user.tab();
+
+    const error = await screen.findByRole('dialog', { name: 'Character sheet error' });
+    expect(within(error).getByRole('alert')).toHaveTextContent(
+      'A Custom Skill was deleted remotely, so its pending local edit was discarded.',
+    );
+    expect(within(sheet).queryByRole('textbox', { name: 'Vanishing bonus' }))
+      .not.toBeInTheDocument();
+    expect(updateEntryData).toHaveBeenCalledTimes(1);
+  });
+
   it('rebases Resource edits by id without replacing remotely added Resources', async () => {
     const user = userEvent.setup();
     let server = structuredClone(character);
@@ -1649,6 +1957,14 @@ describe('JournalPanel', () => {
       },
       data: {
         ...structuredClone(character.data),
+        customSkills: [{
+          ability: 'charisma' as const,
+          bonusOffset: 1,
+          id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          name: '',
+          passiveOffset: 2,
+          training: 'expertise' as const,
+        }],
         features: [{
           description: 'See in darkness.',
           id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -1733,12 +2049,24 @@ describe('JournalPanel', () => {
     ]) {
       expect(within(sheet).getByRole('textbox', { name: label })).toHaveAttribute('readonly');
     }
-    for (const control of within(sheet).getAllByRole('button', { name: /^(Success|Failure) \d$/u })) {
-      expect(control).toBeDisabled();
-    }
     const skillTrainingControls = within(sheet).getAllByRole('button', { name: /training:/u });
-    expect(skillTrainingControls).toHaveLength(18);
+    expect(skillTrainingControls).toHaveLength(19);
     for (const control of skillTrainingControls) expect(control).toBeDisabled();
+    expect(within(sheet).getByRole('textbox', { name: 'Acrobatics bonus' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Acrobatics passive score' }))
+      .toHaveAttribute('readonly');
+    const customSkillName = within(sheet).getByRole('textbox', { name: 'Unnamed Skill name' });
+    expect(customSkillName).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('button', { name: 'Unnamed Skill ability' }))
+      .toHaveAttribute('aria-disabled', 'true');
+    expect(within(sheet).getByRole('textbox', { name: 'Unnamed Skill bonus' }))
+      .toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', { name: 'Unnamed Skill passive score' }))
+      .toHaveAttribute('readonly');
+    fireEvent.contextMenu(customSkillName);
+    expect(screen.queryByRole('menu', { name: 'Unnamed Skill actions' }))
+      .not.toBeInTheDocument();
     for (const name of [
       'Add Custom Skill',
       'Add Item',
@@ -1789,8 +2117,10 @@ describe('JournalPanel', () => {
     fireEvent.contextMenu(featureTrigger);
     expect(screen.queryByRole('menu', { name: 'Darkvision actions' }))
       .not.toBeInTheDocument();
-    expect(within(sheet).getByLabelText('Acrobatics bonus and passive score'))
-      .toHaveTextContent('0 / 10');
+    expect(within(sheet).getByRole('textbox', { name: 'Acrobatics bonus' }))
+      .toHaveValue('0');
+    expect(within(sheet).getByRole('textbox', { name: 'Acrobatics passive score' }))
+      .toHaveValue('10');
     await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
     expect(within(sheet).getByRole('checkbox', { name: 'Use Variant Encumbrance' }))
       .toBeDisabled();

@@ -7,11 +7,13 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react';
+import { Pencil } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Collapsible } from '../../../components/ui/Collapsible';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import { TextInput } from '../../../components/ui/FormField';
+import { IconButton } from '../../../components/ui/IconButton';
 import { Modal } from '../../../components/ui/Modal';
 import {
   ContextMenuController,
@@ -644,7 +646,6 @@ export function CharacterActionPanel({
   onError,
   onSave,
 }: CharacterActionPanelProps) {
-  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedStepIds, setExpandedStepIds] = useState<ReadonlySet<string>>(new Set());
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
@@ -701,7 +702,6 @@ export function CharacterActionPanel({
   });
 
   const editAction = (action: Dnd5eCharacterAction) => {
-    setDetailsId(null);
     setEditingId(action.id);
     setExpandedStepIds(new Set(action.steps.slice(0, 1).map(({ id }) => id)));
   };
@@ -847,41 +847,27 @@ export function CharacterActionPanel({
     const index = actions.findIndex(({ id }) => id === action.id);
     const entries: ContextMenuEntry[] = [
       {
+        disabled: index <= 0,
         kind: 'action',
-        label: 'Details',
-        onSelect: () => {
-          setEditingId(null);
-          setDetailsId(action.id);
-        },
+        label: 'Move Up',
+        onSelect: () => void onCommit({ direction: 'up', id: action.id, kind: 'move' }),
       },
+      {
+        disabled: index === actions.length - 1,
+        kind: 'action',
+        label: 'Move Down',
+        onSelect: () => void onCommit({ direction: 'down', id: action.id, kind: 'move' }),
+      },
+      {
+        kind: 'action',
+        label: 'Reorder Freely',
+        onSelect: () => beginActionReorder(action, position),
+      },
+      { kind: 'divider' },
+      armDelete('Delete', actionLabel(action), () => {
+        void onCommit({ id: action.id, kind: 'delete' });
+      }),
     ];
-    if (canEdit) {
-      entries.push(
-        { kind: 'action', label: 'Edit', onSelect: () => editAction(action) },
-        { kind: 'divider' },
-        {
-          disabled: index <= 0,
-          kind: 'action',
-          label: 'Move Up',
-          onSelect: () => void onCommit({ direction: 'up', id: action.id, kind: 'move' }),
-        },
-        {
-          disabled: index === actions.length - 1,
-          kind: 'action',
-          label: 'Move Down',
-          onSelect: () => void onCommit({ direction: 'down', id: action.id, kind: 'move' }),
-        },
-        {
-          kind: 'action',
-          label: 'Reorder Freely',
-          onSelect: () => beginActionReorder(action, position),
-        },
-        { kind: 'divider' },
-        armDelete('Delete', actionLabel(action), () => {
-          void onCommit({ id: action.id, kind: 'delete' });
-        }),
-      );
-    }
     menuRef.current?.open(
       position.clientX,
       position.clientY,
@@ -895,6 +881,7 @@ export function CharacterActionPanel({
   };
 
   const openActionContext = (event: ReactMouseEvent, action: Dnd5eCharacterAction) => {
+    if (!canEdit) return;
     event.preventDefault();
     openActionMenu(action, event);
   };
@@ -903,6 +890,7 @@ export function CharacterActionPanel({
     event: ReactKeyboardEvent<HTMLButtonElement>,
     action: Dnd5eCharacterAction,
   ) => {
+    if (!canEdit) return;
     if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
     event.preventDefault();
     const button = event.currentTarget;
@@ -1020,14 +1008,12 @@ export function CharacterActionPanel({
   };
 
   const editingAction = actions.find(({ id }) => id === editingId) ?? null;
-  const detailsAction = actions.find(({ id }) => id === detailsId) ?? null;
-  const modalAction = editingAction ?? detailsAction;
-  const modalCompiled = modalAction ? compiled.get(modalAction.id) : null;
-  const displayedSteps = modalAction && reorderState?.scope === 'steps' &&
-    reorderState.actionId === modalAction.id
+  const modalCompiled = editingAction ? compiled.get(editingAction.id) : null;
+  const displayedSteps = editingAction && reorderState?.scope === 'steps' &&
+    reorderState.actionId === editingAction.id
     ? reorderState.orderedIds.flatMap((id) =>
-        modalAction.steps.find((step) => step.id === id) ?? [])
-    : modalAction?.steps ?? [];
+        editingAction.steps.find((step) => step.id === id) ?? [])
+    : editingAction?.steps ?? [];
 
   return (
     <>
@@ -1051,14 +1037,24 @@ export function CharacterActionPanel({
                   className={styles.actionUse}
                   disabled={disabled}
                   title={result?.ok
-                    ? `Use ${actionLabel(action)}. Right-click for details.`
-                    : `${result?.issues[0]?.message ?? 'Needs setup'} Right-click for details.`}
+                    ? canEdit
+                      ? `Use ${actionLabel(action)}. Right-click for options.`
+                      : `Use ${actionLabel(action)}.`
+                    : result?.issues[0]?.message ?? 'Needs setup'}
                   type="button"
                   onClick={() => void executeAction(action)}
                   onKeyDown={(event) => openActionKeyboardMenu(event, action)}
                 >
                   <strong>{actionLabel(action)}</strong>
                 </button>
+                {canEdit ? (
+                  <IconButton
+                    className={styles.actionEdit}
+                    icon={Pencil}
+                    label={`Edit ${actionLabel(action)}`}
+                    onClick={() => editAction(action)}
+                  />
+                ) : null}
               </div>
             );
           })}
@@ -1081,25 +1077,17 @@ export function CharacterActionPanel({
       </div>
 
       <Modal
-        accessibleLabel={modalAction
-          ? `${actionLabel(modalAction)} action ${editingAction ? 'editor' : 'details'}`
-          : 'Action details'}
-        className={[
-          styles.actionModal,
-          editingAction ? styles.actionEditorModal : styles.actionDetailsModal,
-        ].join(' ')}
+        accessibleLabel={editingAction
+          ? `${actionLabel(editingAction)} action editor`
+          : 'Action editor'}
+        className={`${styles.actionModal} ${styles.actionEditorModal}`}
         contentClassName={styles.actionModalContent}
         initialFocus="dialog"
-        isOpen={modalAction !== null}
-        onDismiss={() => {
-          setEditingId(null);
-          setDetailsId(null);
-        }}
+        isOpen={editingAction !== null}
+        onDismiss={() => setEditingId(null)}
       >
-        {modalAction ? (
-          <>
-            {editingAction ? (
-              <div className={styles.builderLayout}>
+        {editingAction ? (
+          <div className={styles.builderLayout}>
                 <div className={styles.builderMain}>
                   <div className={styles.actionBasics}>
                     <EditorField label="Action name">
@@ -1186,37 +1174,7 @@ export function CharacterActionPanel({
                     />
                   </section>
                 </div>
-              </div>
-            ) : (
-              <div className={styles.detailsLayout}>
-                <div className={styles.detailsMetadata}>
-                  {([
-                    ['Activation', modalAction.activation],
-                    ['Range', modalAction.range],
-                    ['Target', modalAction.target],
-                    ['Duration', modalAction.duration],
-                  ] as const).filter(([, value]) => value.trim()).map(([label, value]) => (
-                    <p key={label}><strong>{label}</strong><span>{value}</span></p>
-                  ))}
-                  {modalAction.description.trim() ? <p>{modalAction.description}</p> : null}
-                </div>
-                <div className={styles.detailsSteps}>
-                  {displayedSteps.map((step) => {
-                    const preview = modalCompiled?.previews.find(({ stepId }) => stepId === step.id);
-                    return (
-                      <section className={styles.detailsStep} key={step.id}>
-                        <div>
-                          <strong>{stepLabel(step)}</strong>
-                          <span>{dnd5eActionPurposeLabel(step.purpose)}</span>
-                        </div>
-                        <code>{preview?.summary ?? 'Incomplete'}</code>
-                      </section>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </>
+          </div>
         ) : null}
       </Modal>
 
@@ -1227,7 +1185,7 @@ export function CharacterActionPanel({
         >
           Move {reorderState.scope === 'actions'
             ? actionLabel(actions.find(({ id }) => id === reorderState.activeId)!)
-            : stepLabel(modalAction!.steps.find(({ id }) => id === reorderState.activeId)!)}
+            : stepLabel(editingAction!.steps.find(({ id }) => id === reorderState.activeId)!)}
         </div>
       ) : null}
     </>

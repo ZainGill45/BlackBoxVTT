@@ -4,8 +4,7 @@
 .termEditor,
 .tierList,
 .builderMain,
-.stepBuilder,
-.detailsSteps {
+.stepBuilder {
   display: grid;
   gap: var(--space-2);
 }
@@ -13,7 +12,7 @@
 .actionRow {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border);
 }
@@ -72,6 +71,30 @@
   color: var(--color-text-muted);
 }
 
+.actionEdit {
+  width: 1.75rem;
+  height: 1.75rem;
+  min-width: 1.75rem;
+  min-height: 1.75rem;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.actionEdit svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.actionEdit:hover:not(:disabled),
+.actionEdit:focus-visible {
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
 .addRow {
   padding: var(--space-1);
 }
@@ -82,10 +105,6 @@
 
 .actionEditorModal {
   width: min(38rem, calc(100vw - 3rem));
-}
-
-.actionDetailsModal {
-  width: min(26rem, calc(100vw - 3rem));
 }
 
 .actionModalContent {
@@ -392,54 +411,6 @@
   color: var(--color-text);
 }
 
-.detailsLayout {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.detailsMetadata {
-  display: grid;
-  gap: var(--space-1);
-  white-space: pre-wrap;
-}
-
-.detailsMetadata p {
-  display: flex;
-  gap: var(--space-2);
-  margin: 0;
-}
-
-.detailsMetadata strong {
-  min-width: 5rem;
-}
-
-.detailsStep {
-  display: grid;
-  grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  background: transparent;
-  border: var(--border-width) solid var(--color-border);
-}
-
-.detailsStep>div {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.detailsStep span {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  text-transform: capitalize;
-}
-
-.detailsStep code {
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  text-align: right;
-}
-
 .reorderGhost {
   position: fixed;
   z-index: 1700;
@@ -457,14 +428,8 @@
 
   .actionBasics,
   .saveExpression,
-  .stepGrid,
-  .detailsStep {
+  .stepGrid {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .detailsStep code {
-    justify-self: start;
-    text-align: left;
   }
 
   .termRow {

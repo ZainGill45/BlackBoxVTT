@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -305,7 +306,7 @@ export function CharacterResourcePanel({
                     const key = `${resource.id}.${field}`;
                     const displayedValue = numericBuffers[key] ?? String(resource[field]);
                     return (
-                      <span className={styles.resourceValueSlot} key={field}>
+                      <Fragment key={field}>
                         {index === 1 ? <span aria-hidden>/</span> : null}
                         <InlineInput
                           aria-label={`${label} ${field}`}
@@ -328,7 +329,7 @@ export function CharacterResourcePanel({
                             if (event.key === 'Enter') event.currentTarget.blur();
                           }}
                         />
-                      </span>
+                      </Fragment>
                     );
                   })}
                 </div>

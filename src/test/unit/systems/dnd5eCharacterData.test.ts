@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyDnd5eCharacterActionMutations,
+  applyDnd5eCharacterCustomSkillMutations,
   applyDnd5eCharacterInventoryMutations,
   applyDnd5eCharacterFeatureMutations,
   applyDnd5eCharacterResourceMutations,
@@ -15,6 +16,8 @@ import {
   formatDnd5eSignedValue,
   isDnd5eCharacterData,
   MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS,
+  MAX_DND5E_CHARACTER_CUSTOM_SKILLS,
+  MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
   MAX_DND5E_CHARACTER_FEATURES,
   MAX_DND5E_CHARACTER_INVENTORY_DEPTH,
   MAX_DND5E_CHARACTER_INVENTORY_ENTRIES,
@@ -26,6 +29,7 @@ import {
   type Dnd5eActionDamageStep,
   type Dnd5eCharacterInventoryContainer,
   type Dnd5eCharacterInventoryEntry,
+  type Dnd5eCharacterCustomSkill,
 } from '../../../systems/dnd5e/characterData';
 
 function inventoryUuid(index: number): string {
@@ -198,7 +202,11 @@ describe('D&D Character data', () => {
       { ability: 'wisdom', abbreviation: 'WIS', id: 'survival', label: 'Survival' },
     ]);
     expect(createDefaultDnd5eCharacterData().skills).toEqual(Object.fromEntries(
-      DND5E_SKILLS.map(({ id }) => [id, 'untrained']),
+      DND5E_SKILLS.map(({ id }) => [id, {
+        bonusOffset: 0,
+        passiveOffset: 0,
+        training: 'untrained',
+      }]),
     ));
   });
 
@@ -219,6 +227,7 @@ describe('D&D Character data', () => {
       proficiencyBonusOffset: 0,
     });
     expect(data.features).toEqual([]);
+    expect(data.customSkills).toEqual([]);
     expect(data.inventory).toEqual({
       currency: { copper: 0, gold: 0, platinum: 0, silver: 0 },
       entries: [],
@@ -622,10 +631,6 @@ describe('D&D Character data', () => {
     const valid = createDefaultDnd5eCharacterData();
     expect(isDnd5eCharacterData({
       ...valid,
-      health: { ...valid.health, deathSaveFailures: '4' },
-    })).toBe(false);
-    expect(isDnd5eCharacterData({
-      ...valid,
       abilities: {
         ...valid.abilities,
         strength: { ...valid.abilities.strength, score: '12' },
@@ -636,6 +641,17 @@ describe('D&D Character data', () => {
       abilities: {
         ...valid.abilities,
         strength: { ...valid.abilities.strength, modifierOffset: Number.MAX_SAFE_INTEGER },
+      },
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      skills: { ...valid.skills, athletics: 'proficient' },
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      skills: {
+        ...valid.skills,
+        athletics: { ...valid.skills.athletics, bonusOffset: Number.MAX_SAFE_INTEGER },
       },
     })).toBe(false);
     expect(isDnd5eCharacterData({ ...valid, extra: true })).toBe(false);
@@ -674,6 +690,123 @@ describe('D&D Character data', () => {
         }),
       ),
     })).toBe(false);
+  });
+
+  it('validates exact, bounded Custom Skills with every ability and unique IDs', () => {
+    const valid = createDefaultDnd5eCharacterData();
+    const abilities = [
+      'strength',
+      'dexterity',
+      'constitution',
+      'intelligence',
+      'wisdom',
+      'charisma',
+      'none',
+    ] as const;
+    valid.customSkills = abilities.map((ability, index) => ({
+      ability,
+      bonusOffset: index - 3,
+      id: `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      name: index < 2 ? '' : 'Repeated Name',
+      passiveOffset: 3 - index,
+      training: index % 3 === 0
+        ? 'untrained'
+        : index % 3 === 1
+          ? 'proficient'
+          : 'expertise',
+    }));
+    expect(isDnd5eCharacterData(valid)).toBe(true);
+
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [{ ...valid.customSkills[0], extra: true }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [{ ...valid.customSkills[0], ability: 'luck' }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [{ ...valid.customSkills[0], training: 'mastery' }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [{ ...valid.customSkills[0], id: 'not-a-uuid' }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [{
+        ...valid.customSkills[0],
+        name: 'x'.repeat(MAX_DND5E_CHARACTER_FIELD_CODE_UNITS + 1),
+      }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [valid.customSkills[0], { ...valid.customSkills[0] }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: [{
+        ...valid.customSkills[0],
+        passiveOffset: Number.MAX_SAFE_INTEGER + 1,
+      }],
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      customSkills: Array.from(
+        { length: MAX_DND5E_CHARACTER_CUSTOM_SKILLS + 1 },
+        (_, index) => ({
+          ability: 'none',
+          bonusOffset: 0,
+          id: `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+          name: '',
+          passiveOffset: 0,
+          training: 'untrained',
+        }),
+      ),
+    })).toBe(false);
+  });
+
+  it('applies Custom Skill edits and reorders by stable ID while preserving remote slots', () => {
+    const skill = (
+      id: string,
+      name: string,
+    ): Dnd5eCharacterCustomSkill => ({
+      ability: 'none',
+      bonusOffset: 0,
+      id,
+      name,
+      passiveOffset: 0,
+      training: 'untrained',
+    });
+    const first = skill('11111111-1111-4111-8111-111111111111', 'First');
+    const remote = skill('22222222-2222-4222-8222-222222222222', 'Remote');
+    const second = skill('33333333-3333-4333-8333-333333333333', 'Second');
+    const added = skill('44444444-4444-4444-8444-444444444444', 'Added');
+    expect(applyDnd5eCharacterCustomSkillMutations(
+      [first, remote, second],
+      [{ direction: 'down', id: first.id, kind: 'move' }],
+    ).skills).toEqual([remote, first, second]);
+    const applied = applyDnd5eCharacterCustomSkillMutations(
+      [first, remote, second],
+      [
+        { changes: { ability: 'wisdom', name: '' }, id: first.id, kind: 'update' },
+        { kind: 'reorder', orderedIds: [second.id, first.id] },
+        { kind: 'add', skill: added },
+        { id: remote.id, kind: 'delete' },
+      ],
+    );
+    expect(applied).toEqual({
+      missingIds: [],
+      skills: [
+        second,
+        { ...first, ability: 'wisdom', name: '' },
+        added,
+      ],
+    });
+    expect(applyDnd5eCharacterCustomSkillMutations(applied.skills, [
+      { direction: 'up', id: remote.id, kind: 'move' },
+    ])).toMatchObject({ missingIds: [remote.id], skills: applied.skills });
   });
 
   it('applies Resource edits and reorders by stable id while preserving remote slots', () => {
@@ -730,7 +863,11 @@ describe('D&D Character data', () => {
     data.importantStats.proficiencyBonusOffset = 1;
     data.importantStats.initiativeOffset = -1;
     data.importantStats.concentrationSaveOffset = 3;
-    data.skills.athletics = 'expertise';
+    data.skills.athletics = {
+      bonusOffset: 2,
+      passiveOffset: -1,
+      training: 'expertise',
+    };
 
     const derived = deriveDnd5eCharacterValues(data, '5.5e');
     expect(derived).not.toBeNull();
@@ -744,9 +881,51 @@ describe('D&D Character data', () => {
       initiative: 1,
       proficiencyBonus: 4,
       skills: {
-        athletics: { bonus: 11, display: '+11 / 21', passive: 21 },
+        athletics: { bonus: 13, passive: 22 },
       },
     });
+  });
+
+  it('derives Custom Skills from every ability, NON, training, and independent offsets', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.level = 5;
+    data.abilities.strength.score = 16;
+    data.abilities.dexterity.score = 14;
+    data.abilities.constitution.score = 12;
+    data.abilities.intelligence.score = 10;
+    data.abilities.wisdom.score = 8;
+    data.abilities.charisma.score = 6;
+    const abilities = [
+      'strength',
+      'dexterity',
+      'constitution',
+      'intelligence',
+      'wisdom',
+      'charisma',
+      'none',
+    ] as const;
+    data.customSkills = abilities.map((ability, index) => ({
+      ability,
+      bonusOffset: 1,
+      id: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      name: ability,
+      passiveOffset: -2,
+      training: index === 6 ? 'expertise' : 'proficient',
+    }));
+
+    const derived = deriveDnd5eCharacterValues(data, '5.5e')!;
+    expect(Object.values(derived.customSkills)).toEqual([
+      { bonus: 7, passive: 15 },
+      { bonus: 6, passive: 14 },
+      { bonus: 5, passive: 13 },
+      { bonus: 4, passive: 12 },
+      { bonus: 3, passive: 11 },
+      { bonus: 2, passive: 10 },
+      { bonus: 7, passive: 15 },
+    ]);
+
+    data.customSkills[0].bonusOffset = Number.MAX_SAFE_INTEGER;
+    expect(deriveDnd5eCharacterValues(data, '5.5e')).toBeNull();
   });
 
   it('uses the official proficiency tiers, blank-level default, and no base outside levels 1-20', () => {
@@ -806,22 +985,35 @@ describe('D&D Character data', () => {
   });
 
   it('calculates signed skill totals and passive scores for every training tier', () => {
-    expect(calculateDnd5eSkillValues(3, 2, 'untrained')).toEqual({
+    expect(calculateDnd5eSkillValues(3, 2, {
+      bonusOffset: 0,
+      passiveOffset: 0,
+      training: 'untrained',
+    })).toEqual({
       bonus: 3,
-      display: '+3 / 13',
       passive: 13,
     });
-    expect(calculateDnd5eSkillValues(3, 2, 'proficient')).toEqual({
+    expect(calculateDnd5eSkillValues(3, 2, {
+      bonusOffset: 0,
+      passiveOffset: 0,
+      training: 'proficient',
+    })).toEqual({
       bonus: 5,
-      display: '+5 / 15',
       passive: 15,
     });
-    expect(calculateDnd5eSkillValues(-2, 2, 'expertise')).toEqual({
-      bonus: 2,
-      display: '+2 / 12',
-      passive: 12,
+    expect(calculateDnd5eSkillValues(-2, 2, {
+      bonusOffset: -1,
+      passiveOffset: 3,
+      training: 'expertise',
+    })).toEqual({
+      bonus: 1,
+      passive: 14,
     });
-    expect(calculateDnd5eSkillValues(Number.MAX_SAFE_INTEGER, 2, 'proficient')).toBeNull();
+    expect(calculateDnd5eSkillValues(Number.MAX_SAFE_INTEGER, 2, {
+      bonusOffset: 0,
+      passiveOffset: 0,
+      training: 'proficient',
+    })).toBeNull();
   });
 
   it('parses, formats, and rebases directly edited totals', () => {

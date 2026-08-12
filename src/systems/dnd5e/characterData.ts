@@ -7,6 +7,7 @@ export const MAX_DND5E_ACTION_STEPS = 32;
 export const MAX_DND5E_ACTION_TERMS = 32;
 export const MAX_DND5E_ACTION_DICE_TIERS = 20;
 export const MAX_DND5E_CHARACTER_FEATURES = 128;
+export const MAX_DND5E_CHARACTER_CUSTOM_SKILLS = 128;
 export const MAX_DND5E_CHARACTER_INVENTORY_ENTRIES = 256;
 export const MAX_DND5E_CHARACTER_INVENTORY_DEPTH = 8;
 export const MAX_DND5E_CHARACTER_RESOURCES = 128;
@@ -79,6 +80,7 @@ export const DND5E_SKILL_TRAINING_STATES = [
 
 export type Dnd5eSkillId = (typeof DND5E_SKILLS)[number]['id'];
 export type Dnd5eSkillTraining = (typeof DND5E_SKILL_TRAINING_STATES)[number];
+export type Dnd5eCustomSkillAbility = Dnd5eAbilityId | 'none';
 
 export const DND5E_CHARACTER_FEATURE_TYPES = [
   'unknown',
@@ -402,9 +404,34 @@ export type Dnd5eCharacterInventoryMutation =
 
 export interface Dnd5eSkillValues {
   bonus: number;
-  display: string;
   passive: number;
 }
+
+export type Dnd5eCharacterSkill = {
+  bonusOffset: number;
+  passiveOffset: number;
+  training: Dnd5eSkillTraining;
+};
+
+export type Dnd5eCharacterCustomSkill = Dnd5eCharacterSkill & {
+  ability: Dnd5eCustomSkillAbility;
+  id: string;
+  name: string;
+};
+
+export type Dnd5eCharacterCustomSkillMutation =
+  | { kind: 'add'; skill: Dnd5eCharacterCustomSkill }
+  | {
+      changes: Partial<Pick<
+        Dnd5eCharacterCustomSkill,
+        'ability' | 'bonusOffset' | 'name' | 'passiveOffset' | 'training'
+      >>;
+      id: string;
+      kind: 'update';
+    }
+  | { id: string; kind: 'delete' }
+  | { direction: 'down' | 'up'; id: string; kind: 'move' }
+  | { kind: 'reorder'; orderedIds: readonly string[] };
 
 export interface Dnd5eDerivedAbilityValues {
   modifier: number;
@@ -414,6 +441,7 @@ export interface Dnd5eDerivedAbilityValues {
 export interface Dnd5eDerivedCharacterValues {
   abilities: Record<Dnd5eAbilityId, Dnd5eDerivedAbilityValues>;
   concentrationSave: number;
+  customSkills: Record<string, Dnd5eSkillValues>;
   initiative: number;
   inventory: Dnd5eDerivedInventoryValues;
   proficiencyBonus: number;
@@ -457,11 +485,10 @@ export type Dnd5eCharacterData = {
     skin: string;
     weight: string;
   };
+  customSkills: Dnd5eCharacterCustomSkill[];
   health: {
     currentHitDice: string;
     currentHitPoints: string;
-    deathSaveFailures: string;
-    deathSaveSuccesses: string;
     hitDie: string;
     maximumHitDice: string;
     maximumHitPoints: string;
@@ -487,7 +514,7 @@ export type Dnd5eCharacterData = {
   inventory: Dnd5eCharacterInventory;
   features: Dnd5eCharacterFeature[];
   resources: Dnd5eCharacterResource[];
-  skills: Record<Dnd5eSkillId, Dnd5eSkillTraining>;
+  skills: Record<Dnd5eSkillId, Dnd5eCharacterSkill>;
 };
 
 const ABILITY_KEYS = [
@@ -534,8 +561,6 @@ const IDENTITY_KEYS = [...IDENTITY_STRING_KEYS, 'level'] as const;
 const HEALTH_KEYS = [
   'currentHitDice',
   'currentHitPoints',
-  'deathSaveFailures',
-  'deathSaveSuccesses',
   'hitDie',
   'maximumHitDice',
   'maximumHitPoints',
@@ -548,6 +573,15 @@ const IMPORTANT_STAT_KEYS = [
   'initiativeOffset',
   'inspirationCount',
   'proficiencyBonusOffset',
+] as const;
+const SKILL_KEYS = ['bonusOffset', 'passiveOffset', 'training'] as const;
+const CUSTOM_SKILL_KEYS = [
+  'ability',
+  'bonusOffset',
+  'id',
+  'name',
+  'passiveOffset',
+  'training',
 ] as const;
 const FEATURE_KEYS = [
   'description',
@@ -645,7 +679,11 @@ function abilityModifierBase(score: number): number | null {
 
 function defaultSkills(): Dnd5eCharacterData['skills'] {
   return Object.fromEntries(
-    DND5E_SKILLS.map(({ id }) => [id, 'untrained']),
+    DND5E_SKILLS.map(({ id }) => [id, {
+      bonusOffset: 0,
+      passiveOffset: 0,
+      training: 'untrained',
+    }]),
   ) as Dnd5eCharacterData['skills'];
 }
 
@@ -653,8 +691,6 @@ function defaultHealth(): Dnd5eCharacterData['health'] {
   return {
     currentHitDice: '1',
     currentHitPoints: '1',
-    deathSaveFailures: '0',
-    deathSaveSuccesses: '0',
     hitDie: 'd8',
     maximumHitDice: '1',
     maximumHitPoints: '1',
@@ -703,6 +739,7 @@ export function createDefaultDnd5eCharacterData(): Dnd5eCharacterData {
       skin: '',
       weight: '',
     },
+    customSkills: [],
     health: defaultHealth(),
     identity: {
       ancestry: '',
@@ -915,22 +952,27 @@ function hasExactStringFields(
 
 function hasExactSkillFields(
   value: JsonValue,
-): value is Record<Dnd5eSkillId, Dnd5eSkillTraining> {
+): value is Record<Dnd5eSkillId, Dnd5eCharacterSkill> {
   if (!isRecord(value)) return false;
   const expectedKeys = DND5E_SKILLS.map(({ id }) => id);
   return hasExactKeys(value, expectedKeys) &&
-    expectedKeys.every((key) =>
-      typeof value[key] === 'string' &&
-      DND5E_SKILL_TRAINING_STATES.includes(value[key] as Dnd5eSkillTraining),
-    );
+    expectedKeys.every((key) => {
+      const skill = value[key];
+      return isRecord(skill) &&
+        hasExactKeys(skill, SKILL_KEYS) &&
+        isSafeInteger(skill.bonusOffset) &&
+        isSafeInteger(skill.passiveOffset) &&
+        typeof skill.training === 'string' &&
+        DND5E_SKILL_TRAINING_STATES.includes(
+          skill.training as Dnd5eSkillTraining,
+        );
+    });
 }
 
 function hasExactHealthFields(
   value: JsonValue,
 ): value is Dnd5eCharacterData['health'] {
-  return hasExactStringFields(value, HEALTH_KEYS) &&
-    ['0', '1', '2', '3'].includes(value.deathSaveFailures) &&
-    ['0', '1', '2', '3'].includes(value.deathSaveSuccesses);
+  return hasExactStringFields(value, HEALTH_KEYS);
 }
 
 function isNonnegativeSafeInteger(value: unknown): value is number {
@@ -1024,6 +1066,7 @@ export function isDnd5eCharacterData(
     'actions',
     'abilities',
     'appearance',
+    'customSkills',
     'features',
     'health',
     'identity',
@@ -1063,6 +1106,28 @@ export function isDnd5eCharacterData(
     !isSafeInteger(value.importantStats.proficiencyBonusOffset) ||
     !isDnd5eCharacterInventory(value.inventory) ||
     !isDnd5eCharacterActions(value.actions) ||
+    !Array.isArray(value.customSkills) ||
+    value.customSkills.length > MAX_DND5E_CHARACTER_CUSTOM_SKILLS ||
+    !value.customSkills.every((skill) =>
+      isRecord(skill) &&
+      hasExactKeys(skill, CUSTOM_SKILL_KEYS) &&
+      typeof skill.id === 'string' &&
+      UUID_PATTERN.test(skill.id) &&
+      isBoundedString(skill.name) &&
+      typeof skill.ability === 'string' &&
+      (skill.ability === 'none' || DND5E_ABILITIES.includes(
+        skill.ability as Dnd5eAbilityId,
+      )) &&
+      isSafeInteger(skill.bonusOffset) &&
+      isSafeInteger(skill.passiveOffset) &&
+      typeof skill.training === 'string' &&
+      DND5E_SKILL_TRAINING_STATES.includes(
+        skill.training as Dnd5eSkillTraining,
+      ),
+    ) ||
+    new Set(value.customSkills.map((skill) =>
+      isRecord(skill) && typeof skill.id === 'string' ? skill.id : '',
+    )).size !== value.customSkills.length ||
     !Array.isArray(value.features) ||
     value.features.length > MAX_DND5E_CHARACTER_FEATURES ||
     !value.features.every((feature) =>
@@ -1230,6 +1295,58 @@ export function applyDnd5eCharacterFeatureMutations(
     });
   }
   return { features: next, missingIds: [...missingIds] };
+}
+
+export function applyDnd5eCharacterCustomSkillMutations(
+  skills: readonly Dnd5eCharacterCustomSkill[],
+  mutations: readonly Dnd5eCharacterCustomSkillMutation[],
+): { missingIds: string[]; skills: Dnd5eCharacterCustomSkill[] } {
+  let next = skills.map((skill) => ({ ...skill }));
+  const missingIds = new Set<string>();
+  for (const mutation of mutations) {
+    if (mutation.kind === 'add') {
+      if (!next.some(({ id }) => id === mutation.skill.id)) {
+        next.push({ ...mutation.skill });
+      }
+      continue;
+    }
+    if (mutation.kind === 'delete') {
+      next = next.filter(({ id }) => id !== mutation.id);
+      continue;
+    }
+    if (mutation.kind === 'update') {
+      const index = next.findIndex(({ id }) => id === mutation.id);
+      if (index < 0) {
+        missingIds.add(mutation.id);
+      } else {
+        next[index] = { ...next[index], ...mutation.changes };
+      }
+      continue;
+    }
+    if (mutation.kind === 'move') {
+      const index = next.findIndex(({ id }) => id === mutation.id);
+      if (index < 0) {
+        missingIds.add(mutation.id);
+        continue;
+      }
+      const target = index + (mutation.direction === 'down' ? 1 : -1);
+      if (target < 0 || target >= next.length) continue;
+      [next[index], next[target]] = [next[target], next[index]];
+      continue;
+    }
+
+    const desired = mutation.orderedIds.filter((id, index, ids) =>
+      ids.indexOf(id) === index && next.some((skill) => skill.id === id),
+    );
+    const desiredSet = new Set(desired);
+    let desiredIndex = 0;
+    next = next.map((skill) => {
+      if (!desiredSet.has(skill.id)) return skill;
+      const desiredId = desired[desiredIndex++];
+      return next.find(({ id }) => id === desiredId)!;
+    });
+  }
+  return { missingIds: [...missingIds], skills: next };
 }
 
 export function applyDnd5eCharacterResourceMutations(
@@ -1470,17 +1587,19 @@ export function calculateDnd5eOffsetForTotal(
 export function calculateDnd5eSkillValues(
   abilityModifier: number,
   proficiencyBonus: number,
-  training: Dnd5eSkillTraining,
+  skill: Dnd5eCharacterSkill,
 ): Dnd5eSkillValues | null {
-  const multiplier = training === 'expertise' ? 2 : training === 'proficient' ? 1 : 0;
+  const multiplier = skill.training === 'expertise'
+    ? 2
+    : skill.training === 'proficient'
+      ? 1
+      : 0;
   const trainingBonus = safeMultiply(proficiencyBonus, multiplier);
   if (trainingBonus === null) return null;
-  const bonus = safeAdd(abilityModifier, trainingBonus);
+  const bonus = safeAdd(abilityModifier, trainingBonus, skill.bonusOffset);
   if (bonus === null) return null;
-  const passive = safeAdd(10, bonus);
-  return passive === null
-    ? null
-    : { bonus, display: `${formatDnd5eSignedValue(bonus)} / ${passive}`, passive };
+  const passive = safeAdd(10, bonus, skill.passiveOffset);
+  return passive === null ? null : { bonus, passive };
 }
 
 const DND5E_SIZE_FACTOR_HALVES: Readonly<Record<string, bigint>> = {
@@ -1693,6 +1812,19 @@ export function deriveDnd5eCharacterValues(
     if (values === null) return null;
     skills[skill.id] = values;
   }
+  const customSkills: Record<string, Dnd5eSkillValues> = {};
+  for (const skill of data.customSkills) {
+    const abilityModifier = skill.ability === 'none'
+      ? 0
+      : abilities[skill.ability].modifier;
+    const values = calculateDnd5eSkillValues(
+      abilityModifier,
+      proficiencyBonus,
+      skill,
+    );
+    if (values === null) return null;
+    customSkills[skill.id] = values;
+  }
 
   const inventory = deriveDnd5eInventoryValues(data);
   if (inventory === null) return null;
@@ -1700,6 +1832,7 @@ export function deriveDnd5eCharacterValues(
   return {
     abilities,
     concentrationSave,
+    customSkills,
     initiative,
     inventory,
     proficiencyBonus,

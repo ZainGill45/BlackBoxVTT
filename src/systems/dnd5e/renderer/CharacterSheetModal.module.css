@@ -443,11 +443,12 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: repeat(18, 1.75rem) auto;
+  grid-auto-rows: auto;
 }
 
 .skillRow {
   display: grid;
+  height: 1.75rem;
   min-width: 0;
   min-height: 0;
   padding: 0 var(--space-1);
@@ -521,8 +522,7 @@
 
 .skillLabel,
 .skillAbility,
-.skillName,
-.skillValues {
+.skillName {
   overflow: hidden;
   line-height: var(--line-height-tight);
   text-overflow: ellipsis;
@@ -555,20 +555,100 @@
 }
 
 .skillValues {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  height: 100%;
+  align-items: center;
+  gap: var(--space-1);
+  justify-self: end;
   color: var(--color-text);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-regular);
   text-align: right;
+  white-space: nowrap;
+}
+
+.skillValues>.skillValueInput {
+  field-sizing: content;
+  width: auto;
+  max-width: none;
+  flex: 0 0 auto;
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-tight);
+  text-align: right;
+}
+
+.skillValues>.skillValueInput[readonly] {
+  color: var(--color-text);
+  cursor: default;
+}
+
+.customSkillList {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-auto-rows: 1.75rem;
+}
+
+.customSkillAbilityDropdown {
+  min-width: 0;
+  height: 100%;
+}
+
+.customSkillAbilityDropdown>summary {
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  justify-content: center;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  font-size: var(--font-size-3xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.customSkillAbilityDropdown>summary:hover,
+.customSkillAbilityDropdown[open]>summary {
+  color: var(--color-text);
+  background: transparent;
+  border-color: transparent;
+}
+
+.customSkillAbilityDropdown>summary:focus-visible {
+  color: var(--color-text);
+  border-color: transparent;
+}
+
+.customSkillAbilityDropdown>summary[aria-disabled='true'] {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.customSkillNameInput {
+  color: var(--color-text);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+}
+
+.customSkillNameInput[readonly] {
+  color: var(--color-text);
+  cursor: default;
+}
+
+.skillRow[data-reordering='true'] {
+  opacity: 0.5;
 }
 
 .healthGrid {
   display: grid;
   min-width: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.healthField,
-.deathSaves {
+.healthField {
   display: grid;
   min-width: 0;
   min-height: 0;
@@ -578,16 +658,11 @@
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.healthField:nth-child(odd) {
+.healthField:not(:last-child) {
   border-right: var(--border-width) solid var(--color-action-soft);
 }
 
-.healthField:nth-child(-n + 2) {
-  border-bottom: var(--border-width) solid var(--color-action-soft);
-}
-
-.healthField>span:first-child,
-.deathSaves>span:first-child {
+.healthField>span:first-child {
   overflow: hidden;
   color: var(--color-text-muted);
   font-size: var(--font-size-2xs);
@@ -601,23 +676,19 @@
 
 .healthPair,
 .hitDiceValues {
-  display: grid;
+  display: inline-flex;
+  width: auto;
   min-width: 0;
+  height: 100%;
   align-items: center;
   gap: var(--space-1);
-}
-
-.healthPair {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-}
-
-.hitDiceValues {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1fr);
+  justify-self: center;
+  white-space: nowrap;
 }
 
 .healthPair>span,
 .hitDiceValues>span {
-  color: var(--color-text-muted);
+  color: var(--color-text);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-tight);
 }
@@ -633,6 +704,16 @@
   text-align: center;
 }
 
+.healthPair>.healthInput,
+.hitDiceValues>.healthInput {
+  field-sizing: content;
+  width: auto;
+  max-width: none;
+  height: auto;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
 .healthField>.healthInput {
   width: 3rem;
   justify-self: center;
@@ -645,65 +726,6 @@
 
 .hitDieInput {
   color: var(--color-text);
-}
-
-.deathSaveTracks {
-  display: grid;
-  align-content: center;
-  justify-content: center;
-  gap: 0.1875rem;
-}
-
-.deathSaveTrack {
-  display: flex;
-  gap: var(--space-1);
-}
-
-.deathSaveTrack>button {
-  appearance: none;
-  display: grid;
-  width: 0.625rem;
-  height: 0.625rem;
-  padding: 0;
-  place-items: center;
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.deathSaveTrack>button>svg {
-  width: 0.5rem;
-  height: 0.5rem;
-}
-
-.deathSaveTrack>button circle {
-  fill: transparent;
-  stroke: currentColor;
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.deathSaveTrack[data-outcome='success']>button[aria-pressed='true'] {
-  color: var(--color-action);
-}
-
-.deathSaveTrack[data-outcome='failure']>button[aria-pressed='true'] {
-  color: var(--color-delete-text);
-}
-
-.deathSaveTrack>button[aria-pressed='true'] circle {
-  fill: currentColor;
-}
-
-.deathSaveTrack>button:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: var(--border-width);
-}
-
-.deathSaveTrack>button:disabled {
-  cursor: default;
-  opacity: 0.6;
 }
 
 .inventoryPanelBody {
@@ -1127,7 +1149,6 @@
   align-items: center;
   gap: var(--space-2);
   grid-template-columns: minmax(0, 1fr) auto;
-  color: var(--color-text-muted);
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border);
 }
@@ -1138,12 +1159,12 @@
 
 .resourceNameInput,
 .resourceValueInput {
-  height: 100%;
   min-width: 0;
   line-height: var(--line-height-tight);
 }
 
 .resourceNameInput {
+  height: 100%;
   color: var(--color-text);
   font-size: var(--font-size-2xs);
   text-align: left;
@@ -1158,23 +1179,6 @@
   gap: var(--space-1);
   justify-self: end;
   white-space: nowrap;
-}
-
-.resourceValueSlot {
-  display: inline-flex;
-  width: auto;
-  height: 100%;
-  flex: 0 0 auto;
-  align-items: center;
-}
-
-.resourceValueSlot:nth-child(2) {
-  gap: var(--space-1);
-}
-
-.resourceValueSlot>span {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
 }
 
 .resourceValueInput {

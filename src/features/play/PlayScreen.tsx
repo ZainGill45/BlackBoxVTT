@@ -11,12 +11,11 @@ import {
   Square,
   Triangle,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { IconButton } from '../../components/ui/IconButton';
 import { IconTabs } from '../../components/ui/IconTabs';
-import { QuickActionButton } from '../../components/ui/QuickActionButton';
 import { ChatPanel } from './chat/ChatPanel';
-import { MapStage, type MapStageControls } from './MapStage';
+import { MapStage } from './MapStage';
 import { ScenePanel } from './scenes/ScenePanel';
 import { useAssetThumbnails } from './scenes/useAssetThumbnails';
 import { useScenes } from './scenes/useScenes';
@@ -61,7 +60,6 @@ import {
   fogTool,
   playerTools,
   playLayers,
-  quickActions,
   sidebarTabs,
 } from './playConfig';
 import type {
@@ -89,7 +87,6 @@ export function PlayScreen({
   onLayerChange,
   onLogout,
   onMaxChatMessageCharactersChange,
-  onQuickAction,
   onServerPasswordReset,
   onServerPortChange,
   onServerUsernameChange,
@@ -126,7 +123,6 @@ export function PlayScreen({
   const [fogSubtool, setFogSubtool] = useState<FogSubtool>('brush');
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
-  const stageControls = useRef<MapStageControls>(null);
   const scenes = useScenes(sceneApi, session.campaignId, session.role === 'gm');
   const sceneImageIds = useMemo(
     () =>
@@ -244,7 +240,6 @@ export function PlayScreen({
         activeLayer={activeLayer}
         activeTool={activeTool}
         assetApi={assetApi}
-        controlsRef={stageControls}
         networkApi={networkApi}
         networkUpdateRate={serverSettings.transformPreviewRate}
         scene={scenes.viewedScene}
@@ -428,27 +423,7 @@ export function PlayScreen({
         </div>
       ) : null}
 
-      <div
-        className={styles.quickActions}
-        role="toolbar"
-        aria-label="Quick actions"
-      >
-        {quickActions.map((action) => (
-          <QuickActionButton
-            key={action.id}
-            icon={action.icon}
-            label={action.label}
-            onClick={() => {
-              if (action.id === 'center-view') {
-                stageControls.current?.centerView();
-              }
-              onQuickAction?.(action.id);
-            }}
-          />
-        ))}
-      </div>
-
-      <div className={styles.sidebarOverlay}>
+      <div className={styles.sidebar}>
         <IconTabs
           activeId={activeSidebarTab}
           ariaLabel="Campaign sidebar"

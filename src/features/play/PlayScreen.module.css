@@ -1,4 +1,6 @@
 .screen {
+  --play-sidebar-width: 22rem;
+
   position: relative;
   width: 100vw;
   width: 100dvw;
@@ -12,6 +14,7 @@
   position: absolute;
   z-index: 0;
   inset: 0;
+  right: var(--play-sidebar-width);
   overflow: hidden;
   background-color: var(--color-play-canvas);
   background-image:
@@ -59,30 +62,19 @@
   gap: var(--space-1);
 }
 
-.quickActions {
-  position: absolute;
-  z-index: 2;
-  top: 1rem;
-  right: 23rem;
-  left: 4rem;
-  display: flex;
-  height: var(--control-height);
-  gap: var(--space-1);
-}
-
-.sidebarOverlay {
+.sidebar {
   position: absolute;
   z-index: 2;
   top: 0;
   right: 0;
   bottom: 0;
   display: grid;
-  width: 22rem;
+  width: var(--play-sidebar-width);
   grid-template-rows: var(--sidebar-tab-height) minmax(0, 1fr);
   background: var(--color-overlay-surface);
 }
 
-.sidebarOverlay::before {
+.sidebar::before {
   position: absolute;
   z-index: 3;
   top: 0;

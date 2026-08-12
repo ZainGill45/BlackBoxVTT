@@ -10,6 +10,9 @@ import {
   addEmptyDnd5eCharacterActionsToValue,
   emptyActionsImportReport,
 } from './campaignArchiveCharacterActions';
+import { deathSavesRemovalImportReport } from './campaignArchiveCharacterHealth';
+import { emptyCustomSkillsImportReport } from './campaignArchiveCharacterCustomSkills';
+import { skillOffsetsImportReport } from './campaignArchiveCharacterSkills';
 import { runDirectArchiveConversion } from './campaignArchiveSteps';
 
 interface CharacterRow {
@@ -79,7 +82,7 @@ export function convertDnd5eCharacterDataFromArchiveFormat5(
     inventory: { ...value.inventory, entries },
   };
   const withActions = addEmptyDnd5eCharacterActionsToValue(converted);
-  if (!withActions || !isDnd5eCharacterData(withActions as JsonValue)) return null;
+  if (!withActions || !isDnd5eCharacterData(withActions as unknown as JsonValue)) return null;
   return { data: withActions, itemCount };
 }
 
@@ -120,7 +123,12 @@ export function convertCampaignArchiveFormat5(
         adjustedItems += converted.itemCount;
       }
     }
-    const warnings = emptyActionsImportReport(rows.length, 5);
+    const warnings = [
+      ...emptyActionsImportReport(rows.length, 5),
+      ...skillOffsetsImportReport(rows.length, 5),
+      ...deathSavesRemovalImportReport(rows.length, 5),
+      ...emptyCustomSkillsImportReport(rows.length, 5),
+    ];
     if (adjustedItems > 0) warnings.unshift(
       `Set quantity to 1 for ${adjustedItems} Inventory ${
         adjustedItems === 1 ? 'item' : 'items'

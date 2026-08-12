@@ -100,11 +100,10 @@ describe('PlayScreen', () => {
     ]);
   });
 
-  it('changes tools and dispatches every fixture quick action', async () => {
+  it('changes tools without rendering the removed quick-action bar', async () => {
     const user = userEvent.setup();
-    const onQuickAction = vi.fn();
     const onToolChange = vi.fn();
-    renderPlayScreen({ onQuickAction, onToolChange });
+    renderPlayScreen({ onToolChange });
 
     await user.click(screen.getByRole('button', { name: 'Measure' }));
     expect(screen.getByRole('button', { name: 'Measure' })).toHaveAttribute(
@@ -117,28 +116,21 @@ describe('PlayScreen', () => {
     );
     expect(onToolChange).toHaveBeenCalledWith('measure');
 
-    const actions = [
-      ['Roll Dice', 'roll-dice'],
-      ['Initiative', 'initiative'],
-      ['End Turn', 'end-turn'],
-      ['Ping Map', 'ping-map'],
-      ['Center View', 'center-view'],
-      ['Notes', 'notes'],
-    ] as const;
-
-    const actionToolbar = screen.getByRole('toolbar', {
-      name: 'Quick actions',
-    });
-
-    for (const [label] of actions) {
-      const button = within(actionToolbar).getByRole('button', { name: label });
-      expect(button).toHaveTextContent(label);
-      await user.click(button);
+    expect(
+      screen.queryByRole('toolbar', { name: 'Quick actions' }),
+    ).not.toBeInTheDocument();
+    for (const label of [
+      'Roll Dice',
+      'Initiative',
+      'End Turn',
+      'Ping Map',
+      'Center View',
+      'Notes',
+    ]) {
+      expect(
+        screen.queryByRole('button', { name: label }),
+      ).not.toBeInTheDocument();
     }
-
-    expect(onQuickAction.mock.calls.map(([id]) => id)).toEqual(
-      actions.map(([, id]) => id),
-    );
   });
 
   it('keeps the Paint rail open and exposes compact Freeform and Polyline settings', async () => {
@@ -742,27 +734,6 @@ describe('PlayScreen', () => {
     expect(
       within(playerPanel).getByRole('searchbox', { name: 'Search scenes' }),
     ).toBeInTheDocument();
-  });
-
-  it('centers the view on the presented scene from the quick action', async () => {
-    const user = userEvent.setup();
-    const scene = makeScene();
-    const sceneApi = createFakeSceneApi([scene]);
-    await sceneApi.present({
-      campaignId: gmSession.campaignId,
-      sceneId: scene.id,
-    });
-    const onQuickAction = vi.fn();
-    renderPlayScreen({ onQuickAction, sceneApi, session: gmSession });
-
-    await waitFor(() => {
-      expect(
-        screen.getByText('Viewing the scene Iron Keep.'),
-      ).toBeInTheDocument();
-    });
-    await user.click(screen.getByRole('button', { name: 'Center View' }));
-
-    expect(onQuickAction).toHaveBeenCalledWith('center-view');
   });
 
   it('dispatches immediate Logout and Exit actions', async () => {

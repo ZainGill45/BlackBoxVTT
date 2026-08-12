@@ -5,19 +5,13 @@ import {
   Clapperboard,
   CloudFog,
   Crown,
-  Dices,
-  Focus,
-  ListOrdered,
   Map as MapIcon,
-  MapPin,
   MessageSquare,
   Music,
-  NotebookPen,
   Paintbrush,
   Ruler,
   Settings,
   Shapes,
-  SkipForward,
   Type as TypeIcon,
   MousePointer2,
 } from 'lucide-react';
@@ -25,7 +19,6 @@ import type {
   PlayControl,
   PlayLayerId,
   PlayToolId,
-  QuickActionId,
   SidebarTab,
 } from './types';
 
@@ -47,15 +40,6 @@ export const playLayers: readonly PlayControl<PlayLayerId>[] = [
   { icon: Crown, id: 'gm', label: 'GM layer' },
   { icon: CircleUserRound, id: 'token', label: 'Token layer' },
   { icon: MapIcon, id: 'map', label: 'Map layer' },
-];
-
-export const quickActions: readonly PlayControl<QuickActionId>[] = [
-  { icon: Dices, id: 'roll-dice', label: 'Roll Dice' },
-  { icon: ListOrdered, id: 'initiative', label: 'Initiative' },
-  { icon: SkipForward, id: 'end-turn', label: 'End Turn' },
-  { icon: MapPin, id: 'ping-map', label: 'Ping Map' },
-  { icon: Focus, id: 'center-view', label: 'Center View' },
-  { icon: NotebookPen, id: 'notes', label: 'Notes' },
 ];
 
 export const sidebarTabs: readonly SidebarTab[] = [

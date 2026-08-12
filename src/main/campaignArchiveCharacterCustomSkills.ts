@@ -1,14 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { JsonValue } from '../shared/gameSystems';
 import {
+  isDnd5eCharacterData,
   type Dnd5eCharacterData,
 } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
-import { deathSavesRemovalImportReport } from './campaignArchiveCharacterHealth';
-import { emptyCustomSkillsImportReport } from './campaignArchiveCharacterCustomSkills';
-import {
-  addDefaultDnd5eSkillOffsetsToValue,
-  skillOffsetsImportReport,
-} from './campaignArchiveCharacterSkills';
 
 interface CharacterRow {
   data_json: string;
@@ -16,35 +12,38 @@ interface CharacterRow {
   name: string;
 }
 
-export function addEmptyDnd5eCharacterActionsToValue(
+/** Adds Custom Skills only to the exact otherwise-current historical shape. */
+export function addEmptyDnd5eCustomSkillsToValue(
   value: unknown,
 ): Dnd5eCharacterData | null {
   if (
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.hasOwn(value, 'actions')
+    Object.hasOwn(value, 'customSkills')
   ) return null;
-  const converted = { ...(value as Record<string, unknown>), actions: [] };
-  return addDefaultDnd5eSkillOffsetsToValue(converted);
+  const converted = { ...value, customSkills: [] };
+  return isDnd5eCharacterData(converted as JsonValue)
+    ? converted as unknown as Dnd5eCharacterData
+    : null;
 }
 
-export function emptyActionsImportReport(
+export function emptyCustomSkillsImportReport(
   characterCount: number,
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6,
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
 ): string[] {
   if (characterCount === 0) return [];
   return [
-    `Added an empty Actions collection to ${characterCount} D&D ${
+    `Added an empty Custom Skills collection to ${characterCount} D&D ${
       characterCount === 1 ? 'character' : 'characters'
     } imported from archive format ${formatVersion}.`,
   ];
 }
 
-/** Directly adds the current empty Actions collection to format-6 Characters. */
-export function addEmptyDnd5eCharacterActions(
+/** Directly adds the current empty Custom Skills collection to format 9. */
+export function addEmptyDnd5eCustomSkills(
   connection: DatabaseSync,
-  formatVersion: 6,
+  formatVersion: 9,
 ): string[] {
   const rows = connection.prepare(
     `SELECT id, name, data_json
@@ -64,7 +63,7 @@ export function addEmptyDnd5eCharacterActions(
         `Archive format ${formatVersion} contains malformed Character data for ${row.name}.`,
       );
     }
-    const converted = addEmptyDnd5eCharacterActionsToValue(parsed);
+    const converted = addEmptyDnd5eCustomSkillsToValue(parsed);
     if (!converted) {
       throw new Error(
         `Archive format ${formatVersion} contains invalid Character data for ${row.name}.`,
@@ -72,10 +71,5 @@ export function addEmptyDnd5eCharacterActions(
     }
     update.run(JSON.stringify(converted), row.id);
   }
-  return [
-    ...emptyActionsImportReport(rows.length, formatVersion),
-    ...skillOffsetsImportReport(rows.length, formatVersion),
-    ...deathSavesRemovalImportReport(rows.length, formatVersion),
-    ...emptyCustomSkillsImportReport(rows.length, formatVersion),
-  ];
+  return emptyCustomSkillsImportReport(rows.length, formatVersion);
 }

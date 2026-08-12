@@ -50,6 +50,16 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('Strength score').blur();
     await gmSheet.getByLabel('Strength modifier').fill('+3');
     await gmSheet.getByLabel('Strength modifier').blur();
+    await gmSheet.getByRole('button', { name: 'Add Custom Skill' }).click();
+    await gmSheet.getByLabel('New Skill name').fill('Tactics');
+    await gmSheet.getByLabel('Tactics name').blur();
+    await gmSheet.getByRole('button', { name: 'Tactics ability' }).click();
+    await gmSheet.getByRole('button', { name: 'STR — Strength' }).click();
+    await gmSheet.getByRole('button', { name: 'Tactics training: Untrained' }).click();
+    await gmSheet.getByLabel('Tactics bonus').fill('+7');
+    await gmSheet.getByLabel('Tactics bonus').blur();
+    await gmSheet.getByLabel('Tactics passive score').fill('19');
+    await gmSheet.getByLabel('Tactics passive score').blur();
     await gmSheet.getByRole('button', { name: 'Add Resource' }).click();
     const resourceName = gmSheet.getByRole('list', { name: 'Character resources' })
       .locator('[data-resource-name]');
@@ -153,13 +163,17 @@ test.describe('networked D&D character sheets', () => {
     await expect(actionEditor).not.toBeVisible();
     const useNetworkStrike = gmSheet.getByRole('button', { name: 'Use Network Strike' });
     await expect(useNetworkStrike).toBeEnabled();
+    const editNetworkStrike = gmSheet.getByRole('button', { name: 'Edit Network Strike' });
+    await expect(editNetworkStrike).toBeVisible();
     await useNetworkStrike.click({ button: 'right' });
-    await gm.window.getByRole('menuitem', { name: 'Details' }).click();
-    const actionDetails = gm.window.getByRole('dialog', {
-      name: 'Network Strike action details',
-    });
+    const actionMenu = gm.window.getByRole('menu', { name: 'Network Strike actions' });
+    await expect(actionMenu.getByRole('menuitem', { name: 'Edit' })).toHaveCount(0);
+    await actionMenu.press('Escape');
+    await editNetworkStrike.click();
+    actionEditor = gm.window.getByRole('dialog', { name: 'Network Strike action editor' });
+    await expect(actionEditor).toBeVisible();
     await gm.window.mouse.click(2, 2);
-    await expect(actionDetails).not.toBeVisible();
+    await expect(actionEditor).not.toBeVisible();
     await gmSheet.press('Escape');
     await expect(gmSheet).not.toBeVisible();
 
@@ -193,8 +207,19 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Proficiency Bonus')).toHaveValue('+3');
     await expect(playerSheet.getByLabel('Strength modifier')).toHaveValue('+3');
     await expect(playerSheet.getByLabel('Strength saving throw')).toHaveValue('+6');
-    await expect(playerSheet.getByLabel('Athletics bonus and passive score'))
-      .toHaveText('+3 / 13');
+    await expect(playerSheet.getByLabel('Athletics bonus')).toHaveValue('+3');
+    await expect(playerSheet.getByLabel('Athletics bonus')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('Athletics passive score')).toHaveValue('13');
+    await expect(playerSheet.getByLabel('Athletics passive score')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('Tactics name')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByRole('button', { name: 'Tactics ability' }))
+      .toHaveAttribute('aria-disabled', 'true');
+    await expect(playerSheet.getByRole('button', { name: 'Tactics training: Proficient' }))
+      .toBeDisabled();
+    await expect(playerSheet.getByLabel('Tactics bonus')).toHaveValue('+7');
+    await expect(playerSheet.getByLabel('Tactics bonus')).toHaveAttribute('readonly', '');
+    await expect(playerSheet.getByLabel('Tactics passive score')).toHaveValue('19');
+    await expect(playerSheet.getByLabel('Tactics passive score')).toHaveAttribute('readonly', '');
     await expect(playerSheet.getByLabel('Superiority Dice name')).toHaveAttribute('readonly', '');
     await expect(playerSheet.getByLabel('Superiority Dice current')).toHaveValue('-1');
     await expect(playerSheet.getByLabel('Superiority Dice maximum')).toHaveValue('4');
@@ -227,6 +252,7 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Action Surge description'))
       .toHaveValue('Take one additional action.\nOnce per rest.');
     await expect(playerSheet.getByRole('button', { name: 'Use Network Strike' })).toBeEnabled();
+    await expect(playerSheet.getByRole('button', { name: 'Edit Network Strike' })).toHaveCount(0);
     await playerSheet.getByRole('button', { name: 'Use Network Strike' }).click();
     await expect(playerSheet).toBeVisible();
     await playerSheet.press('Escape');
@@ -263,6 +289,10 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('Rations weight in pounds').blur();
     await gmSheet.getByLabel('Strength score').fill('14');
     await gmSheet.getByLabel('Strength score').blur();
+    await gmSheet.getByLabel('Athletics bonus').fill('+6');
+    await gmSheet.getByLabel('Athletics bonus').blur();
+    await gmSheet.getByLabel('Athletics passive score').fill('18');
+    await gmSheet.getByLabel('Athletics passive score').blur();
     await gmSheet.getByLabel('Superiority Dice current').fill('2');
     await gmSheet.getByLabel('Superiority Dice current').blur();
     await gmSheet.getByLabel('Action Surge description')
@@ -272,8 +302,10 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Strength score')).toHaveValue('14');
     await expect(playerSheet.getByLabel('Strength modifier')).toHaveValue('+4');
     await expect(playerSheet.getByLabel('Strength saving throw')).toHaveValue('+7');
-    await expect(playerSheet.getByLabel('Athletics bonus and passive score'))
-      .toHaveText('+4 / 14');
+    await expect(playerSheet.getByLabel('Athletics bonus')).toHaveValue('+6');
+    await expect(playerSheet.getByLabel('Athletics passive score')).toHaveValue('18');
+    await expect(playerSheet.getByLabel('Tactics bonus')).toHaveValue('+8');
+    await expect(playerSheet.getByLabel('Tactics passive score')).toHaveValue('20');
     await expect(playerSheet.getByLabel('Superiority Dice current')).toHaveValue('2');
     await expect(playerSheet.getByLabel('Backpack capacity usage')).toHaveText('11.1/30');
     await expect(playerSheet.getByLabel('Action Surge description'))

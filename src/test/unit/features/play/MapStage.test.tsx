@@ -1,9 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createRef, type ComponentProps } from 'react';
+import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MapStage as ProductionMapStage,
-  type MapStageControls,
 } from '../../../../features/play/MapStage';
 import {
   createFakeAssetApi,
@@ -140,24 +139,18 @@ describe('MapStage', () => {
     ).toBeInTheDocument();
   });
 
-  it('exposes centering and tears the renderer down on unmount', async () => {
+  it('tears the renderer down on unmount', async () => {
     const { createRenderer, renderer } = fakeRenderer();
-    const controls = createRef<MapStageControls>();
 
     const { unmount } = render(
       <MapStage
-        controlsRef={controls}
         createRenderer={createRenderer}
         scene={makeScene()}
         session={session}
       />,
     );
 
-    await waitFor(() => {
-      expect(controls.current).not.toBeNull();
-    });
-    controls.current?.centerView();
-    expect(renderer.fitToScene).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(renderer.mount).toHaveBeenCalledOnce());
 
     unmount();
     await waitFor(() => {

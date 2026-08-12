@@ -3760,10 +3760,14 @@ describe('SceneRenderer', () => {
     });
   });
 
-  it('fits a new scene into the viewport', () => {
+  it('automatically centers and fits a new scene in the viewport', () => {
     renderer.setScene(scene(), null);
 
-    const camera = (renderer as unknown as { camera: { zoom: number } }).camera;
+    const camera = (renderer as unknown as {
+      camera: { x: number; y: number; zoom: number };
+    }).camera;
+    expect(camera.x).toBe(960);
+    expect(camera.y).toBe(540);
     // 800 / 1920 is the binding axis, less the fit padding.
     expect(camera.zoom).toBeCloseTo((800 / 1920) * 0.94, 6);
   });

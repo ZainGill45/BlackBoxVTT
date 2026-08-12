@@ -13,6 +13,7 @@ import {
   measurementLabels,
   readScene,
   stage,
+  stageCentre,
 } from './support/stage';
 
 /**
@@ -31,6 +32,8 @@ const VISIBLE_CHANGE = 0.002;
  * sits at or below 0.0001, so this still fails closed on "nothing was drawn".
  */
 const THIN_LINE_CHANGE = 0.0005;
+/** A fitted scene's low-opacity grid changes fewer pixels than solid tool marks. */
+const GRID_CHANGE = 0.0004;
 
 test.describe('stage camera and tools', () => {
   const apps = new AppFixture();
@@ -85,33 +88,44 @@ test.describe('stage camera and tools', () => {
       .toBeGreaterThan(VISIBLE_CHANGE);
   });
 
-  test('moves the camera from the Center View action', async () => {
-    await dragOnStage(
-      gm.window,
-      centre,
-      { x: centre.x + 300, y: centre.y + 200 },
-      { button: 'middle', steps: 12 },
-    );
-    await expect
-      .poll(async () => pixelDifferenceRatio(settled, await canvas.screenshot()))
-      .toBeGreaterThan(VISIBLE_CHANGE);
-    const panned = await canvas.screenshot();
+  test('centers the presented scene when entering a campaign', async () => {
+    const present = gm.window.getByRole('button', {
+      name: 'Present New Scene',
+    });
+    await present.click();
+    await expect(present).toHaveAttribute('aria-pressed', 'true');
 
-    await gm.window.getByRole('button', { name: 'Center View' }).click();
+    await gm.window.getByRole('button', { name: 'Logout' }).click();
+    await gm.window.getByRole('tab', { name: 'Create Campaign' }).click();
+    await gm.window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
+    await expect(
+      gm.window.getByText('Viewing the scene New Scene.'),
+    ).toBeVisible();
+    await gm.window.waitForTimeout(800);
 
-    // Asserts the control acts on the camera. It does not restore the opening
-    // framing — centring and fit-to-scene are not the same operation.
-    await expect
-      .poll(async () => pixelDifferenceRatio(panned, await canvas.screenshot()), {
-        message: 'Center View did not move the camera',
-      })
-      .toBeGreaterThan(VISIBLE_CHANGE);
+    centre = await mapFixtureCentre(gm.window);
+    const viewportCentre = await stageCentre(gm.window);
+
+    expect(Math.abs(centre.x - viewportCentre.x)).toBeLessThan(3);
+    expect(Math.abs(centre.y - viewportCentre.y)).toBeLessThan(3);
   });
 
   test('draws the grid once the scene is given one', async () => {
     await openTab(gm.window, 'Scenes');
     await gm.window.getByRole('button', { name: 'Edit New Scene' }).click();
-    const settings = gm.window.getByRole('dialog', {
+    let settings = gm.window.getByRole('dialog', {
+      name: 'Scene settings for New Scene',
+    });
+    await expect(settings).toBeVisible();
+    await settings.getByLabel('Grid', { exact: true }).selectOption('gridless');
+    await closeSceneSettings(gm.window, settings);
+    await expect
+      .poll(async () => (await readScene(gm.window, CAMPAIGN)).grid.type)
+      .toBe('gridless');
+    const withoutGrid = await canvas.screenshot();
+
+    await gm.window.getByRole('button', { name: 'Edit New Scene' }).click();
+    settings = gm.window.getByRole('dialog', {
       name: 'Scene settings for New Scene',
     });
     await expect(settings).toBeVisible();
@@ -126,10 +140,11 @@ test.describe('stage camera and tools', () => {
     // compared at a tighter tolerance than solid content needs.
     await expect
       .poll(
-        async () => pixelDifferenceRatio(settled, await canvas.screenshot(), 2),
+        async () =>
+          pixelDifferenceRatio(withoutGrid, await canvas.screenshot(), 2),
         { message: 'enabling the square grid drew nothing' },
       )
-      .toBeGreaterThan(THIN_LINE_CHANGE);
+      .toBeGreaterThan(GRID_CHANGE);
   });
 
   test('commits a freeform paint stroke', async () => {

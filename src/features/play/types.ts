@@ -40,14 +40,6 @@ export type PlayToolId =
 
 export type PlayLayerId = 'map' | 'token' | 'gm';
 
-export type QuickActionId =
-  | 'roll-dice'
-  | 'initiative'
-  | 'end-turn'
-  | 'ping-map'
-  | 'center-view'
-  | 'notes';
-
 export type SidebarTabId =
   | 'chat'
   | 'scenes'
@@ -83,7 +75,6 @@ export interface PlayScreenProps {
   onExit: () => void;
   onLayerChange?: (id: PlayLayerId) => void;
   onLogout: () => void;
-  onQuickAction?: (id: QuickActionId) => void;
   onCreateServerUser?: (username: string, password: string) => void;
   onDeleteServerUser?: (userId: string) => void;
   onServerPortChange?: (port: number) => void;

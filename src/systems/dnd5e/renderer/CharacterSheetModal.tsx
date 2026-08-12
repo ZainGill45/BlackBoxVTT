@@ -43,6 +43,7 @@ import {
 } from '../../../shared/journal';
 import {
   applyDnd5eCharacterActionMutations,
+  applyDnd5eCharacterCustomSkillMutations,
   applyDnd5eCharacterFeatureMutations,
   applyDnd5eCharacterInventoryMutations,
   applyDnd5eCharacterResourceMutations,
@@ -56,26 +57,26 @@ import {
   formatDnd5eSignedValue,
   isDnd5eCharacterData,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
-  nextDnd5eSkillTraining,
   parseDnd5eSafeInteger,
   type Dnd5eAbilityId,
   type Dnd5eCharacterActionMutation,
+  type Dnd5eCharacterCustomSkillMutation,
   type Dnd5eCharacterData,
   type Dnd5eCharacterFeatureMutation,
   type Dnd5eCharacterInventoryMutation,
   type Dnd5eCharacterResourceMutation,
   type Dnd5eRulesVersion,
-  type Dnd5eSkillTraining,
 } from '../characterData';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
   isDnd5eSettings,
 } from '../definition';
 import { CharacterActionPanel } from './CharacterActionPanel';
+import { CharacterCustomSkillPanel } from './CharacterCustomSkillPanel';
 import { CharacterFeaturePanel } from './CharacterFeaturePanel';
 import { CharacterInventoryPanel } from './CharacterInventoryPanel';
 import { CharacterResourcePanel } from './CharacterResourcePanel';
-import { CharacterSheetAddEntryButton } from './CharacterSheetAddEntryButton';
+import { CharacterSkillTrainingButton } from './CharacterSkillTrainingButton';
 import styles from './CharacterSheetModal.module.css';
 
 type CharacterSheetTab = 'home' | 'settings' | 'spells';
@@ -174,12 +175,6 @@ const IMPORTANT_STATS = [
   { accessibleLabel: 'Inspiration Count', label: 'Inspiration', path: 'inspirationCount' },
 ] as const;
 
-const SKILL_TRAINING_LABELS = {
-  expertise: 'Expertise',
-  proficient: 'Proficient',
-  untrained: 'Untrained',
-} satisfies Record<Dnd5eSkillTraining, string>;
-
 function isCharacterEntry(
   entry: JournalEntry,
 ): entry is SystemJournalEntry & { data: Dnd5eCharacterData } {
@@ -249,6 +244,7 @@ function mergeCharacterDraft(
   data: Dnd5eCharacterData,
   fields: ReadonlyMap<string, CharacterFieldValue>,
   actionMutations: readonly Dnd5eCharacterActionMutation[],
+  customSkillMutations: readonly Dnd5eCharacterCustomSkillMutation[],
   inventoryMutations: readonly Dnd5eCharacterInventoryMutation[],
   resourceMutations: readonly Dnd5eCharacterResourceMutation[],
   featureMutations: readonly Dnd5eCharacterFeatureMutation[],
@@ -257,6 +253,10 @@ function mergeCharacterDraft(
   const actions = applyDnd5eCharacterActionMutations(
     next.actions,
     actionMutations,
+  );
+  const customSkills = applyDnd5eCharacterCustomSkillMutations(
+    next.customSkills,
+    customSkillMutations,
   );
   const inventory = applyDnd5eCharacterInventoryMutations(
     next.inventory,
@@ -274,11 +274,13 @@ function mergeCharacterDraft(
     data: {
       ...next,
       actions: actions.actions,
+      customSkills: customSkills.skills,
       features: features.features,
       inventory: inventory.inventory,
       resources: resources.resources,
     },
     missingActionIds: actions.missingIds,
+    missingCustomSkillIds: customSkills.missingIds,
     invalidInventory: inventory.invalid,
     missingFeatureIds: features.missingIds,
     missingInventoryIds: inventory.missingIds,
@@ -288,6 +290,14 @@ function mergeCharacterDraft(
 
 function actionMutationTarget(
   mutation: Dnd5eCharacterActionMutation,
+): string | null {
+  return mutation.kind === 'update' || mutation.kind === 'move'
+    ? mutation.id
+    : null;
+}
+
+function customSkillMutationTarget(
+  mutation: Dnd5eCharacterCustomSkillMutation,
 ): string | null {
   return mutation.kind === 'update' || mutation.kind === 'move'
     ? mutation.id
@@ -413,6 +423,7 @@ export function CharacterSheetModal({
   const nameRef = useRef(entry.name);
   const dirtyFieldsRef = useRef(new Map<string, CharacterFieldValue>());
   const actionMutationsRef = useRef<Dnd5eCharacterActionMutation[]>([]);
+  const customSkillMutationsRef = useRef<Dnd5eCharacterCustomSkillMutation[]>([]);
   const featureMutationsRef = useRef<Dnd5eCharacterFeatureMutation[]>([]);
   const inventoryMutationsRef = useRef<Dnd5eCharacterInventoryMutation[]>([]);
   const resourceMutationsRef = useRef<Dnd5eCharacterResourceMutation[]>([]);
@@ -443,6 +454,7 @@ export function CharacterSheetModal({
   const hasDirtyDraft = useCallback(() => (
     dirtyFieldsRef.current.size > 0 ||
     actionMutationsRef.current.length > 0 ||
+    customSkillMutationsRef.current.length > 0 ||
     featureMutationsRef.current.length > 0 ||
     inventoryMutationsRef.current.length > 0 ||
     resourceMutationsRef.current.length > 0 ||
@@ -453,6 +465,7 @@ export function CharacterSheetModal({
     updated: SystemJournalEntry,
     savedFields?: ReadonlyMap<string, CharacterFieldValue>,
     savedActionMutations?: readonly Dnd5eCharacterActionMutation[],
+    savedCustomSkillMutations?: readonly Dnd5eCharacterCustomSkillMutation[],
     savedInventoryMutations?: readonly Dnd5eCharacterInventoryMutation[],
     savedResourceMutations?: readonly Dnd5eCharacterResourceMutation[],
     savedFeatureMutations?: readonly Dnd5eCharacterFeatureMutation[],
@@ -473,6 +486,12 @@ export function CharacterSheetModal({
     if (savedActionMutations) {
       const saved = new Set(savedActionMutations);
       actionMutationsRef.current = actionMutationsRef.current.filter(
+        (mutation) => !saved.has(mutation),
+      );
+    }
+    if (savedCustomSkillMutations) {
+      const saved = new Set(savedCustomSkillMutations);
+      customSkillMutationsRef.current = customSkillMutationsRef.current.filter(
         (mutation) => !saved.has(mutation),
       );
     }
@@ -509,6 +528,7 @@ export function CharacterSheetModal({
       normalized.data,
       dirtyFieldsRef.current,
       actionMutationsRef.current,
+      customSkillMutationsRef.current,
       inventoryMutationsRef.current,
       resourceMutationsRef.current,
       featureMutationsRef.current,
@@ -523,11 +543,29 @@ export function CharacterSheetModal({
         normalized.data,
         dirtyFieldsRef.current,
         actionMutationsRef.current,
+        customSkillMutationsRef.current,
         inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
       );
       setError('An Action was deleted remotely, so its pending local edit was discarded.');
+    }
+    if (merged.missingCustomSkillIds.length > 0) {
+      const missingIds = new Set(merged.missingCustomSkillIds);
+      customSkillMutationsRef.current = customSkillMutationsRef.current.filter((mutation) => {
+        const target = customSkillMutationTarget(mutation);
+        return target === null || !missingIds.has(target);
+      });
+      merged = mergeCharacterDraft(
+        normalized.data,
+        dirtyFieldsRef.current,
+        actionMutationsRef.current,
+        customSkillMutationsRef.current,
+        inventoryMutationsRef.current,
+        resourceMutationsRef.current,
+        featureMutationsRef.current,
+      );
+      setError('A Custom Skill was deleted remotely, so its pending local edit was discarded.');
     }
     if (merged.missingResourceIds.length > 0) {
       const missingIds = new Set(merged.missingResourceIds);
@@ -536,10 +574,11 @@ export function CharacterSheetModal({
         return target === null || !missingIds.has(target);
       });
       merged = mergeCharacterDraft(
-      normalized.data,
-      dirtyFieldsRef.current,
-      actionMutationsRef.current,
-      inventoryMutationsRef.current,
+        normalized.data,
+        dirtyFieldsRef.current,
+        actionMutationsRef.current,
+        customSkillMutationsRef.current,
+        inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
       );
@@ -551,13 +590,14 @@ export function CharacterSheetModal({
       inventoryMutationsRef.current = inventoryWasInvalid
         ? []
         : inventoryMutationsRef.current.filter((mutation) =>
-            !inventoryMutationReferences(mutation).some((id) => missingIds.has(id)),
-          );
+          !inventoryMutationReferences(mutation).some((id) => missingIds.has(id)),
+        );
       merged = mergeCharacterDraft(
-      normalized.data,
-      dirtyFieldsRef.current,
-      actionMutationsRef.current,
-      inventoryMutationsRef.current,
+        normalized.data,
+        dirtyFieldsRef.current,
+        actionMutationsRef.current,
+        customSkillMutationsRef.current,
+        inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
       );
@@ -572,10 +612,11 @@ export function CharacterSheetModal({
         return target === null || !missingIds.has(target);
       });
       merged = mergeCharacterDraft(
-      normalized.data,
-      dirtyFieldsRef.current,
-      actionMutationsRef.current,
-      inventoryMutationsRef.current,
+        normalized.data,
+        dirtyFieldsRef.current,
+        actionMutationsRef.current,
+        customSkillMutationsRef.current,
+        inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
       );
@@ -625,6 +666,7 @@ export function CharacterSheetModal({
     if (!active.capabilities.edit || !isCharacterEntry(active)) return true;
     const dirtyFields = new Map(dirtyFieldsRef.current);
     const actionMutations = [...actionMutationsRef.current];
+    const customSkillMutations = [...customSkillMutationsRef.current];
     const inventoryMutations = [...inventoryMutationsRef.current];
     const resourceMutations = [...resourceMutationsRef.current];
     const featureMutations = [...featureMutationsRef.current];
@@ -633,6 +675,7 @@ export function CharacterSheetModal({
     if (
       dirtyFields.size === 0 &&
       actionMutations.length === 0 &&
+      customSkillMutations.length === 0 &&
       inventoryMutations.length === 0 &&
       resourceMutations.length === 0 &&
       featureMutations.length === 0 &&
@@ -651,6 +694,7 @@ export function CharacterSheetModal({
       if (
         dirtyFields.size > 0 ||
         actionMutations.length > 0 ||
+        customSkillMutations.length > 0 ||
         inventoryMutations.length > 0 ||
         resourceMutations.length > 0 ||
         featureMutations.length > 0
@@ -660,6 +704,7 @@ export function CharacterSheetModal({
           next.data,
           dirtyFields,
           actionMutations,
+          customSkillMutations,
           inventoryMutations,
           resourceMutations,
           featureMutations,
@@ -667,6 +712,7 @@ export function CharacterSheetModal({
         if (
           merged.invalidInventory ||
           merged.missingActionIds.length > 0 ||
+          merged.missingCustomSkillIds.length > 0 ||
           merged.missingInventoryIds.length > 0 ||
           merged.missingResourceIds.length > 0 ||
           merged.missingFeatureIds.length > 0 ||
@@ -676,13 +722,15 @@ export function CharacterSheetModal({
             ? 'The Inventory data is invalid.'
             : merged.missingActionIds.length > 0
               ? 'An Action was deleted remotely, so its pending local edit was discarded.'
-            : merged.missingInventoryIds.length > 0
-              ? 'An Inventory entry was deleted remotely, so its pending local edit was discarded.'
-              : merged.missingFeatureIds.length > 0
-            ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
-            : merged.missingResourceIds.length > 0
-              ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
-              : 'The Character collection data is invalid.');
+              : merged.missingCustomSkillIds.length > 0
+                ? 'A Custom Skill was deleted remotely, so its pending local edit was discarded.'
+                : merged.missingInventoryIds.length > 0
+                  ? 'An Inventory entry was deleted remotely, so its pending local edit was discarded.'
+                  : merged.missingFeatureIds.length > 0
+                    ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
+                    : merged.missingResourceIds.length > 0
+                      ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
+                      : 'The Character collection data is invalid.');
           return false;
         }
         let data = merged.data;
@@ -708,6 +756,7 @@ export function CharacterSheetModal({
             refreshedCharacter.data,
             dirtyFields,
             actionMutations,
+            customSkillMutations,
             inventoryMutations,
             resourceMutations,
             featureMutations,
@@ -715,6 +764,7 @@ export function CharacterSheetModal({
           if (
             merged.invalidInventory ||
             merged.missingActionIds.length > 0 ||
+            merged.missingCustomSkillIds.length > 0 ||
             merged.missingInventoryIds.length > 0 ||
             merged.missingResourceIds.length > 0 ||
             merged.missingFeatureIds.length > 0 ||
@@ -724,13 +774,15 @@ export function CharacterSheetModal({
               ? 'The Inventory data is invalid.'
               : merged.missingActionIds.length > 0
                 ? 'An Action was deleted remotely, so its pending local edit was discarded.'
-              : merged.missingInventoryIds.length > 0
-                ? 'An Inventory entry was deleted remotely, so its pending local edit was discarded.'
-                : merged.missingFeatureIds.length > 0
-              ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
-              : merged.missingResourceIds.length > 0
-                ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
-                : 'The Character collection data is invalid.');
+                : merged.missingCustomSkillIds.length > 0
+                  ? 'A Custom Skill was deleted remotely, so its pending local edit was discarded.'
+                  : merged.missingInventoryIds.length > 0
+                    ? 'An Inventory entry was deleted remotely, so its pending local edit was discarded.'
+                    : merged.missingFeatureIds.length > 0
+                      ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
+                      : merged.missingResourceIds.length > 0
+                        ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
+                        : 'The Character collection data is invalid.');
             return false;
           }
           data = merged.data;
@@ -751,6 +803,7 @@ export function CharacterSheetModal({
           dataResult.value,
           dirtyFields,
           actionMutations,
+          customSkillMutations,
           inventoryMutations,
           resourceMutations,
           featureMutations,
@@ -792,6 +845,7 @@ export function CharacterSheetModal({
         }
         if (!applyServerEntry(
           nameResult.value,
+          undefined,
           undefined,
           undefined,
           undefined,
@@ -843,6 +897,32 @@ export function CharacterSheetModal({
   const commitResource = async (
     mutation: Dnd5eCharacterResourceMutation,
   ): Promise<boolean> => changeResource(mutation) && save();
+
+  const changeCustomSkill = (
+    mutation: Dnd5eCharacterCustomSkillMutation,
+  ): boolean => {
+    const applied = applyDnd5eCharacterCustomSkillMutations(
+      draftRef.current.customSkills,
+      [mutation],
+    );
+    if (applied.missingIds.length > 0) {
+      setError('The Custom Skill no longer exists.');
+      return false;
+    }
+    const next = { ...draftRef.current, customSkills: applied.skills };
+    if (
+      !isDnd5eCharacterData(next) ||
+      deriveDnd5eCharacterValues(next, rulesVersion) === null
+    ) return false;
+    customSkillMutationsRef.current.push(mutation);
+    draftRef.current = next;
+    setDraft(next);
+    return true;
+  };
+
+  const commitCustomSkill = async (
+    mutation: Dnd5eCharacterCustomSkillMutation,
+  ): Promise<boolean> => changeCustomSkill(mutation) && save();
 
   const changeAction = (mutation: Dnd5eCharacterActionMutation): boolean => {
     const applied = applyDnd5eCharacterActionMutations(
@@ -1045,55 +1125,21 @@ export function CharacterSheetModal({
     accessibleLabel: string,
     className?: string,
     inputMode: 'numeric' | 'text' = 'numeric',
-  ) => (
-    <InlineInput
-      aria-label={accessibleLabel}
-      autoComplete="off"
-      className={[styles.healthInput, className].filter(Boolean).join(' ')}
-      inputMode={inputMode}
-      maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
-      readOnly={!canEdit}
-      value={readStringField(draft, path)}
-      onBlur={() => void save()}
-      onChange={(event) => changeField(path, event.currentTarget.value)}
-    />
-  );
-
-  const deathSaveTrack = (
-    path: 'health.deathSaveFailures' | 'health.deathSaveSuccesses',
-    label: 'Failure' | 'Success',
   ) => {
-    const parsed = Number(readStringField(draft, path));
-    const count = Number.isInteger(parsed) && parsed >= 0 && parsed <= 3 ? parsed : 0;
+    const value = readStringField(draft, path);
     return (
-      <div
-        aria-label={`Death save ${label === 'Success' ? 'successes' : 'failures'}`}
-        className={styles.deathSaveTrack}
-        data-outcome={label.toLowerCase()}
-        role="group"
-      >
-        {Array.from({ length: 3 }, (_, index) => {
-          const value = index + 1;
-          return (
-            <button
-              aria-label={`${label} ${value}`}
-              aria-pressed={count >= value}
-              disabled={!canEdit}
-              key={value}
-              title={`${label} ${value}`}
-              type="button"
-              onClick={() => {
-                changeField(path, String(count === value ? index : value));
-                void save();
-              }}
-            >
-              <svg aria-hidden viewBox="0 0 8 8">
-                <circle cx="4" cy="4" r="3" />
-              </svg>
-            </button>
-          );
-        })}
-      </div>
+      <InlineInput
+        aria-label={accessibleLabel}
+        autoComplete="off"
+        className={[styles.healthInput, className].filter(Boolean).join(' ')}
+        inputMode={inputMode}
+        maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+        readOnly={!canEdit}
+        size={Math.max(1, value.length)}
+        value={value}
+        onBlur={() => void save()}
+        onChange={(event) => changeField(path, event.currentTarget.value)}
+      />
     );
   };
 
@@ -1381,64 +1427,93 @@ export function CharacterSheetModal({
                       <h2>Skills</h2>
                       <div className={styles.skillGrid}>
                         {DND5E_SKILLS.map((skill) => {
-                          const training = draft.skills[skill.id];
-                          const nextTraining = nextDnd5eSkillTraining(training);
+                          const skillData = draft.skills[skill.id];
+                          const training = skillData.training;
                           const values = derived.skills[skill.id];
+                          const bonusPath = `skills.${skill.id}.bonusOffset`;
+                          const passivePath = `skills.${skill.id}.passiveOffset`;
+                          const displayedBonus = numericValue(
+                            bonusPath,
+                            formatDnd5eSignedValue(values.bonus),
+                          );
+                          const displayedPassive = numericValue(
+                            passivePath,
+                            String(values.passive),
+                          );
                           return (
                             <div className={styles.skillRow} key={skill.id}>
-                              <button
-                                aria-label={`${skill.label} training: ${SKILL_TRAINING_LABELS[training]}`}
-                                className={styles.skillTraining}
-                                data-training={training}
+                              <CharacterSkillTrainingButton
                                 disabled={!canEdit}
-                                title={`Set ${skill.label} training to ${SKILL_TRAINING_LABELS[nextTraining]}`}
-                                type="button"
-                                onClick={() => {
-                                  const path = `skills.${skill.id}`;
+                                label={skill.label}
+                                training={training}
+                                onChange={(nextTraining) => {
+                                  const path = `skills.${skill.id}.training`;
                                   const candidate = writeField(draftRef.current, path, nextTraining);
                                   if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
                                   changeField(path, nextTraining);
                                   void save();
                                 }}
-                              >
-                                <svg
-                                  aria-hidden="true"
-                                  className={styles.skillTrainingIcon}
-                                  viewBox="0 0 12 12"
-                                >
-                                  <circle
-                                    className={styles.skillTrainingOuter}
-                                    cx="6"
-                                    cy="6"
-                                    r="4.5"
-                                  />
-                                  <circle
-                                    className={styles.skillTrainingInner}
-                                    cx="6"
-                                    cy="6"
-                                    r="2"
-                                  />
-                                </svg>
-                              </button>
+                              />
                               <span className={styles.skillLabel}>
                                 <span className={styles.skillAbility}>{skill.abbreviation}</span>
                                 <span className={styles.skillName}>{skill.label}</span>
                               </span>
-                              <output
-                                aria-label={`${skill.label} bonus and passive score`}
-                                className={styles.skillValues}
-                              >
-                                {values.display}
-                              </output>
+                              <span className={styles.skillValues}>
+                                <InlineInput
+                                  aria-label={`${skill.label} bonus`}
+                                  autoComplete="off"
+                                  className={styles.skillValueInput}
+                                  maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                                  readOnly={!canEdit}
+                                  size={Math.max(1, displayedBonus.length)}
+                                  value={displayedBonus}
+                                  onBlur={() => commitCalculatedTotal(
+                                    bonusPath,
+                                    values.bonus,
+                                    skillData.bonusOffset,
+                                  )}
+                                  onChange={(event) => changeNumericBuffer(
+                                    bonusPath,
+                                    event.currentTarget.value,
+                                  )}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') event.currentTarget.blur();
+                                  }}
+                                />
+                                <span aria-hidden>/</span>
+                                <InlineInput
+                                  aria-label={`${skill.label} passive score`}
+                                  autoComplete="off"
+                                  className={styles.skillValueInput}
+                                  maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                                  readOnly={!canEdit}
+                                  size={Math.max(1, displayedPassive.length)}
+                                  value={displayedPassive}
+                                  onBlur={() => commitCalculatedTotal(
+                                    passivePath,
+                                    values.passive,
+                                    skillData.passiveOffset,
+                                  )}
+                                  onChange={(event) => changeNumericBuffer(
+                                    passivePath,
+                                    event.currentTarget.value,
+                                  )}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') event.currentTarget.blur();
+                                  }}
+                                />
+                              </span>
                             </div>
                           );
                         })}
-                        <div className={styles.skillAddRow}>
-                          <CharacterSheetAddEntryButton
-                            disabled={!canEdit}
-                            label="Add Custom Skill"
-                          />
-                        </div>
+                        <CharacterCustomSkillPanel
+                          canEdit={canEdit}
+                          derived={derived.customSkills}
+                          skills={draft.customSkills}
+                          onChange={changeCustomSkill}
+                          onCommit={commitCustomSkill}
+                          onSave={save}
+                        />
                       </div>
                     </section>
                   </div>
@@ -1447,7 +1522,7 @@ export function CharacterSheetModal({
                       <h2>Health</h2>
                       <div className={styles.healthGrid}>
                         <label className={styles.healthField}>
-                          <span>Current / Maximum</span>
+                          <span>HP</span>
                           <span className={styles.healthPair}>
                             {healthInput('health.currentHitPoints', 'Current hit points')}
                             <span aria-hidden>/</span>
@@ -1455,7 +1530,7 @@ export function CharacterSheetModal({
                           </span>
                         </label>
                         <label className={styles.healthField}>
-                          <span>Temporary HP</span>
+                          <span>Temp HP</span>
                           {healthInput('health.temporaryHitPoints', 'Temporary hit points')}
                         </label>
                         <label className={styles.healthField}>
@@ -1467,13 +1542,6 @@ export function CharacterSheetModal({
                             {healthInput('health.hitDie', 'Hit die', styles.hitDieInput, 'text')}
                           </span>
                         </label>
-                        <div className={styles.deathSaves}>
-                          <span>Death Saves</span>
-                          <div className={styles.deathSaveTracks}>
-                            {deathSaveTrack('health.deathSaveSuccesses', 'Success')}
-                            {deathSaveTrack('health.deathSaveFailures', 'Failure')}
-                          </div>
-                        </div>
                       </div>
                     </section>
                     <section className={styles.collectionPanel}>

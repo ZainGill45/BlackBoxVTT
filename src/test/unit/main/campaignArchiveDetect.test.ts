@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe('detectCampaignFormatVersion', () => {
-  it.each([1, 2, 3, 4, 5, 6])(
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9])(
     'recognizes the frozen format-%i fixture from its data alone',
     async (version) => {
       const connection = await openFixture(version);
@@ -165,7 +165,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(mixed)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'characters mix archive formats 4, 5, and 6',
+          'characters mix archive formats 4, 5, 6, 7, 8, and 9',
         ),
       });
     } finally {
@@ -188,7 +188,28 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, or 6',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, or 9',
+        ),
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it('distinguishes exact format-9 Character data from a Custom Skills near match', async () => {
+    const connection = await openFixture(9);
+    try {
+      const row = connection.prepare(
+        `SELECT data_json FROM journal_entries WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      connection.prepare(
+        `UPDATE journal_entries SET data_json = ? WHERE type_id = 'dnd5e.character'`,
+      ).run(JSON.stringify({ ...JSON.parse(row.data_json), customSkills: {} }));
+
+      expect(detectCampaignFormatVersion(connection)).toEqual({
+        ok: false,
+        reason: expect.stringContaining(
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, or 9',
         ),
       });
     } finally {

@@ -260,96 +260,43 @@ export function pixelColorCoverage(
   return matching / (width * height);
 }
 
-/** Bounds of the largest connected region matching any target colour. */
-export function largestPixelColorRegion(
+/** Bounds containing every pixel matching any target colour. */
+export function pixelColorBounds(
   png: Buffer,
   targets: readonly Rgb[],
   tolerance = 16,
 ): PixelRegion | null {
   const { height, pixels, width } = decodePng(png);
-  const matching = Buffer.alloc(width * height);
-  for (let pixel = 0; pixel < matching.length; pixel += 1) {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
     const index = pixel * 4;
-    matching[pixel] = targets.some(
+    const matches = targets.some(
       (target) =>
         Math.abs(pixels[index] - target.red) <= tolerance &&
         Math.abs(pixels[index + 1] - target.green) <= tolerance &&
         Math.abs(pixels[index + 2] - target.blue) <= tolerance,
-    )
-      ? 1
-      : 0;
-  }
-
-  const visited = Buffer.alloc(matching.length);
-  let largest:
-    | (PixelRegion & {
-        count: number;
-      })
-    | null = null;
-  for (let start = 0; start < matching.length; start += 1) {
-    if (!matching[start] || visited[start]) {
+    );
+    if (!matches) {
       continue;
     }
-    const queue = [start];
-    visited[start] = 1;
-    let count = 0;
-    let minX = width;
-    let minY = height;
-    let maxX = -1;
-    let maxY = -1;
-
-    for (let cursor = 0; cursor < queue.length; cursor += 1) {
-      const pixel = queue[cursor];
-      const x = pixel % width;
-      const y = Math.floor(pixel / width);
-      count += 1;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-
-      // Bridge the anti-aliased white diagonals in the fixture so all four
-      // quadrants form one region. The full-size map and its sidebar thumbnail
-      // are much farther apart, so they remain distinct components.
-      const neighbours: number[] = [];
-      for (let distance = 1; distance <= 16; distance += 1) {
-        neighbours.push(
-          x >= distance ? pixel - distance : -1,
-          x + distance < width ? pixel + distance : -1,
-          y >= distance ? pixel - width * distance : -1,
-          y + distance < height ? pixel + width * distance : -1,
-        );
-      }
-      for (const neighbour of neighbours) {
-        if (
-          neighbour >= 0 &&
-          matching[neighbour] &&
-          !visited[neighbour]
-        ) {
-          visited[neighbour] = 1;
-          queue.push(neighbour);
-        }
-      }
-    }
-
-    if (!largest || count > largest.count) {
-      largest = {
-        count,
-        height: maxY - minY + 1,
-        width: maxX - minX + 1,
-        x: minX,
-        y: minY,
-      };
-    }
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
   }
-  if (!largest) {
+  if (maxX < 0 || maxY < 0) {
     return null;
   }
   return {
-    height: largest.height,
-    width: largest.width,
-    x: largest.x,
-    y: largest.y,
+    height: maxY - minY + 1,
+    width: maxX - minX + 1,
+    x: minX,
+    y: minY,
   };
 }
 

@@ -406,14 +406,74 @@ test.describe('local Journal durability', () => {
       controls.map((control) => control.getAttribute('aria-label')),
     )).toEqual(DND5E_SKILLS.map(({ label }) => `${label} training: Untrained`));
     for (const skill of DND5E_SKILLS) {
-      const output = skillsPanel.getByLabel(`${skill.label} bonus and passive score`);
-      await expect(output).toHaveText('0 / 10');
-      const row = output.locator('..');
+      const bonus = skillsPanel.getByLabel(`${skill.label} bonus`);
+      const passive = skillsPanel.getByLabel(`${skill.label} passive score`);
+      await expect(bonus).toHaveValue('0');
+      await expect(passive).toHaveValue('10');
+      const row = bonus.locator('..').locator('..');
       await expect(row.getByText(skill.abbreviation, { exact: true })).toBeVisible();
+      await expect(row.getByText(skill.label, { exact: true })).toBeVisible();
     }
+    const acrobaticsLabel = skillsPanel.getByText('Acrobatics', { exact: true });
+    expect(await acrobaticsLabel.evaluate((label) =>
+      label.clientWidth > 0 && label.scrollWidth <= label.clientWidth
+    )).toBe(true);
+    const acrobaticsValues = skillsPanel.getByLabel('Acrobatics bonus').locator('..');
+    expect(await acrobaticsValues.evaluate((container) => {
+      const [bonus, separator, passive] = Array.from(container.children);
+      if (!(bonus instanceof HTMLElement)
+        || !(separator instanceof HTMLElement)
+        || !(passive instanceof HTMLElement)) return false;
+      const bonusBox = bonus.getBoundingClientRect();
+      const separatorBox = separator.getBoundingClientRect();
+      const passiveBox = passive.getBoundingClientRect();
+      const leadingGap = separatorBox.left - bonusBox.right;
+      const trailingGap = passiveBox.left - separatorBox.right;
+      const expectedGap = Number.parseFloat(getComputedStyle(container).columnGap);
+      return leadingGap >= 0
+        && trailingGap >= 0
+        && Math.abs(leadingGap - expectedGap) < 0.5
+        && Math.abs(trailingGap - expectedGap) < 0.5;
+    })).toBe(true);
     const addCustomSkill = skillsPanel.getByRole('button', { name: 'Add Custom Skill' });
     await expect(addCustomSkill).toBeEnabled();
+    const customSkillList = skillsPanel.getByRole('list', { name: 'Character custom skills' });
+    await addCustomSkill.click();
+    const recallName = customSkillList.locator('[data-custom-skill-name]').last();
+    await expect(recallName).toBeFocused();
+    await recallName.fill('Recall');
+    await recallName.blur();
+    await customSkillList.getByRole('button', { name: 'Recall ability' }).click();
+    await customSkillList.getByRole('button', { name: 'WIS — Wisdom' }).click();
+    const recallTraining = customSkillList.getByRole('button', {
+      name: 'Recall training: Untrained',
+    });
+    await recallTraining.click();
+    await customSkillList.getByRole('button', {
+      name: 'Recall training: Proficient',
+    }).click();
+    await customSkillList.getByLabel('Recall bonus').fill('+8');
+    await customSkillList.getByLabel('Recall bonus').blur();
+    await customSkillList.getByLabel('Recall passive score').fill('20');
+    await customSkillList.getByLabel('Recall passive score').blur();
+    await addCustomSkill.click();
+    const loreName = customSkillList.locator('[data-custom-skill-name]').last();
+    await loreName.fill('Lore');
+    await loreName.blur();
+    await loreName.click({ button: 'right' });
+    await window.getByRole('menuitem', { name: 'Move Custom Skill Up' }).click();
+    await expect.poll(() => customSkillList.locator('[data-custom-skill-name]')
+      .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)))
+      .toEqual(['Lore', 'Recall']);
     const healthPanel = sheet.getByRole('heading', { name: 'Health', exact: true }).locator('..');
+    for (const label of ['HP', 'Temp HP', 'Hit Dice']) {
+      await expect(healthPanel.getByText(label, { exact: true })).toBeVisible();
+    }
+    await expect(healthPanel.getByText('Death Saves', { exact: true })).toHaveCount(0);
+    const healthFieldOffsets = await healthPanel.locator('label').evaluateAll(
+      (fields) => fields.map((field) => (field as HTMLElement).offsetTop),
+    );
+    expect(new Set(healthFieldOffsets).size).toBe(1);
     const currentHitPoints = healthPanel.getByLabel('Current hit points');
     const maximumHitPoints = healthPanel.getByLabel('Maximum hit points');
     for (const [label, defaultValue] of [
@@ -426,20 +486,29 @@ test.describe('local Journal durability', () => {
     ] as const) {
       await expect(healthPanel.getByLabel(label)).toHaveValue(defaultValue);
     }
-    const deathSaveSuccesses = healthPanel.getByRole('group', {
-      name: 'Death save successes',
-    }).getByRole('button');
-    const deathSaveFailures = healthPanel.getByRole('group', {
-      name: 'Death save failures',
-    }).getByRole('button');
-    await expect(deathSaveSuccesses).toHaveCount(3);
-    await expect(deathSaveFailures).toHaveCount(3);
-    expect(await deathSaveSuccesses.evaluateAll((buttons) =>
-      buttons.map((button) => button.getAttribute('aria-pressed')))).toEqual([
-      'false',
-      'false',
-      'false',
-    ]);
+    for (const [firstInput, childCount] of [
+      [currentHitPoints, 3],
+      [healthPanel.getByLabel('Current hit dice'), 4],
+    ] as const) {
+      const values = firstInput.locator('..');
+      expect(await values.evaluate((container, expectedChildCount) => {
+        const children = Array.from(container.children);
+        const [current, separator, maximum] = children;
+        if (children.length !== expectedChildCount
+          || !(current instanceof HTMLInputElement)
+          || !(separator instanceof HTMLSpanElement)
+          || !(maximum instanceof HTMLInputElement)) return false;
+        const currentBox = current.getBoundingClientRect();
+        const separatorBox = separator.getBoundingClientRect();
+        const maximumBox = maximum.getBoundingClientRect();
+        const expectedGap = Number.parseFloat(getComputedStyle(container).columnGap);
+        const leadingGap = separatorBox.left - currentBox.right;
+        const trailingGap = maximumBox.left - separatorBox.right;
+        return getComputedStyle(separator).color === getComputedStyle(current).color
+          && Math.abs(leadingGap - expectedGap) < 0.5
+          && Math.abs(trailingGap - expectedGap) < 0.5;
+      }, childCount)).toBe(true);
+    }
     const panelAddButtons = [
       'Add Action',
       'Add Item',
@@ -473,30 +542,33 @@ test.describe('local Journal durability', () => {
     await expect(strengthCard.getByText('Score', { exact: true })).toBeVisible();
     await expect(strengthCard.getByText('Throw', { exact: true })).toBeVisible();
     const dexterityModifier = sheet.getByLabel('Dexterity modifier');
-    const acrobaticsValues = sheet.getByLabel('Acrobatics bonus and passive score');
-    const acrobaticsRow = acrobaticsValues.locator('..');
-    const acrobaticsTraining = acrobaticsRow.getByRole('button');
+    const acrobaticsBonus = sheet.getByLabel('Acrobatics bonus');
+    const acrobaticsPassive = sheet.getByLabel('Acrobatics passive score');
+    const acrobaticsRow = acrobaticsBonus.locator('..').locator('..');
+    const acrobaticsTraining = acrobaticsRow.locator('button[data-training]');
     await dexterityModifier.fill('+3');
     await dexterityModifier.blur();
-    await expect(acrobaticsValues).toHaveText('+3 / 13');
+    await expect(acrobaticsBonus).toHaveValue('+3');
+    await expect(acrobaticsPassive).toHaveValue('13');
     await acrobaticsTraining.click();
     await expect(acrobaticsTraining).toHaveAccessibleName('Acrobatics training: Proficient');
     await expect(acrobaticsTraining).toHaveAttribute('data-training', 'proficient');
-    await expect(acrobaticsValues).toHaveText('+5 / 15');
+    await expect(acrobaticsBonus).toHaveValue('+5');
+    await expect(acrobaticsPassive).toHaveValue('15');
     await acrobaticsTraining.click();
     await expect(acrobaticsTraining).toHaveAccessibleName('Acrobatics training: Expertise');
     await expect(acrobaticsTraining).toHaveAttribute('data-training', 'expertise');
-    await expect(acrobaticsValues).toHaveText('+7 / 17');
+    await expect(acrobaticsBonus).toHaveValue('+7');
+    await expect(acrobaticsPassive).toHaveValue('17');
+    await acrobaticsBonus.fill('+8');
+    await acrobaticsBonus.blur();
+    await expect(acrobaticsPassive).toHaveValue('18');
+    await acrobaticsPassive.fill('20');
+    await acrobaticsPassive.blur();
     await currentHitPoints.fill('7');
     await currentHitPoints.blur();
     await maximumHitPoints.fill('12');
     await maximumHitPoints.blur();
-    await deathSaveSuccesses.nth(1).click();
-    await expect(deathSaveSuccesses.nth(0)).toHaveAttribute('aria-pressed', 'true');
-    await expect(deathSaveSuccesses.nth(1)).toHaveAttribute('aria-pressed', 'true');
-    await expect(deathSaveSuccesses.nth(2)).toHaveAttribute('aria-pressed', 'false');
-    await deathSaveFailures.first().click();
-    await expect(deathSaveFailures.first()).toHaveAttribute('aria-pressed', 'true');
     await nameInput.fill('Rowen');
     await nameInput.blur();
     await expect(sheet).toHaveAccessibleName('Rowen character sheet');
@@ -531,8 +603,10 @@ test.describe('local Journal durability', () => {
     await strengthScore.blur();
     await expect(strengthModifier).toHaveValue('+3');
     await expect(sheet.getByLabel('Strength saving throw')).toHaveValue('+6');
-    await expect(sheet.getByLabel('Athletics bonus and passive score')).toHaveText('+3 / 13');
-    await expect(acrobaticsValues).toHaveText('+9 / 19');
+    await expect(sheet.getByLabel('Athletics bonus')).toHaveValue('+3');
+    await expect(sheet.getByLabel('Athletics passive score')).toHaveValue('13');
+    await expect(acrobaticsBonus).toHaveValue('+10');
+    await expect(acrobaticsPassive).toHaveValue('22');
     await sheet.getByLabel('Initiative').fill('+5');
     await sheet.getByLabel('Initiative').blur();
     const resourceList = sheet.getByRole('list', { name: 'Character resources' });
@@ -546,6 +620,21 @@ test.describe('local Journal durability', () => {
     await sheet.getByLabel('Rage maximum').fill('3');
     await sheet.getByLabel('Rage maximum').blur();
     const rageCurrent = sheet.getByLabel('Rage current');
+    const rageValues = rageCurrent.locator('..');
+    expect(await rageValues.evaluate((container) => {
+      const [current, separator, maximum] = Array.from(container.children);
+      if (!(current instanceof HTMLInputElement)
+        || !(separator instanceof HTMLSpanElement)
+        || !(maximum instanceof HTMLInputElement)) return false;
+      const containerBox = container.getBoundingClientRect();
+      const currentBox = current.getBoundingClientRect();
+      const separatorBox = separator.getBoundingClientRect();
+      const maximumBox = maximum.getBoundingClientRect();
+      const verticalCenter = (box: DOMRect): number => box.top + box.height / 2;
+      return currentBox.height < containerBox.height
+        && Math.abs(verticalCenter(currentBox) - verticalCenter(separatorBox)) < 0.5
+        && Math.abs(verticalCenter(maximumBox) - verticalCenter(separatorBox)) < 0.5;
+    })).toBe(true);
     await rageCurrent.fill('-123456789');
     await expect(rageCurrent).toHaveValue('-123456789');
     await rageCurrent.fill('-2');
@@ -595,14 +684,20 @@ test.describe('local Journal durability', () => {
     await expect(sheet.getByLabel('Initiative')).toHaveValue('+5');
     await expect(sheet.getByLabel('Current hit points')).toHaveValue('7');
     await expect(sheet.getByLabel('Maximum hit points')).toHaveValue('12');
-    await expect(sheet.getByRole('button', { name: 'Success 2' }))
-      .toHaveAttribute('aria-pressed', 'true');
-    await expect(sheet.getByRole('button', { name: 'Failure 1' }))
-      .toHaveAttribute('aria-pressed', 'true');
     await expect(sheet.getByLabel('Dexterity modifier')).toHaveValue('+3');
     await expect(sheet.getByRole('button', { name: 'Acrobatics training: Expertise' }))
       .toHaveAttribute('data-training', 'expertise');
-    await expect(sheet.getByLabel('Acrobatics bonus and passive score')).toHaveText('+9 / 19');
+    await expect(sheet.getByLabel('Acrobatics bonus')).toHaveValue('+10');
+    await expect(sheet.getByLabel('Acrobatics passive score')).toHaveValue('22');
+    await expect.poll(() => sheet.getByRole('list', { name: 'Character custom skills' })
+      .locator('[data-custom-skill-name]')
+      .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)))
+      .toEqual(['Lore', 'Recall']);
+    await expect(sheet.getByRole('button', { name: 'Recall ability' })).toHaveText('WIS');
+    await expect(sheet.getByRole('button', { name: 'Recall training: Expertise' }))
+      .toHaveAttribute('data-training', 'expertise');
+    await expect(sheet.getByLabel('Recall bonus')).toHaveValue('+10');
+    await expect(sheet.getByLabel('Recall passive score')).toHaveValue('22');
     await expect(sheet.getByLabel('Ki current')).toHaveValue('5');
     await expect(sheet.getByLabel('Ki maximum')).toHaveValue('4');
     await sheet.press('Escape');
@@ -666,14 +761,20 @@ test.describe('local Journal durability', () => {
     await expect(sheet.getByLabel('Initiative')).toHaveValue('+5');
     await expect(sheet.getByLabel('Current hit points')).toHaveValue('7');
     await expect(sheet.getByLabel('Maximum hit points')).toHaveValue('12');
-    await expect(sheet.getByRole('button', { name: 'Success 2' }))
-      .toHaveAttribute('aria-pressed', 'true');
-    await expect(sheet.getByRole('button', { name: 'Failure 1' }))
-      .toHaveAttribute('aria-pressed', 'true');
     await expect(sheet.getByLabel('Dexterity modifier')).toHaveValue('+3');
     await expect(sheet.getByRole('button', { name: 'Acrobatics training: Expertise' }))
       .toHaveAttribute('data-training', 'expertise');
-    await expect(sheet.getByLabel('Acrobatics bonus and passive score')).toHaveText('+9 / 19');
+    await expect(sheet.getByLabel('Acrobatics bonus')).toHaveValue('+10');
+    await expect(sheet.getByLabel('Acrobatics passive score')).toHaveValue('22');
+    await expect.poll(() => sheet.getByRole('list', { name: 'Character custom skills' })
+      .locator('[data-custom-skill-name]')
+      .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)))
+      .toEqual(['Lore', 'Recall']);
+    await expect(sheet.getByRole('button', { name: 'Recall ability' })).toHaveText('WIS');
+    await expect(sheet.getByRole('button', { name: 'Recall training: Expertise' }))
+      .toHaveAttribute('data-training', 'expertise');
+    await expect(sheet.getByLabel('Recall bonus')).toHaveValue('+10');
+    await expect(sheet.getByLabel('Recall passive score')).toHaveValue('22');
     await expect(sheet.getByLabel('Ki current')).toHaveValue('5');
     await expect(sheet.getByLabel('Ki maximum')).toHaveValue('4');
   });

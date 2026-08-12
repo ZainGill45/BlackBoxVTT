@@ -70,7 +70,7 @@ function Harness({
 }
 
 describe('CharacterActionPanel', () => {
-  it('submits one roll from the name while Details only inspects it', async () => {
+  it('submits one roll from the action name', async () => {
     const sendChatRoll = vi.fn(async () => ({
       error: { code: 'unavailable' as const, message: 'Host unavailable.' },
       ok: false as const,
@@ -80,17 +80,10 @@ describe('CharacterActionPanel', () => {
 
     const actionRow = screen.getByRole('button', { name: 'Use Action 1' })
       .closest<HTMLElement>('[role="listitem"]')!;
-    expect(within(actionRow).getAllByRole('button')).toHaveLength(1);
+    expect(within(actionRow).getAllByRole('button')).toHaveLength(2);
+    expect(within(actionRow).getByRole('button', { name: 'Edit Action 1' }))
+      .toBeInTheDocument();
     expect(actionRow).not.toHaveTextContent('1d20');
-    fireEvent.contextMenu(actionRow);
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Details' }));
-    const details = screen.getByRole('dialog', { name: 'Action 1 action details' });
-    expect(details).toBeInTheDocument();
-    expect(screen.getByText('Description 1')).toBeInTheDocument();
-    expect(within(details).queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
-    expect(sendChatRoll).not.toHaveBeenCalled();
-    fireEvent.mouseDown(details);
-    fireEvent.click(details);
 
     fireEvent.click(screen.getByRole('button', { name: 'Use Action 1' }));
     await waitFor(() => expect(sendChatRoll).toHaveBeenCalledTimes(1));
@@ -126,15 +119,12 @@ describe('CharacterActionPanel', () => {
     expect(screen.queryByRole('button', { name: 'Add Action' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'More options for Action 1' }))
       .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit Action 1' })).not.toBeInTheDocument();
     const useButton = screen.getByRole('button', { name: 'Use Action 1' });
     expect(useButton).toBeEnabled();
     fireEvent.contextMenu(useButton.closest('[role="listitem"]')!);
-    const menu = screen.getByRole('menu', { name: 'Action 1 actions' });
-    expect(within(menu).getByRole('menuitem', { name: 'Details' })).toBeInTheDocument();
-    expect(within(menu).queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument();
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Details' }));
-    expect(screen.getByRole('dialog', { name: 'Action 1 action details' }))
-      .toBeInTheDocument();
+    expect(screen.queryByRole('menu', { name: 'Action 1 actions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('edits, reorders, and requires an armed Delete from the context menu', async () => {
@@ -154,7 +144,9 @@ describe('CharacterActionPanel', () => {
 
     fireEvent.contextMenu(actionButtons()[0].closest('[role="listitem"]')!);
     menu = screen.getByRole('menu', { name: 'Action 2 actions' });
-    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit' }));
+    expect(within(menu).queryByRole('menuitem', { name: 'Edit' })).not.toBeInTheDocument();
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Action 2' }));
     const editor = screen.getByRole('dialog', { name: 'Action 2 action editor' });
     expect(editor).toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: 'Action Name' }), {
@@ -186,10 +178,7 @@ describe('CharacterActionPanel', () => {
         networkApi={createMockNetworkApi()}
       />,
     );
-    fireEvent.contextMenu(
-      screen.getByRole('button', { name: 'Use Action 1' }).closest('[role="listitem"]')!,
-    );
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Action 1' }));
 
     const editor = screen.getByRole('dialog', { name: 'Action 1 action editor' });
     expect(within(editor).queryByRole('button', { name: 'Optional details' }))

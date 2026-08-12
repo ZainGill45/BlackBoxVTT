@@ -8,6 +8,9 @@ import {
 } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
 import { addEmptyDnd5eCharacterActionsToValue } from './campaignArchiveCharacterActions';
+import { addEmptyDnd5eCustomSkillsToValue } from './campaignArchiveCharacterCustomSkills';
+import { convertDnd5eCharacterDataFromArchiveFormat8 } from './campaignArchiveCharacterHealth';
+import { addDefaultDnd5eSkillOffsetsToValue } from './campaignArchiveCharacterSkills';
 import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFormat5';
 
 /**
@@ -22,7 +25,7 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
  * Game Master than being turned away.
  */
 
-export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4 | 5 | 6;
+export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
 export type CampaignSalvageConversion =
   | 1
@@ -31,10 +34,13 @@ export type CampaignSalvageConversion =
   | 4
   | 5
   | 6
+  | 7
+  | 8
+  | 9
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
-  | { ok: true; version: 1 | 2 | 3 | 4 | 5 | 6 }
+  | { ok: true; version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 }
   | { conversion: 'permission-defaults'; ok: true; version: 4 }
   | { ok: false; reason: string };
 
@@ -65,6 +71,10 @@ const INTERMEDIATE_PERMISSION_SCHEMA_FINGERPRINT =
 /** Canonical database schema used from format 4 onward; Character JSON parts them. */
 const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
   'f1e073d9f3f5aadf2a640ff56f1cef247d9c13d31601c6c4200e76162b45637f';
+
+/** Canonical schema shared by formats 7 through 9 and the current format 10. */
+const FORMAT_7_TO_10_SCHEMA_FINGERPRINT =
+  '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
 
 function schemaFingerprint(connection: DatabaseSync): string {
   const rows = connection
@@ -199,8 +209,9 @@ function detectCharacterEra(
   }
 }
 
-function detectFormat4To6CharacterEra(
+function detectFormat4To9CharacterEra(
   connection: DatabaseSync,
+  schemaCouldBeCurrent = false,
 ): CampaignFormatDetection {
   const rows = connection.prepare(
     `SELECT name, data_json FROM journal_entries
@@ -213,10 +224,13 @@ function detectFormat4To6CharacterEra(
   if (rows.length === 0) {
     return {
       ok: false,
-      reason: 'This campaign has no Character data that identifies format 4, 5, or 6.',
+      reason: schemaCouldBeCurrent
+        ? 'This campaign’s structure is already current, so an outdated ' +
+          'format is not what makes it unreadable.'
+        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, or 9.',
     };
   }
-  const shapes = new Set<'4' | '5' | '6'>();
+  const shapes = new Set<'4' | '5' | '6' | '7' | '8' | '9' | 'current'>();
   for (const row of rows) {
     let parsed: unknown;
     try {
@@ -227,15 +241,19 @@ function detectFormat4To6CharacterEra(
         reason: `This campaign’s character “${row.name}” cannot be read.`,
       };
     }
+    if (schemaCouldBeCurrent && isDnd5eCharacterData(parsed as JsonValue)) {
+      shapes.add('current');
+      continue;
+    }
     const format4 = !!parsed &&
       typeof parsed === 'object' &&
       !Array.isArray(parsed) &&
       !Object.hasOwn(parsed, 'inventory') &&
-      isDnd5eCharacterData({
+      addDefaultDnd5eSkillOffsetsToValue({
         ...parsed,
         actions: [],
         inventory: createDefaultDnd5eCharacterInventory(),
-      } as JsonValue);
+      });
     if (format4) {
       shapes.add('4');
       continue;
@@ -250,18 +268,43 @@ function detectFormat4To6CharacterEra(
       shapes.add('6');
       continue;
     }
+    const format7 = addDefaultDnd5eSkillOffsetsToValue(parsed);
+    if (format7) {
+      shapes.add('7');
+      continue;
+    }
+    const format8 = convertDnd5eCharacterDataFromArchiveFormat8(parsed);
+    if (format8) {
+      shapes.add('8');
+      continue;
+    }
+    const format9 = addEmptyDnd5eCustomSkillsToValue(parsed);
+    if (format9) {
+      shapes.add('9');
+      continue;
+    }
     return {
       ok: false,
       reason:
-        'This campaign’s character data does not exactly match archive format 4, 5, or 6.',
+        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, or 9.',
     };
   }
   if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
   if (shapes.has('5') && shapes.size === 1) return { ok: true, version: 5 };
   if (shapes.has('6') && shapes.size === 1) return { ok: true, version: 6 };
+  if (shapes.has('7') && shapes.size === 1) return { ok: true, version: 7 };
+  if (shapes.has('8') && shapes.size === 1) return { ok: true, version: 8 };
+  if (shapes.has('9') && shapes.size === 1) return { ok: true, version: 9 };
+  if (shapes.has('current') && shapes.size === 1) {
+    return {
+      ok: false,
+      reason: 'This campaign’s structure is already current, so an outdated ' +
+        'format is not what makes it unreadable.',
+    };
+  }
   return {
     ok: false,
-    reason: 'This campaign’s characters mix archive formats 4, 5, and 6.',
+    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, and 9.',
   };
 }
 
@@ -281,7 +324,10 @@ export function detectCampaignFormatVersion(
     };
   }
   if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
-    return detectFormat4To6CharacterEra(connection);
+    return detectFormat4To9CharacterEra(connection);
+  }
+  if (fingerprint === FORMAT_7_TO_10_SCHEMA_FINGERPRINT) {
+    return detectFormat4To9CharacterEra(connection, true);
   }
   const schema = readTableColumns(connection);
   return {

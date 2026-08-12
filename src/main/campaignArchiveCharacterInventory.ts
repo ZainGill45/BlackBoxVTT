@@ -1,11 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { JsonValue } from '../shared/gameSystems';
 import {
   createDefaultDnd5eCharacterInventory,
-  isDnd5eCharacterData,
 } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
 import { emptyActionsImportReport } from './campaignArchiveCharacterActions';
+import { deathSavesRemovalImportReport } from './campaignArchiveCharacterHealth';
+import { emptyCustomSkillsImportReport } from './campaignArchiveCharacterCustomSkills';
+import {
+  addDefaultDnd5eSkillOffsetsToValue,
+  skillOffsetsImportReport,
+} from './campaignArchiveCharacterSkills';
 
 interface CharacterRow {
   data_json: string;
@@ -46,12 +50,12 @@ export function addEmptyDnd5eCharacterInventories(
         `Archive format ${formatVersion} contains invalid Character data for ${row.name}.`,
       );
     }
-    const converted = {
+    const converted = addDefaultDnd5eSkillOffsetsToValue({
       ...parsed,
       actions: [],
       inventory: createDefaultDnd5eCharacterInventory(),
-    };
-    if (!isDnd5eCharacterData(converted as JsonValue)) {
+    });
+    if (!converted) {
       throw new Error(
         `Archive format ${formatVersion} contains invalid Character data for ${row.name}.`,
       );
@@ -64,5 +68,8 @@ export function addEmptyDnd5eCharacterInventories(
       rows.length === 1 ? 'character' : 'characters'
     } imported from archive format ${formatVersion}.`,
     ...emptyActionsImportReport(rows.length, formatVersion),
+    ...skillOffsetsImportReport(rows.length, formatVersion),
+    ...deathSavesRemovalImportReport(rows.length, formatVersion),
+    ...emptyCustomSkillsImportReport(rows.length, formatVersion),
   ];
 }
