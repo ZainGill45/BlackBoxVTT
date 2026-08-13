@@ -34,21 +34,15 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
       />
       <span aria-hidden="true" className={styles.control}>
         <svg
-          className={styles.checkmark}
-          data-checkbox-icon="check"
+          className={styles.checkedIndicator}
+          data-checkbox-icon="square"
           fill="none"
           height="0.75rem"
           shapeRendering="crispEdges"
           viewBox="0 0 12 12"
           width="0.75rem"
         >
-          <path
-            d="M1.5 6.5 4.5 9.5 10.5 2.5"
-            stroke="currentColor"
-            strokeLinecap="butt"
-            strokeLinejoin="miter"
-            strokeWidth="1.5"
-          />
+          <rect fill="currentColor" height="8" width="8" x="2" y="2" />
         </svg>
       </span>
       <span className={styles.label}>{children}</span>

@@ -29,7 +29,6 @@ import {
   type ReactNode,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
-import { Checkbox } from '../../../components/ui/Checkbox';
 import { ContextMenuController } from '../../../components/ui/contextMenu';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import { InlineInput } from '../../../components/ui/InlineInput';
@@ -2394,23 +2393,43 @@ function CharacterSheetEditor({
                   className={styles.settingsPanel}
                   role="tabpanel"
                 >
-                  <section className={styles.settingsSection}>
-                    <h2>Inventory</h2>
-                    <Checkbox
-                      checked={draft.inventory.variantEncumbrance}
+                  <div className={styles.settingsRow}>
+                    <div className={styles.settingsCopy}>
+                      <span className={styles.settingsLabel}>
+                        Use Variant Encumbrance
+                      </span>
+                      <p className={styles.settingsDescription}>
+                        Shows Encumbered and Heavily Encumbered thresholds based on
+                        Strength and Size. This does not change Speed or rolls.
+                      </p>
+                    </div>
+                    <Dropdown
+                      accessibleLabel="Use Variant Encumbrance"
+                      className={styles.settingsDropdown}
                       disabled={!canEdit}
-                      onChange={(event) => void commitInventory({
-                        kind: 'set-variant-encumbrance',
-                        value: event.currentTarget.checked,
-                      })}
+                      label={draft.inventory.variantEncumbrance
+                        ? 'Enabled'
+                        : 'Disabled'}
+                      panelLabel="Use Variant Encumbrance options"
                     >
-                      Use Variant Encumbrance
-                    </Checkbox>
-                    <p>
-                      Shows Encumbered and Heavily Encumbered thresholds based on
-                      Strength and Size. This does not change Speed or rolls.
-                    </p>
-                  </section>
+                      <DropdownOption
+                        active={draft.inventory.variantEncumbrance}
+                        label="Enabled"
+                        onSelect={() => void commitInventory({
+                          kind: 'set-variant-encumbrance',
+                          value: true,
+                        })}
+                      />
+                      <DropdownOption
+                        active={!draft.inventory.variantEncumbrance}
+                        label="Disabled"
+                        onSelect={() => void commitInventory({
+                          kind: 'set-variant-encumbrance',
+                          value: false,
+                        })}
+                      />
+                    </Dropdown>
+                  </div>
                 </div>
               ) : (
                 <div

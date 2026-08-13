@@ -29,18 +29,15 @@
   margin-top: 0.0625rem;
   color: var(--color-action-contrast);
   background: var(--color-surface-raised);
-  border: var(--border-width) solid var(--color-border-strong);
+  border: var(--border-width) solid var(--color-text);
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard);
 }
 
-.checkmark {
+.checkedIndicator {
+  color: var(--color-text);
   opacity: 0;
-}
-
-.checkbox:hover:not(.disabled) .control {
-  border-color: var(--color-text);
 }
 
 .input:focus-visible + .control {
@@ -49,11 +46,11 @@
 }
 
 .input:checked + .control {
-  background: var(--color-action);
-  border-color: var(--color-action);
+  background: var(--color-action-contrast);
+  border-color: var(--color-text);
 }
 
-.input:checked + .control .checkmark {
+.input:checked + .control .checkedIndicator {
   opacity: 1;
 }
 

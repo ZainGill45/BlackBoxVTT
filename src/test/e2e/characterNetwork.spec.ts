@@ -118,7 +118,8 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('Copper').fill('50');
     await gmSheet.getByLabel('Copper').blur();
     await gmSheet.getByRole('tab', { name: 'Settings' }).click();
-    await gmSheet.getByText('Use Variant Encumbrance', { exact: true }).click();
+    await gmSheet.getByRole('button', { name: 'Use Variant Encumbrance' }).click();
+    await gmSheet.getByRole('button', { name: 'Enabled' }).click();
     await gmSheet.getByRole('tab', { name: 'Home' }).click();
     await expect(gmSheet.getByLabel('L Encumbered weight', { exact: true })).toHaveText('60');
     await expect(gmSheet.getByLabel('H Encumbered weight', { exact: true }))

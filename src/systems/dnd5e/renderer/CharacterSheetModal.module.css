@@ -450,10 +450,6 @@
 
 .spellSlotHeading>strong {
   color: var(--color-text);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--line-height-tight);
-  text-transform: uppercase;
 }
 
 .spellSlotValues {
@@ -1341,34 +1337,41 @@
 .settingsPanel {
   display: grid;
   min-width: 0;
-  min-height: 42rem;
-  padding: var(--space-2);
   align-content: start;
-  background: var(--color-surface-muted);
-  border: var(--border-width) solid var(--color-border-strong);
 }
 
-.settingsSection {
+.settingsRow {
   display: grid;
-  max-width: 28rem;
+  width: 100%;
+  min-width: 0;
   padding: var(--space-3);
   gap: var(--space-3);
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
   background: var(--color-surface);
   border: var(--border-width) solid var(--color-border);
 }
 
-.settingsSection>h2,
-.settingsSection>p {
-  margin: 0;
+.settingsCopy {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
 }
 
-.settingsSection>h2 {
+.settingsLabel {
   font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
 }
 
-.settingsSection>p {
+.settingsDescription {
+  margin: 0;
   color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
   line-height: var(--line-height-normal);
+}
+
+.settingsDropdown {
+  width: 10rem;
 }
 
 .resourcePanelBody {

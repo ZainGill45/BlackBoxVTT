@@ -258,9 +258,9 @@ describe('JournalPanel', () => {
       name: 'Total Prepared Spells',
     })).toHaveValue('0');
     await user.click(within(characterSheet).getByRole('tab', { name: 'Settings' }));
-    expect(within(characterSheet).getByRole('checkbox', {
+    expect(within(characterSheet).getByRole('button', {
       name: 'Use Variant Encumbrance',
-    })).not.toBeChecked();
+    })).toHaveTextContent('Disabled');
     expect(createEntry).toHaveBeenCalledWith({ campaignId, typeId: DND5E_CHARACTER_ENTRY_TYPE_ID });
 
     fireEvent(
@@ -1351,8 +1351,15 @@ describe('JournalPanel', () => {
       .not.toBeInTheDocument();
 
     await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
-    const variant = within(sheet).getByRole('checkbox', { name: 'Use Variant Encumbrance' });
+    const variant = within(sheet).getByRole('button', {
+      name: 'Use Variant Encumbrance',
+    });
     await user.click(variant);
+    await user.click(within(
+      within(sheet).getByRole('group', {
+        name: 'Use Variant Encumbrance options',
+      }),
+    ).getByRole('button', { name: 'Enabled' }));
     await waitFor(() => expect(server.data.inventory.variantEncumbrance).toBe(true));
     await user.click(within(sheet).getByRole('tab', { name: 'Home' }));
     expect(within(sheet).getByLabelText('L Encumbered weight')).toHaveTextContent('50');
@@ -2388,8 +2395,8 @@ describe('JournalPanel', () => {
     expect(within(sheet).getByRole('textbox', { name: 'Acrobatics passive score' }))
       .toHaveValue('10');
     await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
-    expect(within(sheet).getByRole('checkbox', { name: 'Use Variant Encumbrance' }))
-      .toBeDisabled();
+    expect(within(sheet).getByRole('button', { name: 'Use Variant Encumbrance' }))
+      .toHaveAttribute('aria-disabled', 'true');
     await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
     expect(within(sheet).getByRole('button', { name: 'Spellcasting Ability' }))
       .toHaveAttribute('aria-disabled', 'true');
