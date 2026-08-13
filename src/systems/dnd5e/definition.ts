@@ -8,11 +8,20 @@ import {
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
   DND5E_CHARACTER_GROUP_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+  DND5E_SPELL_GROUP_ID,
 } from './ids';
+import {
+  createDefaultDnd5eSpellData,
+  describeDnd5eSpellData,
+  isDnd5eSpellData,
+} from './spellData';
 
 export {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
   DND5E_CHARACTER_GROUP_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+  DND5E_SPELL_GROUP_ID,
 } from './ids';
 
 export type Dnd5eSettings = {
@@ -37,6 +46,7 @@ export const dnd5eSystem = {
   journalEntryTypes: [
     {
       createDefaultData: createDefaultDnd5eCharacterData,
+      defaultAccess: 'none',
       defaultName: 'New Character',
       groupId: DND5E_CHARACTER_GROUP_ID,
       groupLabel: 'Characters',
@@ -44,6 +54,18 @@ export const dnd5eSystem = {
       id: DND5E_CHARACTER_ENTRY_TYPE_ID,
       label: 'Character',
       validateData: isDnd5eCharacterData,
+    },
+    {
+      createDefaultData: createDefaultDnd5eSpellData,
+      defaultAccess: 'view',
+      defaultName: 'New Spell',
+      describeData: describeDnd5eSpellData,
+      groupId: DND5E_SPELL_GROUP_ID,
+      groupLabel: 'Spells',
+      groupOrder: 1,
+      id: DND5E_SPELL_ENTRY_TYPE_ID,
+      label: 'Spell',
+      validateData: isDnd5eSpellData,
     },
   ],
   validateSettings: isDnd5eSettings,

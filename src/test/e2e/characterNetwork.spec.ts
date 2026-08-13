@@ -207,7 +207,10 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Strength score')).toHaveAttribute('readonly', '');
     await expect(playerSheet.getByLabel('Proficiency Bonus')).toHaveValue('+3');
     await expect(playerSheet.getByLabel('Strength modifier')).toHaveValue('+3');
-    await expect(playerSheet.getByLabel('Strength saving throw')).toHaveValue('+6');
+    await expect(playerSheet.getByRole('textbox', {
+      exact: true,
+      name: 'Strength saving throw',
+    })).toHaveValue('+6');
     await expect(playerSheet.getByLabel('Athletics bonus')).toHaveValue('+3');
     await expect(playerSheet.getByLabel('Athletics bonus')).toHaveAttribute('readonly', '');
     await expect(playerSheet.getByLabel('Athletics passive score')).toHaveValue('13');
@@ -302,7 +305,10 @@ test.describe('networked D&D character sheets', () => {
 
     await expect(playerSheet.getByLabel('Strength score')).toHaveValue('14');
     await expect(playerSheet.getByLabel('Strength modifier')).toHaveValue('+4');
-    await expect(playerSheet.getByLabel('Strength saving throw')).toHaveValue('+7');
+    await expect(playerSheet.getByRole('textbox', {
+      exact: true,
+      name: 'Strength saving throw',
+    })).toHaveValue('+7');
     await expect(playerSheet.getByLabel('Athletics bonus')).toHaveValue('+6');
     await expect(playerSheet.getByLabel('Athletics passive score')).toHaveValue('18');
     await expect(playerSheet.getByLabel('Tactics bonus')).toHaveValue('+8');

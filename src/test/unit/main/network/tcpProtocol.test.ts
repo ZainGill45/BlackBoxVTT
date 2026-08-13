@@ -220,6 +220,35 @@ describe('campaign system protocol messages', () => {
 });
 
 describe('Journal protocol messages', () => {
+  it('carries bounded system row detail in synchronized Journal manifests', () => {
+    const entry = {
+      capabilities: {
+        delete: false,
+        edit: false,
+        managePages: false,
+        managePermissions: false,
+        reorder: false,
+        view: true,
+      },
+      detail: '3rd Level Evocation',
+      groupId: 'dnd5e.spells',
+      id: '11111111-1111-4111-8111-111111111111',
+      kind: 'system',
+      name: 'Fireball',
+      permissionRevision: 0,
+      permissions: null,
+      position: 0,
+      revision: 2,
+      typeId: 'dnd5e.spell',
+    } as const;
+    const payload = { entries: [entry], revision: 4 };
+    expect(parsePayload('server.journal_manifest', payload)).toEqual(payload);
+    expect(() => parsePayload('server.journal_manifest', {
+      ...payload,
+      entries: [{ ...entry, detail: 'x'.repeat(257) }],
+    })).toThrow();
+  });
+
   it('keeps system entry data updates explicit and rejects sender authority', () => {
     const input = {
       data: { identity: { className: 'Fighter' } },

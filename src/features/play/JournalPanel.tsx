@@ -716,7 +716,8 @@ function ConnectedJournalPanel({
                       deleteArmed={pendingDeleteId === entry.id}
                       detail={entry.kind === 'note'
                         ? `${entry.pages.length} ${entry.pages.length === 1 ? 'page' : 'pages'}`
-                        : `${typeById.get(entry.typeId)?.label ?? 'Entry'} Sheet`}
+                        : entry.detail ??
+                          `${typeById.get(entry.typeId)?.label ?? 'Entry'} Sheet`}
                       entry={entry}
                       key={`${entry.id}:${entry.revision}`}
                       reordering={reorderState?.activeId === entry.id}

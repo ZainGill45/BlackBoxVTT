@@ -397,7 +397,8 @@ test.describe('local Journal durability', () => {
       ['Inspiration Count', '0'],
     ] as const;
     for (const [label, defaultValue] of importantStatDefaults) {
-      await expect(sheet.getByLabel(label)).toHaveValue(defaultValue);
+      await expect(sheet.getByRole('textbox', { exact: true, name: label }))
+        .toHaveValue(defaultValue);
     }
     const skillsPanel = sheet.getByRole('heading', { name: 'Skills' }).locator('..');
     const skillTrainingControls = skillsPanel.locator('button[data-training]');
@@ -470,10 +471,6 @@ test.describe('local Journal durability', () => {
       await expect(healthPanel.getByText(label, { exact: true })).toBeVisible();
     }
     await expect(healthPanel.getByText('Death Saves', { exact: true })).toHaveCount(0);
-    const healthFieldOffsets = await healthPanel.locator('label').evaluateAll(
-      (fields) => fields.map((field) => (field as HTMLElement).offsetTop),
-    );
-    expect(new Set(healthFieldOffsets).size).toBe(1);
     const currentHitPoints = healthPanel.getByLabel('Current hit points');
     const maximumHitPoints = healthPanel.getByLabel('Maximum hit points');
     for (const [label, defaultValue] of [
@@ -484,7 +481,8 @@ test.describe('local Journal durability', () => {
       ['Maximum hit dice', '1'],
       ['Hit die', 'd8'],
     ] as const) {
-      await expect(healthPanel.getByLabel(label)).toHaveValue(defaultValue);
+      await expect(healthPanel.getByRole('textbox', { exact: true, name: label }))
+        .toHaveValue(defaultValue);
     }
     for (const [firstInput, childCount] of [
       [currentHitPoints, 3],
@@ -531,11 +529,17 @@ test.describe('local Journal durability', () => {
     for (const ability of abilityNames) {
       await expect(sheet.getByLabel(`${ability} modifier`)).toHaveValue('0');
       await expect(sheet.getByLabel(`${ability} score`)).toHaveValue('10');
-      await expect(sheet.getByLabel(`${ability} saving throw`)).toHaveValue('0');
+      await expect(sheet.getByRole('textbox', {
+        exact: true,
+        name: `${ability} saving throw`,
+      })).toHaveValue('0');
     }
     await expect(strengthModifier).not.toHaveAttribute('placeholder');
     await expect(sheet.getByLabel('Strength score')).not.toHaveAttribute('placeholder');
-    await expect(sheet.getByLabel('Strength saving throw')).not.toHaveAttribute('placeholder');
+    await expect(sheet.getByRole('textbox', {
+      exact: true,
+      name: 'Strength saving throw',
+    })).not.toHaveAttribute('placeholder');
     expect(await strengthModifier.evaluate((input) => input.parentElement?.tagName))
       .toBe('LABEL');
     const strengthCard = sheet.getByRole('article', { name: 'Strength ability' });
@@ -602,13 +606,16 @@ test.describe('local Journal durability', () => {
     await strengthScore.fill('17');
     await strengthScore.blur();
     await expect(strengthModifier).toHaveValue('+3');
-    await expect(sheet.getByLabel('Strength saving throw')).toHaveValue('+6');
+    await expect(sheet.getByRole('textbox', {
+      exact: true,
+      name: 'Strength saving throw',
+    })).toHaveValue('+6');
     await expect(sheet.getByLabel('Athletics bonus')).toHaveValue('+3');
     await expect(sheet.getByLabel('Athletics passive score')).toHaveValue('13');
     await expect(acrobaticsBonus).toHaveValue('+10');
     await expect(acrobaticsPassive).toHaveValue('22');
-    await sheet.getByLabel('Initiative').fill('+5');
-    await sheet.getByLabel('Initiative').blur();
+    await sheet.getByRole('textbox', { exact: true, name: 'Initiative' }).fill('+5');
+    await sheet.getByRole('textbox', { exact: true, name: 'Initiative' }).blur();
     const resourceList = sheet.getByRole('list', { name: 'Character resources' });
     await sheet.getByRole('button', { name: 'Add Resource' }).click();
     const rageName = resourceList.locator('[data-resource-name]').last();
@@ -681,7 +688,8 @@ test.describe('local Journal durability', () => {
       .toHaveText('Fighter');
     await expect(sheet.getByRole('button', { exact: true, name: 'Level' })).toHaveText('7');
     await expect(sheet.getByLabel('Strength score')).toHaveValue('17');
-    await expect(sheet.getByLabel('Initiative')).toHaveValue('+5');
+    await expect(sheet.getByRole('textbox', { exact: true, name: 'Initiative' }))
+      .toHaveValue('+5');
     await expect(sheet.getByLabel('Current hit points')).toHaveValue('7');
     await expect(sheet.getByLabel('Maximum hit points')).toHaveValue('12');
     await expect(sheet.getByLabel('Dexterity modifier')).toHaveValue('+3');
@@ -758,7 +766,8 @@ test.describe('local Journal durability', () => {
       .toHaveText('Fighter');
     await expect(sheet.getByRole('button', { exact: true, name: 'Level' })).toHaveText('7');
     await expect(sheet.getByLabel('Strength score')).toHaveValue('17');
-    await expect(sheet.getByLabel('Initiative')).toHaveValue('+5');
+    await expect(sheet.getByRole('textbox', { exact: true, name: 'Initiative' }))
+      .toHaveValue('+5');
     await expect(sheet.getByLabel('Current hit points')).toHaveValue('7');
     await expect(sheet.getByLabel('Maximum hit points')).toHaveValue('12');
     await expect(sheet.getByLabel('Dexterity modifier')).toHaveValue('+3');

@@ -7,12 +7,16 @@ import type {
   JournalWindowGeometry,
 } from '../shared/journalWindows';
 import type { NetworkApi } from '../shared/network';
-import { DND5E_CHARACTER_ENTRY_TYPE_ID } from './dnd5e/definition';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+} from './dnd5e/definition';
 import {
   CharacterSheetDetached,
   CharacterSheetModal,
   measureCharacterSheetModal,
 } from './dnd5e/renderer/CharacterSheetModal';
+import { SpellSheetModal } from './dnd5e/renderer/SpellSheetModal';
 
 export interface SystemJournalEntryRendererProps {
   campaignId: string;
@@ -25,7 +29,8 @@ export interface SystemJournalEntryRendererProps {
 }
 
 export function hasSystemJournalEntryRenderer(typeId: string): boolean {
-  return typeId === DND5E_CHARACTER_ENTRY_TYPE_ID;
+  return typeId === DND5E_CHARACTER_ENTRY_TYPE_ID ||
+    typeId === DND5E_SPELL_ENTRY_TYPE_ID;
 }
 
 export function hasDetachedSystemJournalEntryRenderer(typeId: string): boolean {
@@ -41,8 +46,11 @@ export function measureDetachedSystemJournalEntry(
 }
 
 export function SystemJournalEntryModal(props: SystemJournalEntryRendererProps) {
-  return props.entry.typeId === DND5E_CHARACTER_ENTRY_TYPE_ID
-    ? createElement(CharacterSheetModal, props)
+  if (props.entry.typeId === DND5E_CHARACTER_ENTRY_TYPE_ID) {
+    return createElement(CharacterSheetModal, props);
+  }
+  return props.entry.typeId === DND5E_SPELL_ENTRY_TYPE_ID
+    ? createElement(SpellSheetModal, props)
     : null;
 }
 

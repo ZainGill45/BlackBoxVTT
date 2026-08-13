@@ -9,6 +9,7 @@ import {
   parseCampaignSystemState,
 } from '../../../systems/catalog';
 import { createDefaultDnd5eCharacterData } from '../../../systems/dnd5e/characterData';
+import { createDefaultDnd5eSpellData } from '../../../systems/dnd5e/spellData';
 
 describe('bundled game-system catalog', () => {
   it('has one canonical inventory with unique identifiers', () => {
@@ -51,7 +52,7 @@ describe('bundled game-system catalog', () => {
     ).toBeNull();
   });
 
-  it('combines the universal Note with D&D-owned Character metadata', () => {
+  it('combines the universal Note with D&D-owned Character and Spell metadata', () => {
     const system = createDefaultCampaignSystemState()!;
     const characterData = createDefaultDnd5eCharacterData();
     expect(Object.values(characterData.abilities)).toEqual(Array.from(
@@ -67,14 +68,22 @@ describe('bundled game-system catalog', () => {
       proficiencyBonusOffset: 0,
     });
     const types = listJournalEntryTypeDefinitions(system);
-    expect(types.map(({ id }) => id)).toEqual(['core.note', 'dnd5e.character']);
+    expect(types.map(({ id }) => id)).toEqual([
+      'core.note',
+      'dnd5e.character',
+      'dnd5e.spell',
+    ]);
     expect(new Set(types.map(({ id }) => id)).size).toBe(types.length);
     expect(types).toEqual(expect.arrayContaining([
       expect.objectContaining({ groupLabel: 'Notes', id: 'core.note' }),
-      expect.objectContaining({ defaultName: 'New Character', groupLabel: 'Characters', id: 'dnd5e.character' }),
+      expect.objectContaining({ defaultAccess: 'none', defaultName: 'New Character', groupLabel: 'Characters', groupOrder: 0, id: 'dnd5e.character' }),
+      expect.objectContaining({ defaultAccess: 'view', defaultName: 'New Spell', groupLabel: 'Spells', groupOrder: 1, id: 'dnd5e.spell' }),
     ]));
     expect(createDefaultJournalEntryData(system, 'dnd5e.character')).toEqual({
       data: characterData,
+    });
+    expect(createDefaultJournalEntryData(system, 'dnd5e.spell')).toEqual({
+      data: createDefaultDnd5eSpellData(),
     });
     expect(parseJournalEntryData(
       system,

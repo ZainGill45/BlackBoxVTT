@@ -12,6 +12,7 @@ import type {
 import type { JournalWindowApi } from '../../../../shared/journalWindows';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
 } from '../../../../systems/dnd5e/definition';
 import { CharacterSheetDetached } from '../../../../systems/dnd5e/renderer/CharacterSheetModal';
 import { createDefaultCampaignSystemState } from '../../../../systems/catalog';
@@ -21,6 +22,7 @@ import {
   DND5E_CHARACTER_LEVELS,
   type Dnd5eCharacterData,
 } from '../../../../systems/dnd5e/characterData';
+import { createDefaultDnd5eSpellData } from '../../../../systems/dnd5e/spellData';
 import {
   JOURNAL_ENTRY_TYPE_NOTE,
   defaultJournalTitleStyle,
@@ -62,6 +64,7 @@ const character = {
   data: createDefaultDnd5eCharacterData(),
   groupId: 'dnd5e.characters',
   id: '77777777-7777-4777-8777-777777777777',
+  detail: null,
   kind: 'system' as const,
   name: 'New Character',
   permissionRevision: 0,
@@ -69,6 +72,21 @@ const character = {
   position: 0,
   revision: 0,
   typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+};
+
+const spell = {
+  capabilities: { delete: true, edit: true, managePages: false, managePermissions: true, reorder: true, view: true },
+  data: createDefaultDnd5eSpellData(),
+  detail: 'Cantrip Abjuration',
+  groupId: 'dnd5e.spells',
+  id: '88888888-8888-4888-8888-888888888888',
+  kind: 'system' as const,
+  name: 'New Spell',
+  permissionRevision: 0,
+  permissions: { allPlayers: 'view' as const, overrides: [] },
+  position: 0,
+  revision: 0,
+  typeId: DND5E_SPELL_ENTRY_TYPE_ID,
 };
 
 async function expandNotes(user: ReturnType<typeof userEvent.setup>) {
@@ -154,6 +172,7 @@ describe('JournalPanel', () => {
       name: 'Choose journal entry type',
     });
     expect(within(actorMenu).getByRole('menuitem', { name: 'Note' })).toBeVisible();
+    expect(within(actorMenu).getByRole('menuitem', { name: 'Spell' })).toBeVisible();
     await user.click(
       within(actorMenu).getByRole('menuitem', { name: 'Character' }),
     );
@@ -908,6 +927,29 @@ describe('JournalPanel', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Confirm deletion of Recall' }));
     await waitFor(() => expect(server.data.customSkills.map(({ name }) => name))
       .toEqual(['Second']));
+  });
+
+  it('shows system-generated Spell detail and opens the Spell modal', async () => {
+    const user = userEvent.setup();
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: spell }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [spell], revision: 0 },
+          }),
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Spells' }));
+    expect(screen.getByText('Cantrip Abjuration')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Open New Spell' }));
+    expect(screen.getByRole('dialog', { name: 'New Spell spell sheet' })).toBeVisible();
   });
 
   it('adds, edits, reorders, and deletes signed Character Resources', async () => {

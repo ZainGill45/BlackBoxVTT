@@ -283,13 +283,14 @@ export class JournalRepository {
             `INSERT INTO journal_entries (
                id, type_id, position, name, name_style_json, default_access, revision,
                permission_revision, created_at, created_by, updated_at, updated_by, data_json
-             ) VALUES (?, ?, ?, ?, ?, 'none', 0, 0, ?, 'gm', ?, 'gm', ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, 'gm', ?, 'gm', ?)`,
           ).run(
             entryId,
             typeId,
             entries.length,
             definition.defaultName,
             titleStyleJson,
+            definition.defaultAccess,
             timestamp,
             timestamp,
             JSON.stringify(defaultData.data),
@@ -1088,7 +1089,7 @@ export class JournalRepository {
   private projectEntry(actor: JournalActor, entry: EntryRow): JournalEntrySummary | null {
     const definition = getJournalEntryTypeDefinition(this.system, entry.type_id);
     if (!definition) throw new Error(`Unsupported Journal entry type ${entry.type_id}.`);
-    this.entryData(entry);
+    const data = this.entryData(entry);
     const access = this.entryAccess(actor, entry);
     const isGm = actor.kind === 'gm';
     const base = {
@@ -1121,7 +1122,11 @@ export class JournalRepository {
       };
     }
     if (!accessAllowsView(access)) return null;
-    return { ...base, kind: 'system' };
+    return {
+      ...base,
+      detail: definition.describeData?.(data as never) ?? null,
+      kind: 'system',
+    };
   }
 
   private projectPage(

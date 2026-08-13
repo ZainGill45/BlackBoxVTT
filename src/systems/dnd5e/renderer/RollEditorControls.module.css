@@ -1,0 +1,28 @@
+.editorField {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: var(--space-1);
+}
+
+.editorLabel {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.editorField > details > summary {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  font-size: var(--font-size-md);
+}
+
+.editorField > details > summary,
+.editorField > details button {
+  text-transform: capitalize;
+}

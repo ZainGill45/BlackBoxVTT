@@ -313,6 +313,7 @@ const journalNoteSchema = z.object({
 }).strict();
 const journalSystemEntrySummarySchema = z.object({
   capabilities: journalEntryCapabilitiesSchema,
+  detail: z.string().max(256).nullable(),
   groupId: z.string().min(1).max(128),
   id: z.string().uuid(),
   kind: z.literal('system'),

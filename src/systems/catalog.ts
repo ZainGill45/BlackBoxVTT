@@ -17,6 +17,7 @@ export const CORE_NOTE_GROUP_ID = 'core.notes' as const;
 const CORE_JOURNAL_ENTRY_TYPES: readonly JournalEntryTypeDefinition[] = [
   {
     createDefaultData: () => ({}),
+    defaultAccess: 'none',
     defaultName: 'New Note',
     groupId: CORE_NOTE_GROUP_ID,
     groupLabel: 'Notes',

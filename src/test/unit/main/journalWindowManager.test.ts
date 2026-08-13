@@ -115,6 +115,7 @@ const character = {
   data: {},
   groupId: 'dnd5e.characters',
   id: entryId,
+  detail: null,
   kind: 'system' as const,
   name: 'Aria',
   permissionRevision: 0,

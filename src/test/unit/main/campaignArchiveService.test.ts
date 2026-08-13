@@ -24,7 +24,14 @@ import {
   createDefaultDnd5eCharacterSpellcasting,
   type Dnd5eCharacterData,
 } from '../../../systems/dnd5e/characterData';
-import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+} from '../../../systems/dnd5e/definition';
+import {
+  createDefaultDnd5eSpellData,
+  createDefaultDnd5eSpellRollStep,
+} from '../../../systems/dnd5e/spellData';
 
 const sourceId = '11111111-1111-4111-8111-111111111111';
 const importedId = '22222222-2222-4222-8222-222222222222';
@@ -93,9 +100,13 @@ async function fixture() {
     throw new Error('Asset fixture could not be created.');
   }
   const asset = importedAsset.value[0];
+  const journalIds = [
+    '44444444-4444-4444-8444-444444444444',
+    '66666666-6666-4666-8666-666666666666',
+  ];
   const journal = new JournalRepository({
     assets,
-    createId: () => '44444444-4444-4444-8444-444444444444',
+    createId: () => journalIds.shift()!,
     database,
     now: () => new Date('2026-08-01T12:00:00.000Z'),
     scenes: {
@@ -125,6 +136,41 @@ async function fixture() {
     expectedRevision: createdCharacter.value.revision,
   });
   if (!updatedCharacter.ok) throw new Error('Character fixture could not be updated.');
+  const createdSpell = await journal.createEntry(
+    { kind: 'gm' },
+    DND5E_SPELL_ENTRY_TYPE_ID,
+  );
+  if (!createdSpell.ok || createdSpell.value.kind !== 'system') {
+    throw new Error('Spell fixture could not be created.');
+  }
+  const spellData = createDefaultDnd5eSpellData();
+  spellData.classes = ['Sorcerer', 'Wizard'];
+  spellData.description = 'A representative authored archive Spell.';
+  spellData.level = 3;
+  spellData.school = 'Evocation';
+  const damage = createDefaultDnd5eSpellRollStep(
+    'damage',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
+  );
+  if (damage.purpose !== 'damage') throw new Error('Damage fixture is invalid.');
+  damage.damageType = 'fire';
+  damage.terms = [{
+    count: 8,
+    kind: 'dice',
+    scaling: 'cast-level',
+    sides: 6,
+    tiers: [
+      { count: 8, minimum: 3 },
+      { count: 9, minimum: 4 },
+    ],
+  }];
+  spellData.rollSteps = [damage];
+  const updatedSpell = await journal.updateEntryData({ kind: 'gm' }, {
+    data: spellData,
+    entryId: createdSpell.value.id,
+    expectedRevision: createdSpell.value.revision,
+  });
+  if (!updatedSpell.ok) throw new Error('Spell fixture could not be updated.');
   database.close();
   const networkDirectory = path.join(campaignDirectory, 'content', 'network');
   await mkdir(networkDirectory, { recursive: true });
@@ -200,7 +246,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 11 });
+    ))).toMatchObject({ formatVersion: 12 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -253,6 +299,17 @@ describe('CampaignArchiveService', () => {
         sourceType: 'Test',
         type: 'feature',
       }],
+    });
+    const spellRow = importedDatabase.connection.prepare(
+      `SELECT data_json, default_access FROM journal_entries
+       WHERE type_id = 'dnd5e.spell' AND name = 'New Spell'`,
+    ).get() as { data_json: string; default_access: string } | undefined;
+    expect(spellRow?.default_access).toBe('view');
+    expect(JSON.parse(spellRow!.data_json)).toMatchObject({
+      classes: ['Sorcerer', 'Wizard'],
+      level: 3,
+      rollSteps: [{ damageType: 'fire', purpose: 'damage' }],
+      school: 'Evocation',
     });
     importedDatabase.close();
     await expect(
@@ -315,7 +372,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 12;
+    manifest.formatVersion = 13;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -555,7 +612,7 @@ describe('CampaignArchiveService', () => {
     importedDatabase.close();
   });
 
-  it('directly converts the untouched format-4 Character fixture into format 11', async () => {
+  it('directly converts the untouched format-4 Character fixture into format 12', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-4.blackbox-campaign',
@@ -597,7 +654,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-5 Character fixture into format 11', async () => {
+  it('directly converts the untouched format-5 Character fixture into format 12', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-5.blackbox-campaign',
@@ -646,7 +703,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-6 Character fixture into format 11', async () => {
+  it('directly converts the untouched format-6 Character fixture into format 12', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-6.blackbox-campaign',
@@ -682,7 +739,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-7 Character fixture into format 11', async () => {
+  it('directly converts the untouched format-7 Character fixture into format 12', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-7.blackbox-campaign',
@@ -818,6 +875,36 @@ describe('CampaignArchiveService', () => {
       expect(imported.identity).toMatchObject({ className: 'Wizard' });
       expect(imported.spellcasting)
         .toEqual(createDefaultDnd5eCharacterSpellcasting('Wizard'));
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly imports the untouched format-11 fixture without invented adjustments', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-character-format-11.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-11-fixture',
+          warnings: [
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      expect(importedDatabase.connection.prepare(
+        `SELECT name, default_access FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get()).toEqual({ default_access: 'none', name: 'New Character' });
     } finally {
       importedDatabase.close();
     }

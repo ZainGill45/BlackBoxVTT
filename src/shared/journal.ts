@@ -170,6 +170,7 @@ export interface NoteEntry extends JournalEntryBaseSummary {
 }
 
 export interface SystemJournalEntrySummary extends JournalEntryBaseSummary {
+  detail: string | null;
   kind: 'system';
 }
 

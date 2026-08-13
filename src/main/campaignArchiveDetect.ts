@@ -6,7 +6,11 @@ import {
   createDefaultDnd5eCharacterInventory,
   isDnd5eCharacterData,
 } from '../systems/dnd5e/characterData';
-import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+} from '../systems/dnd5e/ids';
+import { isDnd5eSpellData } from '../systems/dnd5e/spellData';
 import { addEmptyDnd5eCharacterActionsToValue } from './campaignArchiveCharacterActions';
 import { addEmptyDnd5eCustomSkillsToValue } from './campaignArchiveCharacterCustomSkills';
 import { addDefaultDnd5eSpellcastingToValue } from './campaignArchiveCharacterSpellcasting';
@@ -26,7 +30,8 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
  * Game Master than being turned away.
  */
 
-export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type HistoricalCampaignFormatVersion =
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
 export type CampaignSalvageConversion =
   | 1
@@ -39,6 +44,7 @@ export type CampaignSalvageConversion =
   | 8
   | 9
   | 10
+  | 11
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -74,8 +80,8 @@ const INTERMEDIATE_PERMISSION_SCHEMA_FINGERPRINT =
 const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
   'f1e073d9f3f5aadf2a640ff56f1cef247d9c13d31601c6c4200e76162b45637f';
 
-/** Canonical schema shared by formats 7 through 10 and the current format 11. */
-const FORMAT_7_TO_11_SCHEMA_FINGERPRINT =
+/** Canonical schema shared by formats 7 through 11 and the current format 12. */
+const FORMAT_7_TO_12_SCHEMA_FINGERPRINT =
   '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
 
 function schemaFingerprint(connection: DatabaseSync): string {
@@ -211,7 +217,7 @@ function detectCharacterEra(
   }
 }
 
-function detectFormat4To10CharacterEra(
+function detectFormat4To11CharacterEra(
   connection: DatabaseSync,
   schemaCouldBeCurrent = false,
 ): CampaignFormatDetection {
@@ -229,10 +235,10 @@ function detectFormat4To10CharacterEra(
       reason: schemaCouldBeCurrent
         ? 'This campaign’s structure is already current, so an outdated ' +
           'format is not what makes it unreadable.'
-        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, or 10.',
+        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, or 11.',
     };
   }
-  const shapes = new Set<'4' | '5' | '6' | '7' | '8' | '9' | '10' | 'current'>();
+  const shapes = new Set<'4' | '5' | '6' | '7' | '8' | '9' | '10' | '11'>();
   for (const row of rows) {
     let parsed: unknown;
     try {
@@ -244,7 +250,7 @@ function detectFormat4To10CharacterEra(
       };
     }
     if (schemaCouldBeCurrent && isDnd5eCharacterData(parsed as JsonValue)) {
-      shapes.add('current');
+      shapes.add('11');
       continue;
     }
     const format4 = !!parsed &&
@@ -293,7 +299,7 @@ function detectFormat4To10CharacterEra(
     return {
       ok: false,
       reason:
-        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, or 10.',
+        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, or 11.',
     };
   }
   if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
@@ -303,16 +309,48 @@ function detectFormat4To10CharacterEra(
   if (shapes.has('8') && shapes.size === 1) return { ok: true, version: 8 };
   if (shapes.has('9') && shapes.size === 1) return { ok: true, version: 9 };
   if (shapes.has('10') && shapes.size === 1) return { ok: true, version: 10 };
-  if (shapes.has('current') && shapes.size === 1) {
-    return {
-      ok: false,
-      reason: 'This campaign’s structure is already current, so an outdated ' +
-        'format is not what makes it unreadable.',
-    };
+  if (shapes.has('11') && shapes.size === 1) {
+    return detectFormat11OrCurrentSpellEra(connection);
   }
   return {
     ok: false,
-    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, and 10.',
+    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, and 11.',
+  };
+}
+
+function detectFormat11OrCurrentSpellEra(
+  connection: DatabaseSync,
+): CampaignFormatDetection {
+  const rows = connection.prepare(
+    `SELECT name, data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_SPELL_ENTRY_TYPE_ID) as unknown as Array<{
+    data_json: string;
+    name: string;
+  }>;
+  if (rows.length === 0) return { ok: true, version: 11 };
+  for (const row of rows) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data_json);
+    } catch {
+      return {
+        ok: false,
+        reason: `This campaign’s spell “${row.name}” cannot be read.`,
+      };
+    }
+    if (!isDnd5eSpellData(parsed as JsonValue)) {
+      return {
+        ok: false,
+        reason: `This campaign’s spell “${row.name}” matches no release that Salvage can convert.`,
+      };
+    }
+  }
+  return {
+    ok: false,
+    reason: 'This campaign’s structure is already current, so an outdated ' +
+      'format is not what makes it unreadable.',
   };
 }
 
@@ -332,10 +370,10 @@ export function detectCampaignFormatVersion(
     };
   }
   if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
-    return detectFormat4To10CharacterEra(connection);
+    return detectFormat4To11CharacterEra(connection);
   }
-  if (fingerprint === FORMAT_7_TO_11_SCHEMA_FINGERPRINT) {
-    return detectFormat4To10CharacterEra(connection, true);
+  if (fingerprint === FORMAT_7_TO_12_SCHEMA_FINGERPRINT) {
+    return detectFormat4To11CharacterEra(connection, true);
   }
   const schema = readTableColumns(connection);
   return {

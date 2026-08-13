@@ -90,6 +90,7 @@ function characterEntry(): SystemJournalEntry {
     data,
     groupId: 'dnd5e.characters',
     id: '77777777-7777-4777-8777-777777777777',
+    detail: null,
     kind: 'system',
     name: 'Aria Stone',
     permissionRevision: 0,

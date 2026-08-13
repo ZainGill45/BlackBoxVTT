@@ -5,7 +5,6 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type ReactNode,
 } from 'react';
 import { Pencil } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
@@ -51,6 +50,10 @@ import {
   type Dnd5eDerivedCharacterValues,
 } from '../characterData';
 import { CharacterSheetAddEntryButton } from './CharacterSheetAddEntryButton';
+import {
+  RollEditorField as EditorField,
+  RollNumericField as NumericField,
+} from './RollEditorControls';
 import styles from './CharacterActionPanel.module.css';
 
 interface CharacterActionPanelProps {
@@ -94,62 +97,6 @@ function move<T>(values: readonly T[], index: number, direction: 'down' | 'up') 
   if (target < 0 || target >= next.length) return next;
   [next[index], next[target]] = [next[target], next[index]];
   return next;
-}
-
-function EditorField({
-  children,
-  className,
-  label,
-}: {
-  children: ReactNode;
-  className?: string;
-  label: string;
-}) {
-  return (
-    <div className={[styles.editorField, className].filter(Boolean).join(' ')}>
-      <span className={styles.editorLabel}>{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function NumericField({
-  accessibleLabel,
-  minimum,
-  onCommit,
-  value,
-}: {
-  accessibleLabel: string;
-  minimum?: number;
-  onCommit: (value: number) => void;
-  value: number;
-}) {
-  return (
-    <TextInput
-      aria-label={accessibleLabel}
-      defaultValue={String(value)}
-      inputMode="numeric"
-      key={value}
-      maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
-      onBlur={(event) => {
-        const draft = event.currentTarget.value;
-        const parsed = /^[+-]?\d+$/u.test(draft.trim())
-          ? Number(draft.trim())
-          : Number.NaN;
-        if (
-          Number.isSafeInteger(parsed) &&
-          (minimum === undefined || parsed >= minimum)
-        ) {
-          onCommit(parsed);
-        } else {
-          event.currentTarget.value = String(value);
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') event.currentTarget.blur();
-      }}
-    />
-  );
 }
 
 function TermEditor({

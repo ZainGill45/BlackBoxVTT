@@ -8,10 +8,14 @@ import type { SceneRepository } from '../../../main/sceneRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
 import { emptyRichTextDocument } from '../../../shared/journal';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
-import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+} from '../../../systems/dnd5e/definition';
 import {
   createDefaultDnd5eCharacterData,
 } from '../../../systems/dnd5e/characterData';
+import { createDefaultDnd5eSpellData } from '../../../systems/dnd5e/spellData';
 
 const campaignId = '99999999-9999-4999-8999-999999999999';
 const playerId = '88888888-8888-4888-8888-888888888888';
@@ -94,6 +98,7 @@ describe('JournalRepository', () => {
       value: {
         data: createDefaultDnd5eCharacterData(),
         groupId: 'dnd5e.characters',
+        detail: null,
         kind: 'system',
         name: 'New Character',
         permissions: { allPlayers: 'none', overrides: [] },
@@ -154,6 +159,55 @@ describe('JournalRepository', () => {
         name: 'Aria Stone',
         typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
       },
+    });
+  });
+
+  it('creates D&D Spells with immediate default player visibility and system detail', async () => {
+    const journal = repository();
+    const created = await journal.createEntry(
+      { kind: 'gm' },
+      DND5E_SPELL_ENTRY_TYPE_ID,
+    );
+    expect(created).toMatchObject({
+      ok: true,
+      value: {
+        data: createDefaultDnd5eSpellData(),
+        detail: 'Cantrip Abjuration',
+        groupId: 'dnd5e.spells',
+        name: 'New Spell',
+        permissions: { allPlayers: 'view', overrides: [] },
+      },
+    });
+    if (!created.ok || created.value.kind !== 'system') throw new Error('setup failed');
+    await expect(journal.list(player)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        entries: [{
+          capabilities: { edit: false, view: true },
+          detail: 'Cantrip Abjuration',
+          name: 'New Spell',
+        }],
+      },
+    });
+    const data = createDefaultDnd5eSpellData();
+    data.level = 3;
+    data.school = 'Evocation';
+    const updated = await journal.updateEntryData({ kind: 'gm' }, {
+      data,
+      entryId: created.value.id,
+      expectedRevision: created.value.revision,
+    });
+    expect(updated).toMatchObject({
+      ok: true,
+      value: { detail: '3rd Level Evocation' },
+    });
+    await expect(journal.updateEntryData(player, {
+      data,
+      entryId: created.value.id,
+      expectedRevision: created.value.revision,
+    })).resolves.toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
     });
   });
 

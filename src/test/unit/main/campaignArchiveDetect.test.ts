@@ -47,7 +47,7 @@ afterEach(async () => {
 });
 
 describe('detectCampaignFormatVersion', () => {
-  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])(
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])(
     'recognizes the frozen format-%i fixture from its data alone',
     async (version) => {
       const connection = await openFixture(version);
@@ -165,7 +165,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(mixed)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'characters mix archive formats 4, 5, 6, 7, 8, 9, and 10',
+          'characters mix archive formats 4, 5, 6, 7, 8, 9, 10, and 11',
         ),
       });
     } finally {
@@ -188,7 +188,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, or 10',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, or 11',
         ),
       });
     } finally {
@@ -209,7 +209,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, or 10',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, or 11',
         ),
       });
     } finally {
