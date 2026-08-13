@@ -69,15 +69,18 @@ import {
   applyDnd5eCharacterResourceMutations,
   calculateDnd5eOffsetForTotal,
   createDefaultDnd5eCharacterData,
+  defaultDnd5eSpellcastingAbilityForClass,
   DND5E_5_5E_CLASSES,
   DND5E_ABILITIES,
   DND5E_CHARACTER_LEVELS,
   DND5E_SKILLS,
+  DND5E_SPELL_SLOT_LEVELS,
   deriveDnd5eCharacterValues,
   formatDnd5eSignedValue,
   isDnd5eCharacterData,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
   parseDnd5eSafeInteger,
+  parseDnd5eNonnegativeSafeInteger,
   type Dnd5eAbilityId,
   type Dnd5eCharacterActionMutation,
   type Dnd5eCharacterCustomSkillMutation,
@@ -86,6 +89,7 @@ import {
   type Dnd5eCharacterInventoryMutation,
   type Dnd5eCharacterResourceMutation,
   type Dnd5eRulesVersion,
+  type Dnd5eSpellSlotLevel,
 } from '../characterData';
 import { createDnd5eFeatureChatContent } from '../characterFeatureChat';
 import { createDnd5eInventoryEntryChatContent } from '../characterInventoryChat';
@@ -157,6 +161,18 @@ const ABILITY_LABELS: Record<Dnd5eAbilityId, string> = {
   intelligence: 'Intelligence',
   strength: 'Strength',
   wisdom: 'Wisdom',
+};
+
+const SPELL_SLOT_LEVEL_LABELS: Record<Dnd5eSpellSlotLevel, string> = {
+  '1': '1st Level',
+  '2': '2nd Level',
+  '3': '3rd Level',
+  '4': '4th Level',
+  '5': '5th Level',
+  '6': '6th Level',
+  '7': '7th Level',
+  '8': '8th Level',
+  '9': '9th Level',
 };
 
 const CLASS_ICONS = {
@@ -621,6 +637,9 @@ function CharacterSheetEditor({
     () => requireDnd5eDerivedValues(draft, rulesVersion),
     [draft, rulesVersion],
   );
+  const availableSpellSlotLevels = DND5E_SPELL_SLOT_LEVELS.filter((slotLevel) => (
+    derived.spellcasting.slots[slotLevel].baseTotal > 0
+  ));
   const hitDieCanRoll = createDnd5eHitDieRollDefinition(draft.health.hitDie) !== null;
   const validData = isCharacterEntry(current);
   const canEdit = validData && current.capabilities.edit;
@@ -1040,15 +1059,23 @@ function CharacterSheetEditor({
     }
   }, [applyServerEntry, campaignId, journalApi]);
 
-  const changeField = (path: string, value: CharacterFieldValue) => {
-    const next = writeField(draftRef.current, path, value);
+  const changeFields = (
+    fields: ReadonlyMap<string, CharacterFieldValue>,
+  ) => {
+    const next = mergeFields(draftRef.current, fields);
     draftRef.current = next;
     setDraft(next);
-    const saved = isCharacterEntry(currentRef.current)
-      ? readField(currentRef.current.data, path)
-      : null;
-    if (Object.is(value, saved)) dirtyFieldsRef.current.delete(path);
-    else dirtyFieldsRef.current.set(path, value);
+    for (const [path, value] of fields) {
+      const saved = isCharacterEntry(currentRef.current)
+        ? readField(currentRef.current.data, path)
+        : null;
+      if (Object.is(value, saved)) dirtyFieldsRef.current.delete(path);
+      else dirtyFieldsRef.current.set(path, value);
+    }
+  };
+
+  const changeField = (path: string, value: CharacterFieldValue) => {
+    changeFields(new Map([[path, value]]));
   };
 
   const changeResource = (mutation: Dnd5eCharacterResourceMutation): boolean => {
@@ -1209,13 +1236,18 @@ function CharacterSheetEditor({
     path: string,
     currentTotal: number,
     currentOffset: number,
+    nonnegative = false,
   ) => {
     const input = numericBuffers[path];
     if (input === undefined) {
       void save();
       return;
     }
-    const desiredTotal = input.trim() === '' ? null : parseDnd5eSafeInteger(input);
+    const desiredTotal = input.trim() === ''
+      ? null
+      : nonnegative
+        ? parseDnd5eNonnegativeSafeInteger(input)
+        : parseDnd5eSafeInteger(input);
     clearNumericBuffer(path);
     if (input.trim() !== '' && desiredTotal === null) return;
     const nextOffset = desiredTotal === null
@@ -1225,6 +1257,35 @@ function CharacterSheetEditor({
     const candidate = writeField(draftRef.current, path, nextOffset);
     if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
     changeField(path, nextOffset);
+    void save();
+  };
+
+  const commitNonnegativeValue = (path: string) => {
+    const input = numericBuffers[path];
+    if (input === undefined) {
+      void save();
+      return;
+    }
+    const nextValue = input.trim() === ''
+      ? 0
+      : parseDnd5eNonnegativeSafeInteger(input);
+    clearNumericBuffer(path);
+    if (nextValue === null) return;
+    const candidate = writeField(draftRef.current, path, nextValue);
+    if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
+    changeField(path, nextValue);
+    void save();
+  };
+
+  const setSpellSlotCurrent = (
+    slotLevel: Dnd5eSpellSlotLevel,
+    current: number,
+  ) => {
+    const path = `spellcasting.slots.${slotLevel}.current`;
+    const candidate = writeField(draftRef.current, path, current);
+    if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
+    clearNumericBuffer(path);
+    changeField(path, current);
     void save();
   };
 
@@ -1518,6 +1579,20 @@ function CharacterSheetEditor({
     />
   );
 
+  const selectClass = (className: string) => {
+    const fields = new Map<string, CharacterFieldValue>([
+      ['identity.className', className],
+      [
+        'spellcasting.ability',
+        defaultDnd5eSpellcastingAbilityForClass(className),
+      ],
+    ]);
+    const candidate = mergeFields(draftRef.current, fields);
+    if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
+    changeFields(fields);
+    void save();
+  };
+
   const dropdownField = (
     path: string,
     label: string,
@@ -1525,6 +1600,7 @@ function CharacterSheetEditor({
     options: readonly string[],
     icons?: Readonly<Partial<Record<string, LucideIcon>>>,
     numeric = false,
+    onSelectValue?: (value: string | number) => void,
   ) => {
     const rawValue = readField(draft, path);
     const value = rawValue === null ? '' : String(rawValue);
@@ -1552,6 +1628,10 @@ function CharacterSheetEditor({
               label={option}
               onSelect={() => {
                 const nextValue = numeric ? Number(option) : option;
+                if (onSelectValue) {
+                  onSelectValue(nextValue);
+                  return;
+                }
                 const candidate = writeField(draftRef.current, path, nextValue);
                 if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
                 changeField(path, nextValue);
@@ -1583,6 +1663,117 @@ function CharacterSheetEditor({
         value={value}
         onBlur={() => void save()}
         onChange={(event) => changeField(path, event.currentTarget.value)}
+      />
+    );
+  };
+
+  const selectSpellcastingAbility = (ability: Dnd5eAbilityId | null) => {
+    const path = 'spellcasting.ability';
+    const candidate = writeField(draftRef.current, path, ability);
+    if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
+    clearNumericBuffer('spellcasting.attackBonusOffset');
+    clearNumericBuffer('spellcasting.saveDcOffset');
+    changeField(path, ability);
+    void save();
+  };
+
+  const spellcastingAbilityDropdown = () => {
+    const selected = draft.spellcasting.ability;
+    return (
+      <Dropdown
+        accessibleLabel="Spellcasting Ability"
+        className={[styles.dropdownField, styles.spellSummaryDropdown].join(' ')}
+        disabled={!canEdit}
+        label={selected === null ? 'None' : ABILITY_LABELS[selected]}
+        panelLabel="Spellcasting Ability options"
+        showIndicator={false}
+        title="The ability used to derive spell attacks and spell save DC."
+      >
+        <DropdownOption
+          active={selected === null}
+          label="None"
+          onSelect={() => selectSpellcastingAbility(null)}
+        />
+        {DND5E_ABILITIES.map((ability) => (
+          <DropdownOption
+            active={selected === ability}
+            key={ability}
+            label={ABILITY_LABELS[ability]}
+            onSelect={() => selectSpellcastingAbility(ability)}
+          />
+        ))}
+      </Dropdown>
+    );
+  };
+
+  const spellSummaryCalculatedInput = (
+    path: string,
+    accessibleLabel: string,
+    total: number | null,
+    currentOffset: number,
+    signed: boolean,
+    nonnegative = false,
+    unclampedTotal = total,
+    className = styles.spellSummaryInput,
+  ) => {
+    const fallback = total === null
+      ? ''
+      : signed
+        ? formatDnd5eSignedValue(total)
+        : String(total);
+    const displayed = numericValue(path, fallback);
+    return (
+      <InlineInput
+        aria-label={accessibleLabel}
+        autoComplete="off"
+        className={className}
+        inputMode="numeric"
+        maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+        placeholder={total === null ? '—' : undefined}
+        readOnly={!canEdit || total === null}
+        size={Math.max(1, displayed.length)}
+        value={displayed}
+        onBlur={() => {
+          if (unclampedTotal === null) {
+            clearNumericBuffer(path);
+            return;
+          }
+          commitCalculatedTotal(
+            path,
+            unclampedTotal,
+            currentOffset,
+            nonnegative,
+          );
+        }}
+        onChange={(event) => changeNumericBuffer(path, event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+        }}
+      />
+    );
+  };
+
+  const spellSlotCurrentInput = (slotLevel: Dnd5eSpellSlotLevel) => {
+    const path = `spellcasting.slots.${slotLevel}.current`;
+    const displayed = numericValue(
+      path,
+      String(draft.spellcasting.slots[slotLevel].current),
+    );
+    return (
+      <InlineInput
+        aria-label={`${SPELL_SLOT_LEVEL_LABELS[slotLevel]} Spell Slots Current`}
+        autoComplete="off"
+        className={styles.spellSlotInput}
+        inputMode="numeric"
+        maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+        readOnly={!canEdit}
+        size={Math.max(1, displayed.length)}
+        value={displayed}
+        onBlur={() => commitNonnegativeValue(path)}
+        onChange={(event) => changeNumericBuffer(path, event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+        }}
       />
     );
   };
@@ -1677,6 +1868,8 @@ function CharacterSheetEditor({
                       "The character's primary adventuring class.",
                       DND5E_5_5E_CLASSES,
                       CLASS_ICONS,
+                      false,
+                      (value) => selectClass(String(value)),
                     )}
                     {field(
                       'identity.subclass',
@@ -2221,11 +2414,202 @@ function CharacterSheetEditor({
                 </div>
               ) : (
                 <div
-                  id={`character-${entry.id}-${activeTab}`}
-                  aria-labelledby={`character-${entry.id}-${activeTab}-tab`}
-                  className={styles.blankPanel}
+                  id={`character-${entry.id}-spells`}
+                  aria-labelledby={`character-${entry.id}-spells-tab`}
+                  className={styles.spellsPanel}
                   role="tabpanel"
-                />
+                >
+                  <section
+                    aria-label="Spellcasting summary"
+                    className={styles.spellSummary}
+                  >
+                    <section
+                      className={`${styles.collectionPanel} ${styles.spellSummaryPanel}`}
+                    >
+                      <h2>Spellcasting Ability</h2>
+                      <div className={styles.spellSummaryValue}>
+                        {spellcastingAbilityDropdown()}
+                      </div>
+                    </section>
+                    <section
+                      className={`${styles.collectionPanel} ${styles.spellSummaryPanel}`}
+                    >
+                      <h2>Spell Save DC</h2>
+                      <div className={styles.spellSummaryValue}>
+                        {spellSummaryCalculatedInput(
+                          'spellcasting.saveDcOffset',
+                          'Spell Save DC',
+                          derived.spellcasting.saveDc,
+                          draft.spellcasting.saveDcOffset,
+                          false,
+                        )}
+                      </div>
+                    </section>
+                    <section
+                      className={`${styles.collectionPanel} ${styles.spellSummaryPanel}`}
+                    >
+                      <h2>Spell Attack Bonus</h2>
+                      <div className={styles.spellSummaryValue}>
+                        {spellSummaryCalculatedInput(
+                          'spellcasting.attackBonusOffset',
+                          'Spell Attack Bonus',
+                          derived.spellcasting.attackBonus,
+                          draft.spellcasting.attackBonusOffset,
+                          true,
+                        )}
+                      </div>
+                    </section>
+                    <section
+                      className={`${styles.collectionPanel} ${styles.spellSummaryPanel}`}
+                    >
+                      <h2>Concentration Save</h2>
+                      <div className={styles.spellSummaryValue}>
+                        {spellSummaryCalculatedInput(
+                          'importantStats.concentrationSaveOffset',
+                          'Spellcasting Concentration Save',
+                          derived.concentrationSave,
+                          draft.importantStats.concentrationSaveOffset,
+                          true,
+                        )}
+                      </div>
+                    </section>
+                    <section
+                      className={`${styles.collectionPanel} ${styles.spellSummaryPanel}`}
+                    >
+                      <h2>Prepared Spells</h2>
+                      <div className={`${styles.spellSummaryValue} ${styles.preparedSpellValues}`}>
+                        <InlineInput
+                          aria-label="Current Prepared Spells"
+                          autoComplete="off"
+                          className={styles.spellSummaryInput}
+                          inputMode="numeric"
+                          maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                          readOnly={!canEdit}
+                          size={Math.max(1, numericValue(
+                            'spellcasting.preparedCurrent',
+                            String(draft.spellcasting.preparedCurrent),
+                          ).length)}
+                          value={numericValue(
+                            'spellcasting.preparedCurrent',
+                            String(draft.spellcasting.preparedCurrent),
+                          )}
+                          onBlur={() => commitNonnegativeValue(
+                            'spellcasting.preparedCurrent',
+                          )}
+                          onChange={(event) => changeNumericBuffer(
+                            'spellcasting.preparedCurrent',
+                            event.currentTarget.value,
+                          )}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur();
+                          }}
+                        />
+                        <span aria-hidden>/</span>
+                        {spellSummaryCalculatedInput(
+                          'spellcasting.preparedMaximumOffset',
+                          'Total Prepared Spells',
+                          derived.spellcasting.preparedMaximum,
+                          draft.spellcasting.preparedMaximumOffset,
+                          false,
+                          true,
+                          derived.spellcasting.preparedMaximumBase +
+                            draft.spellcasting.preparedMaximumOffset,
+                        )}
+                      </div>
+                    </section>
+                  </section>
+                  <section
+                    aria-label="Spell Slot Tracker"
+                    className={styles.spellSlotTracker}
+                  >
+                    <div className={styles.spellSlotTrackerBody}>
+                      {availableSpellSlotLevels.length > 0 ? (
+                        <div className={styles.spellSlotList}>
+                          {[
+                            availableSpellSlotLevels.slice(0, 5),
+                            availableSpellSlotLevels.slice(5),
+                          ].filter((row) => row.length > 0).map((row) => (
+                            <div
+                              className={styles.spellSlotRow}
+                              key={row[0]}
+                              style={{
+                                gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`,
+                              }}
+                            >
+                              {row.map((slotLevel) => {
+                                const derivedSlot = derived.spellcasting.slots[slotLevel];
+                                const storedSlot = draft.spellcasting.slots[slotLevel];
+                                const renderedSlotCount = Math.min(derivedSlot.total, 8);
+                                return (
+                                  <article
+                                    className={styles.spellSlotGroup}
+                                    key={slotLevel}
+                                  >
+                                    <div className={styles.spellSlotHeading}>
+                                      <strong>
+                                        {SPELL_SLOT_LEVEL_LABELS[slotLevel]
+                                          .replace(' Level', '')}
+                                      </strong>
+                                      <div className={styles.spellSlotValues}>
+                                        {spellSlotCurrentInput(slotLevel)}
+                                        <span aria-hidden>/</span>
+                                        {spellSummaryCalculatedInput(
+                                          `spellcasting.slots.${slotLevel}.totalOffset`,
+                                          `${SPELL_SLOT_LEVEL_LABELS[slotLevel]} Spell Slots Total`,
+                                          derivedSlot.total,
+                                          storedSlot.totalOffset,
+                                          false,
+                                          true,
+                                          derivedSlot.baseTotal + storedSlot.totalOffset,
+                                          styles.spellSlotInput,
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className={styles.spellSlotSegments}>
+                                      {renderedSlotCount > 0 ? (
+                                        Array.from(
+                                          { length: renderedSlotCount },
+                                          (_, index) => (
+                                            <button
+                                              aria-label={`${SPELL_SLOT_LEVEL_LABELS[slotLevel]} spell slot ${index + 1}: ${index < storedSlot.current ? 'available' : 'expended'}`}
+                                              aria-pressed={index < storedSlot.current}
+                                              className={styles.spellSlotSegment}
+                                              data-available={index < storedSlot.current}
+                                              disabled={!canEdit}
+                                              key={index}
+                                              type="button"
+                                              onClick={() => setSpellSlotCurrent(
+                                                slotLevel,
+                                                index < storedSlot.current
+                                                  ? index
+                                                  : index + 1,
+                                              )}
+                                            />
+                                          ),
+                                        )
+                                      ) : (
+                                        <span className={styles.spellSlotNoCapacity}>
+                                          No slots
+                                        </span>
+                                      )}
+                                      {derivedSlot.total > renderedSlotCount ? (
+                                        <span className={styles.spellSlotOverflow}>
+                                          +{derivedSlot.total - renderedSlotCount}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className={styles.spellSlotEmpty}>No spell slots available</p>
+                      )}
+                    </div>
+                  </section>
+                </div>
               )}
             </main>
           </div>

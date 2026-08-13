@@ -48,6 +48,7 @@ import { convertCampaignArchiveFormat6 } from './campaignArchiveFormat6';
 import { convertCampaignArchiveFormat7 } from './campaignArchiveFormat7';
 import { convertCampaignArchiveFormat8 } from './campaignArchiveFormat8';
 import { convertCampaignArchiveFormat9 } from './campaignArchiveFormat9';
+import { convertCampaignArchiveFormat10 } from './campaignArchiveFormat10';
 import { normalizeIntermediatePermissionSchema } from './campaignArchiveSteps';
 import type { CampaignRepository } from './campaignRepository';
 import {
@@ -57,7 +58,7 @@ import {
 import { MutationQueue } from './storage/mutationQueue';
 
 const ARCHIVE_EXTENSION = '.blackbox-campaign';
-const ARCHIVE_FORMAT_VERSION = 10 as const;
+const ARCHIVE_FORMAT_VERSION = 11 as const;
 /**
  * Every superseded format converts straight to the current shape. The map is a
  * set of direct routes, not a ladder: no entry runs another entry to finish.
@@ -72,6 +73,7 @@ const ARCHIVE_FORMAT_CONVERTERS = {
   7: convertCampaignArchiveFormat7,
   8: convertCampaignArchiveFormat8,
   9: convertCampaignArchiveFormat9,
+  10: convertCampaignArchiveFormat10,
 } as const;
 type SupersededArchiveFormatVersion = keyof typeof ARCHIVE_FORMAT_CONVERTERS;
 const SALVAGE_CONVERTERS = {

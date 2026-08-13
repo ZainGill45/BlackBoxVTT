@@ -9,6 +9,7 @@ import {
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
 import { addEmptyDnd5eCharacterActionsToValue } from './campaignArchiveCharacterActions';
 import { addEmptyDnd5eCustomSkillsToValue } from './campaignArchiveCharacterCustomSkills';
+import { addDefaultDnd5eSpellcastingToValue } from './campaignArchiveCharacterSpellcasting';
 import { convertDnd5eCharacterDataFromArchiveFormat8 } from './campaignArchiveCharacterHealth';
 import { addDefaultDnd5eSkillOffsetsToValue } from './campaignArchiveCharacterSkills';
 import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFormat5';
@@ -25,7 +26,7 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
  * Game Master than being turned away.
  */
 
-export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+export type HistoricalCampaignFormatVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
 export type CampaignSalvageConversion =
   | 1
@@ -37,10 +38,11 @@ export type CampaignSalvageConversion =
   | 7
   | 8
   | 9
+  | 10
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
-  | { ok: true; version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 }
+  | { ok: true; version: HistoricalCampaignFormatVersion }
   | { conversion: 'permission-defaults'; ok: true; version: 4 }
   | { ok: false; reason: string };
 
@@ -72,8 +74,8 @@ const INTERMEDIATE_PERMISSION_SCHEMA_FINGERPRINT =
 const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
   'f1e073d9f3f5aadf2a640ff56f1cef247d9c13d31601c6c4200e76162b45637f';
 
-/** Canonical schema shared by formats 7 through 9 and the current format 10. */
-const FORMAT_7_TO_10_SCHEMA_FINGERPRINT =
+/** Canonical schema shared by formats 7 through 10 and the current format 11. */
+const FORMAT_7_TO_11_SCHEMA_FINGERPRINT =
   '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
 
 function schemaFingerprint(connection: DatabaseSync): string {
@@ -209,7 +211,7 @@ function detectCharacterEra(
   }
 }
 
-function detectFormat4To9CharacterEra(
+function detectFormat4To10CharacterEra(
   connection: DatabaseSync,
   schemaCouldBeCurrent = false,
 ): CampaignFormatDetection {
@@ -227,10 +229,10 @@ function detectFormat4To9CharacterEra(
       reason: schemaCouldBeCurrent
         ? 'This campaign’s structure is already current, so an outdated ' +
           'format is not what makes it unreadable.'
-        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, or 9.',
+        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, or 10.',
     };
   }
-  const shapes = new Set<'4' | '5' | '6' | '7' | '8' | '9' | 'current'>();
+  const shapes = new Set<'4' | '5' | '6' | '7' | '8' | '9' | '10' | 'current'>();
   for (const row of rows) {
     let parsed: unknown;
     try {
@@ -283,10 +285,15 @@ function detectFormat4To9CharacterEra(
       shapes.add('9');
       continue;
     }
+    const format10 = addDefaultDnd5eSpellcastingToValue(parsed);
+    if (format10) {
+      shapes.add('10');
+      continue;
+    }
     return {
       ok: false,
       reason:
-        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, or 9.',
+        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, or 10.',
     };
   }
   if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
@@ -295,6 +302,7 @@ function detectFormat4To9CharacterEra(
   if (shapes.has('7') && shapes.size === 1) return { ok: true, version: 7 };
   if (shapes.has('8') && shapes.size === 1) return { ok: true, version: 8 };
   if (shapes.has('9') && shapes.size === 1) return { ok: true, version: 9 };
+  if (shapes.has('10') && shapes.size === 1) return { ok: true, version: 10 };
   if (shapes.has('current') && shapes.size === 1) {
     return {
       ok: false,
@@ -304,7 +312,7 @@ function detectFormat4To9CharacterEra(
   }
   return {
     ok: false,
-    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, and 9.',
+    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, and 10.',
   };
 }
 
@@ -324,10 +332,10 @@ export function detectCampaignFormatVersion(
     };
   }
   if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
-    return detectFormat4To9CharacterEra(connection);
+    return detectFormat4To10CharacterEra(connection);
   }
-  if (fingerprint === FORMAT_7_TO_10_SCHEMA_FINGERPRINT) {
-    return detectFormat4To9CharacterEra(connection, true);
+  if (fingerprint === FORMAT_7_TO_11_SCHEMA_FINGERPRINT) {
+    return detectFormat4To10CharacterEra(connection, true);
   }
   const schema = readTableColumns(connection);
   return {

@@ -96,7 +96,8 @@
   min-height: 0;
 }
 
-.classRow>.dropdownField>summary {
+.classRow>.dropdownField>summary,
+.spellSummaryDropdown>summary {
   height: 100%;
   padding: 0 var(--space-2);
   justify-content: center;
@@ -333,6 +334,211 @@
   box-shadow: inset 0 -0.125rem 0 var(--color-action);
 }
 
+.spellsPanel {
+  display: grid;
+  min-width: 0;
+  min-height: 42rem;
+  align-content: start;
+  gap: var(--space-2);
+}
+
+.spellSummary {
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  gap: var(--space-2);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.collectionPanel.spellSummaryPanel {
+  display: grid;
+  min-width: 0;
+  min-height: 4.5rem;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.spellSummaryValue {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  text-align: center;
+}
+
+.spellSummaryDropdown {
+  width: 100%;
+  height: 100%;
+}
+
+.spellSummaryInput {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.spellSummaryInput::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.preparedSpellValues {
+  display: inline-flex;
+  width: auto;
+  align-items: center;
+  gap: var(--space-1);
+  justify-self: center;
+  white-space: nowrap;
+}
+
+.preparedSpellValues>.spellSummaryInput {
+  field-sizing: content;
+  width: auto;
+  max-width: none;
+  flex: 0 0 auto;
+}
+
+.spellSlotTracker {
+  display: grid;
+  min-width: 0;
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border-strong);
+}
+
+.spellSlotTrackerBody {
+  display: grid;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.spellSlotList {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-2);
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.spellSlotRow {
+  display: grid;
+  min-width: 0;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.spellSlotGroup {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-2);
+  align-content: center;
+  gap: var(--space-1);
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+}
+
+.spellSlotHeading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.spellSlotHeading>strong {
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-tight);
+  text-transform: uppercase;
+}
+
+.spellSlotValues {
+  display: inline-flex;
+  width: auto;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+  white-space: nowrap;
+}
+
+.spellSlotInput {
+  field-sizing: content;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+  line-height: var(--line-height-tight);
+  text-align: center;
+}
+
+.spellSlotSegments {
+  display: grid;
+  min-width: 0;
+  min-height: 0.25rem;
+  align-items: stretch;
+  gap: var(--space-1);
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+}
+
+.spellSlotSegment {
+  min-width: 0;
+  min-height: 0.25rem;
+  padding: 0;
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border-strong);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.spellSlotSegment[data-available='true'] {
+  background: var(--color-action);
+  border-color: var(--color-action);
+}
+
+.spellSlotSegment:disabled {
+  cursor: default;
+}
+
+.spellSlotSegment:not(:disabled):hover {
+  border-color: var(--color-action);
+}
+
+.spellSlotOverflow,
+.spellSlotNoCapacity {
+  display: grid;
+  min-width: 0;
+  min-height: 1rem;
+  place-items: center;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-3xs);
+  line-height: var(--line-height-tight);
+  text-transform: uppercase;
+}
+
+.spellSlotOverflow {
+  border: var(--border-width) solid var(--color-border);
+}
+
+.spellSlotEmpty {
+  display: grid;
+  padding: var(--space-3);
+  margin: 0;
+  place-items: center;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  text-align: center;
+}
+
 .homeGrid {
   display: grid;
   min-width: 0;
@@ -367,8 +573,7 @@
 }
 
 .collectionPanel,
-.importantStats,
-.blankPanel {
+.importantStats {
   min-width: 0;
   min-height: 0;
   background: var(--color-surface-muted);
@@ -1404,10 +1609,6 @@
 .panelAddRow,
 .skillAddRow {
   padding: var(--space-1);
-}
-
-.blankPanel {
-  min-height: 40rem;
 }
 
 .errorActions {

@@ -42,9 +42,22 @@ export const DND5E_CHARACTER_LEVELS = Array.from(
   (_, index) => String(index + 1),
 );
 
+export const DND5E_SPELL_SLOT_LEVELS = [
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  '6',
+  '7',
+  '8',
+  '9',
+] as const;
+
 export type Dnd5eAbilityId = (typeof DND5E_ABILITIES)[number];
 export type Dnd5eCharacterClass = (typeof DND5E_5_5E_CLASSES)[number];
 export type Dnd5eRulesVersion = '5e' | '5.5e';
+export type Dnd5eSpellSlotLevel = (typeof DND5E_SPELL_SLOT_LEVELS)[number];
 
 export const DND5E_SKILLS = [
   { ability: 'dexterity', abbreviation: 'DEX', id: 'acrobatics', label: 'Acrobatics' },
@@ -446,6 +459,16 @@ export interface Dnd5eDerivedCharacterValues {
   inventory: Dnd5eDerivedInventoryValues;
   proficiencyBonus: number;
   skills: Record<Dnd5eSkillId, Dnd5eSkillValues>;
+  spellcasting: {
+    attackBonus: number | null;
+    preparedMaximum: number;
+    preparedMaximumBase: number;
+    saveDc: number | null;
+    slots: Record<Dnd5eSpellSlotLevel, {
+      baseTotal: number;
+      total: number;
+    }>;
+  };
 }
 
 export type Dnd5eInventoryStatus =
@@ -515,6 +538,17 @@ export type Dnd5eCharacterData = {
   features: Dnd5eCharacterFeature[];
   resources: Dnd5eCharacterResource[];
   skills: Record<Dnd5eSkillId, Dnd5eCharacterSkill>;
+  spellcasting: {
+    ability: Dnd5eAbilityId | null;
+    attackBonusOffset: number;
+    preparedCurrent: number;
+    preparedMaximumOffset: number;
+    saveDcOffset: number;
+    slots: Record<Dnd5eSpellSlotLevel, {
+      current: number;
+      totalOffset: number;
+    }>;
+  };
 };
 
 const ABILITY_KEYS = [
@@ -618,6 +652,15 @@ const INVENTORY_CONTAINER_KEYS = [
   'weight',
 ] as const;
 const RESOURCE_KEYS = ['current', 'id', 'maximum', 'name'] as const;
+const SPELLCASTING_KEYS = [
+  'ability',
+  'attackBonusOffset',
+  'preparedCurrent',
+  'preparedMaximumOffset',
+  'saveDcOffset',
+  'slots',
+] as const;
+const SPELL_SLOT_KEYS = ['current', 'totalOffset'] as const;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -645,6 +688,114 @@ const RULE_SAVE_PROFICIENCIES = {
   Dnd5eRulesVersion,
   Record<Dnd5eCharacterClass, readonly Dnd5eAbilityId[]>
 >;
+
+const DEFAULT_SPELLCASTING_ABILITIES = {
+  Artificer: 'intelligence',
+  Barbarian: null,
+  Bard: 'charisma',
+  Cleric: 'wisdom',
+  Druid: 'wisdom',
+  Fighter: null,
+  Monk: null,
+  Paladin: 'charisma',
+  Ranger: 'wisdom',
+  Rogue: null,
+  Sorcerer: 'charisma',
+  Warlock: 'charisma',
+  Wizard: 'intelligence',
+} as const satisfies Record<Dnd5eCharacterClass, Dnd5eAbilityId | null>;
+
+const PREPARED_SPELL_TABLE_5_5E = {
+  Bard: [4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 16, 17, 17, 18, 18, 19, 20, 21, 22],
+  Cleric: [4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 16, 17, 17, 18, 18, 19, 20, 21, 22],
+  Druid: [4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 16, 17, 17, 18, 18, 19, 20, 21, 22],
+  Paladin: [2, 3, 4, 5, 6, 6, 7, 7, 9, 9, 10, 10, 11, 11, 12, 12, 14, 14, 15, 15],
+  Ranger: [2, 3, 4, 5, 6, 6, 7, 7, 9, 9, 10, 10, 11, 11, 12, 12, 14, 14, 15, 15],
+  Sorcerer: [2, 4, 6, 7, 9, 10, 11, 12, 14, 15, 16, 16, 17, 17, 18, 18, 19, 20, 21, 22],
+  Warlock: [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15],
+  Wizard: [4, 5, 6, 7, 9, 10, 11, 12, 14, 15, 16, 16, 17, 18, 19, 21, 22, 23, 24, 25],
+} as const satisfies Partial<Record<Dnd5eCharacterClass, readonly number[]>>;
+
+const SPELLS_KNOWN_TABLE_5E = {
+  Bard: [4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 15, 16, 18, 19, 19, 20, 22, 22, 22],
+  Ranger: [0, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11],
+  Sorcerer: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 12, 13, 13, 14, 14, 15, 15, 15, 15],
+  Warlock: [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 11, 12, 12, 13, 13, 14, 14, 15, 15],
+} as const satisfies Partial<Record<Dnd5eCharacterClass, readonly number[]>>;
+
+const FULL_CASTER_SPELL_SLOTS = [
+  [2],
+  [3],
+  [4, 2],
+  [4, 3],
+  [4, 3, 2],
+  [4, 3, 3],
+  [4, 3, 3, 1],
+  [4, 3, 3, 2],
+  [4, 3, 3, 3, 1],
+  [4, 3, 3, 3, 2],
+  [4, 3, 3, 3, 2, 1],
+  [4, 3, 3, 3, 2, 1],
+  [4, 3, 3, 3, 2, 1, 1],
+  [4, 3, 3, 3, 2, 1, 1],
+  [4, 3, 3, 3, 2, 1, 1, 1],
+  [4, 3, 3, 3, 2, 1, 1, 1],
+  [4, 3, 3, 3, 2, 1, 1, 1, 1],
+  [4, 3, 3, 3, 3, 1, 1, 1, 1],
+  [4, 3, 3, 3, 3, 2, 1, 1, 1],
+  [4, 3, 3, 3, 3, 2, 2, 1, 1],
+] as const;
+
+const HALF_CASTER_SPELL_SLOTS_5E = [
+  [],
+  [2],
+  [3],
+  [3],
+  [4, 2],
+  [4, 2],
+  [4, 3],
+  [4, 3],
+  [4, 3, 2],
+  [4, 3, 2],
+  [4, 3, 3],
+  [4, 3, 3],
+  [4, 3, 3, 1],
+  [4, 3, 3, 1],
+  [4, 3, 3, 2],
+  [4, 3, 3, 2],
+  [4, 3, 3, 3, 1],
+  [4, 3, 3, 3, 1],
+  [4, 3, 3, 3, 2],
+  [4, 3, 3, 3, 2],
+] as const;
+
+const STARTING_HALF_CASTER_SPELL_SLOTS = [
+  [2],
+  ...HALF_CASTER_SPELL_SLOTS_5E.slice(1),
+] as const;
+
+const PACT_MAGIC_SPELL_SLOTS = [
+  { count: 1, level: 1 },
+  { count: 2, level: 1 },
+  { count: 2, level: 2 },
+  { count: 2, level: 2 },
+  { count: 2, level: 3 },
+  { count: 2, level: 3 },
+  { count: 2, level: 4 },
+  { count: 2, level: 4 },
+  { count: 2, level: 5 },
+  { count: 2, level: 5 },
+  { count: 3, level: 5 },
+  { count: 3, level: 5 },
+  { count: 3, level: 5 },
+  { count: 3, level: 5 },
+  { count: 3, level: 5 },
+  { count: 3, level: 5 },
+  { count: 4, level: 5 },
+  { count: 4, level: 5 },
+  { count: 4, level: 5 },
+  { count: 4, level: 5 },
+] as const;
 
 const MIN_SAFE_BIGINT = BigInt(Number.MIN_SAFE_INTEGER);
 const MAX_SAFE_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
@@ -687,6 +838,15 @@ function defaultSkills(): Dnd5eCharacterData['skills'] {
   ) as Dnd5eCharacterData['skills'];
 }
 
+function defaultSpellSlots(): Dnd5eCharacterData['spellcasting']['slots'] {
+  return Object.fromEntries(
+    DND5E_SPELL_SLOT_LEVELS.map((level) => [level, {
+      current: 0,
+      totalOffset: 0,
+    }]),
+  ) as Dnd5eCharacterData['spellcasting']['slots'];
+}
+
 function defaultHealth(): Dnd5eCharacterData['health'] {
   return {
     currentHitDice: '1',
@@ -703,6 +863,27 @@ function blankAbility(): Dnd5eCharacterData['abilities'][Dnd5eAbilityId] {
     modifierOffset: 0,
     savingThrowOffset: 0,
     score: 10,
+  };
+}
+
+export function defaultDnd5eSpellcastingAbilityForClass(
+  className: string,
+): Dnd5eAbilityId | null {
+  return DND5E_5_5E_CLASSES.includes(className as Dnd5eCharacterClass)
+    ? DEFAULT_SPELLCASTING_ABILITIES[className as Dnd5eCharacterClass]
+    : null;
+}
+
+export function createDefaultDnd5eCharacterSpellcasting(
+  className = '',
+): Dnd5eCharacterData['spellcasting'] {
+  return {
+    ability: defaultDnd5eSpellcastingAbilityForClass(className),
+    attackBonusOffset: 0,
+    preparedCurrent: 0,
+    preparedMaximumOffset: 0,
+    saveDcOffset: 0,
+    slots: defaultSpellSlots(),
   };
 }
 
@@ -762,6 +943,7 @@ export function createDefaultDnd5eCharacterData(): Dnd5eCharacterData {
     features: [],
     resources: [],
     skills: defaultSkills(),
+    spellcasting: createDefaultDnd5eCharacterSpellcasting(),
   };
 }
 
@@ -969,6 +1151,21 @@ function hasExactSkillFields(
     });
 }
 
+function hasExactSpellSlotFields(
+  value: JsonValue,
+): value is Dnd5eCharacterData['spellcasting']['slots'] {
+  if (!isRecord(value) || !hasExactKeys(value, DND5E_SPELL_SLOT_LEVELS)) {
+    return false;
+  }
+  return DND5E_SPELL_SLOT_LEVELS.every((level) => {
+    const slot = value[level];
+    return isRecord(slot) &&
+      hasExactKeys(slot, SPELL_SLOT_KEYS) &&
+      isNonnegativeSafeInteger(slot.current) &&
+      isSafeInteger(slot.totalOffset);
+  });
+}
+
 function hasExactHealthFields(
   value: JsonValue,
 ): value is Dnd5eCharacterData['health'] {
@@ -1074,6 +1271,7 @@ export function isDnd5eCharacterData(
     'inventory',
     'resources',
     'skills',
+    'spellcasting',
   ])) {
     return false;
   }
@@ -1162,7 +1360,21 @@ export function isDnd5eCharacterData(
     new Set(value.resources.map((resource) =>
       isRecord(resource) && typeof resource.id === 'string' ? resource.id : '',
     )).size !== value.resources.length ||
-    !hasExactSkillFields(value.skills)
+    !hasExactSkillFields(value.skills) ||
+    !isRecord(value.spellcasting) ||
+    !hasExactKeys(value.spellcasting, SPELLCASTING_KEYS) ||
+    !(
+      value.spellcasting.ability === null ||
+      (
+        typeof value.spellcasting.ability === 'string' &&
+        DND5E_ABILITIES.includes(value.spellcasting.ability as Dnd5eAbilityId)
+      )
+    ) ||
+    !isSafeInteger(value.spellcasting.attackBonusOffset) ||
+    !isNonnegativeSafeInteger(value.spellcasting.preparedCurrent) ||
+    !isSafeInteger(value.spellcasting.preparedMaximumOffset) ||
+    !isSafeInteger(value.spellcasting.saveDcOffset) ||
+    !hasExactSpellSlotFields(value.spellcasting.slots)
   ) {
     return false;
   }
@@ -1753,6 +1965,78 @@ export function deriveDnd5eInventoryValues(
   };
 }
 
+function deriveDnd5ePreparedSpellMaximumBase(
+  className: Dnd5eCharacterClass | null,
+  level: number | null,
+  rulesVersion: Dnd5eRulesVersion,
+  spellcastingModifier: number | null,
+): number | null {
+  if (className === null || level === null || level < 1 || level > 20) return 0;
+  if (rulesVersion === '5.5e') {
+    if (className === 'Artificer') {
+      if (spellcastingModifier === null) return 0;
+      const total = safeAdd(Math.floor(level / 2), spellcastingModifier);
+      return total === null ? null : Math.max(1, total);
+    }
+    const table = PREPARED_SPELL_TABLE_5_5E[className as keyof
+      typeof PREPARED_SPELL_TABLE_5_5E] as readonly number[] | undefined;
+    return table?.[level - 1] ?? 0;
+  }
+
+  const knownTable = SPELLS_KNOWN_TABLE_5E[className as keyof
+    typeof SPELLS_KNOWN_TABLE_5E] as readonly number[] | undefined;
+  if (knownTable) return knownTable[level - 1] ?? 0;
+  if (spellcastingModifier === null) return 0;
+  if (className === 'Cleric' || className === 'Druid' || className === 'Wizard') {
+    const total = safeAdd(level, spellcastingModifier);
+    return total === null ? null : Math.max(1, total);
+  }
+  if (className === 'Paladin') {
+    if (level < 2) return 0;
+    const total = safeAdd(Math.floor(level / 2), spellcastingModifier);
+    return total === null ? null : Math.max(1, total);
+  }
+  if (className === 'Artificer') {
+    const total = safeAdd(Math.floor(level / 2), spellcastingModifier);
+    return total === null ? null : Math.max(1, total);
+  }
+  return 0;
+}
+
+function deriveDnd5eSpellSlotBases(
+  className: Dnd5eCharacterClass | null,
+  level: number | null,
+  rulesVersion: Dnd5eRulesVersion,
+): Record<Dnd5eSpellSlotLevel, number> {
+  const totals = Object.fromEntries(
+    DND5E_SPELL_SLOT_LEVELS.map((slotLevel) => [slotLevel, 0]),
+  ) as Record<Dnd5eSpellSlotLevel, number>;
+  if (className === null || level === null || level < 1 || level > 20) {
+    return totals;
+  }
+
+  if (className === 'Warlock') {
+    const pactMagic = PACT_MAGIC_SPELL_SLOTS[level - 1];
+    totals[String(pactMagic.level) as Dnd5eSpellSlotLevel] = pactMagic.count;
+    return totals;
+  }
+
+  const fullCaster = className === 'Bard' || className === 'Cleric' ||
+    className === 'Druid' || className === 'Sorcerer' || className === 'Wizard';
+  const halfCaster = className === 'Paladin' || className === 'Ranger';
+  const row = fullCaster
+    ? FULL_CASTER_SPELL_SLOTS[level - 1]
+    : className === 'Artificer' || (halfCaster && rulesVersion === '5.5e')
+      ? STARTING_HALF_CASTER_SPELL_SLOTS[level - 1]
+      : halfCaster
+        ? HALF_CASTER_SPELL_SLOTS_5E[level - 1]
+        : undefined;
+  row?.forEach((total, index) => {
+    totals[DND5E_SPELL_SLOT_LEVELS[index]] = total;
+  });
+  return totals;
+}
+
 export function deriveDnd5eCharacterValues(
   data: Dnd5eCharacterData,
   rulesVersion: Dnd5eRulesVersion,
@@ -1826,6 +2110,63 @@ export function deriveDnd5eCharacterValues(
     customSkills[skill.id] = values;
   }
 
+  const spellcastingAbility = data.spellcasting.ability;
+  const spellcastingModifier = spellcastingAbility === null
+    ? null
+    : abilities[spellcastingAbility].modifier;
+  const attackBonus = spellcastingModifier === null
+    ? null
+    : safeAdd(
+        spellcastingModifier,
+        proficiencyBonus,
+        data.spellcasting.attackBonusOffset,
+      );
+  const saveDc = spellcastingModifier === null
+    ? null
+    : safeAdd(
+        8,
+        spellcastingModifier,
+        proficiencyBonus,
+        data.spellcasting.saveDcOffset,
+      );
+  if (
+    (spellcastingModifier !== null && attackBonus === null) ||
+    (spellcastingModifier !== null && saveDc === null)
+  ) return null;
+
+  const preparedMaximumBase = deriveDnd5ePreparedSpellMaximumBase(
+    knownClass,
+    level,
+    rulesVersion,
+    spellcastingModifier,
+  );
+  if (preparedMaximumBase === null) return null;
+  const preparedMaximumWithOffset = safeAdd(
+    preparedMaximumBase,
+    data.spellcasting.preparedMaximumOffset,
+  );
+  if (preparedMaximumWithOffset === null) return null;
+  const preparedMaximum = Math.max(0, preparedMaximumWithOffset);
+
+  const spellSlotBases = deriveDnd5eSpellSlotBases(
+    knownClass,
+    level,
+    rulesVersion,
+  );
+  const spellSlots = {} as Dnd5eDerivedCharacterValues['spellcasting']['slots'];
+  for (const slotLevel of DND5E_SPELL_SLOT_LEVELS) {
+    const baseTotal = spellSlotBases[slotLevel];
+    const totalWithOffset = safeAdd(
+      baseTotal,
+      data.spellcasting.slots[slotLevel].totalOffset,
+    );
+    if (totalWithOffset === null) return null;
+    spellSlots[slotLevel] = {
+      baseTotal,
+      total: Math.max(0, totalWithOffset),
+    };
+  }
+
   const inventory = deriveDnd5eInventoryValues(data);
   if (inventory === null) return null;
 
@@ -1837,6 +2178,13 @@ export function deriveDnd5eCharacterValues(
     inventory,
     proficiencyBonus,
     skills,
+    spellcasting: {
+      attackBonus,
+      preparedMaximum,
+      preparedMaximumBase,
+      saveDc,
+      slots: spellSlots,
+    },
   };
 }
 

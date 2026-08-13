@@ -21,6 +21,8 @@ import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
 import { addIntermediatePermissionSchema } from '../../support/campaignArchive';
 import {
   createDefaultDnd5eCharacterData,
+  createDefaultDnd5eCharacterSpellcasting,
+  type Dnd5eCharacterData,
 } from '../../../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
 
@@ -198,7 +200,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 10 });
+    ))).toMatchObject({ formatVersion: 11 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -313,7 +315,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 11;
+    manifest.formatVersion = 12;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -371,6 +373,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 1.',
             'Removed Death Save counters from 1 D&D character imported from archive format 1.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 1.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 1.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -432,6 +435,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 3.',
             'Removed Death Save counters from 1 D&D character imported from archive format 3.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 3.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 3.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -524,6 +528,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 2.',
             'Removed Death Save counters from 1 D&D character imported from archive format 2.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 2.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 2.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -550,7 +555,7 @@ describe('CampaignArchiveService', () => {
     importedDatabase.close();
   });
 
-  it('directly converts the untouched format-4 Character fixture into format 10', async () => {
+  it('directly converts the untouched format-4 Character fixture into format 11', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-4.blackbox-campaign',
@@ -570,6 +575,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 4.',
             'Removed Death Save counters from 1 D&D character imported from archive format 4.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 4.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 4.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -591,7 +597,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-5 Character fixture into format 10', async () => {
+  it('directly converts the untouched format-5 Character fixture into format 11', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-5.blackbox-campaign',
@@ -610,6 +616,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 5.',
             'Removed Death Save counters from 1 D&D character imported from archive format 5.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 5.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 5.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -639,7 +646,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-6 Character fixture into format 10', async () => {
+  it('directly converts the untouched format-6 Character fixture into format 11', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-6.blackbox-campaign',
@@ -655,6 +662,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 6.',
             'Removed Death Save counters from 1 D&D character imported from archive format 6.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 6.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 6.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -674,7 +682,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-7 Character fixture into format 10', async () => {
+  it('directly converts the untouched format-7 Character fixture into format 11', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-7.blackbox-campaign',
@@ -689,6 +697,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 7.',
             'Removed Death Save counters from 1 D&D character imported from archive format 7.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 7.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 7.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -724,6 +733,7 @@ describe('CampaignArchiveService', () => {
           warnings: [
             'Removed Death Save counters from 1 D&D character imported from archive format 8.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 8.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 8.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -758,6 +768,7 @@ describe('CampaignArchiveService', () => {
           sourceRelease: '1.0.0-format-9-fixture',
           warnings: [
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 9.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 9.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -772,6 +783,41 @@ describe('CampaignArchiveService', () => {
          WHERE type_id = 'dnd5e.character' AND name = 'New Character'`,
       ).get() as { data_json: string };
       expect(JSON.parse(row.data_json).customSkills).toEqual([]);
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly adds Spellcasting values to the untouched format-10 fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-character-format-10.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-10-fixture',
+          warnings: [
+            'Added default Spellcasting values to 1 D&D character imported from archive format 10.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character' AND name = 'New Character'`,
+      ).get() as { data_json: string };
+      const imported = JSON.parse(row.data_json) as Dnd5eCharacterData;
+      expect(imported.identity).toMatchObject({ className: 'Wizard' });
+      expect(imported.spellcasting)
+        .toEqual(createDefaultDnd5eCharacterSpellcasting('Wizard'));
     } finally {
       importedDatabase.close();
     }
@@ -922,6 +968,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 3.',
             'Removed Death Save counters from 1 D&D character imported from archive format 3.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 3.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 3.',
             salvagedIdentityWarning,
           ],
         },
@@ -974,6 +1021,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 5.',
             'Removed Death Save counters from 1 D&D character imported from archive format 5.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 5.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 5.',
             salvagedIdentityWarning,
           ],
         },
@@ -1016,6 +1064,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 6.',
             'Removed Death Save counters from 1 D&D character imported from archive format 6.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 6.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 6.',
             salvagedIdentityWarning,
           ],
         },
@@ -1065,6 +1114,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 4.',
             'Removed Death Save counters from 1 D&D character imported from archive format 4.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 4.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 4.',
             salvagedIdentityWarning,
           ],
         },
@@ -1128,6 +1178,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 3.',
             'Removed Death Save counters from 1 D&D character imported from archive format 3.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 3.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 3.',
             salvagedIdentityWarning,
             'The unreadable campaign could not be moved to the trash; ' +
               'delete it from the campaign list.',
@@ -1164,6 +1215,7 @@ describe('CampaignArchiveService', () => {
             'Added zero Skill bonus and passive-score adjustments to 1 D&D character imported from archive format 1.',
             'Removed Death Save counters from 1 D&D character imported from archive format 1.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 1.',
+            'Added default Spellcasting values to 1 D&D character imported from archive format 1.',
             salvagedIdentityWarning,
           ],
         },

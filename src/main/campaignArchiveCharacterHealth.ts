@@ -9,6 +9,7 @@ import {
   addEmptyDnd5eCustomSkillsToValue,
   emptyCustomSkillsImportReport,
 } from './campaignArchiveCharacterCustomSkills';
+import { spellcastingDefaultsImportReport } from './campaignArchiveCharacterSpellcasting';
 
 interface CharacterRow {
   data_json: string;
@@ -118,5 +119,6 @@ export function removeDnd5eDeathSaves(
   return [
     ...deathSavesRemovalImportReport(rows.length, formatVersion),
     ...emptyCustomSkillsImportReport(rows.length, formatVersion),
+    ...spellcastingDefaultsImportReport(rows.length, formatVersion),
   ];
 }

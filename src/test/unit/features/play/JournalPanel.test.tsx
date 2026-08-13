@@ -238,7 +238,25 @@ describe('JournalPanel', () => {
       'Settings',
     ]);
     await user.click(within(characterSheet).getByRole('tab', { name: 'Spells' }));
-    expect(within(characterSheet).getByRole('tabpanel')).toBeEmptyDOMElement();
+    const spellSummary = within(characterSheet).getByRole('tabpanel');
+    expect(within(spellSummary).getByRole('button', {
+      name: 'Spellcasting Ability',
+    })).toHaveTextContent('None');
+    expect(within(spellSummary).getByRole('textbox', {
+      name: 'Spell Save DC',
+    })).toHaveValue('');
+    expect(within(spellSummary).getByRole('textbox', {
+      name: 'Spell Attack Bonus',
+    })).toHaveValue('');
+    expect(within(spellSummary).getByRole('textbox', {
+      name: 'Spellcasting Concentration Save',
+    })).toHaveValue('0');
+    expect(within(spellSummary).getByRole('textbox', {
+      name: 'Current Prepared Spells',
+    })).toHaveValue('0');
+    expect(within(spellSummary).getByRole('textbox', {
+      name: 'Total Prepared Spells',
+    })).toHaveValue('0');
     await user.click(within(characterSheet).getByRole('tab', { name: 'Settings' }));
     expect(within(characterSheet).getByRole('checkbox', {
       name: 'Use Variant Encumbrance',
@@ -536,9 +554,249 @@ describe('JournalPanel', () => {
       expect(server.data.importantStats.concentrationSaveOffset).toBe(2);
       expect(concentration).toHaveValue('+8');
     });
+    await user.clear(concentration);
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.importantStats.concentrationSaveOffset).toBe(0);
+      expect(concentration).toHaveValue('+6');
+    });
+    await user.clear(constitutionSave);
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.abilities.constitution.savingThrowOffset).toBe(0);
+      expect(constitutionSave).toHaveValue('+5');
+      expect(concentration).toHaveValue('+5');
+    });
+
+    const initiative = within(sheet).getByRole('textbox', { name: 'Initiative' });
+    await user.clear(initiative);
+    await user.type(initiative, '+3');
+    await user.tab();
+    await user.clear(initiative);
+    await user.tab();
+    await user.clear(proficiency);
+    await user.tab();
+    await waitFor(() => {
+      expect(server.data.importantStats.initiativeOffset).toBe(0);
+      expect(server.data.importantStats.proficiencyBonusOffset).toBe(0);
+      expect(initiative).toHaveValue('0');
+      expect(proficiency).toHaveValue('+4');
+    });
   /* Drives the whole calculated-total round trip and runs close to four
      seconds on its own, which the default five-second budget cannot absorb
      once the suite is running files in parallel. */
+  }, 20_000);
+
+  it('derives, edits, synchronizes, and clears the Spellcasting summary', async () => {
+    const user = userEvent.setup();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanel
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+        system={{ id: 'dnd5e', settings: { defaultRulesVersion: '5e' } }}
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+    expect(within(sheet).getByText('No spell slots available')).toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Wizard' }));
+    await waitFor(() => expect(server.data).toMatchObject({
+      identity: { className: 'Wizard' },
+      spellcasting: { ability: 'intelligence' },
+    }));
+    expect(updateEntryData.mock.calls[0]?.[0].data).toMatchObject({
+      identity: { className: 'Wizard' },
+      spellcasting: { ability: 'intelligence' },
+    });
+    await user.click(within(sheet).getByRole('button', { name: 'Level' }));
+    await user.click(within(sheet).getByRole('button', { name: '5' }));
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+
+    const abilityButton = within(sheet).getByRole('button', {
+      name: 'Spellcasting Ability',
+    });
+    expect(abilityButton).toHaveTextContent('Intelligence');
+    await user.click(abilityButton);
+    const abilityOptions = within(sheet).getByRole('group', {
+      name: 'Spellcasting Ability options',
+    });
+    expect(within(abilityOptions).getAllByRole('button').map(({ textContent }) => textContent))
+      .toEqual(['None', 'Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma']);
+    await user.click(within(abilityOptions).getByRole('button', { name: 'Charisma' }));
+    await waitFor(() => expect(server.data.spellcasting.ability).toBe('charisma'));
+
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Cleric' }));
+    await waitFor(() => expect(server.data).toMatchObject({
+      identity: { className: 'Cleric' },
+      spellcasting: { ability: 'wisdom' },
+    }));
+    expect(abilityButton).toHaveTextContent('Wisdom');
+
+    let saveDc = within(sheet).getByRole('textbox', { name: 'Spell Save DC' });
+    let attack = within(sheet).getByRole('textbox', { name: 'Spell Attack Bonus' });
+    let concentration = within(sheet).getByRole('textbox', {
+      name: 'Spellcasting Concentration Save',
+    });
+    let preparedCurrent = within(sheet).getByRole('textbox', {
+      name: 'Current Prepared Spells',
+    });
+    let preparedMaximum = within(sheet).getByRole('textbox', {
+      name: 'Total Prepared Spells',
+    });
+    expect(saveDc).toHaveValue('11');
+    expect(attack).toHaveValue('+3');
+    expect(concentration).toHaveValue('0');
+    expect(preparedMaximum).toHaveValue('5');
+
+    const spellSlotTracker = within(sheet).getByRole('region', {
+      name: 'Spell Slot Tracker',
+    });
+    expect(within(spellSlotTracker).getByRole('textbox', {
+      name: '1st Level Spell Slots Current',
+    })).toBeInTheDocument();
+    expect(within(spellSlotTracker).getByRole('textbox', {
+      name: '2nd Level Spell Slots Current',
+    })).toBeInTheDocument();
+    expect(within(spellSlotTracker).queryByRole('textbox', {
+      name: '4th Level Spell Slots Current',
+    })).not.toBeInTheDocument();
+    let thirdSlotCurrent = within(spellSlotTracker).getByRole('textbox', {
+      name: '3rd Level Spell Slots Current',
+    });
+    let thirdSlotTotal = within(spellSlotTracker).getByRole('textbox', {
+      name: '3rd Level Spell Slots Total',
+    });
+    expect(thirdSlotCurrent).toHaveValue('0');
+    expect(thirdSlotTotal).toHaveValue('2');
+    const firstThirdLevelSegment = within(spellSlotTracker).getByRole('button', {
+      name: '3rd Level spell slot 1: expended',
+    });
+    await user.click(firstThirdLevelSegment);
+    await waitFor(() => expect(server.data.spellcasting.slots['3'].current).toBe(1));
+    await user.click(within(spellSlotTracker).getByRole('button', {
+      name: '3rd Level spell slot 1: available',
+    }));
+    await waitFor(() => expect(server.data.spellcasting.slots['3'].current).toBe(0));
+    await user.clear(thirdSlotCurrent);
+    await user.type(thirdSlotCurrent, '7');
+    await user.tab();
+    await user.clear(thirdSlotTotal);
+    await user.type(thirdSlotTotal, '4');
+    await user.tab();
+    await waitFor(() => expect(server.data.spellcasting.slots['3']).toEqual({
+      current: 7,
+      totalOffset: 2,
+    }));
+
+    await user.click(within(sheet).getByRole('button', { name: 'Level' }));
+    await user.click(within(sheet).getByRole('button', { name: '1' }));
+    expect(within(spellSlotTracker).queryByRole('textbox', {
+      name: '3rd Level Spell Slots Current',
+    })).not.toBeInTheDocument();
+    await user.click(within(sheet).getByRole('button', { name: 'Level' }));
+    await user.click(within(sheet).getByRole('button', { name: '5' }));
+    thirdSlotCurrent = within(spellSlotTracker).getByRole('textbox', {
+      name: '3rd Level Spell Slots Current',
+    });
+    thirdSlotTotal = within(spellSlotTracker).getByRole('textbox', {
+      name: '3rd Level Spell Slots Total',
+    });
+    expect(thirdSlotCurrent).toHaveValue('7');
+    expect(thirdSlotTotal).toHaveValue('4');
+    await user.clear(thirdSlotTotal);
+    await user.tab();
+    await user.clear(thirdSlotCurrent);
+    await user.tab();
+    await waitFor(() => expect(server.data.spellcasting.slots['3']).toEqual({
+      current: 0,
+      totalOffset: 0,
+    }));
+    expect(thirdSlotCurrent).toHaveValue('0');
+    expect(thirdSlotTotal).toHaveValue('2');
+
+    for (const [input, value] of [
+      [saveDc, '16'],
+      [attack, '+8'],
+      [concentration, '+7'],
+      [preparedCurrent, '12'],
+      [preparedMaximum, '9'],
+    ] as const) {
+      await user.clear(input);
+      await user.type(input, value);
+      await user.tab();
+    }
+    await waitFor(() => expect(server.data).toMatchObject({
+      importantStats: { concentrationSaveOffset: 7 },
+      spellcasting: {
+        attackBonusOffset: 5,
+        preparedCurrent: 12,
+        preparedMaximumOffset: 4,
+        saveDcOffset: 5,
+      },
+    }));
+    expect(preparedCurrent).toHaveValue('12');
+    expect(preparedMaximum).toHaveValue('9');
+
+    await user.click(within(sheet).getByRole('tab', { name: 'Home' }));
+    expect(within(sheet).getByRole('textbox', { name: 'Concentration Save' }))
+      .toHaveValue('+7');
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+    saveDc = within(sheet).getByRole('textbox', { name: 'Spell Save DC' });
+    attack = within(sheet).getByRole('textbox', { name: 'Spell Attack Bonus' });
+    concentration = within(sheet).getByRole('textbox', {
+      name: 'Spellcasting Concentration Save',
+    });
+    preparedCurrent = within(sheet).getByRole('textbox', {
+      name: 'Current Prepared Spells',
+    });
+    preparedMaximum = within(sheet).getByRole('textbox', {
+      name: 'Total Prepared Spells',
+    });
+
+    for (const input of [saveDc, attack, concentration, preparedMaximum]) {
+      await user.clear(input);
+      await user.tab();
+    }
+    await user.clear(preparedCurrent);
+    await user.tab();
+    await waitFor(() => expect(server.data).toMatchObject({
+      importantStats: { concentrationSaveOffset: 0 },
+      spellcasting: {
+        attackBonusOffset: 0,
+        preparedCurrent: 0,
+        preparedMaximumOffset: 0,
+        saveDcOffset: 0,
+      },
+    }));
+    expect(saveDc).toHaveValue('11');
+    expect(attack).toHaveValue('+3');
+    expect(concentration).toHaveValue('0');
+    expect(preparedMaximum).toHaveValue('5');
   }, 20_000);
 
   it('adds and fully edits Custom Skills using the standard Skill row behavior', async () => {
@@ -1960,6 +2218,11 @@ describe('JournalPanel', () => {
       },
       data: {
         ...structuredClone(character.data),
+        identity: {
+          ...structuredClone(character.data.identity),
+          className: 'Wizard',
+          level: 5,
+        },
         customSkills: [{
           ability: 'charisma' as const,
           bonusOffset: 1,
@@ -2127,6 +2390,18 @@ describe('JournalPanel', () => {
     await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
     expect(within(sheet).getByRole('checkbox', { name: 'Use Variant Encumbrance' }))
       .toBeDisabled();
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+    expect(within(sheet).getByRole('button', { name: 'Spellcasting Ability' }))
+      .toHaveAttribute('aria-disabled', 'true');
+    expect(within(sheet).getByRole('textbox', {
+      name: '1st Level Spell Slots Current',
+    })).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('textbox', {
+      name: '1st Level Spell Slots Total',
+    })).toHaveAttribute('readonly');
+    expect(within(sheet).getByRole('button', {
+      name: '1st Level spell slot 1: expended',
+    })).toBeDisabled();
     expect(renameEntry).not.toHaveBeenCalled();
     expect(updateEntryData).not.toHaveBeenCalled();
   });

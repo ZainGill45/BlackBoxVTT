@@ -1,14 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { JsonValue } from '../shared/gameSystems';
 import {
+  createDefaultDnd5eCharacterSpellcasting,
   isDnd5eCharacterData,
   type Dnd5eCharacterData,
 } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
-import {
-  addDefaultDnd5eSpellcastingToValue,
-  spellcastingDefaultsImportReport,
-} from './campaignArchiveCharacterSpellcasting';
 
 interface CharacterRow {
   data_json: string;
@@ -16,41 +13,48 @@ interface CharacterRow {
   name: string;
 }
 
-/** Adds Custom Skills only to the exact otherwise-current historical shape. */
-export function addEmptyDnd5eCustomSkillsToValue(
+/** Adds Spellcasting only to the exact otherwise-current historical shape. */
+export function addDefaultDnd5eSpellcastingToValue(
   value: unknown,
 ): Dnd5eCharacterData | null {
   if (
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.hasOwn(value, 'customSkills')
+    Object.hasOwn(value, 'spellcasting')
   ) return null;
-  const converted = addDefaultDnd5eSpellcastingToValue({
+  const identity = 'identity' in value && value.identity &&
+    typeof value.identity === 'object' && !Array.isArray(value.identity)
+    ? value.identity as Record<string, unknown>
+    : null;
+  const className = typeof identity?.className === 'string'
+    ? identity.className
+    : '';
+  const converted = {
     ...value,
-    customSkills: [],
-  });
-  return converted && isDnd5eCharacterData(converted as JsonValue)
-    ? converted
+    spellcasting: createDefaultDnd5eCharacterSpellcasting(className),
+  };
+  return isDnd5eCharacterData(converted as JsonValue)
+    ? converted as unknown as Dnd5eCharacterData
     : null;
 }
 
-export function emptyCustomSkillsImportReport(
+export function spellcastingDefaultsImportReport(
   characterCount: number,
-  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10,
 ): string[] {
   if (characterCount === 0) return [];
   return [
-    `Added an empty Custom Skills collection to ${characterCount} D&D ${
+    `Added default Spellcasting values to ${characterCount} D&D ${
       characterCount === 1 ? 'character' : 'characters'
     } imported from archive format ${formatVersion}.`,
   ];
 }
 
-/** Directly adds the current empty Custom Skills collection to format 9. */
-export function addEmptyDnd5eCustomSkills(
+/** Directly adds the current Spellcasting shape to format-10 Characters. */
+export function addDefaultDnd5eSpellcasting(
   connection: DatabaseSync,
-  formatVersion: 9,
+  formatVersion: 10,
 ): string[] {
   const rows = connection.prepare(
     `SELECT id, name, data_json
@@ -70,7 +74,7 @@ export function addEmptyDnd5eCustomSkills(
         `Archive format ${formatVersion} contains malformed Character data for ${row.name}.`,
       );
     }
-    const converted = addEmptyDnd5eCustomSkillsToValue(parsed);
+    const converted = addDefaultDnd5eSpellcastingToValue(parsed);
     if (!converted) {
       throw new Error(
         `Archive format ${formatVersion} contains invalid Character data for ${row.name}.`,
@@ -78,8 +82,5 @@ export function addEmptyDnd5eCustomSkills(
     }
     update.run(JSON.stringify(converted), row.id);
   }
-  return [
-    ...emptyCustomSkillsImportReport(rows.length, formatVersion),
-    ...spellcastingDefaultsImportReport(rows.length, formatVersion),
-  ];
+  return spellcastingDefaultsImportReport(rows.length, formatVersion);
 }

@@ -5,6 +5,7 @@ import {
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
 import { deathSavesRemovalImportReport } from './campaignArchiveCharacterHealth';
 import { emptyCustomSkillsImportReport } from './campaignArchiveCharacterCustomSkills';
+import { spellcastingDefaultsImportReport } from './campaignArchiveCharacterSpellcasting';
 import {
   addDefaultDnd5eSkillOffsetsToValue,
   skillOffsetsImportReport,
@@ -77,5 +78,6 @@ export function addEmptyDnd5eCharacterActions(
     ...skillOffsetsImportReport(rows.length, formatVersion),
     ...deathSavesRemovalImportReport(rows.length, formatVersion),
     ...emptyCustomSkillsImportReport(rows.length, formatVersion),
+    ...spellcastingDefaultsImportReport(rows.length, formatVersion),
   ];
 }

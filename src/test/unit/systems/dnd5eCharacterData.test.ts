@@ -10,9 +10,11 @@ import {
   createDefaultDnd5eCharacterData,
   createDefaultDnd5eActionStep,
   createDefaultDnd5eCharacterAction,
+  defaultDnd5eSpellcastingAbilityForClass,
   deriveDnd5eCharacterValues,
   DND5E_ABILITIES,
   DND5E_SKILLS,
+  DND5E_SPELL_SLOT_LEVELS,
   formatDnd5eSignedValue,
   isDnd5eCharacterData,
   MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS,
@@ -1014,6 +1016,202 @@ describe('D&D Character data', () => {
       passiveOffset: 0,
       training: 'proficient',
     })).toBeNull();
+  });
+
+  it('maps classes to their default spellcasting abilities without subclass inference', () => {
+    expect(defaultDnd5eSpellcastingAbilityForClass('Artificer')).toBe('intelligence');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Wizard')).toBe('intelligence');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Cleric')).toBe('wisdom');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Druid')).toBe('wisdom');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Ranger')).toBe('wisdom');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Bard')).toBe('charisma');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Paladin')).toBe('charisma');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Sorcerer')).toBe('charisma');
+    expect(defaultDnd5eSpellcastingAbilityForClass('Warlock')).toBe('charisma');
+    for (const className of ['Barbarian', 'Fighter', 'Monk', 'Rogue', '', 'Homebrew']) {
+      expect(defaultDnd5eSpellcastingAbilityForClass(className)).toBeNull();
+    }
+  });
+
+  it('derives independently editable spell attacks, save DC, and prepared limits', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.className = 'Wizard';
+    data.identity.level = 5;
+    data.abilities.intelligence.score = 16;
+    data.spellcasting.ability = 'intelligence';
+    expect(deriveDnd5eCharacterValues(data, '5e')?.spellcasting).toMatchObject({
+      attackBonus: 6,
+      preparedMaximum: 8,
+      preparedMaximumBase: 8,
+      saveDc: 14,
+    });
+
+    data.spellcasting.attackBonusOffset = 2;
+    data.spellcasting.saveDcOffset = -1;
+    data.spellcasting.preparedMaximumOffset = -20;
+    expect(deriveDnd5eCharacterValues(data, '5e')?.spellcasting).toMatchObject({
+      attackBonus: 8,
+      preparedMaximum: 0,
+      preparedMaximumBase: 8,
+      saveDc: 13,
+    });
+
+    data.spellcasting.ability = null;
+    expect(deriveDnd5eCharacterValues(data, '5e')?.spellcasting).toMatchObject({
+      attackBonus: null,
+      preparedMaximum: 0,
+      preparedMaximumBase: 0,
+      saveDc: null,
+    });
+  });
+
+  it('uses the class and rules-version prepared-spell progressions', () => {
+    const data = createDefaultDnd5eCharacterData();
+    const prepared = (
+      className: string,
+      level: number | null,
+      rulesVersion: '5e' | '5.5e',
+      ability: Dnd5eAbilityId | null = defaultDnd5eSpellcastingAbilityForClass(className),
+    ) => {
+      data.identity.className = className;
+      data.identity.level = level;
+      data.spellcasting.ability = ability;
+      if (ability) data.abilities[ability].score = 16;
+      return deriveDnd5eCharacterValues(data, rulesVersion)?.spellcasting
+        .preparedMaximumBase;
+    };
+
+    expect(prepared('Bard', 5, '5e')).toBe(8);
+    expect(prepared('Ranger', 1, '5e')).toBe(0);
+    expect(prepared('Ranger', 5, '5e')).toBe(4);
+    expect(prepared('Paladin', 1, '5e')).toBe(0);
+    expect(prepared('Paladin', 5, '5e')).toBe(5);
+    expect(prepared('Artificer', 5, '5e')).toBe(5);
+    expect(prepared('Wizard', 5, '5e')).toBe(8);
+    expect(prepared('Sorcerer', 2, '5.5e')).toBe(4);
+    expect(prepared('Paladin', 17, '5.5e')).toBe(14);
+    expect(prepared('Wizard', 16, '5.5e')).toBe(21);
+    expect(prepared('Artificer', 5, '5.5e')).toBe(5);
+    expect(prepared('Fighter', 20, '5.5e')).toBe(0);
+    expect(prepared('Wizard', null, '5.5e')).toBe(0);
+  });
+
+  it('derives every full-caster, half-caster, Artificer, and Pact Magic slot row', () => {
+    const fullCasterRows = [
+      [2], [3], [4, 2], [4, 3], [4, 3, 2], [4, 3, 3],
+      [4, 3, 3, 1], [4, 3, 3, 2], [4, 3, 3, 3, 1],
+      [4, 3, 3, 3, 2], [4, 3, 3, 3, 2, 1], [4, 3, 3, 3, 2, 1],
+      [4, 3, 3, 3, 2, 1, 1], [4, 3, 3, 3, 2, 1, 1],
+      [4, 3, 3, 3, 2, 1, 1, 1], [4, 3, 3, 3, 2, 1, 1, 1],
+      [4, 3, 3, 3, 2, 1, 1, 1, 1], [4, 3, 3, 3, 3, 1, 1, 1, 1],
+      [4, 3, 3, 3, 3, 2, 1, 1, 1], [4, 3, 3, 3, 3, 2, 2, 1, 1],
+    ];
+    const halfCasterRows = [
+      [], [2], [3], [3], [4, 2], [4, 2], [4, 3], [4, 3],
+      [4, 3, 2], [4, 3, 2], [4, 3, 3], [4, 3, 3],
+      [4, 3, 3, 1], [4, 3, 3, 1], [4, 3, 3, 2], [4, 3, 3, 2],
+      [4, 3, 3, 3, 1], [4, 3, 3, 3, 1],
+      [4, 3, 3, 3, 2], [4, 3, 3, 3, 2],
+    ];
+    const startingHalfCasterRows = [[2], ...halfCasterRows.slice(1)];
+    const pactMagicRows = [
+      [1, 1], [1, 2], [2, 2], [2, 2], [3, 2], [3, 2],
+      [4, 2], [4, 2], [5, 2], [5, 2], [5, 3], [5, 3],
+      [5, 3], [5, 3], [5, 3], [5, 3], [5, 4], [5, 4], [5, 4], [5, 4],
+    ].map(([slotLevel, count]) => {
+      const totals = Array<number>(9).fill(0);
+      totals[slotLevel - 1] = count;
+      return totals;
+    });
+    const pad = (row: readonly number[]) => [
+      ...row,
+      ...Array<number>(9 - row.length).fill(0),
+    ];
+    const bases = (
+      className: string,
+      level: number | null,
+      rulesVersion: '5e' | '5.5e',
+    ) => {
+      const data = createDefaultDnd5eCharacterData();
+      data.identity.className = className;
+      data.identity.level = level;
+      const slots = deriveDnd5eCharacterValues(data, rulesVersion)?.spellcasting.slots;
+      return DND5E_SPELL_SLOT_LEVELS.map((slotLevel) => slots?.[slotLevel].baseTotal);
+    };
+
+    for (let index = 0; index < 20; index += 1) {
+      const level = index + 1;
+      expect(bases('Wizard', level, '5e')).toEqual(pad(fullCasterRows[index]));
+      expect(bases('Bard', level, '5.5e')).toEqual(pad(fullCasterRows[index]));
+      expect(bases('Ranger', level, '5e')).toEqual(pad(halfCasterRows[index]));
+      expect(bases('Paladin', level, '5.5e'))
+        .toEqual(pad(startingHalfCasterRows[index]));
+      expect(bases('Artificer', level, '5e'))
+        .toEqual(pad(startingHalfCasterRows[index]));
+      expect(bases('Artificer', level, '5.5e'))
+        .toEqual(pad(startingHalfCasterRows[index]));
+      expect(bases('Warlock', level, '5e')).toEqual(pactMagicRows[index]);
+      expect(bases('Warlock', level, '5.5e')).toEqual(pactMagicRows[index]);
+    }
+    expect(bases('Fighter', 20, '5e')).toEqual(Array<number>(9).fill(0));
+    expect(bases('Wizard', null, '5.5e')).toEqual(Array<number>(9).fill(0));
+  });
+
+  it('applies slot total offsets without constraining current or hidden values', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.className = 'Wizard';
+    data.identity.level = 1;
+    data.spellcasting.slots['1'].current = 8;
+    data.spellcasting.slots['1'].totalOffset = -5;
+    data.spellcasting.slots['9'].current = 3;
+    data.spellcasting.slots['9'].totalOffset = 4;
+
+    expect(isDnd5eCharacterData(data)).toBe(true);
+    expect(deriveDnd5eCharacterValues(data, '5e')?.spellcasting.slots).toMatchObject({
+      '1': { baseTotal: 2, total: 0 },
+      '9': { baseTotal: 0, total: 4 },
+    });
+    expect(data.spellcasting.slots['1'].current).toBe(8);
+    expect(data.spellcasting.slots['9'].current).toBe(3);
+
+    data.spellcasting.slots['1'].totalOffset = Number.MAX_SAFE_INTEGER;
+    expect(deriveDnd5eCharacterValues(data, '5e')).toBeNull();
+  });
+
+  it('validates the exact canonical spellcasting shape', () => {
+    const valid = createDefaultDnd5eCharacterData();
+    expect(isDnd5eCharacterData(valid)).toBe(true);
+    const withoutSpellcasting = { ...valid } as Partial<typeof valid>;
+    delete withoutSpellcasting.spellcasting;
+    expect(isDnd5eCharacterData(withoutSpellcasting)).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      spellcasting: { ...valid.spellcasting, ability: 'luck' },
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      spellcasting: { ...valid.spellcasting, preparedCurrent: -1 },
+    })).toBe(false);
+    expect(Object.keys(valid.spellcasting.slots)).toEqual(DND5E_SPELL_SLOT_LEVELS);
+    expect(Object.values(valid.spellcasting.slots)).toEqual(
+      DND5E_SPELL_SLOT_LEVELS.map(() => ({ current: 0, totalOffset: 0 })),
+    );
+    expect(isDnd5eCharacterData({
+      ...valid,
+      spellcasting: {
+        ...valid.spellcasting,
+        slots: { ...valid.spellcasting.slots, '1': { current: -1, totalOffset: 0 } },
+      },
+    })).toBe(false);
+    const missingSlot = structuredClone(valid);
+    delete (missingSlot.spellcasting.slots as Partial<
+      typeof missingSlot.spellcasting.slots
+    >)['9'];
+    expect(isDnd5eCharacterData(missingSlot)).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      spellcasting: { ...valid.spellcasting, extra: true },
+    })).toBe(false);
   });
 
   it('parses, formats, and rebases directly edited totals', () => {

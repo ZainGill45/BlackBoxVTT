@@ -13,6 +13,7 @@ import {
 import { deathSavesRemovalImportReport } from './campaignArchiveCharacterHealth';
 import { emptyCustomSkillsImportReport } from './campaignArchiveCharacterCustomSkills';
 import { skillOffsetsImportReport } from './campaignArchiveCharacterSkills';
+import { spellcastingDefaultsImportReport } from './campaignArchiveCharacterSpellcasting';
 import { runDirectArchiveConversion } from './campaignArchiveSteps';
 
 interface CharacterRow {
@@ -128,6 +129,7 @@ export function convertCampaignArchiveFormat5(
       ...skillOffsetsImportReport(rows.length, 5),
       ...deathSavesRemovalImportReport(rows.length, 5),
       ...emptyCustomSkillsImportReport(rows.length, 5),
+      ...spellcastingDefaultsImportReport(rows.length, 5),
     ];
     if (adjustedItems > 0) warnings.unshift(
       `Set quantity to 1 for ${adjustedItems} Inventory ${
