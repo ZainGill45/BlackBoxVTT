@@ -11,7 +11,7 @@
 .sheet {
   display: grid;
   min-width: 0;
-  gap: var(--space-2);
+  gap: var(--space-3);
   padding: var(--space-2);
 }
 
@@ -108,25 +108,29 @@
 .components {
   display: grid;
   min-width: 0;
-  padding: var(--space-2);
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  align-items: center;
+  align-items: start;
   justify-items: center;
   gap: var(--space-2);
-  border: var(--border-width) solid var(--color-border);
 }
 
-.components legend {
-  padding: 0 var(--space-2);
+.componentOption {
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.componentOption>span:last-child {
+  order: -1;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
-  text-transform: uppercase;
+  line-height: var(--line-height-tight);
 }
 
 .textarea {
   width: 100%;
   height: 5.75rem;
-  min-height: 2.875rem;
+  min-height: 2.3rem;
   padding: var(--space-2);
   resize: vertical;
   caret-color: var(--color-text);

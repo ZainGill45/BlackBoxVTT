@@ -125,6 +125,8 @@ describe('SpellSheetModal', () => {
     expect(within(dialog).queryByRole('button', { name: /close|cancel/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Autosaving')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Spell', { exact: true })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText('Spell Options and Components'))
+      .not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('checkbox', { name: 'Material' }));
     await waitFor(() => expect(controlled.updateEntryData).toHaveBeenCalled());

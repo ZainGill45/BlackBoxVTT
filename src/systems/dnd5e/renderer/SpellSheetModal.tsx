@@ -635,10 +635,14 @@ export function SpellSheetModal({
           />
         </div>
 
-        <fieldset className={styles.components}>
-          <legend>Spell Options and Components</legend>
+        <div
+          aria-label="Spell options and components"
+          className={styles.components}
+          role="group"
+        >
           <Checkbox
             checked={draft.concentration}
+            className={styles.componentOption}
             disabled={!canEdit}
             onChange={(event) => commitField('concentration', event.currentTarget.checked)}
           >
@@ -646,6 +650,7 @@ export function SpellSheetModal({
           </Checkbox>
           <Checkbox
             checked={draft.ritual}
+            className={styles.componentOption}
             disabled={!canEdit}
             onChange={(event) => commitField('ritual', event.currentTarget.checked)}
           >
@@ -653,6 +658,7 @@ export function SpellSheetModal({
           </Checkbox>
           <Checkbox
             checked={draft.components.verbal}
+            className={styles.componentOption}
             disabled={!canEdit}
             onChange={(event) => commitField('components.verbal', event.currentTarget.checked)}
           >
@@ -660,6 +666,7 @@ export function SpellSheetModal({
           </Checkbox>
           <Checkbox
             checked={draft.components.somatic}
+            className={styles.componentOption}
             disabled={!canEdit}
             onChange={(event) => commitField('components.somatic', event.currentTarget.checked)}
           >
@@ -667,12 +674,13 @@ export function SpellSheetModal({
           </Checkbox>
           <Checkbox
             checked={draft.components.material}
+            className={styles.componentOption}
             disabled={!canEdit}
             onChange={(event) => commitField('components.material', event.currentTarget.checked)}
           >
             Material
           </Checkbox>
-        </fieldset>
+        </div>
 
         {draft.components.material ? (
           <SpellTextField
