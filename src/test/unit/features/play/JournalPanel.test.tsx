@@ -270,9 +270,9 @@ describe('JournalPanel', () => {
     expect(within(spellSummary).getByRole('textbox', {
       name: 'Spellcasting Concentration Save',
     })).toHaveValue('0');
-    expect(within(spellSummary).getByRole('textbox', {
+    expect(within(spellSummary).getByRole('status', {
       name: 'Current Prepared Spells',
-    })).toHaveValue('0');
+    })).toHaveTextContent('0');
     expect(within(spellSummary).getByRole('textbox', {
       name: 'Total Prepared Spells',
     })).toHaveValue('0');
@@ -681,15 +681,14 @@ describe('JournalPanel', () => {
     let concentration = within(sheet).getByRole('textbox', {
       name: 'Spellcasting Concentration Save',
     });
-    let preparedCurrent = within(sheet).getByRole('textbox', {
-      name: 'Current Prepared Spells',
-    });
+    let preparedCurrent = within(sheet).getByLabelText('Current Prepared Spells');
     let preparedMaximum = within(sheet).getByRole('textbox', {
       name: 'Total Prepared Spells',
     });
     expect(saveDc).toHaveValue('11');
     expect(attack).toHaveValue('+3');
     expect(concentration).toHaveValue('0');
+    expect(preparedCurrent).toHaveTextContent('0');
     expect(preparedMaximum).toHaveValue('5');
 
     const spellSlotTracker = within(sheet).getByRole('region', {
@@ -762,7 +761,6 @@ describe('JournalPanel', () => {
       [saveDc, '16'],
       [attack, '+8'],
       [concentration, '+7'],
-      [preparedCurrent, '12'],
       [preparedMaximum, '9'],
     ] as const) {
       await user.clear(input);
@@ -773,12 +771,11 @@ describe('JournalPanel', () => {
       importantStats: { concentrationSaveOffset: 7 },
       spellcasting: {
         attackBonusOffset: 5,
-        preparedCurrent: 12,
         preparedMaximumOffset: 4,
         saveDcOffset: 5,
       },
     }));
-    expect(preparedCurrent).toHaveValue('12');
+    expect(preparedCurrent).toHaveTextContent('0');
     expect(preparedMaximum).toHaveValue('9');
 
     await user.click(within(sheet).getByRole('tab', { name: 'Home' }));
@@ -790,9 +787,7 @@ describe('JournalPanel', () => {
     concentration = within(sheet).getByRole('textbox', {
       name: 'Spellcasting Concentration Save',
     });
-    preparedCurrent = within(sheet).getByRole('textbox', {
-      name: 'Current Prepared Spells',
-    });
+    preparedCurrent = within(sheet).getByLabelText('Current Prepared Spells');
     preparedMaximum = within(sheet).getByRole('textbox', {
       name: 'Total Prepared Spells',
     });
@@ -801,13 +796,10 @@ describe('JournalPanel', () => {
       await user.clear(input);
       await user.tab();
     }
-    await user.clear(preparedCurrent);
-    await user.tab();
     await waitFor(() => expect(server.data).toMatchObject({
       importantStats: { concentrationSaveOffset: 0 },
       spellcasting: {
         attackBonusOffset: 0,
-        preparedCurrent: 0,
         preparedMaximumOffset: 0,
         saveDcOffset: 0,
       },
@@ -815,6 +807,7 @@ describe('JournalPanel', () => {
     expect(saveDc).toHaveValue('11');
     expect(attack).toHaveValue('+3');
     expect(concentration).toHaveValue('0');
+    expect(preparedCurrent).toHaveTextContent('0');
     expect(preparedMaximum).toHaveValue('5');
   }, 20_000);
 

@@ -246,7 +246,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 12 });
+    ))).toMatchObject({ formatVersion: 13 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -372,7 +372,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 13;
+    manifest.formatVersion = 14;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -612,7 +612,7 @@ describe('CampaignArchiveService', () => {
     importedDatabase.close();
   });
 
-  it('directly converts the untouched format-4 Character fixture into format 12', async () => {
+  it('directly converts the untouched format-4 Character fixture into format 13', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-4.blackbox-campaign',
@@ -654,7 +654,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-5 Character fixture into format 12', async () => {
+  it('directly converts the untouched format-5 Character fixture into format 13', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-5.blackbox-campaign',
@@ -703,7 +703,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-6 Character fixture into format 12', async () => {
+  it('directly converts the untouched format-6 Character fixture into format 13', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-6.blackbox-campaign',
@@ -739,7 +739,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly converts the untouched format-7 Character fixture into format 12', async () => {
+  it('directly converts the untouched format-7 Character fixture into format 13', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-7.blackbox-campaign',
@@ -880,7 +880,7 @@ describe('CampaignArchiveService', () => {
     }
   });
 
-  it('directly imports the untouched format-11 fixture without invented adjustments', async () => {
+  it('directly replaces the untouched format-11 manual prepared count', async () => {
     const { dialogs, rootDirectory, service } = await fixture();
     dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
       'src/test/fixtures/archives/dnd5e-character-format-11.blackbox-campaign',
@@ -892,6 +892,7 @@ describe('CampaignArchiveService', () => {
         report: {
           sourceRelease: '1.0.0-format-11-fixture',
           warnings: [
+            'Replaced manual Prepared Spells counts with empty spell lists for 1 D&D character imported from archive format 11; a count cannot identify specific Spell entries.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -901,10 +902,52 @@ describe('CampaignArchiveService', () => {
       path.join(rootDirectory, importedId),
     );
     try {
-      expect(importedDatabase.connection.prepare(
-        `SELECT name, default_access FROM journal_entries
+      const row = importedDatabase.connection.prepare(
+        `SELECT name, default_access, data_json FROM journal_entries
          WHERE type_id = 'dnd5e.character'`,
-      ).get()).toEqual({ default_access: 'none', name: 'New Character' });
+      ).get() as { data_json: string; default_access: string; name: string };
+      expect(row).toMatchObject({
+        default_access: 'none',
+        name: 'New Character',
+      });
+      expect((JSON.parse(row.data_json) as Dnd5eCharacterData).spellcasting)
+        .toMatchObject({ spells: [] });
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly converts the untouched format-12 spell-era fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-character-format-12.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-12-fixture',
+          warnings: [
+            'Replaced manual Prepared Spells counts with empty spell lists for 1 D&D character imported from archive format 12; a count cannot identify specific Spell entries.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const character = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect((JSON.parse(character.data_json) as Dnd5eCharacterData)
+        .spellcasting.spells).toEqual([]);
+      expect(importedDatabase.connection.prepare(
+        `SELECT name FROM journal_entries WHERE type_id = 'dnd5e.spell'`,
+      ).get()).toEqual({ name: 'Shield' });
     } finally {
       importedDatabase.close();
     }
@@ -1167,6 +1210,29 @@ describe('CampaignArchiveService', () => {
     } finally {
       salvaged.close();
     }
+  });
+
+  it('recognizes and directly salvages the format-12 spell era', async () => {
+    const { rootDirectory, service } = await fixture();
+    await layUnreadableCampaign(
+      rootDirectory,
+      'dnd5e-character-format-12.blackbox-campaign',
+    );
+
+    await expect(
+      service.salvageCampaign({ id: unreadableId }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          detectedFormat: 12,
+          warnings: [
+            'Replaced manual Prepared Spells counts with empty spell lists for 1 D&D character imported from archive format 12; a count cannot identify specific Spell entries.',
+            salvagedIdentityWarning,
+          ],
+        },
+      },
+    });
   });
 
   it('salvages the intermediate permission schema without losing access data', async () => {

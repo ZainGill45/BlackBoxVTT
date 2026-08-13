@@ -28,6 +28,7 @@ export function createDetachedCharacterApi(
     },
     journal: {
       getEntry: (input) => ipc.invoke(journalIpcChannels.getEntry, input),
+      list: (input) => ipc.invoke(journalIpcChannels.list, input),
       onChanged: (listener) => {
         const handler = (_event: IpcRendererEvent, value: unknown) =>
           listener(value as Parameters<typeof listener>[0]);

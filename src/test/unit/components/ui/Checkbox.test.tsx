@@ -37,4 +37,20 @@ describe('Checkbox', () => {
     expect(checkbox).not.toBeChecked();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('exposes an indeterminate native and accessible state', () => {
+    const { rerender } = render(
+      <Checkbox checked={false} indeterminate readOnly>Always prepared</Checkbox>,
+    );
+
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Always prepared',
+    }) as HTMLInputElement;
+    expect(checkbox.indeterminate).toBe(true);
+    expect(checkbox).toHaveAttribute('aria-checked', 'mixed');
+
+    rerender(<Checkbox checked readOnly>Prepared</Checkbox>);
+    expect(screen.getByRole('checkbox', { name: 'Prepared' })).toBeChecked();
+    expect(checkbox.indeterminate).toBe(false);
+  });
 });

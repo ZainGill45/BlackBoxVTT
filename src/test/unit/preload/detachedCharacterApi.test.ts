@@ -19,6 +19,7 @@ describe('createDetachedCharacterApi', () => {
 
     await api.host.bootstrap();
     await api.journal.getEntry({ campaignId: 'campaign', entryId: 'entry' });
+    await api.journal.list({ campaignId: 'campaign' });
     await api.journal.renameEntry({
       campaignId: 'campaign',
       entryId: 'entry',
@@ -54,6 +55,7 @@ describe('createDetachedCharacterApi', () => {
     expect(Object.keys(api)).toEqual(['host', 'journal', 'network']);
     expect(Object.keys(api.journal)).toEqual([
       'getEntry',
+      'list',
       'onChanged',
       'renameEntry',
       'updateEntryData',
@@ -63,6 +65,7 @@ describe('createDetachedCharacterApi', () => {
     ).toEqual([
       journalWindowIpcChannels.bootstrapCharacter,
       journalIpcChannels.getEntry,
+      journalIpcChannels.list,
       journalIpcChannels.renameEntry,
       journalIpcChannels.updateEntryData,
       networkIpcChannels.sendChatMessage,

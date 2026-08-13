@@ -66,6 +66,7 @@ import {
   applyDnd5eCharacterFeatureMutations,
   applyDnd5eCharacterInventoryMutations,
   applyDnd5eCharacterResourceMutations,
+  applyDnd5eCharacterSpellMutations,
   calculateDnd5eOffsetForTotal,
   createDefaultDnd5eCharacterData,
   defaultDnd5eSpellcastingAbilityForClass,
@@ -87,6 +88,8 @@ import {
   type Dnd5eCharacterFeatureMutation,
   type Dnd5eCharacterInventoryMutation,
   type Dnd5eCharacterResourceMutation,
+  type Dnd5eCharacterSpellMutation,
+  type Dnd5eDerivedCharacterValues,
   type Dnd5eRulesVersion,
   type Dnd5eSpellSlotLevel,
 } from '../characterData';
@@ -102,6 +105,7 @@ import { CharacterFeaturePanel } from './CharacterFeaturePanel';
 import { CharacterInventoryPanel } from './CharacterInventoryPanel';
 import { CharacterResourcePanel } from './CharacterResourcePanel';
 import { CharacterSkillTrainingButton } from './CharacterSkillTrainingButton';
+import { CharacterSpellPanel } from './CharacterSpellPanel';
 import styles from './CharacterSheetModal.module.css';
 
 type CharacterSheetTab = 'home' | 'settings' | 'spells';
@@ -334,6 +338,7 @@ function mergeCharacterDraft(
   inventoryMutations: readonly Dnd5eCharacterInventoryMutation[],
   resourceMutations: readonly Dnd5eCharacterResourceMutation[],
   featureMutations: readonly Dnd5eCharacterFeatureMutation[],
+  spellMutations: readonly Dnd5eCharacterSpellMutation[],
 ) {
   const next = mergeFields(data, fields);
   const actions = applyDnd5eCharacterActionMutations(
@@ -356,6 +361,10 @@ function mergeCharacterDraft(
     next.features,
     featureMutations,
   );
+  const spells = applyDnd5eCharacterSpellMutations(
+    next.spellcasting.spells,
+    spellMutations,
+  );
   return {
     data: {
       ...next,
@@ -364,6 +373,7 @@ function mergeCharacterDraft(
       features: features.features,
       inventory: inventory.inventory,
       resources: resources.resources,
+      spellcasting: { ...next.spellcasting, spells: spells.spells },
     },
     missingActionIds: actions.missingIds,
     missingCustomSkillIds: customSkills.missingIds,
@@ -371,6 +381,7 @@ function mergeCharacterDraft(
     missingFeatureIds: features.missingIds,
     missingInventoryIds: inventory.missingIds,
     missingResourceIds: resources.missingIds,
+    missingSpellIds: spells.missingIds,
   };
 }
 
@@ -497,6 +508,12 @@ function AbilityValueField({
   );
 }
 
+function spellMutationTarget(
+  mutation: Dnd5eCharacterSpellMutation,
+): string | null {
+  return mutation.kind === 'set-preparation' ? mutation.entryId : null;
+}
+
 export function measureCharacterSheetModal(): JournalWindowGeometry {
   const rootFontSize = Number.parseFloat(
     getComputedStyle(document.documentElement).fontSize,
@@ -598,6 +615,11 @@ function CharacterSheetEditor({
   const [pendingRolls, setPendingRolls] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
+  const [preparedSpellSummary, setPreparedSpellSummary] = useState({
+    current: 0,
+    incomplete: false,
+    overMaximum: false,
+  });
   const currentRef = useRef(initialEntry);
   const draftRef = useRef(initialData);
   const nameRef = useRef(entry.name);
@@ -607,6 +629,7 @@ function CharacterSheetEditor({
   const featureMutationsRef = useRef<Dnd5eCharacterFeatureMutation[]>([]);
   const inventoryMutationsRef = useRef<Dnd5eCharacterInventoryMutation[]>([]);
   const resourceMutationsRef = useRef<Dnd5eCharacterResourceMutation[]>([]);
+  const spellMutationsRef = useRef<Dnd5eCharacterSpellMutation[]>([]);
   const saveTimerRef = useRef<number | null>(null);
   const mutationQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
   const saveInFlightRef = useRef<Promise<boolean> | null>(null);
@@ -650,6 +673,7 @@ function CharacterSheetEditor({
     featureMutationsRef.current.length > 0 ||
     inventoryMutationsRef.current.length > 0 ||
     resourceMutationsRef.current.length > 0 ||
+    spellMutationsRef.current.length > 0 ||
     nameRef.current !== currentRef.current.name
   ), []);
 
@@ -661,6 +685,7 @@ function CharacterSheetEditor({
     savedInventoryMutations?: readonly Dnd5eCharacterInventoryMutation[],
     savedResourceMutations?: readonly Dnd5eCharacterResourceMutation[],
     savedFeatureMutations?: readonly Dnd5eCharacterFeatureMutation[],
+    savedSpellMutations?: readonly Dnd5eCharacterSpellMutation[],
     savedName?: string,
   ): boolean => {
     const normalized = parseCharacterEntry(updated);
@@ -705,6 +730,12 @@ function CharacterSheetEditor({
         (mutation) => !saved.has(mutation),
       );
     }
+    if (savedSpellMutations) {
+      const saved = new Set(savedSpellMutations);
+      spellMutationsRef.current = spellMutationsRef.current.filter(
+        (mutation) => !saved.has(mutation),
+      );
+    }
     const pendingName = nameRef.current;
     const nameWasDirty = pendingName !== currentRef.current.name;
     const nextName = savedName !== undefined && normalizeJournalTitle(pendingName) === savedName
@@ -724,6 +755,7 @@ function CharacterSheetEditor({
       inventoryMutationsRef.current,
       resourceMutationsRef.current,
       featureMutationsRef.current,
+      spellMutationsRef.current,
     );
     if (merged.missingActionIds.length > 0) {
       const missingIds = new Set(merged.missingActionIds);
@@ -739,6 +771,7 @@ function CharacterSheetEditor({
         inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
+        spellMutationsRef.current,
       );
       setError('An Action was deleted remotely, so its pending local edit was discarded.');
     }
@@ -756,6 +789,7 @@ function CharacterSheetEditor({
         inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
+        spellMutationsRef.current,
       );
       setError('A Custom Skill was deleted remotely, so its pending local edit was discarded.');
     }
@@ -773,6 +807,7 @@ function CharacterSheetEditor({
         inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
+        spellMutationsRef.current,
       );
       setError('A Resource was deleted remotely, so its pending local edit was discarded.');
     }
@@ -792,6 +827,7 @@ function CharacterSheetEditor({
         inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
+        spellMutationsRef.current,
       );
       setError(inventoryWasInvalid
         ? 'Pending Inventory changes could not be applied to the latest Character.'
@@ -811,8 +847,27 @@ function CharacterSheetEditor({
         inventoryMutationsRef.current,
         resourceMutationsRef.current,
         featureMutationsRef.current,
+        spellMutationsRef.current,
       );
       setError('A Feature was deleted remotely, so its pending local edit was discarded.');
+    }
+    if (merged.missingSpellIds.length > 0) {
+      const missingIds = new Set(merged.missingSpellIds);
+      spellMutationsRef.current = spellMutationsRef.current.filter((mutation) => {
+        const target = spellMutationTarget(mutation);
+        return target === null || !missingIds.has(target);
+      });
+      merged = mergeCharacterDraft(
+        normalized.data,
+        dirtyFieldsRef.current,
+        actionMutationsRef.current,
+        customSkillMutationsRef.current,
+        inventoryMutationsRef.current,
+        resourceMutationsRef.current,
+        featureMutationsRef.current,
+        spellMutationsRef.current,
+      );
+      setError('A spell was removed remotely, so its pending preparation change was discarded.');
     }
     draftRef.current = merged.data;
     setDraft(merged.data);
@@ -862,6 +917,7 @@ function CharacterSheetEditor({
     const inventoryMutations = [...inventoryMutationsRef.current];
     const resourceMutations = [...resourceMutationsRef.current];
     const featureMutations = [...featureMutationsRef.current];
+    const spellMutations = [...spellMutationsRef.current];
     const pendingName = normalizeJournalTitle(nameRef.current);
     const nameChanged = pendingName !== active.name;
     if (
@@ -871,6 +927,7 @@ function CharacterSheetEditor({
       inventoryMutations.length === 0 &&
       resourceMutations.length === 0 &&
       featureMutations.length === 0 &&
+      spellMutations.length === 0 &&
       !nameChanged
     ) {
       if (nameRef.current !== active.name) {
@@ -889,7 +946,8 @@ function CharacterSheetEditor({
         customSkillMutations.length > 0 ||
         inventoryMutations.length > 0 ||
         resourceMutations.length > 0 ||
-        featureMutations.length > 0
+        featureMutations.length > 0 ||
+        spellMutations.length > 0
       ) {
         if (!isCharacterEntry(next)) return false;
         let merged = mergeCharacterDraft(
@@ -900,6 +958,7 @@ function CharacterSheetEditor({
           inventoryMutations,
           resourceMutations,
           featureMutations,
+          spellMutations,
         );
         if (
           merged.invalidInventory ||
@@ -908,6 +967,7 @@ function CharacterSheetEditor({
           merged.missingInventoryIds.length > 0 ||
           merged.missingResourceIds.length > 0 ||
           merged.missingFeatureIds.length > 0 ||
+          merged.missingSpellIds.length > 0 ||
           !isDnd5eCharacterData(merged.data)
         ) {
           setError(merged.invalidInventory
@@ -922,6 +982,8 @@ function CharacterSheetEditor({
                     ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
                     : merged.missingResourceIds.length > 0
                       ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
+                      : merged.missingSpellIds.length > 0
+                        ? 'A spell was removed remotely, so its pending preparation change was discarded.'
                       : 'The Character collection data is invalid.');
           return false;
         }
@@ -952,6 +1014,7 @@ function CharacterSheetEditor({
             inventoryMutations,
             resourceMutations,
             featureMutations,
+            spellMutations,
           );
           if (
             merged.invalidInventory ||
@@ -960,6 +1023,7 @@ function CharacterSheetEditor({
             merged.missingInventoryIds.length > 0 ||
             merged.missingResourceIds.length > 0 ||
             merged.missingFeatureIds.length > 0 ||
+            merged.missingSpellIds.length > 0 ||
             !isDnd5eCharacterData(merged.data)
           ) {
             setError(merged.invalidInventory
@@ -974,6 +1038,8 @@ function CharacterSheetEditor({
                       ? 'A Feature was deleted remotely, so its pending local edit was discarded.'
                       : merged.missingResourceIds.length > 0
                         ? 'A Resource was deleted remotely, so its pending local edit was discarded.'
+                        : merged.missingSpellIds.length > 0
+                          ? 'A spell was removed remotely, so its pending preparation change was discarded.'
                         : 'The Character collection data is invalid.');
             return false;
           }
@@ -999,6 +1065,7 @@ function CharacterSheetEditor({
           inventoryMutations,
           resourceMutations,
           featureMutations,
+          spellMutations,
         )) return false;
       }
 
@@ -1037,6 +1104,7 @@ function CharacterSheetEditor({
         }
         if (!applyServerEntry(
           nameResult.value,
+          undefined,
           undefined,
           undefined,
           undefined,
@@ -1192,6 +1260,164 @@ function CharacterSheetEditor({
   const commitFeature = async (
     mutation: Dnd5eCharacterFeatureMutation,
   ): Promise<boolean> => changeFeature(mutation) && save();
+
+  const commitSpells = async (
+    mutations: readonly Dnd5eCharacterSpellMutation[],
+  ): Promise<boolean> => {
+    if (mutations.length === 0) return true;
+    const applied = applyDnd5eCharacterSpellMutations(
+      draftRef.current.spellcasting.spells,
+      mutations,
+    );
+    if (applied.missingIds.length > 0) {
+      setError('The spell is no longer attached to this character.');
+      return false;
+    }
+    const next = {
+      ...draftRef.current,
+      spellcasting: {
+        ...draftRef.current.spellcasting,
+        spells: applied.spells,
+      },
+    };
+    if (!isDnd5eCharacterData(next)) {
+      setError('That spell list change is not valid.');
+      return false;
+    }
+    spellMutationsRef.current.push(...mutations);
+    draftRef.current = next;
+    setDraft(next);
+    return save();
+  };
+
+  const consumeSpellSlot = async (
+    slotLevel: Dnd5eSpellSlotLevel,
+    compile: (
+      character: Dnd5eCharacterData,
+      derived: Dnd5eDerivedCharacterValues,
+    ) => ChatRollDefinition | null,
+  ): Promise<ChatRollDefinition | null> => {
+    if (!await save()) return null;
+    let definition: ChatRollDefinition | null = null;
+    const queued = mutationQueueRef.current.then(async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const active = currentRef.current;
+        if (!isCharacterEntry(active) || !active.capabilities.edit) {
+          setError('Editing permission is required to consume spell slots.');
+          return false;
+        }
+        if (active.data.spellcasting.slots[slotLevel].current < 1) {
+          setError('That spell slot is no longer available.');
+          return false;
+        }
+        const latestDerived = deriveDnd5eCharacterValues(
+          active.data,
+          rulesVersion,
+        );
+        if (!latestDerived) {
+          setError('The Character values are invalid and the spell cannot be cast.');
+          return false;
+        }
+        const compiled = compile(active.data, latestDerived);
+        if (!compiled) return false;
+        const candidate = structuredClone(active.data);
+        candidate.spellcasting.slots[slotLevel].current -= 1;
+        const result = await journalApi.updateEntryData({
+          campaignId,
+          data: candidate,
+          entryId: active.id,
+          expectedRevision: active.revision,
+        });
+        if (result.ok) {
+          if (result.value.kind !== 'system' || !applyServerEntry(result.value)) {
+            setError('The Character entry returned by the campaign is invalid.');
+            return false;
+          }
+          definition = compiled;
+          return true;
+        }
+        if (result.error.code !== 'conflict') {
+          setError(result.error.message);
+          return false;
+        }
+        const refreshed = await journalApi.getEntry({
+          campaignId,
+          entryId: active.id,
+        });
+        if (!refreshed.ok || refreshed.value.kind !== 'system' ||
+          !applyServerEntry(refreshed.value)) {
+          setError(refreshed.ok
+            ? 'The Character data returned by the campaign is invalid.'
+            : refreshed.error.message);
+          return false;
+        }
+      }
+      setError('The spell slot changed too many times to complete this cast.');
+      return false;
+    });
+    mutationQueueRef.current = queued.catch(() => false);
+    return await queued ? definition : null;
+  };
+
+  const adjustSpellSlot = async (
+    slotLevel: Dnd5eSpellSlotLevel,
+    delta: -1 | 1,
+  ): Promise<boolean> => {
+    if (!await save()) return false;
+    const queued = mutationQueueRef.current.then(async () => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const active = currentRef.current;
+        if (!isCharacterEntry(active) || !active.capabilities.edit) {
+          setError('Editing permission is required to change spell slots.');
+          return false;
+        }
+        const currentSlots = active.data.spellcasting.slots[slotLevel].current;
+        if (delta < 0 && currentSlots < 1) {
+          setError('That spell slot is no longer available.');
+          return false;
+        }
+        const adjusted = currentSlots + delta;
+        if (!Number.isSafeInteger(adjusted) || adjusted < 0) {
+          setError('The spell slot value is outside the supported range.');
+          return false;
+        }
+        const candidate = structuredClone(active.data);
+        candidate.spellcasting.slots[slotLevel].current = adjusted;
+        const result = await journalApi.updateEntryData({
+          campaignId,
+          data: candidate,
+          entryId: active.id,
+          expectedRevision: active.revision,
+        });
+        if (result.ok) {
+          if (result.value.kind !== 'system' || !applyServerEntry(result.value)) {
+            setError('The Character entry returned by the campaign is invalid.');
+            return false;
+          }
+          return true;
+        }
+        if (result.error.code !== 'conflict') {
+          setError(result.error.message);
+          return false;
+        }
+        const refreshed = await journalApi.getEntry({
+          campaignId,
+          entryId: active.id,
+        });
+        if (!refreshed.ok || refreshed.value.kind !== 'system' ||
+          !applyServerEntry(refreshed.value)) {
+          setError(refreshed.ok
+            ? 'The Character data returned by the campaign is invalid.'
+            : refreshed.error.message);
+          return false;
+        }
+      }
+      setError('The spell slot changed too many times to complete this cast.');
+      return false;
+    });
+    mutationQueueRef.current = queued.catch(() => false);
+    return queued;
+  };
 
   const changeName = (value: string) => {
     nameRef.current = value;
@@ -2497,32 +2723,19 @@ function CharacterSheetEditor({
                     >
                       <h2>Prepared Spells</h2>
                       <div className={`${styles.spellSummaryValue} ${styles.preparedSpellValues}`}>
-                        <InlineInput
+                        <output
                           aria-label="Current Prepared Spells"
-                          autoComplete="off"
                           className={styles.spellSummaryInput}
-                          inputMode="numeric"
-                          maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
-                          readOnly={!canEdit}
-                          size={Math.max(1, numericValue(
-                            'spellcasting.preparedCurrent',
-                            String(draft.spellcasting.preparedCurrent),
-                          ).length)}
-                          value={numericValue(
-                            'spellcasting.preparedCurrent',
-                            String(draft.spellcasting.preparedCurrent),
-                          )}
-                          onBlur={() => commitNonnegativeValue(
-                            'spellcasting.preparedCurrent',
-                          )}
-                          onChange={(event) => changeNumericBuffer(
-                            'spellcasting.preparedCurrent',
-                            event.currentTarget.value,
-                          )}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') event.currentTarget.blur();
-                          }}
-                        />
+                          data-incomplete={preparedSpellSummary.incomplete}
+                          data-over-maximum={preparedSpellSummary.overMaximum}
+                          title={preparedSpellSummary.incomplete
+                            ? 'Unavailable Prepared spells are excluded from this count.'
+                            : preparedSpellSummary.overMaximum
+                              ? 'Prepared spells exceed the current maximum.'
+                              : undefined}
+                        >
+                          {preparedSpellSummary.current}
+                        </output>
                         <span aria-hidden>/</span>
                         {spellSummaryCalculatedInput(
                           'spellcasting.preparedMaximumOffset',
@@ -2628,6 +2841,21 @@ function CharacterSheetEditor({
                       )}
                     </div>
                   </section>
+                  <CharacterSpellPanel
+                    campaignId={campaignId}
+                    canEdit={canEdit}
+                    characterEntryId={current.id}
+                    data={draft}
+                    derived={derived}
+                    journalApi={journalApi}
+                    networkApi={networkApi}
+                    onCommitSpells={commitSpells}
+                    onConsumeSpellSlot={consumeSpellSlot}
+                    onError={setError}
+                    onPreparedSummaryChange={setPreparedSpellSummary}
+                    onRefundSpellSlot={(level) => adjustSpellSlot(level, 1)}
+                    onSendRoll={sendRoll}
+                  />
                 </div>
               )}
             </main>

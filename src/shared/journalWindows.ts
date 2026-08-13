@@ -56,7 +56,7 @@ export interface DetachedCharacterContext {
 
 export type CharacterSheetJournalApi = Pick<
   JournalApi,
-  'getEntry' | 'onChanged' | 'renameEntry' | 'updateEntryData'
+  'getEntry' | 'list' | 'onChanged' | 'renameEntry' | 'updateEntryData'
 >;
 
 export type CharacterSheetNetworkApi = Pick<

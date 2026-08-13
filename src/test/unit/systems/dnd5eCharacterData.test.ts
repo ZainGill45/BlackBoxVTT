@@ -5,6 +5,7 @@ import {
   applyDnd5eCharacterInventoryMutations,
   applyDnd5eCharacterFeatureMutations,
   applyDnd5eCharacterResourceMutations,
+  applyDnd5eCharacterSpellMutations,
   calculateDnd5eOffsetForTotal,
   calculateDnd5eSkillValues,
   createDefaultDnd5eCharacterData,
@@ -24,6 +25,7 @@ import {
   MAX_DND5E_CHARACTER_INVENTORY_DEPTH,
   MAX_DND5E_CHARACTER_INVENTORY_ENTRIES,
   MAX_DND5E_CHARACTER_RESOURCES,
+  MAX_DND5E_CHARACTER_SPELLS,
   nextDnd5eSkillTraining,
   parseDnd5eNonnegativeWeight,
   parseDnd5eSafeInteger,
@@ -1212,6 +1214,73 @@ describe('D&D Character data', () => {
       ...valid,
       spellcasting: { ...valid.spellcasting, extra: true },
     })).toBe(false);
+  });
+
+  it('validates unique bounded spell references and preparation states', () => {
+    const valid = createDefaultDnd5eCharacterData();
+    valid.spellcasting.spells = [
+      { entryId: inventoryUuid(1), preparation: 'unprepared' },
+      { entryId: inventoryUuid(2), preparation: 'prepared' },
+      { entryId: inventoryUuid(3), preparation: 'always-prepared' },
+    ];
+    expect(isDnd5eCharacterData(valid)).toBe(true);
+
+    const duplicate = structuredClone(valid);
+    duplicate.spellcasting.spells[2].entryId = inventoryUuid(2);
+    expect(isDnd5eCharacterData(duplicate)).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      spellcasting: {
+        ...valid.spellcasting,
+        spells: [{ entryId: 'not-a-uuid', preparation: 'prepared' }],
+      },
+    })).toBe(false);
+    expect(isDnd5eCharacterData({
+      ...valid,
+      spellcasting: {
+        ...valid.spellcasting,
+        spells: [{ entryId: inventoryUuid(1), preparation: 'sometimes' }],
+      },
+    })).toBe(false);
+
+    const atLimit = createDefaultDnd5eCharacterData();
+    atLimit.spellcasting.spells = Array.from(
+      { length: MAX_DND5E_CHARACTER_SPELLS },
+      (_, index) => ({
+        entryId: inventoryUuid(index),
+        preparation: 'unprepared' as const,
+      }),
+    );
+    expect(isDnd5eCharacterData(atLimit)).toBe(true);
+    atLimit.spellcasting.spells.push({
+      entryId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      preparation: 'unprepared',
+    });
+    expect(isDnd5eCharacterData(atLimit)).toBe(false);
+  });
+
+  it('rebases attaching, preparation, and removal spell mutations', () => {
+    const first = inventoryUuid(1);
+    const second = inventoryUuid(2);
+    const result = applyDnd5eCharacterSpellMutations(
+      [{ entryId: first, preparation: 'unprepared' }],
+      [
+        { kind: 'add', spell: { entryId: second, preparation: 'unprepared' } },
+        { kind: 'add', spell: { entryId: first, preparation: 'prepared' } },
+        { entryId: first, kind: 'set-preparation', preparation: 'always-prepared' },
+        { entryId: second, kind: 'remove' },
+        {
+          entryId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          kind: 'set-preparation',
+          preparation: 'prepared',
+        },
+      ],
+    );
+
+    expect(result).toEqual({
+      missingIds: ['ffffffff-ffff-4fff-8fff-ffffffffffff'],
+      spells: [{ entryId: first, preparation: 'always-prepared' }],
+    });
   });
 
   it('parses, formats, and rebases directly edited totals', () => {

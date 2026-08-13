@@ -9,8 +9,12 @@ import {
   createDefaultDnd5eCharacterData,
   type Dnd5eCharacterData,
 } from '../../../systems/dnd5e/characterData';
-import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+  DND5E_SPELL_ENTRY_TYPE_ID,
+} from '../../../systems/dnd5e/definition';
 import { CharacterSheetDetached } from '../../../systems/dnd5e/renderer/CharacterSheetModal';
+import { createDefaultDnd5eSpellData } from '../../../systems/dnd5e/spellData';
 import { createMockNetworkApi } from '../../support/networkApi';
 
 const campaignId = '11111111-1111-4111-8111-111111111111';
@@ -118,6 +122,10 @@ function renderCharacterSheet() {
   let server = characterEntry();
   const journalApi: CharacterSheetJournalApi = {
     getEntry: vi.fn(async () => ({ ok: true as const, value: server })),
+    list: vi.fn(async () => ({
+      ok: true as const,
+      value: { entries: [server], revision: server.revision },
+    })),
     onChanged: vi.fn(() => () => undefined),
     renameEntry: vi.fn(async (input) => {
       server = { ...server, name: input.name, revision: server.revision + 1 };
@@ -418,5 +426,133 @@ describe('CharacterSheetModal chat actions', () => {
         recipient: null,
       }),
     ));
+  });
+
+  it('recompiles after a slot conflict and durably refunds a failed cast', async () => {
+    const user = userEvent.setup();
+    const spellId = '30000000-0000-4000-8000-000000000001';
+    let server = characterEntry();
+    const characterData = server.data as Dnd5eCharacterData;
+    characterData.identity.className = 'Wizard';
+    characterData.identity.level = 5;
+    characterData.abilities.intelligence.score = 18;
+    characterData.spellcasting.ability = 'intelligence';
+    characterData.spellcasting.slots['1'].current = 1;
+    characterData.spellcasting.spells = [{
+      entryId: spellId,
+      preparation: 'unprepared',
+    }];
+    const spellData = createDefaultDnd5eSpellData();
+    spellData.level = 1;
+    spellData.rollSteps = [{
+      id: '30000000-0000-4000-8000-000000000002',
+      label: 'Power',
+      purpose: 'roll',
+      terms: [{ kind: 'spellcasting-modifier' }],
+    }];
+    const spell: SystemJournalEntry = {
+      capabilities: server.capabilities,
+      data: spellData,
+      detail: '1st Level Abjuration',
+      groupId: 'dnd5e.spells',
+      id: spellId,
+      kind: 'system',
+      name: 'Conflict Ward',
+      permissionRevision: 0,
+      permissions: server.permissions,
+      position: 1,
+      revision: 0,
+      typeId: DND5E_SPELL_ENTRY_TYPE_ID,
+    };
+    let conflicted = false;
+    const updateEntryData = vi.fn(async (
+      input: Parameters<CharacterSheetJournalApi['updateEntryData']>[0],
+    ) => {
+      if (!conflicted) {
+        conflicted = true;
+        const remoteData = structuredClone(server.data as Dnd5eCharacterData);
+        remoteData.abilities.intelligence.score = 20;
+        server = { ...server, data: remoteData, revision: 1 };
+        return {
+          error: { code: 'conflict' as const, message: 'Changed remotely.' },
+          ok: false as const,
+        };
+      }
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true as const, value: server };
+    });
+    const journalApi: CharacterSheetJournalApi = {
+      getEntry: vi.fn(async ({ entryId }) => ({
+        ok: true as const,
+        value: entryId === spellId ? spell : server,
+      })),
+      list: vi.fn(async () => ({
+        ok: true as const,
+        value: { entries: [server, spell], revision: 1 },
+      })),
+      onChanged: vi.fn(() => () => undefined),
+      renameEntry: vi.fn(),
+      updateEntryData,
+    };
+    const sendChatRoll = vi.fn(async () => ({
+      error: { code: 'timeout' as const, message: 'Chat timed out.' },
+      ok: false as const,
+    }));
+    const system = createDefaultCampaignSystemState();
+    if (!system) throw new Error('The default game system must exist.');
+    render(
+      <CharacterSheetDetached
+        campaignId={campaignId}
+        closeRequestId={0}
+        entry={server}
+        journalApi={journalApi}
+        networkApi={createMockNetworkApi({ sendChatRoll })}
+        onDismiss={() => undefined}
+        onUpdated={() => undefined}
+        system={system}
+      />,
+    );
+    const sheet = screen.getByRole('document', {
+      name: 'Aria Stone character sheet',
+    });
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+    await within(sheet).findByRole('heading', { name: 'Conflict Ward' });
+    await waitFor(() => expect(within(sheet).getByRole('combobox', {
+      name: 'Spell cast mode',
+    })).toHaveValue('slot:1'));
+    await user.click(within(sheet).getByRole('button', { name: 'Cast' }));
+
+    await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(3));
+    expect(updateEntryData.mock.calls.map(([input]) => ({
+      current: (input.data as Dnd5eCharacterData)
+        .spellcasting.slots['1'].current,
+      expectedRevision: input.expectedRevision,
+    }))).toEqual([
+      { current: 0, expectedRevision: 0 },
+      { current: 0, expectedRevision: 1 },
+      { current: 1, expectedRevision: 2 },
+    ]);
+    expect(sendChatRoll).toHaveBeenCalledWith(expect.objectContaining({
+      definition: expect.objectContaining({
+        category: 'Spell',
+        sections: [
+          expect.anything(),
+          expect.objectContaining({
+            modifiers: [{ label: 'Spellcasting Modifier', value: 5 }],
+          }),
+        ],
+        title: 'Conflict Ward',
+      }),
+    }));
+    expect(server.data).toMatchObject({
+      spellcasting: { slots: { '1': { current: 1 } } },
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The cast was not sent. The spell slot was refunded.',
+    );
   });
 });

@@ -394,4 +394,157 @@ test.describe('networked D&D character sheets', () => {
       ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
     )).toBe(1);
   });
+
+  test('synchronizes attached spells, casts through chat, and hides revoked spell details', async () => {
+    const gm = await apps.launch();
+    const player = await apps.launch();
+    const port = await availablePort();
+    await createAndOpenCampaign(gm.window, CAMPAIGN);
+    await addPlayer(gm.window, USERNAME, PASSWORD);
+    await setHostPort(gm.window, port);
+    await joinCampaign(player.window, {
+      campaign: CAMPAIGN,
+      password: PASSWORD,
+      port,
+      username: USERNAME,
+    });
+
+    await openTab(gm.window, 'Journal');
+    await gm.window.getByRole('button', { name: 'Add journal entry' }).click();
+    await gm.window.getByRole('menuitem', { name: 'Spell' }).click();
+    const spellSheet = gm.window.getByRole('dialog', { name: /spell sheet$/ });
+    await spellSheet.getByLabel('Spell Name').fill('Network Ward');
+    await spellSheet.getByLabel('Spell Name').blur();
+    await spellSheet.getByLabel('Level', { exact: true }).selectOption('1');
+    await spellSheet.getByLabel('School', { exact: true }).selectOption('Abjuration');
+    await spellSheet.getByLabel('Spell Description').fill(
+      'A ward whose contents must disappear when permission is revoked.',
+    );
+    await spellSheet.getByLabel('Spell Description').blur();
+    await spellSheet.press('Escape');
+
+    await gm.window.getByRole('button', { name: 'Add journal entry' }).click();
+    await gm.window.getByRole('menuitem', { name: 'Character' }).click();
+    let gmCharacterSheet = gm.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await gmCharacterSheet.getByRole('button', { exact: true, name: 'Class' }).click();
+    await gmCharacterSheet.getByRole('group', { name: 'Class options' })
+      .getByRole('button', { name: 'Wizard' })
+      .click();
+    await gmCharacterSheet.getByRole('button', { exact: true, name: 'Level' }).click();
+    await gmCharacterSheet.getByRole('group', { name: 'Level options' })
+      .getByRole('button', { exact: true, name: '1' })
+      .click();
+    await gmCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
+    const gmFirstLevelSlots = gmCharacterSheet.getByLabel('1st Level Spell Slots Current');
+    await gmFirstLevelSlots.fill('1');
+    await gmFirstLevelSlots.blur();
+    await gmCharacterSheet.getByRole('button', {
+      name: 'Add spells to character',
+    }).click();
+    const picker = gm.window.getByRole('dialog', { name: 'Add spells to character' });
+    await picker.locator('label', { hasText: 'Network Ward' }).click();
+    await picker.getByRole('button', { name: 'Done' }).click();
+    await expect(gmCharacterSheet.getByRole('button', { name: 'View Network Ward' }))
+      .toBeVisible();
+    await gmCharacterSheet.press('Escape');
+
+    const characterRow = gm.window.getByRole('button', {
+      exact: true,
+      name: 'Open New Character',
+    });
+    await characterRow.click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
+    let permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
+    await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
+    await permissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'View' })
+      .click();
+    await permissions.press('Escape');
+
+    await openTab(player.window, 'Journal');
+    await player.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    const playerCharacterRow = player.window.getByRole('button', {
+      exact: true,
+      name: 'Open New Character',
+    });
+    await playerCharacterRow.click();
+    let playerCharacterSheet = player.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await playerCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
+    await expect(playerCharacterSheet.getByRole('button', { name: 'View Network Ward' }))
+      .toBeVisible();
+    await expect(playerCharacterSheet.getByRole('combobox', { name: 'Spell cast mode' }))
+      .toHaveValue('without-slot');
+    await expect(playerCharacterSheet.getByRole('option', { name: /Cast at 1st Level/ }))
+      .toBeDisabled();
+    await playerCharacterSheet.getByRole('button', { exact: true, name: 'Cast' }).click();
+    await playerCharacterSheet.press('Escape');
+
+    await openTab(player.window, 'Chat');
+    await openTab(gm.window, 'Chat');
+    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
+      .toHaveCount(1);
+    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
+      .toHaveCount(1);
+
+    await openTab(gm.window, 'Journal');
+    await gm.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    await characterRow.click();
+    gmCharacterSheet = gm.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await gmCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
+    await expect(gmFirstLevelSlots).toHaveValue('1');
+    await expect(gmCharacterSheet.getByRole('combobox', { name: 'Spell cast mode' }))
+      .toHaveValue('slot:1');
+    await gmCharacterSheet.getByRole('button', { exact: true, name: 'Cast' }).click();
+    await expect(gmFirstLevelSlots).toHaveValue('0');
+    await gmCharacterSheet.press('Escape');
+
+    await openTab(gm.window, 'Chat');
+    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
+      .toHaveCount(2);
+    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
+      .toHaveCount(2);
+
+    await openTab(player.window, 'Journal');
+    await player.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    await playerCharacterRow.click();
+    playerCharacterSheet = player.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await playerCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
+    await expect(playerCharacterSheet.getByRole('heading', { name: 'Network Ward' }))
+      .toBeVisible();
+
+    await openTab(gm.window, 'Journal');
+    const spellsGroup = gm.window.locator('button[aria-expanded]', { hasText: 'Spells' });
+    if (await spellsGroup.getAttribute('aria-expanded') === 'false') {
+      await spellsGroup.click();
+    }
+    const spellRow = gm.window.getByRole('button', {
+      exact: true,
+      name: 'Open Network Ward',
+    });
+    await spellRow.click({ button: 'right' });
+    await gm.window.getByRole('menuitem', { name: 'Edit Permissions' }).click();
+    permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
+    await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
+    await permissions
+      .getByRole('group', { name: `${USERNAME} permission options` })
+      .getByRole('button', { exact: true, name: 'No access' })
+      .click();
+
+    await expect(playerCharacterSheet.getByRole('heading', { name: 'Unavailable' }))
+      .toBeVisible();
+    await expect(playerCharacterSheet.getByText('This spell is unavailable.'))
+      .toBeVisible();
+    await expect(playerCharacterSheet.getByText(/ward whose contents/)).toHaveCount(0);
+    await expect(playerCharacterSheet.getByRole('button', { name: 'View unavailable spell' }))
+      .toBeVisible();
+  });
 });

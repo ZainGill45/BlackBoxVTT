@@ -54,6 +54,16 @@
   opacity: 1;
 }
 
+.input:indeterminate + .control {
+  color: var(--color-text);
+  background: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.input:indeterminate + .control .checkedIndicator {
+  opacity: 0;
+}
+
 .label {
   min-width: 0;
 }

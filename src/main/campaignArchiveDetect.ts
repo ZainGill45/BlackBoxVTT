@@ -13,6 +13,7 @@ import {
 import { isDnd5eSpellData } from '../systems/dnd5e/spellData';
 import { addEmptyDnd5eCharacterActionsToValue } from './campaignArchiveCharacterActions';
 import { addEmptyDnd5eCustomSkillsToValue } from './campaignArchiveCharacterCustomSkills';
+import { addEmptyDnd5eCharacterSpellReferencesToValue } from './campaignArchiveCharacterSpellReferences';
 import { addDefaultDnd5eSpellcastingToValue } from './campaignArchiveCharacterSpellcasting';
 import { convertDnd5eCharacterDataFromArchiveFormat8 } from './campaignArchiveCharacterHealth';
 import { addDefaultDnd5eSkillOffsetsToValue } from './campaignArchiveCharacterSkills';
@@ -31,7 +32,7 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
  */
 
 export type HistoricalCampaignFormatVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
 
 export type CampaignSalvageConversion =
   | 1
@@ -45,6 +46,7 @@ export type CampaignSalvageConversion =
   | 9
   | 10
   | 11
+  | 12
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -80,8 +82,8 @@ const INTERMEDIATE_PERMISSION_SCHEMA_FINGERPRINT =
 const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
   'f1e073d9f3f5aadf2a640ff56f1cef247d9c13d31601c6c4200e76162b45637f';
 
-/** Canonical schema shared by formats 7 through 11 and the current format 12. */
-const FORMAT_7_TO_12_SCHEMA_FINGERPRINT =
+/** Canonical database schema shared by formats 7 through the current format. */
+const FORMAT_7_TO_CURRENT_SCHEMA_FINGERPRINT =
   '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
 
 function schemaFingerprint(connection: DatabaseSync): string {
@@ -217,7 +219,7 @@ function detectCharacterEra(
   }
 }
 
-function detectFormat4To11CharacterEra(
+function detectFormat4To12CharacterEra(
   connection: DatabaseSync,
   schemaCouldBeCurrent = false,
 ): CampaignFormatDetection {
@@ -235,10 +237,12 @@ function detectFormat4To11CharacterEra(
       reason: schemaCouldBeCurrent
         ? 'This campaign’s structure is already current, so an outdated ' +
           'format is not what makes it unreadable.'
-        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, or 11.',
+        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, 11, or 12.',
     };
   }
-  const shapes = new Set<'4' | '5' | '6' | '7' | '8' | '9' | '10' | '11'>();
+  const shapes = new Set<
+    '4' | '5' | '6' | '7' | '8' | '9' | '10' | '11-or-12' | 'current'
+  >();
   for (const row of rows) {
     let parsed: unknown;
     try {
@@ -250,7 +254,11 @@ function detectFormat4To11CharacterEra(
       };
     }
     if (schemaCouldBeCurrent && isDnd5eCharacterData(parsed as JsonValue)) {
-      shapes.add('11');
+      shapes.add('current');
+      continue;
+    }
+    if (addEmptyDnd5eCharacterSpellReferencesToValue(parsed)) {
+      shapes.add('11-or-12');
       continue;
     }
     const format4 = !!parsed &&
@@ -299,7 +307,7 @@ function detectFormat4To11CharacterEra(
     return {
       ok: false,
       reason:
-        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, or 11.',
+        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, or 12.',
     };
   }
   if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
@@ -309,16 +317,23 @@ function detectFormat4To11CharacterEra(
   if (shapes.has('8') && shapes.size === 1) return { ok: true, version: 8 };
   if (shapes.has('9') && shapes.size === 1) return { ok: true, version: 9 };
   if (shapes.has('10') && shapes.size === 1) return { ok: true, version: 10 };
-  if (shapes.has('11') && shapes.size === 1) {
-    return detectFormat11OrCurrentSpellEra(connection);
+  if (shapes.has('11-or-12') && shapes.size === 1) {
+    return detectFormat11Or12SpellEra(connection);
+  }
+  if (shapes.has('current') && shapes.size === 1) {
+    return {
+      ok: false,
+      reason: 'This campaign’s structure is already current, so an outdated ' +
+        'format is not what makes it unreadable.',
+    };
   }
   return {
     ok: false,
-    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, and 11.',
+    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, and the current format.',
   };
 }
 
-function detectFormat11OrCurrentSpellEra(
+function detectFormat11Or12SpellEra(
   connection: DatabaseSync,
 ): CampaignFormatDetection {
   const rows = connection.prepare(
@@ -347,11 +362,7 @@ function detectFormat11OrCurrentSpellEra(
       };
     }
   }
-  return {
-    ok: false,
-    reason: 'This campaign’s structure is already current, so an outdated ' +
-      'format is not what makes it unreadable.',
-  };
+  return { ok: true, version: 12 };
 }
 
 /** Which superseded release wrote this campaign, if any release did. */
@@ -370,10 +381,10 @@ export function detectCampaignFormatVersion(
     };
   }
   if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
-    return detectFormat4To11CharacterEra(connection);
+    return detectFormat4To12CharacterEra(connection);
   }
-  if (fingerprint === FORMAT_7_TO_12_SCHEMA_FINGERPRINT) {
-    return detectFormat4To11CharacterEra(connection, true);
+  if (fingerprint === FORMAT_7_TO_CURRENT_SCHEMA_FINGERPRINT) {
+    return detectFormat4To12CharacterEra(connection, true);
   }
   const schema = readTableColumns(connection);
   return {

@@ -1,4 +1,5 @@
 import type { JsonValue } from '../../shared/gameSystems';
+import { MAX_JOURNAL_ENTRIES } from '../../shared/journal';
 
 export const MAX_DND5E_CHARACTER_FIELD_CODE_UNITS = 128;
 export const MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS = 16_384;
@@ -11,6 +12,7 @@ export const MAX_DND5E_CHARACTER_CUSTOM_SKILLS = 128;
 export const MAX_DND5E_CHARACTER_INVENTORY_ENTRIES = 256;
 export const MAX_DND5E_CHARACTER_INVENTORY_DEPTH = 8;
 export const MAX_DND5E_CHARACTER_RESOURCES = 128;
+export const MAX_DND5E_CHARACTER_SPELLS = MAX_JOURNAL_ENTRIES;
 
 export const DND5E_ABILITIES = [
   'strength',
@@ -58,6 +60,29 @@ export type Dnd5eAbilityId = (typeof DND5E_ABILITIES)[number];
 export type Dnd5eCharacterClass = (typeof DND5E_5_5E_CLASSES)[number];
 export type Dnd5eRulesVersion = '5e' | '5.5e';
 export type Dnd5eSpellSlotLevel = (typeof DND5E_SPELL_SLOT_LEVELS)[number];
+
+export const DND5E_SPELL_PREPARATION_STATES = [
+  'unprepared',
+  'prepared',
+  'always-prepared',
+] as const;
+
+export type Dnd5eSpellPreparation =
+  (typeof DND5E_SPELL_PREPARATION_STATES)[number];
+
+export type Dnd5eCharacterSpellReference = {
+  entryId: string;
+  preparation: Dnd5eSpellPreparation;
+};
+
+export type Dnd5eCharacterSpellMutation =
+  | { kind: 'add'; spell: Dnd5eCharacterSpellReference }
+  | { entryId: string; kind: 'remove' }
+  | {
+      entryId: string;
+      kind: 'set-preparation';
+      preparation: Dnd5eSpellPreparation;
+    };
 
 export const DND5E_SKILLS = [
   { ability: 'dexterity', abbreviation: 'DEX', id: 'acrobatics', label: 'Acrobatics' },
@@ -541,13 +566,13 @@ export type Dnd5eCharacterData = {
   spellcasting: {
     ability: Dnd5eAbilityId | null;
     attackBonusOffset: number;
-    preparedCurrent: number;
     preparedMaximumOffset: number;
     saveDcOffset: number;
     slots: Record<Dnd5eSpellSlotLevel, {
       current: number;
       totalOffset: number;
     }>;
+    spells: Dnd5eCharacterSpellReference[];
   };
 };
 
@@ -655,12 +680,13 @@ const RESOURCE_KEYS = ['current', 'id', 'maximum', 'name'] as const;
 const SPELLCASTING_KEYS = [
   'ability',
   'attackBonusOffset',
-  'preparedCurrent',
   'preparedMaximumOffset',
   'saveDcOffset',
   'slots',
+  'spells',
 ] as const;
 const SPELL_SLOT_KEYS = ['current', 'totalOffset'] as const;
+const SPELL_REFERENCE_KEYS = ['entryId', 'preparation'] as const;
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -880,10 +906,10 @@ export function createDefaultDnd5eCharacterSpellcasting(
   return {
     ability: defaultDnd5eSpellcastingAbilityForClass(className),
     attackBonusOffset: 0,
-    preparedCurrent: 0,
     preparedMaximumOffset: 0,
     saveDcOffset: 0,
     slots: defaultSpellSlots(),
+    spells: [],
   };
 }
 
@@ -1166,6 +1192,32 @@ function hasExactSpellSlotFields(
   });
 }
 
+function hasExactCharacterSpellReferences(
+  value: JsonValue,
+): value is Dnd5eCharacterSpellReference[] {
+  if (!Array.isArray(value) || value.length > MAX_DND5E_CHARACTER_SPELLS) {
+    return false;
+  }
+  const ids = new Set<string>();
+  for (const spell of value) {
+    if (
+      !isRecord(spell) ||
+      !hasExactKeys(spell, SPELL_REFERENCE_KEYS) ||
+      typeof spell.entryId !== 'string' ||
+      !UUID_PATTERN.test(spell.entryId) ||
+      ids.has(spell.entryId) ||
+      typeof spell.preparation !== 'string' ||
+      !DND5E_SPELL_PREPARATION_STATES.includes(
+        spell.preparation as Dnd5eSpellPreparation,
+      )
+    ) {
+      return false;
+    }
+    ids.add(spell.entryId);
+  }
+  return true;
+}
+
 function hasExactHealthFields(
   value: JsonValue,
 ): value is Dnd5eCharacterData['health'] {
@@ -1371,10 +1423,10 @@ export function isDnd5eCharacterData(
       )
     ) ||
     !isSafeInteger(value.spellcasting.attackBonusOffset) ||
-    !isNonnegativeSafeInteger(value.spellcasting.preparedCurrent) ||
     !isSafeInteger(value.spellcasting.preparedMaximumOffset) ||
     !isSafeInteger(value.spellcasting.saveDcOffset) ||
-    !hasExactSpellSlotFields(value.spellcasting.slots)
+    !hasExactSpellSlotFields(value.spellcasting.slots) ||
+    !hasExactCharacterSpellReferences(value.spellcasting.spells)
   ) {
     return false;
   }
@@ -1455,6 +1507,36 @@ export function applyDnd5eCharacterActionMutations(
     });
   }
   return { actions: next, missingIds: [...missingIds] };
+}
+
+export function applyDnd5eCharacterSpellMutations(
+  spells: readonly Dnd5eCharacterSpellReference[],
+  mutations: readonly Dnd5eCharacterSpellMutation[],
+): { missingIds: string[]; spells: Dnd5eCharacterSpellReference[] } {
+  let next = spells.map((spell) => ({ ...spell }));
+  const missingIds = new Set<string>();
+  for (const mutation of mutations) {
+    if (mutation.kind === 'add') {
+      if (
+        next.length < MAX_DND5E_CHARACTER_SPELLS &&
+        !next.some(({ entryId }) => entryId === mutation.spell.entryId)
+      ) {
+        next.push({ ...mutation.spell });
+      }
+      continue;
+    }
+    if (mutation.kind === 'remove') {
+      next = next.filter(({ entryId }) => entryId !== mutation.entryId);
+      continue;
+    }
+    const index = next.findIndex(({ entryId }) => entryId === mutation.entryId);
+    if (index < 0) {
+      missingIds.add(mutation.entryId);
+    } else {
+      next[index] = { ...next[index], preparation: mutation.preparation };
+    }
+  }
+  return { missingIds: [...missingIds], spells: next };
 }
 
 export function applyDnd5eCharacterFeatureMutations(
