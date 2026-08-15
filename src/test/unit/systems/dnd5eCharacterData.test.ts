@@ -14,6 +14,7 @@ import {
   defaultDnd5eSpellcastingAbilityForClass,
   deriveDnd5eCharacterValues,
   DND5E_ABILITIES,
+  DND5E_ACTION_STEP_PURPOSES,
   DND5E_SKILLS,
   DND5E_SPELL_SLOT_LEVELS,
   formatDnd5eSignedValue,
@@ -74,6 +75,16 @@ function inventoryContainer(
 }
 
 describe('D&D Character data', () => {
+  it('offers only executable authored roll-step purposes', () => {
+    expect(DND5E_ACTION_STEP_PURPOSES).toEqual([
+      'attack',
+      'roll',
+      'damage',
+      'healing',
+      'save',
+    ]);
+  });
+
   it('validates exact Action shapes while allowing incomplete drafts', () => {
     const data = createDefaultDnd5eCharacterData();
     const action = createDefaultDnd5eCharacterAction(
@@ -87,6 +98,19 @@ describe('D&D Character data', () => {
     expect(isDnd5eCharacterData({
       ...data,
       actions: [{ ...action, unexpected: true }],
+    })).toBe(false);
+
+    expect(isDnd5eCharacterData({
+      ...data,
+      actions: [{
+        ...action,
+        steps: [{
+          id: '20000000-0000-4000-8000-000000000001',
+          label: 'Legacy Effect',
+          purpose: 'effect',
+          text: 'No longer part of the authored roll model.',
+        }],
+      }],
     })).toBe(false);
   });
 

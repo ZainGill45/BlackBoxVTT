@@ -209,6 +209,9 @@ describe('CharacterActionPanel', () => {
       .not.toBeInTheDocument();
     expect(within(editor).queryByRole('button', { name: 'More options for Roll' }))
       .not.toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole('button', { name: 'Roll purpose' }));
+    expect(within(screen.getByRole('group', { name: 'Action step purposes' }))
+      .queryByRole('button', { name: 'Effect' })).not.toBeInTheDocument();
     fireEvent.contextMenu(editor.querySelector('[data-action-step-order-id]')!);
     expect(screen.getByRole('menu', { name: 'Roll actions' })).toBeInTheDocument();
   });

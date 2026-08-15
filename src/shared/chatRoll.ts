@@ -5,6 +5,7 @@ export const MAX_CHAT_ROLL_SECTIONS = 100;
 export const MAX_CHAT_ROLL_LABEL_CHARACTERS = 50_000;
 export const MAX_CHAT_ROLL_NOTATION_CHARACTERS = 50_000;
 export const MAX_CHAT_ROLL_MODIFIERS = 32;
+export const CHAT_ROLL_DETAIL_FIELD_PREFIX = 'Detail/';
 
 export interface ChatRollModifierDefinition {
   label: string;

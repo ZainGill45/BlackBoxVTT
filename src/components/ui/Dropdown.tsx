@@ -6,7 +6,9 @@ interface DropdownProps {
   accessibleLabel?: string;
   children: ReactNode;
   className?: string;
+  closeOnSelect?: boolean;
   disabled?: boolean;
+  id?: string;
   label: string;
   panelLabel?: string;
   showIndicator?: boolean;
@@ -25,7 +27,9 @@ export function Dropdown({
   accessibleLabel,
   children,
   className,
+  closeOnSelect = true,
   disabled = false,
+  id,
   label,
   panelLabel,
   showIndicator = true,
@@ -106,6 +110,7 @@ export function Dropdown({
       <summary
         aria-disabled={disabled || undefined}
         aria-label={controlLabel}
+        id={id}
         role="button"
         tabIndex={disabled ? -1 : undefined}
         title={title ?? controlLabel}
@@ -129,7 +134,11 @@ export function Dropdown({
         className={styles.panel}
         role="group"
         onClick={(event) => {
-          if (event.target instanceof Element && event.target.closest('button')) {
+          if (
+            closeOnSelect &&
+            event.target instanceof Element &&
+            event.target.closest('button')
+          ) {
             detailsRef.current!.open = false;
           }
         }}

@@ -11,6 +11,10 @@ import {
   DND5E_SPELL_ENTRY_TYPE_ID,
 } from '../systems/dnd5e/ids';
 import { isDnd5eSpellData } from '../systems/dnd5e/spellData';
+import {
+  convertDnd5eCharacterActionEffectsFromFormat13,
+  convertDnd5eSpellRollActionEffectsFromFormat13,
+} from './campaignArchiveDnd5eActionEffects';
 import { addEmptyDnd5eCharacterActionsToValue } from './campaignArchiveCharacterActions';
 import { addEmptyDnd5eCustomSkillsToValue } from './campaignArchiveCharacterCustomSkills';
 import { addEmptyDnd5eCharacterSpellReferencesToValue } from './campaignArchiveCharacterSpellReferences';
@@ -32,7 +36,7 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
  */
 
 export type HistoricalCampaignFormatVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
 
 export type CampaignSalvageConversion =
   | 1
@@ -47,6 +51,7 @@ export type CampaignSalvageConversion =
   | 10
   | 11
   | 12
+  | 13
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -219,7 +224,7 @@ function detectCharacterEra(
   }
 }
 
-function detectFormat4To12CharacterEra(
+function detectFormat4To13CharacterEra(
   connection: DatabaseSync,
   schemaCouldBeCurrent = false,
 ): CampaignFormatDetection {
@@ -237,7 +242,7 @@ function detectFormat4To12CharacterEra(
       reason: schemaCouldBeCurrent
         ? 'This campaign’s structure is already current, so an outdated ' +
           'format is not what makes it unreadable.'
-        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, 11, or 12.',
+        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13.',
     };
   }
   const shapes = new Set<
@@ -307,7 +312,7 @@ function detectFormat4To12CharacterEra(
     return {
       ok: false,
       reason:
-        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, or 12.',
+        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13.',
     };
   }
   if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
@@ -329,8 +334,36 @@ function detectFormat4To12CharacterEra(
   }
   return {
     ok: false,
-    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, and the current format.',
+    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, and the current format.',
   };
+}
+
+function detectFormat13ActionEffects(
+  connection: DatabaseSync,
+): CampaignFormatDetection | null {
+  let removedCount = 0;
+  for (const [typeId, convert] of [
+    [DND5E_CHARACTER_ENTRY_TYPE_ID, convertDnd5eCharacterActionEffectsFromFormat13],
+    [DND5E_SPELL_ENTRY_TYPE_ID, convertDnd5eSpellRollActionEffectsFromFormat13],
+  ] as const) {
+    const rows = connection.prepare(
+      `SELECT data_json FROM journal_entries
+       WHERE type_id = ?
+       ORDER BY position`,
+    ).all(typeId) as unknown as Array<{ data_json: string }>;
+    for (const row of rows) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.data_json);
+      } catch {
+        return null;
+      }
+      const converted = convert(parsed);
+      if (!converted) return null;
+      removedCount += converted.removedCount;
+    }
+  }
+  return removedCount > 0 ? { ok: true, version: 13 } : null;
 }
 
 function detectFormat11Or12SpellEra(
@@ -381,10 +414,11 @@ export function detectCampaignFormatVersion(
     };
   }
   if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
-    return detectFormat4To12CharacterEra(connection);
+    return detectFormat4To13CharacterEra(connection);
   }
   if (fingerprint === FORMAT_7_TO_CURRENT_SCHEMA_FINGERPRINT) {
-    return detectFormat4To12CharacterEra(connection, true);
+    const format13 = detectFormat13ActionEffects(connection);
+    return format13 ?? detectFormat4To13CharacterEra(connection, true);
   }
   const schema = readTableColumns(connection);
   return {

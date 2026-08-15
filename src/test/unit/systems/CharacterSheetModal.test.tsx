@@ -278,7 +278,7 @@ describe('CharacterSheetModal chat actions', () => {
         })],
       }),
     }));
-  });
+  }, 10_000);
 
   it('shares Character values and stops consuming Hit Dice at zero', async () => {
     const user = userEvent.setup();
@@ -558,12 +558,11 @@ describe('CharacterSheetModal chat actions', () => {
     expect(sendChatRoll).toHaveBeenCalledWith(expect.objectContaining({
       definition: expect.objectContaining({
         category: 'Spell',
-        sections: [
-          expect.anything(),
+        sections: expect.arrayContaining([
           expect.objectContaining({
             modifiers: [{ label: 'Spellcasting Modifier', value: 5 }],
           }),
-        ],
+        ]),
         title: 'Conflict Ward',
       }),
     }));

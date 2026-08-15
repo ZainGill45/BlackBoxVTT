@@ -1,15 +1,19 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { Button } from '../../../components/ui/Button';
 import {
+  CHAT_ROLL_DETAIL_FIELD_PREFIX,
   classifyRollOutcome,
   classifyRollResultOutcome,
   type ChatRollCard,
   type ChatRollConditionalSectionResult,
   type ChatRollDefinition,
   type ChatRollDieNode,
+  type ChatRollEffectSectionDefinition,
   type ChatRollExpressionNode,
   type ChatRollOrdinarySectionResult,
   type ChatRollPromptSectionDefinition,
+  type ChatRollSectionDefinition,
+  type ChatRollSectionResult,
 } from '../../../shared/chatRoll';
 import styles from './ChatPanel.module.css';
 
@@ -275,6 +279,96 @@ function RollAudit({ section }: { section: RolledSection }) {
   );
 }
 
+interface RollDetailField {
+  label: string;
+  value: string;
+}
+
+type GroupedRollSection<T> =
+  | { fields: RollDetailField[]; index: number; kind: 'details' }
+  | { index: number; kind: 'section'; section: T };
+
+function detailField(
+  section: ChatRollSectionDefinition | ChatRollSectionResult,
+): RollDetailField | null {
+  if (
+    !('kind' in section) ||
+    section.kind !== 'effect' ||
+    !section.label.startsWith(CHAT_ROLL_DETAIL_FIELD_PREFIX)
+  ) {
+    return null;
+  }
+  const label = section.label.slice(CHAT_ROLL_DETAIL_FIELD_PREFIX.length).trim();
+  return label ? { label, value: section.text } : null;
+}
+
+function groupDetailSections<
+  T extends ChatRollSectionDefinition | ChatRollSectionResult,
+>(sections: readonly T[]): GroupedRollSection<T>[] {
+  const grouped: GroupedRollSection<T>[] = [];
+  let index = 0;
+  while (index < sections.length) {
+    const first = detailField(sections[index]);
+    if (!first) {
+      grouped.push({ index, kind: 'section', section: sections[index] });
+      index += 1;
+      continue;
+    }
+    const start = index;
+    const fields = [first];
+    index += 1;
+    while (index < sections.length) {
+      const next = detailField(sections[index]);
+      if (!next) break;
+      fields.push(next);
+      index += 1;
+    }
+    grouped.push({ fields, index: start, kind: 'details' });
+  }
+  return grouped;
+}
+
+function RollDetailGrid({ fields }: { fields: readonly RollDetailField[] }) {
+  return (
+    <dl aria-label="Roll details" className={styles.rollDetailGrid}>
+      {fields.map((field) => (
+        <div className={styles.rollDetailField} key={field.label}>
+          <dt>{field.label}</dt>
+          <dd>{field.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function StaticRollSection({ section }: { section: ChatRollEffectSectionDefinition }) {
+  const normalizedLabel = section.label.trim().toLocaleLowerCase();
+  const hideHeading = normalizedLabel === 'description' || normalizedLabel === 'details';
+  return (
+    <section
+      className={styles.rollSection}
+      data-outcome="neutral"
+      data-static="true"
+      data-static-role={normalizedLabel === 'description'
+        ? 'description'
+        : hideHeading
+          ? 'unheaded'
+          : 'effect'}
+    >
+      <div className={styles.rollSectionBody}>
+        {hideHeading ? null : (
+          <h4 className={styles.rollSectionHeading}>
+            <span className={styles.rollSectionLabel}>{section.label}</span>
+          </h4>
+        )}
+        <div className={`${styles.messageBody} ${styles.rollStaticText}`}>
+          {section.text}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function DiceRollCard({ card }: { card: ChatRollCard }) {
   return (
     <div className={styles.rollContent}>
@@ -282,30 +376,16 @@ export function DiceRollCard({ card }: { card: ChatRollCard }) {
         <h3 className={styles.rollTitle}>{card.title}</h3>
       ) : null}
       <div className={styles.rollSections}>
-        {card.sections.map((section, index) => {
+        {groupDetailSections(card.sections).map((group) => {
+          if (group.kind === 'details') {
+            return <RollDetailGrid fields={group.fields} key={`details:${group.index}`} />;
+          }
+          const { index, section } = group;
           if ('kind' in section && section.kind === 'prompt') {
             return <SavePromptCard key={`${section.label}:${index}`} section={section} />;
           }
           if ('kind' in section && section.kind === 'effect') {
-            return (
-              <section
-                className={styles.rollSection}
-                data-outcome="neutral"
-                data-static="true"
-                key={`${section.label}:${index}`}
-              >
-                <div className={styles.rollSectionBody}>
-                  {section.label.trim().toLocaleLowerCase() === 'details' ? null : (
-                    <div className={styles.rollSectionHeading}>
-                      <strong className={styles.rollSectionLabel}>{section.label}</strong>
-                    </div>
-                  )}
-                  <div className={`${styles.messageBody} ${styles.rollStaticText}`}>
-                    {section.text}
-                  </div>
-                </div>
-              </section>
-            );
+            return <StaticRollSection key={`${section.label}:${index}`} section={section} />;
           }
           return (
             <section
@@ -346,30 +426,16 @@ export function PendingDiceRollCard({
         <h3 className={styles.rollTitle}>{definition.title}</h3>
       ) : null}
       <div className={styles.rollSections}>
-        {definition.sections.map((section, index) => {
+        {groupDetailSections(definition.sections).map((group) => {
+          if (group.kind === 'details') {
+            return <RollDetailGrid fields={group.fields} key={`details:${group.index}`} />;
+          }
+          const { index, section } = group;
           if ('kind' in section && section.kind === 'prompt') {
             return <SavePromptCard key={index} section={section} />;
           }
           if ('kind' in section && section.kind === 'effect') {
-            return (
-              <section
-                className={styles.rollSection}
-                data-outcome="neutral"
-                data-static="true"
-                key={index}
-              >
-                <div className={styles.rollSectionBody}>
-                  {section.label.trim().toLocaleLowerCase() === 'details' ? null : (
-                    <div className={styles.rollSectionHeading}>
-                      <strong className={styles.rollSectionLabel}>{section.label}</strong>
-                    </div>
-                  )}
-                  <div className={`${styles.messageBody} ${styles.rollStaticText}`}>
-                    {section.text}
-                  </div>
-                </div>
-              </section>
-            );
+            return <StaticRollSection key={index} section={section} />;
           }
           return (
           <section

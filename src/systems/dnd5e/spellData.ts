@@ -92,18 +92,12 @@ export type Dnd5eSpellSaveStep = Dnd5eSpellRollStepBase & {
   success: string;
 };
 
-export type Dnd5eSpellEffectStep = Dnd5eSpellRollStepBase & {
-  purpose: 'effect';
-  text: string;
-};
-
 export type Dnd5eSpellRollStep =
   | Dnd5eSpellAttackStep
   | Dnd5eSpellGeneralRollStep
   | Dnd5eSpellDamageStep
   | Dnd5eSpellHealingStep
-  | Dnd5eSpellSaveStep
-  | Dnd5eSpellEffectStep;
+  | Dnd5eSpellSaveStep;
 
 export type Dnd5eSpellRollStepMutation =
   | { kind: 'add'; step: Dnd5eSpellRollStep }
@@ -223,17 +217,14 @@ export function createDefaultDnd5eSpellRollStep(
       terms: [createDefaultDiceTerm(6)],
     };
   }
-  if (purpose === 'save') {
-    return {
-      ...base,
-      ability: 'dexterity',
-      dc: { kind: 'spell-save-dc' },
-      failure: '',
-      purpose,
-      success: '',
-    };
-  }
-  return { ...base, purpose, text: '' };
+  return {
+    ...base,
+    ability: 'dexterity',
+    dc: { kind: 'spell-save-dc' },
+    failure: '',
+    purpose,
+    success: '',
+  };
 }
 
 export function createDefaultDnd5eSpellValueTerm(
@@ -338,10 +329,6 @@ function isDnd5eSpellRollStep(
       isSaveDc(value.dc) &&
       isBoundedDescription(value.failure) &&
       isBoundedDescription(value.success);
-  }
-  if (value.purpose === 'effect') {
-    return hasExactKeys(value, ['id', 'label', 'purpose', 'text']) &&
-      isBoundedDescription(value.text);
   }
   if (value.purpose === 'damage') {
     return hasExactKeys(value, [
@@ -506,9 +493,6 @@ export function analyzeDnd5eSpellRollStep(step: Dnd5eSpellRollStep): {
   } else if (step.purpose === 'save') {
     const dc = step.dc.kind === 'spell-save-dc' ? 'Spell Save DC' : `DC ${step.dc.dc}`;
     summary = `${dc} ${capitalize(step.ability)} Save`;
-  } else if (step.purpose === 'effect') {
-    summary = step.text.trim();
-    if (!summary) issues.push('Effect text is required.');
   } else {
     summary = step.terms.map(describeTerm).join(' + ');
     if (step.terms.length === 0) issues.push('At least one value term is required.');

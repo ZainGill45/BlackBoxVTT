@@ -61,7 +61,6 @@ interface ReorderState {
 const PURPOSE_LABELS: Record<Dnd5eActionStepPurpose, string> = {
   attack: 'Attack',
   damage: 'Damage',
-  effect: 'Effect',
   healing: 'Healing',
   roll: 'General Roll',
   save: 'Save Prompt',
@@ -357,6 +356,7 @@ function StepEditor({
         </RollEditorField>
         <RollEditorField label="Purpose">
           <Dropdown
+            accessibleLabel={`${stepLabel(step)} purpose`}
             disabled={!canEdit}
             label={PURPOSE_LABELS[step.purpose]}
             panelLabel="Roll action purposes"
@@ -484,19 +484,6 @@ function StepEditor({
             </RollEditorField>
           </div>
         </>
-      ) : step.purpose === 'effect' ? (
-        <RollEditorField label="Effect">
-          <textarea
-            aria-label={`${stepLabel(step)} effect`}
-            className={styles.compactTextarea}
-            maxLength={MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS}
-            readOnly={!canEdit}
-            rows={2}
-            value={step.text}
-            onBlur={onSave}
-            onChange={(event) => onChange({ ...step, text: event.currentTarget.value })}
-          />
-        </RollEditorField>
       ) : (
         <>
           {step.purpose === 'damage' ? (
@@ -756,12 +743,7 @@ export function SpellRollActionEditor({
 
   return (
     <section className={styles.rollActions} aria-label="Spell Roll Actions">
-      {steps.length === 0 ? (
-        <div className={styles.emptySteps}>
-          <strong>This Spell has no Roll Actions yet.</strong>
-          <span>Add one to define its eventual character-sheet roll.</span>
-        </div>
-      ) : (
+      {steps.length > 0 ? (
         <div className={styles.stepList} ref={listRef} role="list">
           {displayedSteps.map((step) => {
             const analysis = analyzeDnd5eSpellRollStep(step);
@@ -826,7 +808,7 @@ export function SpellRollActionEditor({
             );
           })}
         </div>
-      )}
+      ) : null}
       {canEdit ? (
         <CharacterSheetAddEntryButton
           disabled={steps.length >= MAX_DND5E_SPELL_ROLL_STEPS}

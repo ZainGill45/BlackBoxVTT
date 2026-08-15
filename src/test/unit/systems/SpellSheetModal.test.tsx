@@ -119,14 +119,27 @@ describe('SpellSheetModal', () => {
     const dialog = screen.getByRole('dialog', { name: 'New Spell spell sheet' });
 
     expect(within(dialog).getByRole('textbox', { name: 'Spell Name' })).toHaveValue('New Spell');
-    expect(within(dialog).getByRole('combobox', { name: 'Level' })).toHaveValue('0');
-    expect(within(dialog).getByRole('combobox', { name: 'School' })).toHaveValue('Abjuration');
+    expect(within(dialog).getByRole('button', { name: 'Level' })).toHaveTextContent('Cantrip');
+    expect(within(dialog).getByRole('button', { name: 'School' }))
+      .toHaveTextContent('Abjuration');
     expect(within(dialog).getByRole('textbox', { name: 'Casting Time' })).toHaveValue('Action');
     expect(within(dialog).queryByRole('button', { name: /close|cancel/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Autosaving')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Spell', { exact: true })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Spell Options and Components'))
       .not.toBeInTheDocument();
+    expect(within(dialog).queryByText('This Spell has no Roll Actions yet.'))
+      .not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Level' }));
+    await user.click(within(within(dialog).getByRole('group', { name: 'Level options' }))
+      .getByRole('button', { name: '3rd Level' }));
+    await waitFor(() => expect(controlled.server.data).toMatchObject({ level: 3 }));
+
+    await user.click(within(dialog).getByRole('button', { name: 'School' }));
+    await user.click(within(within(dialog).getByRole('group', { name: 'School options' }))
+      .getByRole('button', { name: 'Evocation' }));
+    await waitFor(() => expect(controlled.server.data).toMatchObject({ school: 'Evocation' }));
 
     await user.click(within(dialog).getByRole('checkbox', { name: 'Material' }));
     await waitFor(() => expect(controlled.updateEntryData).toHaveBeenCalled());
@@ -139,8 +152,11 @@ describe('SpellSheetModal', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Spell classes' }));
     expect(within(dialog).queryByRole('button', { name: 'Clear All' }))
       .not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('checkbox', { name: 'Wizard' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Wizard' }));
     await waitFor(() => expect(controlled.server.data).toMatchObject({ classes: ['Wizard'] }));
+    expect(within(dialog).getByRole('group', { name: 'Spell class options' })).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: 'Wizard' }))
+      .toHaveAttribute('aria-pressed', 'true');
 
     await user.click(within(dialog).getByRole('button', { name: 'Add Roll Action' }));
     await waitFor(() => expect(
@@ -149,6 +165,9 @@ describe('SpellSheetModal', () => {
     expect(within(dialog).getAllByText('General Roll').length).toBeGreaterThan(0);
     expect(within(dialog).getByText('1d20')).toBeVisible();
     expect(within(dialog).getByRole('textbox', { name: 'General Roll label' })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'General Roll purpose' }));
+    expect(within(within(dialog).getByRole('group', { name: 'Roll action purposes' }))
+      .queryByRole('button', { name: 'Effect' })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Value Type')).not.toBeInTheDocument();
     expect(within(dialog).getByText('Add term')).toBeVisible();
   });
@@ -220,7 +239,8 @@ describe('SpellSheetModal', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Edit access was removed'));
     expect(screen.getByRole('textbox', { name: 'Spell Description' }))
       .toHaveValue('Authoritative text');
-    expect(screen.getByRole('combobox', { name: 'Level' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Level' }))
+      .toHaveAttribute('aria-disabled', 'true');
     expect(screen.queryByRole('button', { name: 'Add Roll Action' })).not.toBeInTheDocument();
   });
 

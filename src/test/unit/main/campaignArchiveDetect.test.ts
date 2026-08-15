@@ -30,7 +30,9 @@ async function openFixture(version: number): Promise<DatabaseSync> {
   await extractTar({
     cwd: directory,
     file: path.resolve(
-      `src/test/fixtures/archives/dnd5e-character-format-${version}.blackbox-campaign`,
+      version === 13
+        ? 'src/test/fixtures/archives/dnd5e-effect-steps-format-13.blackbox-campaign'
+        : `src/test/fixtures/archives/dnd5e-character-format-${version}.blackbox-campaign`,
     ),
     gzip: true,
     strict: true,
@@ -47,7 +49,7 @@ afterEach(async () => {
 });
 
 describe('detectCampaignFormatVersion', () => {
-  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])(
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])(
     'recognizes the frozen format-%i fixture from its data alone',
     async (version) => {
       const connection = await openFixture(version);
@@ -102,6 +104,31 @@ describe('detectCampaignFormatVersion', () => {
         reason:
           'This campaign’s structure matches no earlier release that ' +
           'Salvage can convert.',
+      });
+    } finally {
+      connection.close();
+    }
+  });
+
+  it('refuses a near-match of the retired format-13 Effect shape', async () => {
+    const connection = await openFixture(13);
+    try {
+      const row = connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      const data = JSON.parse(row.data_json);
+      data.actions[0].steps[0].unexpected = true;
+      connection.prepare(
+        `UPDATE journal_entries SET data_json = ?
+         WHERE type_id = 'dnd5e.character'`,
+      ).run(JSON.stringify(data));
+
+      expect(detectCampaignFormatVersion(connection)).toEqual({
+        ok: false,
+        reason: expect.stringContaining(
+          'character data does not exactly match archive format 4',
+        ),
       });
     } finally {
       connection.close();
@@ -165,7 +192,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(mixed)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, and the current format',
+          'characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, and the current format',
         ),
       });
     } finally {
@@ -188,7 +215,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, or 12',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13',
         ),
       });
     } finally {
@@ -209,7 +236,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, or 12',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13',
         ),
       });
     } finally {

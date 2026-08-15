@@ -174,7 +174,6 @@ export const DND5E_ACTION_STEP_PURPOSES = [
   'damage',
   'healing',
   'save',
-  'effect',
 ] as const;
 
 export type Dnd5eActionStepPurpose =
@@ -251,18 +250,12 @@ export type Dnd5eActionSaveStep = Dnd5eActionStepBase & {
   success: string;
 };
 
-export type Dnd5eActionEffectStep = Dnd5eActionStepBase & {
-  purpose: 'effect';
-  text: string;
-};
-
 export type Dnd5eActionStep =
   | Dnd5eActionAttackStep
   | Dnd5eActionRollStep
   | Dnd5eActionDamageStep
   | Dnd5eActionHealingStep
-  | Dnd5eActionSaveStep
-  | Dnd5eActionEffectStep;
+  | Dnd5eActionSaveStep;
 
 export type Dnd5eCharacterAction = {
   activation: string;
@@ -331,17 +324,14 @@ export function createDefaultDnd5eActionStep(
       terms: [{ count: 1, kind: 'dice', sides: 6, tiers: [] }],
     };
   }
-  if (purpose === 'save') {
-    return {
-      ...base,
-      ability: 'dexterity',
-      dcTerms: [{ kind: 'flat', value: 10 }],
-      failure: '',
-      purpose,
-      success: '',
-    };
-  }
-  return { ...base, purpose, text: '' };
+  return {
+    ...base,
+    ability: 'dexterity',
+    dcTerms: [{ kind: 'flat', value: 10 }],
+    failure: '',
+    purpose,
+    success: '',
+  };
 }
 
 export function createDefaultDnd5eCharacterAction(
@@ -1065,9 +1055,7 @@ function isDnd5eActionStep(value: JsonValue): value is Dnd5eActionStep {
     ? ['criticalSourceStepId', 'damageType', 'terms']
     : purpose === 'save'
       ? ['ability', 'dcTerms', 'failure', 'success']
-      : purpose === 'effect'
-        ? ['text']
-        : ['terms'];
+      : ['terms'];
   if (
     !hasExactKeys(value, [...ACTION_STEP_BASE_KEYS, ...extraKeys]) ||
     typeof value.id !== 'string' ||
@@ -1076,7 +1064,6 @@ function isDnd5eActionStep(value: JsonValue): value is Dnd5eActionStep {
   ) {
     return false;
   }
-  if (purpose === 'effect') return isBoundedDescription(value.text);
   if (purpose === 'save') {
     return typeof value.ability === 'string' &&
       DND5E_ABILITIES.includes(value.ability as Dnd5eAbilityId) &&

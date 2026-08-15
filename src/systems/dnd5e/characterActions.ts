@@ -242,7 +242,7 @@ function detailsSection(
 }
 
 function rollSection(
-  step: Exclude<Dnd5eActionStep, { purpose: 'effect' | 'save' }>,
+  step: Exclude<Dnd5eActionStep, { purpose: 'save' }>,
   data: Dnd5eCharacterData,
   derived: Dnd5eDerivedCharacterValues,
 ): { resolved: ResolvedTerms; section: ChatRollOrdinarySectionDefinition } | null {
@@ -316,17 +316,6 @@ export function compileDnd5eCharacterAction(
     if (!label) {
       issues.push(stepIssue(step, 'Give this step a label.'));
       previews.push({ label: 'Unnamed Step', purpose: step.purpose, stepId: step.id, summary: 'Incomplete' });
-      continue;
-    }
-    if (step.purpose === 'effect') {
-      const text = normalize(step.text);
-      if (!text) {
-        issues.push(stepIssue(step, 'Describe the effect.'));
-        previews.push({ label, purpose: step.purpose, stepId: step.id, summary: 'Incomplete' });
-      } else {
-        sections.push({ kind: 'effect', label, text });
-        previews.push({ label, purpose: step.purpose, stepId: step.id, summary: text });
-      }
       continue;
     }
     if (step.purpose === 'save') {

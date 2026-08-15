@@ -22,7 +22,6 @@ const actionId = '10000000-0000-4000-8000-000000000001';
 const attackId = '20000000-0000-4000-8000-000000000001';
 const damageId = '20000000-0000-4000-8000-000000000002';
 const saveId = '20000000-0000-4000-8000-000000000003';
-const effectId = '20000000-0000-4000-8000-000000000004';
 
 function fixture() {
   const data = createDefaultDnd5eCharacterData();
@@ -76,12 +75,6 @@ function fixture() {
         label: 'Resist',
         purpose: 'save',
         success: 'The target remains standing.',
-      },
-      {
-        id: effectId,
-        label: 'Effect',
-        purpose: 'effect',
-        text: 'The weapon hums until your next turn.',
       },
     ],
     target: 'One creature',
@@ -181,7 +174,7 @@ describe('D&D Character Action compilation', () => {
     });
   });
 
-  it('resolves current values, custom dice and types, tiers, prompts, and effects in order', () => {
+  it('resolves current values, custom dice and types, tiers, and prompts in order', () => {
     const { action, data, derived } = fixture();
     const compiled = compileDnd5eCharacterAction(action, data, derived);
     expect(compiled.ok).toBe(true);
@@ -222,11 +215,6 @@ describe('D&D Character Action compilation', () => {
           kind: 'prompt',
           label: 'Resist',
           value: 'DC 14 Dexterity Save',
-        },
-        {
-          kind: 'effect',
-          label: 'Effect',
-          text: 'The weapon hums until your next turn.',
         },
       ],
       title: 'Planar Strike',
@@ -323,7 +311,7 @@ describe('D&D Character Action compilation', () => {
   it('keeps incomplete drafts unusable and rejects invalid critical references', () => {
     const { action, data, derived } = fixture();
     action.name = '';
-    action.steps[1] = { ...action.steps[1], criticalSourceStepId: effectId } as never;
+    action.steps[1] = { ...action.steps[1], criticalSourceStepId: saveId } as never;
     const compiled = compileDnd5eCharacterAction(action, data, derived);
     expect(compiled.ok).toBe(false);
     expect(compiled.issues.map(({ message }) => message)).toEqual(

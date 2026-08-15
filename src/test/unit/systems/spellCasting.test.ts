@@ -172,10 +172,10 @@ describe('D&D spell casting compiler', () => {
       .toBe('+9 · 3d6');
   });
 
-  it('creates a complete details-only card', () => {
+  it('creates sectioned details-only cards and exposes higher text only for a true upcast', () => {
     const { character, derived, spell } = fixture();
     spell.rollSteps = [];
-    const compiled = compileDnd5eSpellCast(
+    const base = compileDnd5eSpellCast(
       ' Arcane Ward ',
       spell,
       character,
@@ -183,25 +183,121 @@ describe('D&D spell casting compiler', () => {
       { kind: 'without-slot' },
     );
 
-    expect(compiled).toMatchObject({
+    expect(base).toEqual({
       definition: {
         category: 'Spell',
-        sections: [{
-          kind: 'effect',
-          label: 'Spell Details',
-          text: expect.stringContaining('Cast: Without a slot at 1st Level'),
-        }],
+        sections: [
+          { kind: 'effect', label: 'Detail/Casting Time', text: '1 Action' },
+          { kind: 'effect', label: 'Detail/Range', text: '60 feet' },
+          { kind: 'effect', label: 'Detail/Duration', text: '1 Minute' },
+          { kind: 'effect', label: 'Detail/Target', text: 'One creature' },
+          { kind: 'effect', label: 'Detail/Components', text: 'V, S, M, C, R' },
+          { kind: 'effect', label: 'Detail/Material', text: 'a silver thread' },
+          {
+            kind: 'effect',
+            label: 'Description',
+            text: 'Arcane force strikes the target.',
+          },
+        ],
         title: 'Arcane Ward',
       },
       issues: [],
       ok: true,
     });
-    if (!compiled.ok) return;
-    expect(compiled.definition.sections[0]).toMatchObject({
-      text: expect.stringContaining('Material: a silver thread'),
+    expect(JSON.stringify(base)).not.toMatch(/Spell Details|Cast:|Level:|School:|Classes:/u);
+
+    for (const mode of [
+      { kind: 'ritual' as const },
+      { kind: 'slot' as const, level: 1 as const },
+    ]) {
+      const ordinaryCast = compileDnd5eSpellCast(
+        'Arcane Ward', spell, character, derived, mode,
+      );
+      expect(ordinaryCast.ok).toBe(true);
+      if (ordinaryCast.ok) {
+        expect(ordinaryCast.definition.sections).not.toContainEqual(
+          expect.objectContaining({ text: spell.higherLevelDescription }),
+        );
+      }
+    }
+
+    const upcast = compileDnd5eSpellCast(
+      'Arcane Ward', spell, character, derived, { kind: 'slot', level: 3 },
+    );
+    expect(upcast.ok).toBe(true);
+    if (upcast.ok) {
+      expect(upcast.definition.sections.at(-1)).toEqual({
+        kind: 'effect',
+        label: 'Details',
+        text: 'The damage increases when upcast.',
+      });
+    }
+
+    spell.level = 0;
+    const cantrip = compileDnd5eSpellCast(
+      'Arcane Ward', spell, character, derived, { kind: 'cantrip' },
+    );
+    expect(cantrip.ok).toBe(true);
+    if (cantrip.ok) {
+      expect(cantrip.definition.sections).not.toContainEqual(
+        expect.objectContaining({ text: spell.higherLevelDescription }),
+      );
+    }
+  });
+
+  it('uses N/A for empty details and omits Material when it is not a component', () => {
+    const { character, derived, spell } = fixture();
+    spell.castingTime = ' ';
+    spell.range = '';
+    spell.duration = '';
+    spell.target = '';
+    spell.components = {
+      material: false,
+      materialDescription: 'ignored material text',
+      somatic: false,
+      verbal: false,
+    };
+    spell.concentration = false;
+    spell.ritual = false;
+    spell.description = '';
+    spell.rollSteps = [];
+
+    const compiled = compileDnd5eSpellCast(
+      'Quiet Ward', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(compiled).toMatchObject({
+      definition: {
+        sections: [
+          { label: 'Detail/Casting Time', text: 'N/A' },
+          { label: 'Detail/Range', text: 'N/A' },
+          { label: 'Detail/Duration', text: 'N/A' },
+          { label: 'Detail/Target', text: 'N/A' },
+          { label: 'Detail/Components', text: 'N/A' },
+        ],
+      },
+      ok: true,
     });
-    expect(compiled.definition.sections[0]).toMatchObject({
-      text: expect.stringContaining('Higher-Level Casting: The damage increases when upcast.'),
+    if (compiled.ok) {
+      expect(compiled.definition.sections).not.toContainEqual(
+        expect.objectContaining({ label: 'Detail/Material' }),
+      );
+      expect(compiled.definition.sections).not.toContainEqual(
+        expect.objectContaining({ label: 'Description' }),
+      );
+    }
+
+    spell.components.material = true;
+    spell.components.materialDescription = ' ';
+    const emptyMaterial = compileDnd5eSpellCast(
+      'Quiet Ward', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(emptyMaterial).toMatchObject({
+      definition: {
+        sections: expect.arrayContaining([
+          { kind: 'effect', label: 'Detail/Material', text: 'N/A' },
+        ]),
+      },
+      ok: true,
     });
   });
 
@@ -277,12 +373,6 @@ describe('D&D spell casting compiler', () => {
         purpose: 'save',
         success: '',
       },
-      {
-        id: '10000000-0000-4000-8000-000000000008',
-        label: 'Effect',
-        purpose: 'effect',
-        text: 'The area glows.',
-      },
     ];
 
     const compiled = compileDnd5eSpellCast(
@@ -295,10 +385,22 @@ describe('D&D spell casting compiler', () => {
     expect(compiled.ok).toBe(true);
     if (!compiled.ok) return;
     expect(compiled.definition.sections).toEqual([
-      expect.objectContaining({
+      { kind: 'effect', label: 'Detail/Casting Time', text: '1 Action' },
+      { kind: 'effect', label: 'Detail/Range', text: '60 feet' },
+      { kind: 'effect', label: 'Detail/Duration', text: '1 Minute' },
+      { kind: 'effect', label: 'Detail/Target', text: 'One creature' },
+      { kind: 'effect', label: 'Detail/Components', text: 'V, S, M, C, R' },
+      { kind: 'effect', label: 'Detail/Material', text: 'a silver thread' },
+      {
         kind: 'effect',
-        text: expect.stringContaining('Cast: 3rd Level slot'),
-      }),
+        label: 'Description',
+        text: 'Arcane force strikes the target.',
+      },
+      {
+        kind: 'effect',
+        label: 'Details',
+        text: 'The damage increases when upcast.',
+      },
       {
         label: 'Spell Attack',
         modifiers: [{ label: 'Spell Attack Bonus', value: 7 }],
@@ -329,7 +431,7 @@ describe('D&D spell casting compiler', () => {
           { label: 'Flat Modifier', value: 2 },
         ],
         notation: '3d6',
-        sourceSection: 1,
+        sourceSection: 8,
         typeLabel: 'Force',
       },
       {
@@ -350,8 +452,24 @@ describe('D&D spell casting compiler', () => {
         label: 'Fixed Save',
         value: 'DC 17 Wisdom Save',
       },
-      { kind: 'effect', label: 'Effect', text: 'The area glows.' },
     ]);
+
+    spell.components.material = false;
+    spell.description = '';
+    spell.higherLevelDescription = '';
+    const compactInformation = compileDnd5eSpellCast(
+      'Arcane Storm', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(compactInformation.ok).toBe(true);
+    if (compactInformation.ok) {
+      expect(compactInformation.definition.sections).toContainEqual(
+        expect.objectContaining({
+          kind: 'conditional-roll',
+          label: 'Damage',
+          sourceSection: 5,
+        }),
+      );
+    }
   });
 
   it('rejects invalid modes and authored steps as a whole', () => {
@@ -403,12 +521,13 @@ describe('D&D spell casting compiler', () => {
         tiers: [{ count: 2, minimum: 5 }],
       }],
     }];
-    expect(compileDnd5eSpellCast(
+    const compiled = compileDnd5eSpellCast(
       'Spark', spell, character, derived, { kind: 'cantrip' },
-    )).toMatchObject({
-      definition: { sections: [expect.anything(), { notation: '2d10' }] },
-      ok: true,
-    });
+    );
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) {
+      expect(compiled.definition.sections.at(-1)).toMatchObject({ notation: '2d10' });
+    }
 
     spell.rollSteps[0] = {
       ...spell.rollSteps[0],

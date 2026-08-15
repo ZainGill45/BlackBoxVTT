@@ -364,7 +364,7 @@ function StepEditor({
   const updateTerms = (terms: Dnd5eActionValueTerm[]) => {
     if (step.purpose === 'save') {
       onChange({ ...step, dcTerms: terms.filter((term) => term.kind !== 'dice') });
-    } else if (step.purpose !== 'effect') {
+    } else {
       onChange({ ...step, terms });
     }
   };
@@ -425,21 +425,7 @@ function StepEditor({
             </Dropdown>
           </EditorField>
         </div>
-        {step.purpose === 'effect' ? (
-          <EditorField label="Effect">
-            <textarea
-              aria-label={`${stepLabel(step)} effect`}
-              className={styles.compactTextarea}
-              maxLength={MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS}
-              placeholder="Describe the effect"
-              readOnly={!canEdit}
-              rows={2}
-              value={step.text}
-              onBlur={onSave}
-              onChange={(event) => onChange({ ...step, text: event.currentTarget.value })}
-            />
-          </EditorField>
-        ) : step.purpose === 'save' ? (
+        {step.purpose === 'save' ? (
           <>
             <div className={styles.saveExpression}>
               <EditorField label="Save ability">

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
   DiceRollCard,
@@ -216,6 +216,51 @@ describe('DiceRollCard', () => {
     expect(screen.getAllByLabelText('Roll pending')).toHaveLength(2);
     expect(screen.queryByText('/R')).not.toBeInTheDocument();
     expect(screen.queryByText('ROLL')).not.toBeInTheDocument();
+  });
+
+  it('groups detail fields and preserves unheaded prose in completed and pending cards', () => {
+    const sections = [
+      { kind: 'effect' as const, label: 'Detail/Casting Time', text: 'Action' },
+      { kind: 'effect' as const, label: 'Detail/Range', text: '60 feet' },
+      { kind: 'effect' as const, label: 'Detail/Duration', text: '1 minute' },
+      { kind: 'effect' as const, label: 'Detail/Target', text: '1 creature' },
+      { kind: 'effect' as const, label: 'Detail/Components', text: 'V, S, M, C, R' },
+      { kind: 'effect' as const, label: 'Detail/Material', text: 'a silver thread' },
+      { kind: 'effect' as const, label: 'Description', text: 'A bright bolt.' },
+      { kind: 'effect' as const, label: 'Details', text: 'The damage increases.' },
+    ];
+    const { rerender } = render(<DiceRollCard card={{
+      category: 'Spell',
+      sections,
+      title: 'Guiding Bolt',
+    }} />);
+
+    const assertPresentation = () => {
+      const grid = screen.getByLabelText('Roll details');
+      expect(grid.tagName).toBe('DL');
+      expect(within(grid).getByText('Casting Time')).toBeInTheDocument();
+      expect(within(grid).getByText('Components')).toBeInTheDocument();
+      expect(within(grid).getByText('V, S, M, C, R')).toBeInTheDocument();
+      expect(within(grid).getByText('Material')).toBeInTheDocument();
+      expect(within(grid).getByText('a silver thread')).toBeInTheDocument();
+      expect(screen.queryByText('Detail/Casting Time')).not.toBeInTheDocument();
+      expect(screen.queryByText('Description')).not.toBeInTheDocument();
+      expect(screen.getByText('A bright bolt.')).toBeInTheDocument();
+      expect(screen.getByText('The damage increases.')).toBeInTheDocument();
+      expect(screen.queryByText('Details')).not.toBeInTheDocument();
+      expect(screen.getByText('A bright bolt.').closest('section'))
+        .toHaveAttribute('data-static-role', 'description');
+      expect(screen.getByText('The damage increases.').closest('section'))
+        .toHaveAttribute('data-static-role', 'unheaded');
+    };
+
+    assertPresentation();
+    rerender(<PendingDiceRollCard definition={{
+      category: 'Spell',
+      sections,
+      title: 'Guiding Bolt',
+    }} />);
+    assertPresentation();
   });
 
   it('renders ordered Details, prompts, effects, and critical branch results', () => {

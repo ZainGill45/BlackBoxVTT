@@ -7,7 +7,6 @@ import {
 import {
   DND5E_SPELL_SCHOOLS,
   MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS,
-  analyzeDnd5eSpellRollStep,
   applyDnd5eSpellRollStepMutations,
   createDefaultDnd5eSpellData,
   createDefaultDnd5eSpellRollStep,
@@ -178,9 +177,14 @@ describe('D&D Spell authored data', () => {
     expect(describeDnd5eSpellData(spell)).toBe('1st Level Evocation');
     spell.level = 3;
     expect(describeDnd5eSpellData(spell)).toBe('3rd Level Evocation');
-    const effect = createDefaultDnd5eSpellRollStep('effect');
-    expect(analyzeDnd5eSpellRollStep(effect)).toMatchObject({
-      summary: 'Needs setup',
-    });
+    expect(isDnd5eSpellData(asJson({
+      ...spell,
+      rollSteps: [{
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        label: 'Legacy Effect',
+        purpose: 'effect',
+        text: 'No longer part of the authored roll model.',
+      }],
+    }))).toBe(false);
   });
 });

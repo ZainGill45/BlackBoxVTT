@@ -1,4 +1,5 @@
 import {
+  CHAT_ROLL_DETAIL_FIELD_PREFIX,
   chatRollDefinitionSchema,
   type ChatRollConditionalSectionDefinition,
   type ChatRollDefinition,
@@ -75,7 +76,6 @@ function mechanicTag(data: Dnd5eSpellData): string | null {
     ['healing', 'Healing'],
     ['roll', 'General'],
     ['damage', 'Damage'],
-    ['effect', 'Effect'],
   ] as const;
   return mechanics.find(([purpose]) =>
     data.rollSteps.some((step) => step.purpose === purpose)
@@ -154,13 +154,6 @@ export function presentDnd5eSpellHeader(
 
 function castLevel(data: Dnd5eSpellData, mode: Dnd5eSpellCastMode): Dnd5eSpellLevel {
   return mode.kind === 'slot' ? mode.level : data.level;
-}
-
-function modeLabel(data: Dnd5eSpellData, mode: Dnd5eSpellCastMode): string {
-  if (mode.kind === 'cantrip') return 'Cantrip';
-  if (mode.kind === 'ritual') return `Ritual at ${levelLabel(data.level)}`;
-  if (mode.kind === 'without-slot') return `Without a slot at ${levelLabel(data.level)}`;
-  return `${levelLabel(mode.level)} slot`;
 }
 
 function validateMode(
@@ -245,40 +238,52 @@ function resolveTerms(
   };
 }
 
-function detailsSection(
+function detailField(label: string, value: string): ChatRollSectionDefinition {
+  return {
+    kind: 'effect',
+    label: `${CHAT_ROLL_DETAIL_FIELD_PREFIX}${label}`,
+    text: normalize(value) || 'N/A',
+  };
+}
+
+function informationSections(
   data: Dnd5eSpellData,
   mode: Dnd5eSpellCastMode,
-): ChatRollSectionDefinition {
+): ChatRollSectionDefinition[] {
   const components = [
     data.components.verbal ? 'V' : '',
     data.components.somatic ? 'S' : '',
     data.components.material ? 'M' : '',
-  ].filter(Boolean).join(', ') || 'None';
-  const lines = [
-    `Cast: ${modeLabel(data, mode)}`,
-    `Level: ${levelLabel(data.level)}`,
-    `School: ${data.school}`,
-    `Casting Time: ${normalize(data.castingTime) || '—'}`,
-    `Range: ${normalize(data.range) || '—'}`,
-    `Target: ${normalize(data.target) || '—'}`,
-    `Duration: ${normalize(data.duration) || '—'}`,
-    `Components: ${components}`,
-    data.classes.length > 0 ? `Classes: ${data.classes.join(', ')}` : '',
-    data.concentration ? 'Concentration' : '',
-    data.ritual ? 'Ritual-capable' : '',
-    data.components.material && normalize(data.components.materialDescription)
-      ? `Material: ${normalize(data.components.materialDescription)}`
-      : '',
-    normalize(data.description),
-    normalize(data.higherLevelDescription)
-      ? `Higher-Level Casting: ${normalize(data.higherLevelDescription)}`
-      : '',
-  ].filter(Boolean);
-  return { kind: 'effect', label: 'Spell Details', text: normalize(lines.join('\n')) };
+    data.concentration ? 'C' : '',
+    data.ritual ? 'R' : '',
+  ].filter(Boolean).join(', ');
+  const sections: ChatRollSectionDefinition[] = [
+    detailField('Casting Time', data.castingTime),
+    detailField('Range', data.range),
+    detailField('Duration', data.duration),
+    detailField('Target', data.target),
+    detailField('Components', components),
+  ];
+  if (data.components.material) {
+    sections.push(detailField('Material', data.components.materialDescription));
+  }
+  const description = normalize(data.description);
+  if (description) {
+    sections.push({ kind: 'effect', label: 'Description', text: description });
+  }
+  const higherLevelDescription = normalize(data.higherLevelDescription);
+  if (
+    mode.kind === 'slot' &&
+    mode.level > data.level &&
+    higherLevelDescription
+  ) {
+    sections.push({ kind: 'effect', label: 'Details', text: higherLevelDescription });
+  }
+  return sections;
 }
 
 function ordinarySection(
-  step: Exclude<Dnd5eSpellRollStep, { purpose: 'attack' | 'effect' | 'save' }>,
+  step: Exclude<Dnd5eSpellRollStep, { purpose: 'attack' | 'save' }>,
   character: Dnd5eCharacterData,
   derived: Dnd5eDerivedCharacterValues,
   selectedCastLevel: Dnd5eSpellLevel,
@@ -317,21 +322,16 @@ export function compileDnd5eSpellCast(
   const modeProblem = validateMode(data, mode);
   if (modeProblem) issues.push({ message: modeProblem, stepId: null });
   const selectedCastLevel = castLevel(data, mode);
-  const sections: ChatRollSectionDefinition[] = [detailsSection(data, mode)];
+  const sections = informationSections(data, mode);
+  const authoredSectionOffset = sections.length;
   const sectionByStepId = new Map(
-    data.rollSteps.map((step, index) => [step.id, index + 1]),
+    data.rollSteps.map((step, index) => [step.id, index + authoredSectionOffset]),
   );
 
   for (const step of data.rollSteps) {
     const label = normalize(step.label);
     if (!label) {
       issues.push(issue(step, 'Give this spell step a label.'));
-      continue;
-    }
-    if (step.purpose === 'effect') {
-      const text = normalize(step.text);
-      if (!text) issues.push(issue(step, 'Describe this spell effect.'));
-      else sections.push({ kind: 'effect', label, text });
       continue;
     }
     if (step.purpose === 'save') {

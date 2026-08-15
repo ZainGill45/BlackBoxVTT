@@ -36,17 +36,30 @@ test.describe('networked D&D Spell Journal entries', () => {
     await gm.window.getByRole('menuitem', { name: 'Spell' }).click();
     const gmSheet = gm.window.getByRole('dialog', { name: /spell sheet$/ });
     await expect(gmSheet).toBeVisible();
+    const primaryDropdownHeights = await Promise.all([
+      gmSheet.getByRole('button', { exact: true, name: 'Level' }),
+      gmSheet.getByRole('button', { exact: true, name: 'School' }),
+      gmSheet.getByRole('button', { exact: true, name: 'Spell classes' }),
+    ].map(async (control) => Math.round((await control.boundingBox())?.height ?? 0)));
+    expect(primaryDropdownHeights[0]).toBeGreaterThan(0);
+    expect(new Set(primaryDropdownHeights).size).toBe(1);
     await gmSheet.getByLabel('Spell Name').fill('Fire Bloom');
     await gmSheet.getByLabel('Spell Name').blur();
     await gmSheet.getByRole('button', { name: 'Spell classes' }).click();
-    const wizardClass = gmSheet.getByRole('checkbox', { name: 'Wizard' });
-    await gmSheet.getByText('Wizard', { exact: true }).click();
-    await expect(wizardClass).toBeChecked();
+    const wizardClass = gmSheet.getByRole('button', { name: 'Wizard' });
+    await wizardClass.click();
+    await expect(wizardClass).toHaveAttribute('aria-pressed', 'true');
     await expect(gmSheet).toBeVisible();
     await expect(gm.window.getByRole('dialog')).toHaveCount(1);
     await wizardClass.press('Escape');
-    await gmSheet.getByLabel('Level', { exact: true }).selectOption('3');
-    await gmSheet.getByLabel('School', { exact: true }).selectOption('Evocation');
+    await gmSheet.getByRole('button', { exact: true, name: 'Level' }).click();
+    await gmSheet.getByRole('group', { name: 'Level options' })
+      .getByRole('button', { name: '3rd Level' })
+      .click();
+    await gmSheet.getByRole('button', { exact: true, name: 'School' }).click();
+    await gmSheet.getByRole('group', { name: 'School options' })
+      .getByRole('button', { name: 'Evocation' })
+      .click();
     await gmSheet.getByLabel('Spell Description').fill('A bloom of authored flame.');
     await gmSheet.getByLabel('Spell Description').blur();
 
@@ -69,7 +82,8 @@ test.describe('networked D&D Spell Journal entries', () => {
     });
     await expect(playerSheet.getByLabel('Spell Description'))
       .toHaveAttribute('readonly', '');
-    await expect(playerSheet.getByLabel('Level', { exact: true })).toBeDisabled();
+    await expect(playerSheet.getByRole('button', { exact: true, name: 'Level' }))
+      .toHaveAttribute('aria-disabled', 'true');
     await expect(playerSheet.getByRole('button', { name: 'Add Roll Action' }))
       .toHaveCount(0);
 

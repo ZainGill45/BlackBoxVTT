@@ -415,12 +415,37 @@ test.describe('networked D&D character sheets', () => {
     const spellSheet = gm.window.getByRole('dialog', { name: /spell sheet$/ });
     await spellSheet.getByLabel('Spell Name').fill('Network Ward');
     await spellSheet.getByLabel('Spell Name').blur();
-    await spellSheet.getByLabel('Level', { exact: true }).selectOption('1');
-    await spellSheet.getByLabel('School', { exact: true }).selectOption('Abjuration');
+    await spellSheet.getByRole('button', { exact: true, name: 'Level' }).click();
+    await spellSheet.getByRole('group', { name: 'Level options' })
+      .getByRole('button', { name: '1st Level' })
+      .click();
+    await spellSheet.getByRole('button', { exact: true, name: 'School' }).click();
+    await spellSheet.getByRole('group', { name: 'School options' })
+      .getByRole('button', { name: 'Abjuration' })
+      .click();
+    await spellSheet.getByLabel('Casting Time').fill('Action');
+    await spellSheet.getByLabel('Casting Time').blur();
+    await spellSheet.getByRole('textbox', { exact: true, name: 'Range' }).fill('60 feet');
+    await spellSheet.getByRole('textbox', { exact: true, name: 'Range' }).blur();
+    await spellSheet.getByLabel('Duration').fill('1 minute');
+    await spellSheet.getByLabel('Duration').blur();
+    await spellSheet.getByLabel('Target').fill('One creature');
+    await spellSheet.getByLabel('Target').blur();
+    await spellSheet.getByText('Concentration', { exact: true }).click();
+    await spellSheet.getByText('Ritual', { exact: true }).click();
+    await spellSheet.getByText('Verbal', { exact: true }).click();
+    await spellSheet.getByText('Somatic', { exact: true }).click();
+    await spellSheet.getByText('Material', { exact: true }).click();
+    await spellSheet.getByLabel('Material Description').fill('a silver thread');
+    await spellSheet.getByLabel('Material Description').blur();
     await spellSheet.getByLabel('Spell Description').fill(
       'A ward whose contents must disappear when permission is revoked.',
     );
     await spellSheet.getByLabel('Spell Description').blur();
+    await spellSheet.getByLabel('Higher-Level Casting').fill(
+      'The ward protects one additional creature when upcast.',
+    );
+    await spellSheet.getByLabel('Higher-Level Casting').blur();
     await spellSheet.press('Escape');
 
     await gm.window.getByRole('button', { name: 'Add journal entry' }).click();
@@ -428,8 +453,14 @@ test.describe('networked D&D character sheets', () => {
     const secondSpellSheet = gm.window.getByRole('dialog', { name: /spell sheet$/ });
     await secondSpellSheet.getByLabel('Spell Name').fill('Network Bolt');
     await secondSpellSheet.getByLabel('Spell Name').blur();
-    await secondSpellSheet.getByLabel('Level', { exact: true }).selectOption('1');
-    await secondSpellSheet.getByLabel('School', { exact: true }).selectOption('Evocation');
+    await secondSpellSheet.getByRole('button', { exact: true, name: 'Level' }).click();
+    await secondSpellSheet.getByRole('group', { name: 'Level options' })
+      .getByRole('button', { name: '1st Level' })
+      .click();
+    await secondSpellSheet.getByRole('button', { exact: true, name: 'School' }).click();
+    await secondSpellSheet.getByRole('group', { name: 'School options' })
+      .getByRole('button', { name: 'Evocation' })
+      .click();
     await secondSpellSheet.getByLabel('Spell Description').fill(
       'A second spell used to verify character spell ordering.',
     );
@@ -447,12 +478,15 @@ test.describe('networked D&D character sheets', () => {
       .click();
     await gmCharacterSheet.getByRole('button', { exact: true, name: 'Level' }).click();
     await gmCharacterSheet.getByRole('group', { name: 'Level options' })
-      .getByRole('button', { exact: true, name: '1' })
+      .getByRole('button', { exact: true, name: '3' })
       .click();
     await gmCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
     const gmFirstLevelSlots = gmCharacterSheet.getByLabel('1st Level Spell Slots Current');
     await gmFirstLevelSlots.fill('1');
     await gmFirstLevelSlots.blur();
+    const gmSecondLevelSlots = gmCharacterSheet.getByLabel('2nd Level Spell Slots Current');
+    await gmSecondLevelSlots.fill('1');
+    await gmSecondLevelSlots.blur();
     await gmCharacterSheet.getByRole('button', {
       name: 'Add spells to character',
     }).click();
@@ -547,6 +581,48 @@ test.describe('networked D&D character sheets', () => {
       .toHaveCount(1);
     await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
       .toHaveCount(1);
+    let gmWardCards = chatLog(gm.window).locator('article').filter({
+      has: gm.window.getByRole('heading', { exact: true, name: 'Network Ward' }),
+    });
+    const noSlotCard = gmWardCards.nth(0);
+    const noSlotDetails = noSlotCard.getByLabel('Roll details');
+    await expect(noSlotDetails).toBeVisible();
+    await expect(noSlotDetails.locator('dt')).toHaveText([
+      'Casting Time',
+      'Range',
+      'Duration',
+      'Target',
+      'Components',
+      'Material',
+    ]);
+    await expect(noSlotDetails.locator('dd')).toHaveText([
+      'Action',
+      '60 feet',
+      '1 minute',
+      'One creature',
+      'V, S, M, C, R',
+      'a silver thread',
+    ]);
+    await expect(noSlotCard.getByRole('heading', { name: 'Description' })).toHaveCount(0);
+    await expect(noSlotCard.getByText('The ward protects one additional creature when upcast.'))
+      .toHaveCount(0);
+    await expect(noSlotCard.getByText('Spell Details')).toHaveCount(0);
+
+    const detailRows = await noSlotDetails.locator(':scope > div').evaluateAll((fields) => (
+      fields.map((field) => {
+        const bounds = field.getBoundingClientRect();
+        return {
+          left: Math.round(bounds.left),
+          top: Math.round(bounds.top),
+          width: Math.round(bounds.width),
+        };
+      })
+    ));
+    expect(new Set(detailRows.slice(0, 3).map(({ top }) => top)).size).toBe(1);
+    expect(new Set(detailRows.slice(3, 5).map(({ top }) => top)).size).toBe(1);
+    expect(detailRows[3]?.top).toBeGreaterThan(detailRows[0]?.top ?? 0);
+    expect(detailRows[5]?.top).toBeGreaterThan(detailRows[3]?.top ?? 0);
+    expect(detailRows[5]?.width).toBeGreaterThan(detailRows[3]?.width ?? 0);
 
     await openTab(gm.window, 'Journal');
     if (!await characterRow.isVisible()) {
@@ -571,6 +647,44 @@ test.describe('networked D&D character sheets', () => {
       .toHaveCount(2);
     await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
       .toHaveCount(2);
+    gmWardCards = chatLog(gm.window).locator('article').filter({
+      has: gm.window.getByRole('heading', { exact: true, name: 'Network Ward' }),
+    });
+    await expect(gmWardCards.nth(1).getByText(
+      'The ward protects one additional creature when upcast.',
+    )).toHaveCount(0);
+
+    await openTab(gm.window, 'Journal');
+    if (!await characterRow.isVisible()) {
+      await gm.window.getByRole('button', { exact: true, name: 'Characters' }).click();
+    }
+    await characterRow.click();
+    gmCharacterSheet = gm.window.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    await gmCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
+    await expect(gmSecondLevelSlots).toHaveValue('1');
+    await expect(gmCharacterSheet.getByRole('button', {
+      exact: true,
+      name: 'Spell cast mode',
+    })).toContainText('Cast at 2nd Level');
+    await gmCharacterSheet.getByRole('button', { exact: true, name: 'Cast' }).click();
+    await expect(gmSecondLevelSlots).toHaveValue('0');
+    await gmCharacterSheet.press('Escape');
+
+    await openTab(gm.window, 'Chat');
+    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
+      .toHaveCount(3);
+    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
+      .toHaveCount(3);
+    gmWardCards = chatLog(gm.window).locator('article').filter({
+      has: gm.window.getByRole('heading', { exact: true, name: 'Network Ward' }),
+    });
+    const upcastCard = gmWardCards.nth(2);
+    await expect(upcastCard.getByText(
+      'The ward protects one additional creature when upcast.',
+    )).toBeVisible();
+    await expect(upcastCard.getByRole('heading', { name: 'Details' })).toHaveCount(0);
 
     await openTab(player.window, 'Journal');
     if (!await playerCharacterRow.isVisible()) {

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { removeDnd5eActionEffects } from './campaignArchiveDnd5eActionEffects';
 import { addEmptyDnd5eCharacterSpellReferences } from './campaignArchiveCharacterSpellReferences';
 import { runDirectArchiveConversion } from './campaignArchiveSteps';
 
@@ -6,8 +7,11 @@ import { runDirectArchiveConversion } from './campaignArchiveSteps';
 export function convertCampaignArchiveFormat12(
   connection: DatabaseSync,
 ): string[] {
-  return runDirectArchiveConversion(
-    connection,
-    () => addEmptyDnd5eCharacterSpellReferences(connection, 12),
-  );
+  return runDirectArchiveConversion(connection, () => {
+    const effectWarnings = removeDnd5eActionEffects(connection, 12);
+    return [
+      ...addEmptyDnd5eCharacterSpellReferences(connection, 12),
+      ...effectWarnings,
+    ];
+  });
 }

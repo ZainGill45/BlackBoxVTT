@@ -117,13 +117,58 @@
 
 .rollTitle {
   margin: 0;
-  margin-top: var(--space-1);
+  margin-block: var(--space-1);
   overflow-wrap: anywhere;
 }
 
 .rollSections {
   display: grid;
   gap: var(--space-1);
+}
+
+.rollDetailGrid {
+  display: grid;
+  min-width: 0;
+  padding: 0;
+  margin: 0 0 var(--space-2);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--border-width);
+  background: var(--color-border);
+  border: var(--border-width) solid var(--color-border);
+}
+
+.rollDetailField {
+  display: grid;
+  min-width: 0;
+  padding: var(--space-2);
+  align-content: start;
+  grid-column: span 2;
+  background: var(--color-surface-muted);
+}
+
+.rollDetailField:nth-child(n + 4):nth-child(-n + 5) {
+  grid-column: span 3;
+}
+
+.rollDetailField:nth-child(n + 6) {
+  grid-column: 1 / -1;
+}
+
+.rollDetailField dt {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-3xs);
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.rollDetailField dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-standard);
 }
 
 .rollSection {
@@ -165,7 +210,11 @@
 }
 
 .rollSection[data-static="true"] .rollSectionBody {
-  padding: var(--space-1) 0 var(--space-2);
+  padding: 0;
+}
+
+.rollSection[data-static-role="description"] {
+  margin-bottom: var(--space-2);
 }
 
 .rollStaticText {
@@ -213,7 +262,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: var(--space-1);
+  margin: 0 0 var(--space-1);
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);

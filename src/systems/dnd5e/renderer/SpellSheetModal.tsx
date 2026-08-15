@@ -4,9 +4,9 @@ import {
   useRef,
   useState,
 } from 'react';
-import { ChevronDown } from 'lucide-react';
 import { Checkbox } from '../../../components/ui/Checkbox';
-import { FormField, SelectInput, TextInput } from '../../../components/ui/FormField';
+import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import { FormField, TextInput } from '../../../components/ui/FormField';
 import { Modal } from '../../../components/ui/Modal';
 import type { CampaignSystemState, JsonValue } from '../../../shared/gameSystems';
 import {
@@ -31,7 +31,6 @@ import {
   type Dnd5eSpellData,
   type Dnd5eSpellLevel,
   type Dnd5eSpellRollStepMutation,
-  type Dnd5eSpellSchool,
   type Dnd5eSpellValueTerm,
 } from '../spellData';
 import {
@@ -559,28 +558,40 @@ export function SpellSheetModal({
 
         <div className={styles.primaryMetadataGrid}>
           <FormField htmlFor={`spell-${entry.id}-level`} label="Level" showLabel>
-            <SelectInput
+            <Dropdown
+              accessibleLabel="Level"
               id={`spell-${entry.id}-level`}
               disabled={!canEdit}
-              value={draft.level}
-              onChange={(event) => changeLevel(Number(event.currentTarget.value) as Dnd5eSpellLevel)}
+              label={levelLabel(draft.level)}
+              panelLabel="Level options"
             >
               {DND5E_SPELL_LEVELS.map((level) => (
-                <option key={level} value={level}>{levelLabel(level)}</option>
+                <DropdownOption
+                  active={draft.level === level}
+                  key={level}
+                  label={levelLabel(level)}
+                  onSelect={() => changeLevel(level)}
+                />
               ))}
-            </SelectInput>
+            </Dropdown>
           </FormField>
           <FormField htmlFor={`spell-${entry.id}-school`} label="School" showLabel>
-            <SelectInput
+            <Dropdown
+              accessibleLabel="School"
               id={`spell-${entry.id}-school`}
               disabled={!canEdit}
-              value={draft.school}
-              onChange={(event) => commitField('school', event.currentTarget.value as Dnd5eSpellSchool)}
+              label={draft.school}
+              panelLabel="School options"
             >
               {DND5E_SPELL_SCHOOLS.map((school) => (
-                <option key={school} value={school}>{school}</option>
+                <DropdownOption
+                  active={draft.school === school}
+                  key={school}
+                  label={school}
+                  onSelect={() => commitField('school', school)}
+                />
               ))}
-            </SelectInput>
+            </Dropdown>
           </FormField>
           <FormField htmlFor={`spell-${entry.id}-classes`} label="Classes" showLabel>
             <SpellClassPicker
@@ -734,69 +745,26 @@ function SpellClassPicker({
   id: string;
   onToggle: (className: (typeof DND5E_5_5E_CLASSES)[number]) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', closeOnOutsidePointer);
-    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
-  }, [open]);
-
   return (
-    <div
-      ref={rootRef}
-      className={styles.classPicker}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || !open) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }}
+    <Dropdown
+      accessibleLabel="Spell classes"
+      closeOnSelect={false}
+      disabled={disabled}
+      id={id}
+      label={classCountLabel(classes.length)}
+      panelLabel="Spell class options"
+      title="Spell classes"
     >
-      <button
-        ref={triggerRef}
-        aria-controls={`${id}-options`}
-        aria-expanded={open}
-        aria-label="Spell classes"
-        className={styles.classTrigger}
-        disabled={disabled}
-        title="Spell classes"
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span>{classCountLabel(classes.length)}</span>
-        <ChevronDown aria-hidden size="0.9rem" strokeWidth={1.7} />
-      </button>
-      {open ? (
-        <div
-          aria-label="Spell class options"
-          className={styles.classPickerPanel}
-          id={`${id}-options`}
-          role="group"
-        >
-          <div className={styles.classOptions} id={id}>
-            {DND5E_5_5E_CLASSES.map((className) => (
-              <Checkbox
-                checked={classes.includes(className)}
-                disabled={disabled}
-                key={className}
-                onChange={() => onToggle(className)}
-              >
-                {className}
-              </Checkbox>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
+      {DND5E_5_5E_CLASSES.map((className) => (
+        <DropdownOption
+          active={classes.includes(className)}
+          disabled={disabled}
+          key={className}
+          label={className}
+          onSelect={() => onToggle(className)}
+        />
+      ))}
+    </Dropdown>
   );
 }
 
