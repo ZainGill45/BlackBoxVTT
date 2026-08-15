@@ -169,6 +169,25 @@ function renderCharacterSheet() {
   };
 }
 
+describe('CharacterSheetModal layout', () => {
+  it('contains the Spells tab in the sheet viewport with an internal spell-list region', async () => {
+    const user = userEvent.setup();
+    const { sheet } = renderCharacterSheet();
+    const viewport = sheet.querySelector<HTMLElement>('[data-character-sheet-viewport]');
+    const main = within(sheet).getByRole('main');
+
+    expect(viewport).toHaveAttribute('data-active-tab', 'home');
+    expect(main).toHaveAttribute('data-active-tab', 'home');
+
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+
+    expect(viewport).toHaveAttribute('data-active-tab', 'spells');
+    expect(main).toHaveAttribute('data-active-tab', 'spells');
+    expect(within(sheet).getByRole('region', { name: 'Character spell list' }))
+      .toBeInTheDocument();
+  });
+});
+
 describe('CharacterSheetModal chat actions', () => {
   it('rolls current ability and important-stat totals', async () => {
     const user = userEvent.setup();
@@ -521,9 +540,9 @@ describe('CharacterSheetModal chat actions', () => {
     });
     await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
     await within(sheet).findByRole('heading', { name: 'Conflict Ward' });
-    await waitFor(() => expect(within(sheet).getByRole('combobox', {
+    await waitFor(() => expect(within(sheet).getByRole('button', {
       name: 'Spell cast mode',
-    })).toHaveValue('slot:1'));
+    })).toHaveTextContent('Cast at 1st Level'));
     await user.click(within(sheet).getByRole('button', { name: 'Cast' }));
 
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(3));

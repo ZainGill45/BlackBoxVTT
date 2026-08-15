@@ -1,4 +1,4 @@
-import { BookOpen, Check, FileText, FileUser, Trash2 } from 'lucide-react';
+import { BookOpen, Check, FileText, Trash2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -40,6 +40,7 @@ import {
   hasSystemJournalEntryRenderer,
   hasDetachedSystemJournalEntryRenderer,
   measureDetachedSystemJournalEntry,
+  SystemJournalEntryIcon,
   SystemJournalEntryModal,
 } from '../../systems/rendererRegistry';
 import {
@@ -94,8 +95,6 @@ function JournalEntryRow({
   onRename,
   reordering,
 }: JournalEntryRowProps) {
-  const Icon = entry.kind === 'note' ? FileText : FileUser;
-
   return (
     <li
       className={styles.entryRow}
@@ -110,7 +109,11 @@ function JournalEntryRow({
         type="button"
         onClick={onOpen}
       >
-        <Icon aria-hidden size="1.625rem" strokeWidth={1.4} />
+        {entry.kind === 'note' ? (
+          <FileText aria-hidden size="1.625rem" strokeWidth={1.4} />
+        ) : (
+          <SystemJournalEntryIcon typeId={entry.typeId} />
+        )}
       </button>
       <InlineRename
         accessibleLabel={`Name for ${entry.name}`}

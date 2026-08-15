@@ -22,7 +22,7 @@ function asJson(value: unknown): JsonValue {
 describe('D&D Spell authored data', () => {
   it('creates the exact empty Spell agreed for the Journal', () => {
     expect(createDefaultDnd5eSpellData()).toEqual({
-      castingTime: '1 Action',
+      castingTime: 'Action',
       classes: [],
       components: {
         material: false,

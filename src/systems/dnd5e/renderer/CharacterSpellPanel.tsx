@@ -1,16 +1,24 @@
+import { Plus, Search, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
-import { ContextMenuController } from '../../../components/ui/contextMenu';
+import {
+  ContextMenuController,
+  type ContextMenuEntry,
+} from '../../../components/ui/contextMenu';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
+import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import { IconButton } from '../../../components/ui/IconButton';
 import { Modal } from '../../../components/ui/Modal';
+import { OrderedCollectionController } from '../../../components/ui/orderedCollection';
 import type { ChatRollDefinition } from '../../../shared/chatRoll';
 import type { SystemJournalEntry, SystemJournalEntrySummary } from '../../../shared/journal';
 import type {
@@ -30,6 +38,7 @@ import {
 import { DND5E_SPELL_ENTRY_TYPE_ID } from '../definition';
 import {
   compileDnd5eSpellCast,
+  presentDnd5eSpellHeader,
   type Dnd5eSpellCastMode,
 } from '../spellCasting';
 import {
@@ -37,7 +46,6 @@ import {
   type Dnd5eSpellData,
   type Dnd5eSpellLevel,
 } from '../spellData';
-import { CharacterSheetAddEntryButton } from './CharacterSheetAddEntryButton';
 import styles from './CharacterSheetModal.module.css';
 
 type SpellEntry = SystemJournalEntry & { data: Dnd5eSpellData };
@@ -45,6 +53,16 @@ type SpellEntryCache = Map<
   string,
   { entry: SpellEntry | null; revision: number }
 >;
+type SpellOrderScope = Dnd5eSpellLevel | 'unavailable';
+
+interface SpellReorderState {
+  activeEntryId: string;
+  label: string;
+  orderedEntryIds: readonly string[];
+  scope: SpellOrderScope;
+  x: number;
+  y: number;
+}
 
 interface CharacterSpellPanelProps {
   campaignId: string;
@@ -76,6 +94,47 @@ interface CharacterSpellPanelProps {
   >[0]['definition']) => Promise<boolean>;
 }
 
+interface SpellSearchFieldProps {
+  clearLabel: string;
+  label: string;
+  onQueryChange: (query: string) => void;
+  placeholder: string;
+  query: string;
+}
+
+function SpellSearchField({
+  clearLabel,
+  label,
+  onQueryChange,
+  placeholder,
+  query,
+}: SpellSearchFieldProps) {
+  return (
+    <label className={styles.spellSearch}>
+      <Search aria-hidden size="1rem" />
+      <span className="sr-only">{label}</span>
+      <input
+        placeholder={placeholder}
+        type="search"
+        value={query}
+        onChange={(event) => onQueryChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') onQueryChange('');
+        }}
+      />
+      {query ? (
+        <button
+          aria-label={clearLabel}
+          type="button"
+          onClick={() => onQueryChange('')}
+        >
+          <X aria-hidden size="1rem" />
+        </button>
+      ) : null}
+    </label>
+  );
+}
+
 const PREPARATION_LABELS: Record<Dnd5eSpellPreparation, string> = {
   'always-prepared': 'Always Prepared',
   prepared: 'Prepared',
@@ -93,6 +152,27 @@ function levelLabel(level: Dnd5eSpellLevel): string {
   if (level === 0) return 'Cantrips';
   const suffix = level === 1 ? 'st' : level === 2 ? 'nd' : level === 3 ? 'rd' : 'th';
   return `${level}${suffix} Level`;
+}
+
+function compactCastingTime(castingTime: string): string {
+  const normalized = castingTime.trim();
+  const immediateCastingTime = /^(?:1\s+)?(action|bonus action|reaction)$/i.exec(normalized);
+  if (!immediateCastingTime) return normalized;
+  return immediateCastingTime[1]
+    .split(' ')
+    .map((word) => `${word[0]?.toLocaleUpperCase() ?? ''}${word.slice(1).toLocaleLowerCase()}`)
+    .join(' ');
+}
+
+function spellListSubtitle(data: Dnd5eSpellData): string {
+  return [
+    data.level === 0 ? 'Cantrip' : levelLabel(data.level),
+    compactCastingTime(data.castingTime),
+  ].filter(Boolean).join(' ');
+}
+
+function spellMetadataValue(value: string): string {
+  return value.trim() || 'N/A';
 }
 
 function preparationAfter(state: Dnd5eSpellPreparation): Dnd5eSpellPreparation {
@@ -124,6 +204,30 @@ function sortedSpells(entries: readonly SpellEntry[]): SpellEntry[] {
     left.data.level - right.data.level ||
     left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }),
   );
+}
+
+function orderedByEntryIds<T>(
+  entries: readonly T[],
+  orderedEntryIds: readonly string[],
+  entryId: (entry: T) => string,
+): T[] {
+  const entriesById = new Map(entries.map((entry) => [entryId(entry), entry]));
+  const ordered = orderedEntryIds.flatMap((id) => entriesById.get(id) ?? []);
+  const orderedIds = new Set(ordered.map(entryId));
+  return [...ordered, ...entries.filter((entry) => !orderedIds.has(entryId(entry)))];
+}
+
+function movedEntryIds(
+  entryIds: readonly string[],
+  entryId: string,
+  direction: 'down' | 'up',
+): string[] {
+  const next = [...entryIds];
+  const index = next.indexOf(entryId);
+  const target = index + (direction === 'down' ? 1 : -1);
+  if (index < 0 || target < 0 || target >= next.length) return next;
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
 }
 
 function castModeValue(mode: Dnd5eSpellCastMode): string {
@@ -201,8 +305,11 @@ export function CharacterSpellPanel({
     spellId: string;
   } | null>(null);
   const [castPending, setCastPending] = useState(false);
+  const [reorderState, setReorderState] = useState<SpellReorderState | null>(null);
   const loadRequestRef = useRef(0);
   const menuRef = useRef<ContextMenuController | null>(null);
+  const orderRef = useRef<OrderedCollectionController | null>(null);
+  const spellListRef = useRef<HTMLDivElement | null>(null);
   const spellEntryCacheRef = useRef<SpellEntryCache>(new Map());
   const spellReferencesRef = useRef(data.spellcasting.spells);
 
@@ -238,11 +345,10 @@ export function CharacterSpellPanel({
     const referenceIds = new Set(
       spellReferencesRef.current.map(({ entryId }) => entryId),
     );
-    const firstAccessible = sortedSpells(
-      [...loaded.values()].filter((entry): entry is SpellEntry =>
-        entry !== null && referenceIds.has(entry.id),
-      ),
-    )[0];
+    const firstAccessible = spellReferencesRef.current
+      .map(({ entryId }) => loaded.get(entryId))
+      .filter((entry): entry is SpellEntry => Boolean(entry))
+      .sort((left, right) => left.data.level - right.data.level)[0];
     setSelectedId((current) => current && referenceIds.has(current)
       ? current
       : firstAccessible?.id ?? null);
@@ -275,26 +381,27 @@ export function CharacterSpellPanel({
     [data.spellcasting.spells],
   );
   const attachedEntries = useMemo(
-    () => sortedSpells(
-      data.spellcasting.spells
-        .map(({ entryId }) => entries.get(entryId))
-        .filter((entry): entry is SpellEntry => Boolean(entry)),
-    ),
+    () => data.spellcasting.spells
+      .map(({ entryId }) => entries.get(entryId))
+      .filter((entry): entry is SpellEntry => Boolean(entry)),
     [data.spellcasting.spells, entries],
   );
   const unavailable = useMemo(
     () => data.spellcasting.spells.filter(({ entryId }) => !entries.get(entryId)),
     [data.spellcasting.spells, entries],
   );
+  const firstAccessible = useMemo(
+    () => [...attachedEntries].sort(
+      (left, right) => left.data.level - right.data.level,
+    )[0],
+    [attachedEntries],
+  );
 
   const effectiveSelectedId = selectedId && referencesById.has(selectedId)
     ? selectedId
-    : attachedEntries[0]?.id ?? null;
+    : firstAccessible?.id ?? null;
   const selected = effectiveSelectedId
     ? entries.get(effectiveSelectedId) ?? null
-    : null;
-  const selectedReference = effectiveSelectedId
-    ? referencesById.get(effectiveSelectedId) ?? null
     : null;
   const preparedCurrent = data.spellcasting.spells.reduce((count, reference) => {
     const spell = entries.get(reference.entryId);
@@ -324,6 +431,15 @@ export function CharacterSpellPanel({
       ? attachedEntries.filter((entry) => spellSearchText(entry).includes(search))
       : attachedEntries;
   }, [attachedEntries, query]);
+  const attachedGroups = useMemo(() => {
+    const groups = new Map<Dnd5eSpellLevel, SpellEntry[]>();
+    for (const entry of attachedEntries) {
+      const group = groups.get(entry.data.level) ?? [];
+      group.push(entry);
+      groups.set(entry.data.level, group);
+    }
+    return groups;
+  }, [attachedEntries]);
   const groupedEntries = useMemo(() => {
     const groups = new Map<Dnd5eSpellLevel, SpellEntry[]>();
     for (const entry of filteredEntries) {
@@ -333,6 +449,31 @@ export function CharacterSpellPanel({
     }
     return groups;
   }, [filteredEntries]);
+  const displayedGroups = useMemo(() => {
+    if (!reorderState || reorderState.scope === 'unavailable') return groupedEntries;
+    const group = groupedEntries.get(reorderState.scope);
+    if (!group) return groupedEntries;
+    const next = new Map(groupedEntries);
+    next.set(reorderState.scope, orderedByEntryIds(
+      group,
+      reorderState.orderedEntryIds,
+      (entry) => entry.id,
+    ));
+    return next;
+  }, [groupedEntries, reorderState]);
+  const displayedUnavailable = useMemo(() =>
+    reorderState?.scope === 'unavailable'
+      ? orderedByEntryIds(
+          unavailable,
+          reorderState.orderedEntryIds,
+          (reference) => reference.entryId,
+        )
+      : unavailable,
+  [reorderState, unavailable]);
+  const unavailableEntryIds = useMemo(
+    () => unavailable.map(({ entryId }) => entryId),
+    [unavailable],
+  );
 
   const availableSlotLevels = useMemo(() => selected
     ? DND5E_SPELL_SLOT_LEVELS.filter((level) =>
@@ -364,10 +505,18 @@ export function CharacterSpellPanel({
   const compiled = useMemo(() => selected
     ? compileDnd5eSpellCast(selected.name, selected.data, data, derived, castMode)
     : null, [castMode, data, derived, selected]);
+  const headerPresentation = selected
+    ? presentDnd5eSpellHeader(
+        selected.data,
+        compiled?.ok ? compiled.definition : null,
+      )
+    : null;
 
   const commitPreparation = async (
     reference: Dnd5eCharacterSpellReference,
+    spell?: SpellEntry,
   ) => {
+    if (spell?.data.level === 0) return;
     await onCommitSpells([{
       entryId: reference.entryId,
       kind: 'set-preparation',
@@ -375,27 +524,112 @@ export function CharacterSpellPanel({
     }]);
   };
 
-  const openRemoveMenu = (
-    event: MouseEvent,
+  const beginReorder = (
     reference: Dnd5eCharacterSpellReference,
+    label: string,
+    scope: SpellOrderScope,
+    groupEntryIds: readonly string[],
+    position: { clientX: number; clientY: number },
   ) => {
-    event.preventDefault();
+    const controller = new OrderedCollectionController(
+      () => groupEntryIds,
+      (orderedEntryIds) => onCommitSpells([{
+        kind: 'reorder',
+        orderedEntryIds: [...orderedEntryIds],
+      }]),
+    );
+    orderRef.current = controller;
+    const snapshot = controller.begin(reference.entryId);
+    if (snapshot) setReorderState({
+      activeEntryId: reference.entryId,
+      label,
+      orderedEntryIds: snapshot.orderedIds,
+      scope,
+      x: position.clientX,
+      y: position.clientY,
+    });
+  };
+
+  useEffect(() => {
+    if (!reorderState) return undefined;
+    const movePointer = (event: PointerEvent) => {
+      const target = (event.target as Element | null)
+        ?.closest<HTMLElement>('[data-spell-order-id]');
+      let snapshot = orderRef.current?.active;
+      const entryId = target?.dataset.spellOrderId;
+      if (
+        target &&
+        entryId &&
+        spellListRef.current?.contains(target) &&
+        snapshot?.orderedIds.includes(entryId)
+      ) {
+        const index = snapshot.orderedIds.indexOf(entryId);
+        const after = event.clientY >
+          target.getBoundingClientRect().top + target.offsetHeight / 2;
+        snapshot = orderRef.current?.placeAt(index + (after ? 1 : 0));
+      }
+      if (snapshot) setReorderState((current) => current ? {
+        ...current,
+        orderedEntryIds: snapshot!.orderedIds,
+        x: event.clientX,
+        y: event.clientY,
+      } : current);
+    };
+    const finish = (event: PointerEvent) => {
+      if (event.button === 2 || !spellListRef.current?.contains(event.target as Node)) {
+        orderRef.current?.cancel();
+        setReorderState(null);
+      } else if (event.button === 0) {
+        event.preventDefault();
+        void orderRef.current?.commit().then(() => setReorderState(null));
+      }
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        orderRef.current?.cancel();
+        setReorderState(null);
+      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const snapshot = orderRef.current?.step(event.key === 'ArrowUp' ? 'up' : 'down');
+        if (snapshot) setReorderState((current) => current
+          ? { ...current, orderedEntryIds: snapshot.orderedIds }
+          : current);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        void orderRef.current?.commit().then(() => setReorderState(null));
+      }
+    };
+    document.addEventListener('pointermove', movePointer, true);
+    document.addEventListener('pointerdown', finish, true);
+    window.addEventListener('keydown', key);
+    return () => {
+      document.removeEventListener('pointermove', movePointer, true);
+      document.removeEventListener('pointerdown', finish, true);
+      window.removeEventListener('keydown', key);
+    };
+  }, [reorderState]);
+
+  const deleteAction = (
+    reference: Dnd5eCharacterSpellReference,
+    label: string,
+  ): ContextMenuEntry => {
     let armedUntil = 0;
-    menuRef.current?.open(event.clientX, event.clientY, 'Spell actions', [{
+    return {
       danger: true,
       kind: 'action',
-      label: 'Remove from Character',
+      label: 'Delete',
       onSelect: (button) => {
         const now = Date.now();
         if (now > armedUntil) {
           armedUntil = now + DELETE_CONFIRMATION_TIMEOUT_MS;
           const expected = armedUntil;
-          button.textContent = 'Confirm Remove from Character';
-          button.setAttribute('aria-label', 'Confirm removal from character');
+          button.textContent = 'Confirm Delete';
+          button.setAttribute('aria-label', `Confirm deletion of ${label} from character`);
           button.setAttribute('aria-pressed', 'true');
           window.setTimeout(() => {
             if (button.isConnected && armedUntil === expected && Date.now() >= expected) {
-              button.textContent = 'Remove from Character';
+              button.textContent = 'Delete';
+              button.removeAttribute('aria-label');
               button.setAttribute('aria-pressed', 'false');
             }
           }, DELETE_CONFIRMATION_TIMEOUT_MS);
@@ -406,7 +640,89 @@ export function CharacterSpellPanel({
           kind: 'remove',
         }]);
       },
-    }]);
+    };
+  };
+
+  const openSpellMenu = (
+    reference: Dnd5eCharacterSpellReference,
+    label: string,
+    scope: SpellOrderScope,
+    groupEntryIds: readonly string[],
+    position: { clientX: number; clientY: number },
+    returnFocus?: () => void,
+  ) => {
+    const index = groupEntryIds.indexOf(reference.entryId);
+    const reorderDisabled = query.trim().length > 0 || groupEntryIds.length < 2;
+    const entries: ContextMenuEntry[] = [
+      {
+        disabled: reorderDisabled || index <= 0,
+        kind: 'action',
+        label: 'Move Up',
+        onSelect: () => void onCommitSpells([{
+          kind: 'reorder',
+          orderedEntryIds: movedEntryIds(groupEntryIds, reference.entryId, 'up'),
+        }]),
+      },
+      {
+        disabled: reorderDisabled || index < 0 || index === groupEntryIds.length - 1,
+        kind: 'action',
+        label: 'Move Down',
+        onSelect: () => void onCommitSpells([{
+          kind: 'reorder',
+          orderedEntryIds: movedEntryIds(groupEntryIds, reference.entryId, 'down'),
+        }]),
+      },
+      {
+        disabled: reorderDisabled,
+        kind: 'action',
+        label: 'Reorder Freely',
+        onSelect: () => beginReorder(reference, label, scope, groupEntryIds, position),
+      },
+      { kind: 'divider' },
+      deleteAction(reference, label),
+    ];
+    menuRef.current?.open(
+      position.clientX,
+      position.clientY,
+      `${label} actions`,
+      entries,
+      returnFocus,
+      spellListRef.current?.closest('dialog') ?? undefined,
+    );
+  };
+
+  const openSpellContext = (
+    event: MouseEvent,
+    reference: Dnd5eCharacterSpellReference,
+    label: string,
+    scope: SpellOrderScope,
+    groupEntryIds: readonly string[],
+  ) => {
+    if (!canEdit) return;
+    event.preventDefault();
+    openSpellMenu(reference, label, scope, groupEntryIds, event);
+  };
+
+  const openSpellKeyboardMenu = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    reference: Dnd5eCharacterSpellReference,
+    label: string,
+    scope: SpellOrderScope,
+    groupEntryIds: readonly string[],
+  ) => {
+    if (!canEdit) return;
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    event.preventDefault();
+    const button = event.currentTarget;
+    const bounds = button.getBoundingClientRect();
+    openSpellMenu(
+      reference,
+      label,
+      scope,
+      groupEntryIds,
+      { clientX: bounds.left + Math.min(bounds.width / 2, 24), clientY: bounds.bottom },
+      () => button.focus(),
+    );
   };
 
   const attachPickerSelection = async () => {
@@ -418,7 +734,12 @@ export function CharacterSpellPanel({
     }
     const saved = await onCommitSpells(ids.map((entryId) => ({
       kind: 'add' as const,
-      spell: { entryId, preparation: 'unprepared' as const },
+      spell: {
+        entryId,
+        preparation: entries.get(entryId)?.data.level === 0
+          ? 'always-prepared' as const
+          : 'unprepared' as const,
+      },
     })));
     if (saved) {
       setPickerOpen(false);
@@ -505,18 +826,17 @@ export function CharacterSpellPanel({
       <section className={styles.spellBrowser} aria-label="Character spells">
         <div className={styles.spellListPane}>
           <div className={styles.spellListToolbar}>
-            <input
-              aria-label="Search character spells"
-              className={styles.spellSearchInput}
+            <SpellSearchField
+              clearLabel="Clear character spell search"
+              label="Search character spells"
+              onQueryChange={setQuery}
               placeholder="Search spells"
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
+              query={query}
             />
-            <CharacterSheetAddEntryButton
-              aria-label="Add spells to character"
+            <IconButton
               disabled={!canEdit}
-              label="+"
+              icon={Plus}
+              label="Add spells to character"
               onClick={() => setPickerOpen(true)}
             />
           </div>
@@ -530,7 +850,12 @@ export function CharacterSpellPanel({
               The count excludes unavailable Prepared spells.
             </p>
           ) : null}
-          <div className={styles.spellList}>
+          <div
+            aria-label="Character spell list"
+            className={styles.spellList}
+            ref={spellListRef}
+            role="region"
+          >
             {loading ? <p className={styles.spellPanelState}>Loading spells…</p> : null}
             {loadError ? (
               <div className={styles.spellPanelState} role="alert">
@@ -550,38 +875,58 @@ export function CharacterSpellPanel({
                 <p className={styles.spellPanelState}>No spells match this search.</p>
               ) : null}
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((level) => {
-              const group = groupedEntries.get(level as Dnd5eSpellLevel);
+              const scope = level as Dnd5eSpellLevel;
+              const group = displayedGroups.get(scope);
               if (!group?.length) return null;
+              const groupEntryIds = (attachedGroups.get(scope) ?? []).map(({ id }) => id);
               return (
                 <section className={styles.spellLevelGroup} key={level}>
-                  <h3>{levelLabel(level as Dnd5eSpellLevel)}</h3>
+                  <h3>{levelLabel(scope)}</h3>
                   {group.map((spell) => {
                     const reference = referencesById.get(spell.id)!;
-                    const preparation = PREPARATION_LABELS[reference.preparation];
+                    const preparationState = spell.data.level === 0
+                      ? 'always-prepared'
+                      : reference.preparation;
+                    const preparation = PREPARATION_LABELS[preparationState];
                     return (
                       <div
                         className={styles.spellListRow}
+                        data-reordering={reorderState?.activeEntryId === spell.id || undefined}
                         data-selected={effectiveSelectedId === spell.id}
+                        data-spell-order-id={spell.id}
                         key={spell.id}
-                        onContextMenu={(event) => openRemoveMenu(event, reference)}
+                        onContextMenu={(event) => openSpellContext(
+                          event,
+                          reference,
+                          spell.name,
+                          scope,
+                          groupEntryIds,
+                        )}
                       >
                         <button
                           aria-label={`View ${spell.name}`}
                           className={styles.spellSelectButton}
                           type="button"
                           onClick={() => setSelectedId(spell.id)}
+                          onKeyDown={(event) => openSpellKeyboardMenu(
+                            event,
+                            reference,
+                            spell.name,
+                            scope,
+                            groupEntryIds,
+                          )}
                         >
                           <strong>{spell.name}</strong>
-                          <span>{spell.data.level === 0 ? 'Cantrip' : levelLabel(spell.data.level)} · {spell.data.school} · {spell.data.castingTime}</span>
+                          <span>{spellListSubtitle(spell.data)}</span>
                         </button>
                         <Checkbox
                           aria-label={`${spell.name}: ${preparation}`}
-                          checked={reference.preparation === 'prepared'}
+                          checked={preparationState === 'prepared'}
                           className={styles.spellPreparationCheckbox}
-                          disabled={!canEdit}
-                          indeterminate={reference.preparation === 'always-prepared'}
+                          disabled={!canEdit || spell.data.level === 0}
+                          indeterminate={preparationState === 'always-prepared'}
                           title={preparation}
-                          onChange={() => void commitPreparation(reference)}
+                          onChange={() => void commitPreparation(reference, spell)}
                         >
                           <span className={styles.visuallyHidden}>{preparation}</span>
                         </Checkbox>
@@ -594,18 +939,35 @@ export function CharacterSpellPanel({
             {unavailable.length > 0 && !query.trim() ? (
               <section className={styles.spellLevelGroup}>
                 <h3>Unavailable</h3>
-                {unavailable.map((reference) => (
+                {displayedUnavailable.map((reference) => (
                   <div
                     className={styles.spellListRow}
+                    data-reordering={
+                      reorderState?.activeEntryId === reference.entryId || undefined
+                    }
                     data-selected={effectiveSelectedId === reference.entryId}
+                    data-spell-order-id={reference.entryId}
                     key={reference.entryId}
-                    onContextMenu={(event) => openRemoveMenu(event, reference)}
+                    onContextMenu={(event) => openSpellContext(
+                      event,
+                      reference,
+                      'Unavailable spell',
+                      'unavailable',
+                      unavailableEntryIds,
+                    )}
                   >
                     <button
                       aria-label="View unavailable spell"
                       className={styles.spellSelectButton}
                       type="button"
                       onClick={() => setSelectedId(reference.entryId)}
+                      onKeyDown={(event) => openSpellKeyboardMenu(
+                        event,
+                        reference,
+                        'Unavailable spell',
+                        'unavailable',
+                        unavailableEntryIds,
+                      )}
                     >
                       <strong>Unavailable spell</strong>
                       <span>Permission removed, deleted, or invalid</span>
@@ -626,6 +988,15 @@ export function CharacterSpellPanel({
                 ))}
               </section>
             ) : null}
+            {reorderState ? (
+              <div
+                aria-live="polite"
+                className={styles.spellReorderGhost}
+                style={{ left: reorderState.x, top: reorderState.y }}
+              >
+                Place {reorderState.label}
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -635,27 +1006,51 @@ export function CharacterSpellPanel({
               <header className={styles.spellDetailHeader}>
                 <div>
                   <h2>{selected.name}</h2>
-                  <p>{selected.data.level === 0 ? 'Cantrip' : levelLabel(selected.data.level)} · {selected.data.school}</p>
+                  <p>{headerPresentation?.subtitle}</p>
                 </div>
                 <div className={styles.spellCastControls}>
                   {selected.data.level > 0 ? (
-                    <select
-                      aria-label="Spell cast mode"
+                    <Dropdown
+                      accessibleLabel="Spell cast mode"
                       disabled={castPending}
-                      value={castModeValue(castMode)}
-                      onChange={(event) => setCastChoice({
-                        mode: modeFromValue(event.currentTarget.value),
-                        spellId: selected.id,
-                      })}
+                      label={castMode.kind === 'slot'
+                        ? `Cast at ${levelLabel(castMode.level)}`
+                        : castMode.kind === 'ritual'
+                          ? 'Cast as ritual'
+                          : 'Cast without slot'}
+                      panelLabel="Spell cast mode options"
                     >
                       {availableSlotLevels.map((level) => (
-                        <option disabled={!canEdit} key={level} value={`slot:${level}`}>
-                          Cast at {levelLabel(Number(level) as Dnd5eSpellLevel)} ({data.spellcasting.slots[level].current} available)
-                        </option>
+                        <DropdownOption
+                          active={castModeValue(castMode) === `slot:${level}`}
+                          disabled={!canEdit}
+                          key={level}
+                          label={`Cast at ${levelLabel(Number(level) as Dnd5eSpellLevel)}`}
+                          onSelect={() => setCastChoice({
+                            mode: modeFromValue(`slot:${level}`),
+                            spellId: selected.id,
+                          })}
+                        />
                       ))}
-                      <option value="without-slot">Cast without slot</option>
-                      {selected.data.ritual ? <option value="ritual">Cast as ritual</option> : null}
-                    </select>
+                      <DropdownOption
+                        active={castMode.kind === 'without-slot'}
+                        label="Cast without slot"
+                        onSelect={() => setCastChoice({
+                          mode: modeFromValue('without-slot'),
+                          spellId: selected.id,
+                        })}
+                      />
+                      {selected.data.ritual ? (
+                        <DropdownOption
+                          active={castMode.kind === 'ritual'}
+                          label="Cast as ritual"
+                          onSelect={() => setCastChoice({
+                            mode: modeFromValue('ritual'),
+                            spellId: selected.id,
+                          })}
+                        />
+                      ) : null}
+                    </Dropdown>
                   ) : null}
                   <Button
                     aria-busy={castPending}
@@ -673,19 +1068,14 @@ export function CharacterSpellPanel({
                 </p>
               ) : null}
               <div className={styles.spellTags} aria-label="Spell tags">
-                {selected.data.classes.map((className) => <span key={className}>{className}</span>)}
-                {selected.data.concentration ? <span>Concentration</span> : null}
-                {selected.data.ritual ? <span>Ritual</span> : null}
-                {selected.data.components.verbal ? <span>V</span> : null}
-                {selected.data.components.somatic ? <span>S</span> : null}
-                {selected.data.components.material ? <span>M</span> : null}
+                {headerPresentation?.tags.map((tag) => <span key={tag}>{tag}</span>)}
               </div>
-              <dl className={styles.spellMetadataGrid}>
-                <div><dt>Casting Time</dt><dd>{selected.data.castingTime || '—'}</dd></div>
-                <div><dt>Range</dt><dd>{selected.data.range || '—'}</dd></div>
-                <div><dt>Target</dt><dd>{selected.data.target || '—'}</dd></div>
-                <div><dt>Duration</dt><dd>{selected.data.duration || '—'}</dd></div>
-                <div><dt>Preparation</dt><dd>{selectedReference ? PREPARATION_LABELS[selectedReference.preparation] : '—'}</dd></div>
+              <dl aria-label="Spell metadata" className={styles.spellMetadataGrid}>
+                <div><dt>Casting Time</dt><dd>{spellMetadataValue(selected.data.castingTime)}</dd></div>
+                <div><dt>Range</dt><dd>{spellMetadataValue(selected.data.range)}</dd></div>
+                <div><dt>Target</dt><dd>{spellMetadataValue(selected.data.target)}</dd></div>
+                <div><dt>Duration</dt><dd>{spellMetadataValue(selected.data.duration)}</dd></div>
+                <div><dt>Roll</dt><dd>{headerPresentation?.rollSummary ?? 'N/A'}</dd></div>
               </dl>
               <div className={styles.spellDescription}>
                 {selected.data.components.material && selected.data.components.materialDescription ? (
@@ -709,6 +1099,8 @@ export function CharacterSpellPanel({
 
       <Modal
         accessibleLabel="Add spells to character"
+        className={styles.spellPickerModal}
+        contentClassName={styles.spellPickerModalContent}
         isOpen={pickerOpen}
         onDismiss={() => {
           setPickerOpen(false);
@@ -716,21 +1108,38 @@ export function CharacterSpellPanel({
         }}
       >
         <div className={styles.spellPicker}>
-          <h2>Add Spells</h2>
-          <input
-            aria-label="Search available spells"
-            className={styles.spellSearchInput}
-            placeholder="Search available spells"
-            type="search"
-            value={pickerQuery}
-            onChange={(event) => setPickerQuery(event.currentTarget.value)}
-          />
-          <div className={styles.spellPickerList}>
+          <header className={styles.spellPickerHeader}>
+            <div>
+              <h2>Add Spells</h2>
+              <p>Choose spells from the campaign Journal.</p>
+            </div>
+            <p aria-live="polite" className={styles.spellPickerSelection}>
+              {pickerSelection.size} selected
+            </p>
+          </header>
+          <div className={styles.spellPickerSearch}>
+            <SpellSearchField
+              clearLabel="Clear available spell search"
+              label="Search available spells"
+              onQueryChange={setPickerQuery}
+              placeholder="Search available spells"
+              query={pickerQuery}
+            />
+          </div>
+          <div
+            aria-label="Available campaign spells"
+            className={styles.spellPickerList}
+            role="group"
+          >
             {pickerEntries.length > 0 ? pickerEntries.map((spell) => {
               const attached = referencesById.has(spell.id);
               return (
                 <Checkbox
                   checked={attached || pickerSelection.has(spell.id)}
+                  className={[
+                    styles.spellPickerOption,
+                    attached ? styles.spellPickerOptionAttached : undefined,
+                  ].filter(Boolean).join(' ')}
                   disabled={attached}
                   key={spell.id}
                   onChange={(event) => {
@@ -743,28 +1152,41 @@ export function CharacterSpellPanel({
                     });
                   }}
                 >
-                  <span>
-                    <strong>{spell.name}</strong>
-                    {' — '}{spell.data.level === 0 ? 'Cantrip' : levelLabel(spell.data.level)} {spell.data.school}
-                    {attached ? ' (Already added)' : ''}
+                  <span className={styles.spellPickerOptionContent}>
+                    <span className={styles.spellPickerOptionIdentity}>
+                      <strong>{spell.name}</strong>
+                      <span>{spellListSubtitle(spell.data)}</span>
+                    </span>
+                    {attached ? (
+                      <span className={styles.spellPickerAttached}>Attached</span>
+                    ) : null}
                   </span>
                 </Checkbox>
               );
-            }) : <p>No visible spells match this search.</p>}
+            }) : (
+              <p className={styles.spellPickerEmpty}>
+                No visible spells match this search.
+              </p>
+            )}
           </div>
-          <div className={styles.spellPickerActions}>
-            <Button onClick={() => {
-              setPickerOpen(false);
-              setPickerSelection(new Set());
-            }}>Cancel</Button>
-            <Button
-              disabled={pickerSelection.size === 0}
-              variant="primary"
-              onClick={() => void attachPickerSelection()}
-            >
-              Done
-            </Button>
-          </div>
+          <footer className={styles.spellPickerFooter}>
+            <p>
+              {pickerEntries.length} {pickerEntries.length === 1 ? 'spell' : 'spells'}
+            </p>
+            <div className={styles.spellPickerActions}>
+              <Button onClick={() => {
+                setPickerOpen(false);
+                setPickerSelection(new Set());
+              }}>Cancel</Button>
+              <Button
+                disabled={pickerSelection.size === 0}
+                variant="primary"
+                onClick={() => void attachPickerSelection()}
+              >
+                Done
+              </Button>
+            </div>
+          </footer>
         </div>
       </Modal>
     </>

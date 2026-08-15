@@ -32,6 +32,12 @@ export type CompiledDnd5eSpellCast =
   | { definition: ChatRollDefinition; issues: []; ok: true }
   | { issues: Dnd5eSpellCastIssue[]; ok: false };
 
+export interface Dnd5eSpellHeaderPresentation {
+  rollSummary: string;
+  subtitle: string;
+  tags: string[];
+}
+
 interface ResolvedTerms {
   criticalNotation: string;
   modifiers: ChatRollModifierDefinition[];
@@ -46,10 +52,104 @@ function titleCase(value: string): string {
   return value.replace(/(^|[-\s])\p{L}/gu, (match) => match.toLocaleUpperCase());
 }
 
+function uniqueLabels(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.toLocaleLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function levelLabel(level: Dnd5eSpellLevel): string {
   if (level === 0) return 'Cantrip';
   const suffix = level === 1 ? 'st' : level === 2 ? 'nd' : level === 3 ? 'rd' : 'th';
   return `${level}${suffix} Level`;
+}
+
+function mechanicTag(data: Dnd5eSpellData): string | null {
+  const mechanics = [
+    ['attack', 'Attack'],
+    ['save', 'Save'],
+    ['healing', 'Healing'],
+    ['roll', 'General'],
+    ['damage', 'Damage'],
+    ['effect', 'Effect'],
+  ] as const;
+  return mechanics.find(([purpose]) =>
+    data.rollSteps.some((step) => step.purpose === purpose)
+  )?.[1] ?? null;
+}
+
+function compactSigned(value: number): string {
+  return value >= 0 ? `+${value}` : String(value);
+}
+
+function ordinaryFormula(
+  section: ChatRollOrdinarySectionDefinition,
+): string {
+  const notation = normalize(section.notation);
+  const modifier = section.modifiers.reduce((total, item) => total + item.value, 0);
+  if (notation === '0') return String(modifier);
+  if (modifier === 0) return notation;
+  return `${notation} ${modifier > 0 ? '+' : '-'} ${Math.abs(modifier)}`;
+}
+
+function spellRollSummary(definition: ChatRollDefinition | null): string {
+  if (!definition) return 'N/A';
+  let resolution: string | null = null;
+  let value: string | null = null;
+  for (const section of definition.sections) {
+    if ('kind' in section && section.kind === 'prompt') {
+      if (resolution === null) {
+        resolution = /^DC\s+\d+/u.exec(section.value)?.[0] ?? section.value;
+      }
+      continue;
+    }
+    if ('kind' in section && section.kind === 'effect') continue;
+    if (section.typeLabel === 'Attack') {
+      if (resolution === null) {
+        resolution = compactSigned(
+          section.modifiers.reduce((total, item) => total + item.value, 0),
+        );
+      }
+      continue;
+    }
+    if (value === null) value = ordinaryFormula(section);
+  }
+  return [resolution, value].filter((item): item is string => item !== null)
+    .join(' · ') || 'N/A';
+}
+
+/** Builds the compact, read-only summary shown above a Character's spell text. */
+export function presentDnd5eSpellHeader(
+  data: Dnd5eSpellData,
+  definition: ChatRollDefinition | null,
+): Dnd5eSpellHeaderPresentation {
+  const components = [
+    data.components.verbal ? 'V' : '',
+    data.components.somatic ? 'S' : '',
+    data.components.material ? 'M' : '',
+  ].filter(Boolean).join(', ');
+  const damageTypes = data.rollSteps.flatMap((step) =>
+    step.purpose === 'damage' && step.damageType ? [titleCase(step.damageType)] : []
+  );
+  const tags = uniqueLabels([
+    mechanicTag(data) ?? '',
+    ...damageTypes,
+    ...data.classes,
+    data.concentration ? 'Concentration' : '',
+    data.ritual ? 'Ritual' : '',
+    components,
+  ].filter(Boolean));
+  return {
+    rollSummary: spellRollSummary(definition),
+    subtitle: data.level === 0
+      ? `${data.school} cantrip`
+      : `${levelLabel(data.level).replace(' Level', '-level')} ${data.school}`,
+    tags,
+  };
 }
 
 function castLevel(data: Dnd5eSpellData, mode: Dnd5eSpellCastMode): Dnd5eSpellLevel {

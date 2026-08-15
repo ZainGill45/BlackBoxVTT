@@ -1259,14 +1259,29 @@ describe('D&D Character data', () => {
     expect(isDnd5eCharacterData(atLimit)).toBe(false);
   });
 
-  it('rebases attaching, preparation, and removal spell mutations', () => {
+  it('rebases attaching, ordering, preparation, and removal spell mutations', () => {
     const first = inventoryUuid(1);
     const second = inventoryUuid(2);
+    const third = inventoryUuid(3);
+    const fourth = inventoryUuid(4);
     const result = applyDnd5eCharacterSpellMutations(
-      [{ entryId: first, preparation: 'unprepared' }],
       [
-        { kind: 'add', spell: { entryId: second, preparation: 'unprepared' } },
+        { entryId: first, preparation: 'unprepared' },
+        { entryId: second, preparation: 'prepared' },
+        { entryId: third, preparation: 'always-prepared' },
+      ],
+      [
+        { kind: 'add', spell: { entryId: fourth, preparation: 'unprepared' } },
         { kind: 'add', spell: { entryId: first, preparation: 'prepared' } },
+        {
+          kind: 'reorder',
+          orderedEntryIds: [
+            third,
+            'ffffffff-ffff-4fff-8fff-ffffffffffff',
+            third,
+            first,
+          ],
+        },
         { entryId: first, kind: 'set-preparation', preparation: 'always-prepared' },
         { entryId: second, kind: 'remove' },
         {
@@ -1279,7 +1294,11 @@ describe('D&D Character data', () => {
 
     expect(result).toEqual({
       missingIds: ['ffffffff-ffff-4fff-8fff-ffffffffffff'],
-      spells: [{ entryId: first, preparation: 'always-prepared' }],
+      spells: [
+        { entryId: third, preparation: 'always-prepared' },
+        { entryId: first, preparation: 'always-prepared' },
+        { entryId: fourth, preparation: 'unprepared' },
+      ],
     });
   });
 

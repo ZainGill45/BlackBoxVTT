@@ -225,12 +225,19 @@ function renderPanel({
 }
 
 describe('Character spell browser', () => {
-  it('groups, alphabetizes, searches metadata, and shows complete details', async () => {
+  it('groups in manual order, searches metadata, and shows complete details', async () => {
     const cantrip = spellEntry(
       '30000000-0000-4000-8000-000000000001',
       'Zephyr Spark',
       0,
-      { classes: ['Wizard'], school: 'Evocation' },
+      {
+        castingTime: '1 Bonus Action',
+        classes: ['Wizard'],
+        duration: '',
+        range: ' ',
+        school: 'Evocation',
+        target: '',
+      },
     );
     const alpha = spellEntry(
       '30000000-0000-4000-8000-000000000002',
@@ -251,6 +258,28 @@ describe('Character spell browser', () => {
         higherLevelDescription: 'No additional effect.',
         range: 'Touch',
         ritual: true,
+        rollSteps: [
+          {
+            attackBonus: { kind: 'spell-attack-bonus' },
+            id: '40000000-0000-4000-8000-000000000001',
+            label: 'Spell Attack',
+            purpose: 'attack',
+          },
+          {
+            criticalSourceStepId: null,
+            damageType: 'radiant',
+            id: '40000000-0000-4000-8000-000000000002',
+            label: 'Damage',
+            purpose: 'damage',
+            terms: [{
+              count: 4,
+              kind: 'dice',
+              scaling: 'fixed',
+              sides: 6,
+              tiers: [],
+            }],
+          },
+        ],
         target: 'One door',
       },
     );
@@ -269,15 +298,41 @@ describe('Character spell browser', () => {
       ],
     });
 
-    await screen.findByRole('button', { name: 'View Zephyr Spark' });
+    const cantripRow = await screen.findByRole('button', { name: 'View Zephyr Spark' });
+    expect(within(cantripRow).getByText('Cantrip Bonus Action')).toBeInTheDocument();
+    expect(within(cantripRow).queryByText(/Evocation|·/)).not.toBeInTheDocument();
     const levelTwo = screen.getByRole('heading', { name: '2nd Level' }).closest('section')!;
     expect(within(levelTwo).getAllByRole('button').map((button) =>
       button.getAttribute('aria-label'))).toEqual([
-      'View Arcane Lock',
       'View Beacon',
+      'View Arcane Lock',
     ]);
+    const arcaneLockRow = screen.getByRole('button', { name: 'View Arcane Lock' });
+    expect(within(arcaneLockRow).getByText('2nd Level Action')).toBeInTheDocument();
+    expect(within(arcaneLockRow).queryByText(/Abjuration|·/)).not.toBeInTheDocument();
     expect(await screen.findByRole('heading', { name: 'Zephyr Spark' }))
       .toBeInTheDocument();
+    expect(within(screen.getByLabelText('Spell metadata')).getAllByText('N/A'))
+      .toHaveLength(4);
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'View Arcane Lock' }));
+    expect(screen.getByText('2nd-level Abjuration')).toBeInTheDocument();
+    expect(Array.from(screen.getByLabelText('Spell tags').children).map(
+      (tag) => tag.textContent,
+    )).toEqual([
+      'Attack',
+      'Radiant',
+      'Wizard',
+      'Concentration',
+      'Ritual',
+      'V, S, M',
+    ]);
+    const metadata = screen.getByLabelText('Spell metadata');
+    expect(within(metadata).getByText('Roll')).toBeInTheDocument();
+    expect(within(metadata).getByText('One door')).toBeInTheDocument();
+    expect(within(metadata).getByText('+7 · 4d6')).toBeInTheDocument();
+    expect(within(metadata).queryByText('Preparation'))
+      .not.toBeInTheDocument();
 
     await userEvent.setup().type(
       screen.getByRole('searchbox', { name: 'Search character spells' }),
@@ -287,6 +342,12 @@ describe('Character spell browser', () => {
     expect(screen.queryByRole('button', { name: 'View Arcane Lock' }))
       .not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '2nd Level' })).toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', {
+      name: 'Clear character spell search',
+    }));
+    expect(screen.getByRole('button', { name: 'View Arcane Lock' }))
+      .toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'View Beacon' }));
     expect(screen.getByRole('heading', { name: 'Beacon' })).toBeInTheDocument();
@@ -339,16 +400,25 @@ describe('Character spell browser', () => {
     await screen.findByRole('button', { name: 'View Attached' });
     await user.click(screen.getByRole('button', { name: 'Add spells to character' }));
     const picker = screen.getByRole('dialog', { name: 'Add spells to character' });
+    expect(within(picker).getByText('Choose spells from the campaign Journal.'))
+      .toBeInTheDocument();
+    expect(within(picker).getByText('0 selected')).toBeInTheDocument();
+    expect(within(picker).getByText('3 spells')).toBeInTheDocument();
     expect(within(picker).getByRole('checkbox', { name: /Attached/ })).toBeDisabled();
-    await user.click(within(picker).getByRole('checkbox', { name: /Cantrip Choice/ }));
+    const cantripOption = within(picker).getByRole('checkbox', { name: /Cantrip Choice/ });
+    const cantripOptionLabel = cantripOption.closest('label')!;
+    expect(within(cantripOptionLabel).getByText('Cantrip Action')).toBeInTheDocument();
+    expect(within(cantripOptionLabel).queryByText(/Abjuration|·/)).not.toBeInTheDocument();
+    await user.click(cantripOption);
     await user.click(within(picker).getByRole('checkbox', { name: /Ritual Choice/ }));
+    expect(within(picker).getByText('2 selected')).toBeInTheDocument();
     expect(onCommitSpells).not.toHaveBeenCalled();
     await user.click(within(picker).getByRole('button', { name: 'Done' }));
 
     await waitFor(() => expect(onCommitSpells).toHaveBeenCalledWith([
       {
         kind: 'add',
-        spell: { entryId: cantrip.id, preparation: 'unprepared' },
+        spell: { entryId: cantrip.id, preparation: 'always-prepared' },
       },
       {
         kind: 'add',
@@ -367,7 +437,7 @@ describe('Character spell browser', () => {
       '30000000-0000-4000-8000-000000000002', 'Shield', 1,
     );
     const unavailableId = '30000000-0000-4000-8000-000000000003';
-    const { onPreparedSummaryChange } = renderPanel({
+    const panel = renderPanel({
       entries: [cantrip, leveled],
       preparedMaximumOffset: -100,
       references: [
@@ -377,10 +447,17 @@ describe('Character spell browser', () => {
       ],
     });
     const user = userEvent.setup();
+    const cantripPreparation = await screen.findByRole('checkbox', {
+      name: 'Spark: Always Prepared',
+    });
+    expect(cantripPreparation).toHaveAttribute('aria-checked', 'mixed');
+    expect(cantripPreparation).toBeDisabled();
+    await user.click(cantripPreparation);
+    expect(panel.onCommitSpells).not.toHaveBeenCalled();
     const prepared = await screen.findByRole('checkbox', {
       name: 'Shield: Prepared',
     });
-    await waitFor(() => expect(onPreparedSummaryChange).toHaveBeenLastCalledWith({
+    await waitFor(() => expect(panel.onPreparedSummaryChange).toHaveBeenLastCalledWith({
       current: 1,
       incomplete: true,
       overMaximum: true,
@@ -398,7 +475,7 @@ describe('Character spell browser', () => {
     await user.click(always);
     expect(await screen.findByRole('checkbox', { name: 'Shield: Unprepared' }))
       .not.toBeChecked();
-    await waitFor(() => expect(onPreparedSummaryChange).toHaveBeenLastCalledWith({
+    await waitFor(() => expect(panel.onPreparedSummaryChange).toHaveBeenLastCalledWith({
       current: 0,
       incomplete: true,
       overMaximum: false,
@@ -426,25 +503,149 @@ describe('Character spell browser', () => {
     expect(screen.getByText('This spell is unavailable.')).toBeInTheDocument();
   });
 
-  it('requires the standard double confirmation before removing a reference', async () => {
-    const spell = spellEntry(
-      '30000000-0000-4000-8000-000000000001', 'Removable', 1,
+  it('moves within level groups and requires the standard armed Delete', async () => {
+    const first = spellEntry(
+      '30000000-0000-4000-8000-000000000001', 'First', 1,
     );
-    const { onCommitSpells } = renderPanel({
-      entries: [spell],
-      references: [{ entryId: spell.id, preparation: 'unprepared' }],
+    const cantrip = spellEntry(
+      '30000000-0000-4000-8000-000000000002', 'Cantrip', 0,
+    );
+    const second = spellEntry(
+      '30000000-0000-4000-8000-000000000003', 'Second', 1,
+    );
+    const unavailableId = '30000000-0000-4000-8000-000000000004';
+    const panel = renderPanel({
+      entries: [second, cantrip, first],
+      references: [
+        { entryId: first.id, preparation: 'unprepared' },
+        { entryId: cantrip.id, preparation: 'unprepared' },
+        { entryId: second.id, preparation: 'prepared' },
+        { entryId: unavailableId, preparation: 'always-prepared' },
+      ],
     });
     const user = userEvent.setup();
-    const rowButton = await screen.findByRole('button', { name: 'View Removable' });
-    fireEvent.contextMenu(rowButton, { clientX: 20, clientY: 20 });
-    await user.click(screen.getByRole('menuitem', { name: 'Remove from Character' }));
-    expect(onCommitSpells).not.toHaveBeenCalled();
+    await screen.findByRole('button', { name: 'View Second' });
+    const levelOne = screen.getByRole('heading', { name: '1st Level' }).closest('section')!;
+    const levelOrder = () => within(levelOne).getAllByRole('button', { name: /^View / })
+      .map((button) => button.getAttribute('aria-label'));
+    expect(levelOrder()).toEqual(['View First', 'View Second']);
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'View Second' }), {
+      clientX: 20,
+      clientY: 20,
+    });
+    let menu = screen.getByRole('menu', { name: 'Second actions' });
+    expect(within(menu).getByRole('menuitem', { name: 'Move Down' })).toBeDisabled();
+    await user.click(within(menu).getByRole('menuitem', { name: 'Move Up' }));
+    await waitFor(() => expect(levelOrder()).toEqual(['View Second', 'View First']));
+    expect(panel.onCommitSpells).toHaveBeenLastCalledWith([{
+      kind: 'reorder',
+      orderedEntryIds: [second.id, first.id],
+    }]);
+
+    const unavailable = screen.getByRole('button', { name: 'View unavailable spell' });
+    fireEvent.contextMenu(unavailable, { clientX: 20, clientY: 20 });
+    menu = screen.getByRole('menu', { name: 'Unavailable spell actions' });
+    expect(within(menu).getByRole('menuitem', { name: 'Move Up' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', { name: 'Reorder Freely' })).toBeDisabled();
+    fireEvent.keyDown(menu, { key: 'Escape' });
+
+    const firstButton = screen.getByRole('button', { name: 'View First' });
+    fireEvent.contextMenu(firstButton, { clientX: 20, clientY: 20 });
+    menu = screen.getByRole('menu', { name: 'First actions' });
+    const callsBeforeDelete = panel.onCommitSpells.mock.calls.length;
+    await user.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
+    expect(panel.onCommitSpells).toHaveBeenCalledTimes(callsBeforeDelete);
     await user.click(screen.getByRole('menuitem', {
-      name: 'Confirm removal from character',
+      name: 'Confirm deletion of First from character',
     }));
-    await waitFor(() => expect(onCommitSpells).toHaveBeenCalledWith([
-      { entryId: spell.id, kind: 'remove' },
+    await waitFor(() => expect(panel.onCommitSpells).toHaveBeenLastCalledWith([
+      { entryId: first.id, kind: 'remove' },
     ]));
+    expect(screen.queryByRole('button', { name: 'View First' })).not.toBeInTheDocument();
+    expect(panel.journalApi.updateEntryData).not.toHaveBeenCalled();
+  });
+
+  it('supports keyboard free reorder and disables ordering during search', async () => {
+    const first = spellEntry(
+      '30000000-0000-4000-8000-000000000001', 'First', 1,
+    );
+    const second = spellEntry(
+      '30000000-0000-4000-8000-000000000002', 'Second', 1,
+    );
+    const third = spellEntry(
+      '30000000-0000-4000-8000-000000000003', 'Third', 1,
+    );
+    const panel = renderPanel({
+      entries: [third, first, second],
+      references: [first, second, third].map((spell) => ({
+        entryId: spell.id,
+        preparation: 'unprepared' as const,
+      })),
+    });
+    const user = userEvent.setup();
+    const levelOne = await screen.findByRole('heading', { name: '1st Level' });
+    const group = levelOne.closest('section')!;
+    const order = () => within(group).getAllByRole('button', { name: /^View / })
+      .map((button) => button.getAttribute('aria-label'));
+    const secondButton = screen.getByRole('button', { name: 'View Second' });
+
+    secondButton.focus();
+    fireEvent.keyDown(secondButton, { key: 'F10', shiftKey: true });
+    let menu = screen.getByRole('menu', { name: 'Second actions' });
+    await user.click(within(menu).getByRole('menuitem', { name: 'Reorder Freely' }));
+    expect(screen.getByText('Place Second')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(order()).toEqual(['View First', 'View Third', 'View Second']);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(order()).toEqual(['View First', 'View Second', 'View Third']);
+    expect(panel.onCommitSpells).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(secondButton, { key: 'ContextMenu' });
+    menu = screen.getByRole('menu', { name: 'Second actions' });
+    await user.click(within(menu).getByRole('menuitem', { name: 'Reorder Freely' }));
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await waitFor(() => expect(order()).toEqual([
+      'View First',
+      'View Third',
+      'View Second',
+    ]));
+    expect(panel.onCommitSpells).toHaveBeenLastCalledWith([{
+      kind: 'reorder',
+      orderedEntryIds: [first.id, third.id, second.id],
+    }]);
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'View Second' }), {
+      key: 'ContextMenu',
+    });
+    menu = screen.getByRole('menu', { name: 'Second actions' });
+    await user.click(within(menu).getByRole('menuitem', { name: 'Reorder Freely' }));
+    const firstRow = screen.getByRole('button', { name: 'View First' })
+      .closest<HTMLElement>('[data-spell-order-id]')!;
+    fireEvent.pointerMove(firstRow, { clientY: 0 });
+    expect(order()).toEqual(['View Second', 'View First', 'View Third']);
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await waitFor(() => expect(panel.onCommitSpells).toHaveBeenLastCalledWith([{
+      kind: 'reorder',
+      orderedEntryIds: [second.id, first.id, third.id],
+    }]));
+    await panel.emitChange();
+    expect(order()).toEqual(['View Second', 'View First', 'View Third']);
+
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search character spells' }),
+      'Second',
+    );
+    const filteredSecond = screen.getByRole('button', { name: 'View Second' });
+    fireEvent.keyDown(filteredSecond, { key: 'ContextMenu' });
+    menu = screen.getByRole('menu', { name: 'Second actions' });
+    expect(within(menu).getByRole('menuitem', { name: 'Move Up' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', { name: 'Move Down' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', { name: 'Reorder Freely' })).toBeDisabled();
+    expect(within(menu).getByRole('menuitem', { name: 'Delete' })).toBeEnabled();
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    expect(filteredSecond).toHaveFocus();
   });
 
   it('consumes a slot before sending and refunds it when chat fails', async () => {
@@ -460,9 +661,9 @@ describe('Character spell browser', () => {
     });
     const user = userEvent.setup();
     await screen.findByRole('heading', { name: 'Failed Cast' });
-    await waitFor(() => expect(screen.getByRole('combobox', {
+    await waitFor(() => expect(screen.getByRole('button', {
       name: 'Spell cast mode',
-    })).toHaveValue('slot:1'));
+    })).toHaveTextContent('Cast at 1st Level'));
     await user.click(screen.getByRole('button', { name: 'Cast' }));
 
     await waitFor(() => expect(panel.onAdjustSpellSlot.mock.calls).toEqual([
@@ -490,9 +691,17 @@ describe('Character spell browser', () => {
     });
     const user = userEvent.setup();
     await screen.findByRole('heading', { name: 'Viewed Cast' });
-    expect(screen.getByRole('combobox', { name: 'Spell cast mode' }))
-      .toHaveValue('without-slot');
-    expect(screen.getByRole('option', { name: /Cast at 1st Level/ }))
+    const viewButton = screen.getByRole('button', { name: 'View Viewed Cast' });
+    fireEvent.contextMenu(viewButton);
+    fireEvent.keyDown(viewButton, { key: 'ContextMenu' });
+    expect(screen.queryByRole('menu', { name: 'Viewed Cast actions' }))
+      .not.toBeInTheDocument();
+    const castMode = screen.getByRole('button', { name: 'Spell cast mode' });
+    expect(castMode).toHaveTextContent('Cast without slot');
+    await user.click(castMode);
+    expect(within(screen.getByRole('group', {
+      name: 'Spell cast mode options',
+    })).getByRole('button', { name: 'Cast at 1st Level' }))
       .toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Cast' }));
     await waitFor(() => expect(panel.onSendRoll).toHaveBeenCalledOnce());

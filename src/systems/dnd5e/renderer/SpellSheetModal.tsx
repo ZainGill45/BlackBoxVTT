@@ -5,7 +5,6 @@ import {
   useState,
 } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { Button } from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { FormField, SelectInput, TextInput } from '../../../components/ui/FormField';
 import { Modal } from '../../../components/ui/Modal';
@@ -589,7 +588,6 @@ export function SpellSheetModal({
               disabled={!canEdit}
               id={`spell-${entry.id}-classes`}
               key={canEdit ? 'editable-classes' : 'read-only-classes'}
-              onClear={() => commitField('classes', [])}
               onToggle={toggleClass}
             />
             {!canEdit ? (
@@ -729,13 +727,11 @@ function SpellClassPicker({
   classes,
   disabled,
   id,
-  onClear,
   onToggle,
 }: {
   classes: Dnd5eSpellData['classes'];
   disabled: boolean;
   id: string;
-  onClear: () => void;
   onToggle: (className: (typeof DND5E_5_5E_CLASSES)[number]) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -797,13 +793,6 @@ function SpellClassPicker({
                 {className}
               </Checkbox>
             ))}
-            <Button
-              disabled={disabled || classes.length === 0}
-              size="compact"
-              onClick={onClear}
-            >
-              Clear All
-            </Button>
           </div>
         </div>
       ) : null}

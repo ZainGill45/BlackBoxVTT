@@ -1,3 +1,4 @@
+import { FileUser, ScrollText } from 'lucide-react';
 import { createElement } from 'react';
 import type { CampaignSystemState } from '../shared/gameSystems';
 import type { JournalApi, SystemJournalEntry } from '../shared/journal';
@@ -31,6 +32,17 @@ export interface SystemJournalEntryRendererProps {
 export function hasSystemJournalEntryRenderer(typeId: string): boolean {
   return typeId === DND5E_CHARACTER_ENTRY_TYPE_ID ||
     typeId === DND5E_SPELL_ENTRY_TYPE_ID;
+}
+
+export function SystemJournalEntryIcon({ typeId }: { typeId: string }) {
+  const props = {
+    'aria-hidden': true,
+    size: '1.625rem',
+    strokeWidth: 1.4,
+  } as const;
+  return typeId === DND5E_SPELL_ENTRY_TYPE_ID
+    ? createElement(ScrollText, props)
+    : createElement(FileUser, props);
 }
 
 export function hasDetachedSystemJournalEntryRenderer(typeId: string): boolean {

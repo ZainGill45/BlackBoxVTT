@@ -2069,8 +2069,12 @@ function CharacterSheetEditor({
         presentation={presentation}
       >
         <div className={styles.workspace}>
-          <div className={styles.sheetViewport} data-character-sheet-viewport>
-            <main className={styles.sheet}>
+          <div
+            className={styles.sheetViewport}
+            data-active-tab={activeTab}
+            data-character-sheet-viewport
+          >
+            <main className={styles.sheet} data-active-tab={activeTab}>
               <header className={styles.header}>
                 <section className={styles.tokenPlaceholder} aria-label="Character token">
                   <CircleUserRound aria-hidden size="3rem" strokeWidth={1.2} />

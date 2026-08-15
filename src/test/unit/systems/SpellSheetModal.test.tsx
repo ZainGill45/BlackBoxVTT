@@ -121,7 +121,7 @@ describe('SpellSheetModal', () => {
     expect(within(dialog).getByRole('textbox', { name: 'Spell Name' })).toHaveValue('New Spell');
     expect(within(dialog).getByRole('combobox', { name: 'Level' })).toHaveValue('0');
     expect(within(dialog).getByRole('combobox', { name: 'School' })).toHaveValue('Abjuration');
-    expect(within(dialog).getByRole('textbox', { name: 'Casting Time' })).toHaveValue('1 Action');
+    expect(within(dialog).getByRole('textbox', { name: 'Casting Time' })).toHaveValue('Action');
     expect(within(dialog).queryByRole('button', { name: /close|cancel/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Autosaving')).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Spell', { exact: true })).not.toBeInTheDocument();
@@ -137,6 +137,8 @@ describe('SpellSheetModal', () => {
       .not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: 'Spell classes' }));
+    expect(within(dialog).queryByRole('button', { name: 'Clear All' }))
+      .not.toBeInTheDocument();
     await user.click(within(dialog).getByRole('checkbox', { name: 'Wizard' }));
     await waitFor(() => expect(controlled.server.data).toMatchObject({ classes: ['Wizard'] }));
 

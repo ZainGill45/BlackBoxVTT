@@ -160,7 +160,7 @@ const COMPONENT_KEYS = [
 
 export function createDefaultDnd5eSpellData(): Dnd5eSpellData {
   return {
-    castingTime: '1 Action',
+    castingTime: 'Action',
     classes: [],
     components: {
       material: false,

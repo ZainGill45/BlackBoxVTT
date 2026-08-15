@@ -78,6 +78,7 @@ export type Dnd5eCharacterSpellReference = {
 export type Dnd5eCharacterSpellMutation =
   | { kind: 'add'; spell: Dnd5eCharacterSpellReference }
   | { entryId: string; kind: 'remove' }
+  | { kind: 'reorder'; orderedEntryIds: string[] }
   | {
       entryId: string;
       kind: 'set-preparation';
@@ -1527,6 +1528,21 @@ export function applyDnd5eCharacterSpellMutations(
     }
     if (mutation.kind === 'remove') {
       next = next.filter(({ entryId }) => entryId !== mutation.entryId);
+      continue;
+    }
+    if (mutation.kind === 'reorder') {
+      const orderedEntryIds = mutation.orderedEntryIds.filter(
+        (entryId, index, entryIds) =>
+          entryIds.indexOf(entryId) === index &&
+          next.some((spell) => spell.entryId === entryId),
+      );
+      const orderedEntryIdSet = new Set(orderedEntryIds);
+      let orderedIndex = 0;
+      next = next.map((spell) => {
+        if (!orderedEntryIdSet.has(spell.entryId)) return spell;
+        const entryId = orderedEntryIds[orderedIndex++];
+        return next.find((candidate) => candidate.entryId === entryId)!;
+      });
       continue;
     }
     const index = next.findIndex(({ entryId }) => entryId === mutation.entryId);

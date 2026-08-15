@@ -3,7 +3,10 @@ import {
   createDefaultDnd5eCharacterData,
   deriveDnd5eCharacterValues,
 } from '../../../systems/dnd5e/characterData';
-import { compileDnd5eSpellCast } from '../../../systems/dnd5e/spellCasting';
+import {
+  compileDnd5eSpellCast,
+  presentDnd5eSpellHeader,
+} from '../../../systems/dnd5e/spellCasting';
 import { createDefaultDnd5eSpellData } from '../../../systems/dnd5e/spellData';
 
 function fixture() {
@@ -36,6 +39,139 @@ function fixture() {
 }
 
 describe('D&D spell casting compiler', () => {
+  it('presents a compact attack, damage, class, flag, and component header', () => {
+    const { character, derived, spell } = fixture();
+    spell.rollSteps = [
+      {
+        attackBonus: { kind: 'spell-attack-bonus' },
+        id: '10000000-0000-4000-8000-000000000001',
+        label: 'Spell Attack',
+        purpose: 'attack',
+      },
+      {
+        criticalSourceStepId: null,
+        damageType: 'radiant',
+        id: '10000000-0000-4000-8000-000000000002',
+        label: 'Radiant Damage',
+        purpose: 'damage',
+        terms: [{ count: 4, kind: 'dice', scaling: 'fixed', sides: 6, tiers: [] }],
+      },
+    ];
+    const compiled = compileDnd5eSpellCast(
+      'Guiding Bolt', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+
+    expect(presentDnd5eSpellHeader(spell, compiled.definition)).toEqual({
+      rollSummary: '+7 · 4d6',
+      subtitle: '1st-level Evocation',
+      tags: [
+        'Attack',
+        'Radiant',
+        'Wizard',
+        'Concentration',
+        'Ritual',
+        'V, S, M',
+      ],
+    });
+  });
+
+  it('summarizes saves, healing, general rolls, and details-only casts', () => {
+    const { character, derived, spell } = fixture();
+    spell.rollSteps = [
+      {
+        ability: 'wisdom',
+        dc: { dc: 17, kind: 'fixed' },
+        failure: '',
+        id: '10000000-0000-4000-8000-000000000001',
+        label: 'Save',
+        purpose: 'save',
+        success: '',
+      },
+      {
+        id: '10000000-0000-4000-8000-000000000002',
+        label: 'Healing',
+        purpose: 'healing',
+        terms: [
+          { count: 3, kind: 'dice', scaling: 'fixed', sides: 8, tiers: [] },
+          { kind: 'spellcasting-modifier' },
+        ],
+      },
+    ];
+    let compiled = compileDnd5eSpellCast(
+      'Restoring Word', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(presentDnd5eSpellHeader(spell, compiled.definition).rollSummary)
+      .toBe('DC 17 · 3d8 + 4');
+
+    spell.rollSteps = [{
+      id: '10000000-0000-4000-8000-000000000003',
+      label: 'General Roll',
+      purpose: 'roll',
+      terms: [
+        { count: 2, kind: 'dice', scaling: 'fixed', sides: 4, tiers: [] },
+        { kind: 'flat', value: 3 },
+      ],
+    }];
+    compiled = compileDnd5eSpellCast(
+      'Fortune', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(presentDnd5eSpellHeader(spell, compiled.definition)).toMatchObject({
+      rollSummary: '2d4 + 3',
+      tags: expect.arrayContaining(['General']),
+    });
+
+    spell.rollSteps = [];
+    compiled = compileDnd5eSpellCast(
+      'Quiet Detail', spell, character, derived, { kind: 'without-slot' },
+    );
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    expect(presentDnd5eSpellHeader(spell, compiled.definition).rollSummary).toBe('N/A');
+    expect(presentDnd5eSpellHeader(spell, null).rollSummary).toBe('N/A');
+  });
+
+  it('updates the primary roll summary for fixed attacks and upcasting', () => {
+    const { character, derived, spell } = fixture();
+    spell.rollSteps = [
+      {
+        attackBonus: { kind: 'fixed', modifier: 9 },
+        id: '10000000-0000-4000-8000-000000000001',
+        label: 'Fixed Attack',
+        purpose: 'attack',
+      },
+      {
+        criticalSourceStepId: null,
+        damageType: 'force',
+        id: '10000000-0000-4000-8000-000000000002',
+        label: 'Damage',
+        purpose: 'damage',
+        terms: [{
+          count: 1,
+          kind: 'dice',
+          scaling: 'cast-level',
+          sides: 6,
+          tiers: [{ count: 3, minimum: 3 }],
+        }],
+      },
+    ];
+    const base = compileDnd5eSpellCast(
+      'Force Lance', spell, character, derived, { kind: 'without-slot' },
+    );
+    const upcast = compileDnd5eSpellCast(
+      'Force Lance', spell, character, derived, { kind: 'slot', level: 3 },
+    );
+    expect(base.ok && presentDnd5eSpellHeader(spell, base.definition).rollSummary)
+      .toBe('+9 · 1d6');
+    expect(upcast.ok && presentDnd5eSpellHeader(spell, upcast.definition).rollSummary)
+      .toBe('+9 · 3d6');
+  });
+
   it('creates a complete details-only card', () => {
     const { character, derived, spell } = fixture();
     spell.rollSteps = [];

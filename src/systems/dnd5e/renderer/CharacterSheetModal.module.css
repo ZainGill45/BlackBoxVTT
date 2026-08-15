@@ -32,6 +32,11 @@
   overflow: auto;
 }
 
+.sheetViewport[data-active-tab='spells'] {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .sheet {
   display: grid;
   width: 100%;
@@ -46,6 +51,13 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
+}
+
+.sheet[data-active-tab='spells'] {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: 7rem 7rem 2.5rem minmax(0, 1fr);
 }
 
 .header {
@@ -337,8 +349,9 @@
 .spellsPanel {
   display: grid;
   min-width: 0;
-  min-height: 42rem;
-  grid-template-rows: auto auto minmax(28rem, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: var(--space-2);
 }
 
@@ -544,11 +557,12 @@
 .spellBrowser {
   display: grid;
   min-width: 0;
-  min-height: 28rem;
+  min-height: 0;
   overflow: hidden;
   grid-template-columns: minmax(15rem, 0.7fr) minmax(0, 1.3fr);
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border-strong);
+  font-size: var(--font-size-md);
 }
 
 .spellListPane,
@@ -569,24 +583,58 @@
   min-width: 0;
   padding: var(--space-2);
   gap: var(--space-2);
-  grid-template-columns: minmax(0, 1fr) var(--control-height);
+  grid-template-columns: minmax(0, 1fr) auto;
   border-bottom: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-xs);
 }
 
-.spellSearchInput {
-  width: 100%;
+.spellSearch {
+  display: grid;
   min-width: 0;
-  min-height: var(--control-height);
-  padding: var(--space-1) var(--space-2);
-  color: var(--color-text);
-  background: var(--color-surface);
+  height: var(--control-height);
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border);
+}
+
+.spellSearch:focus-within {
+  outline: var(--focus-outline);
+  outline-offset: -2px;
+}
+
+.spellSearch input {
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
   font: inherit;
 }
 
-.spellSearchInput:focus-visible {
-  outline: var(--focus-outline);
-  outline-offset: 1px;
+.spellSearch input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.spellSearch button {
+  display: grid;
+  width: var(--control-height);
+  height: 100%;
+  padding: 0;
+  place-items: center;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+}
+
+.spellSearch button:hover {
+  color: var(--color-text);
+  background: var(--color-overlay-hover);
 }
 
 .spellListWarning {
@@ -595,7 +643,7 @@
   color: var(--color-danger);
   background: var(--color-surface);
   border-bottom: var(--border-width) solid var(--color-border);
-  font-size: var(--font-size-2xs);
+  font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
 }
 
@@ -611,7 +659,7 @@
   min-width: 0;
 }
 
-.spellLevelGroup > h3 {
+.spellLevelGroup>h3 {
   position: sticky;
   z-index: 1;
   top: 0;
@@ -620,7 +668,7 @@
   color: var(--color-text-muted);
   background: var(--color-surface-raised);
   border-bottom: var(--border-width) solid var(--color-border);
-  font-size: var(--font-size-3xs);
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -636,14 +684,17 @@
 
 .spellListRow[data-selected='true'] {
   background: var(--color-surface-raised);
-  box-shadow: inset 0.15rem 0 0 var(--color-action);
+}
+
+.spellListRow[data-reordering='true'] {
+  opacity: 0.25;
 }
 
 .spellSelectButton {
   display: grid;
   min-width: 0;
   padding: var(--space-2);
-  gap: 0.125rem;
+  gap: var(--space-1);
   color: var(--color-text);
   background: transparent;
   border: 0;
@@ -651,22 +702,49 @@
   text-align: left;
 }
 
-.spellSelectButton > strong,
-.spellSelectButton > span {
+.spellSelectButton>strong,
+.spellSelectButton>span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.spellSelectButton > span {
+.spellSelectButton>span {
   color: var(--color-text-muted);
-  font-size: var(--font-size-3xs);
+  font-size: var(--font-size-xs);
 }
 
 .spellPreparationCheckbox {
-  padding: var(--space-2);
+  padding: var(--space-1);
   align-items: center;
+}
+
+.spellPreparationCheckbox>span[aria-hidden='true'] {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-basis: 1.25rem;
+}
+
+.spellPreparationCheckbox>span[aria-hidden='true'] svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.spellReorderGhost {
+  position: fixed;
+  z-index: 1700;
+  top: 0;
+  left: 0;
+  max-width: 18rem;
+  padding: var(--space-2) var(--space-3);
+  pointer-events: none;
+  color: var(--color-text);
+  background: var(--color-overlay-surface);
+  border: var(--border-width) solid var(--color-border-strong);
+  box-shadow: var(--shadow-panel);
+  font-size: var(--font-size-xs);
+  translate: var(--space-2) var(--space-2);
 }
 
 .visuallyHidden {
@@ -691,11 +769,12 @@
   gap: var(--space-2);
   margin: 0;
   color: var(--color-text-muted);
+  font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
   text-align: center;
 }
 
-.spellPanelState > p {
+.spellPanelState>p {
   margin: 0;
 }
 
@@ -710,11 +789,18 @@
 .spellDetailHeader {
   display: flex;
   min-width: 0;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.spellDetailHeader>div:first-child {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 12rem;
+  gap: var(--space-2);
 }
 
 .spellDetailHeader h2,
@@ -723,45 +809,41 @@
 }
 
 .spellDetailHeader h2 {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
   color: var(--color-text);
-  font-size: var(--font-size-lg);
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-tight);
 }
 
 .spellDetailHeader p {
-  margin-top: var(--space-1);
   color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .spellCastControls {
   display: flex;
   min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--space-2);
-}
-
-.spellCastControls > select {
-  min-width: 10rem;
-  min-height: var(--control-height);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
-  border: var(--border-width) solid var(--color-border);
-  font: inherit;
 }
 
 .spellTags {
   display: flex;
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
   flex-wrap: wrap;
   gap: var(--space-1);
-  border-bottom: var(--border-width) solid var(--color-border);
 }
 
-.spellTags > span {
-  padding: 0.125rem var(--space-2);
+.spellTags>span {
+  padding: var(--space-1) var(--space-2);
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border);
-  font-size: var(--font-size-3xs);
+  font-size: var(--font-size-sm);
 }
 
 .spellMetadataGrid {
@@ -769,23 +851,23 @@
   padding: 0;
   margin: 0;
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--border-width);
+  background: var(--color-border-strong);
+  border-top: var(--border-width) solid var(--color-border-strong);
   border-bottom: var(--border-width) solid var(--color-border-strong);
 }
 
-.spellMetadataGrid > div {
+.spellMetadataGrid>div {
   display: grid;
   min-width: 0;
   padding: var(--space-2);
   gap: var(--space-1);
-}
-
-.spellMetadataGrid > div + div {
-  border-left: var(--border-width) solid var(--color-border);
+  background: var(--color-surface);
 }
 
 .spellMetadataGrid dt {
   color: var(--color-text-muted);
-  font-size: var(--font-size-3xs);
+  font-size: var(--font-size-2xs);
   text-transform: uppercase;
 }
 
@@ -794,13 +876,14 @@
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--color-text);
+  font-size: var(--font-size-xs);
 }
 
 .spellDescription {
   display: grid;
-  padding: var(--space-4);
+  padding: var(--space-3);
   align-content: start;
-  gap: var(--space-4);
+  gap: var(--space-5);
   line-height: var(--line-height-normal);
 }
 
@@ -812,42 +895,193 @@
 
 .spellDescription section {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .spellDescription h3 {
   color: var(--color-text);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-regular);
 }
 
 .spellDescription p {
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
+  font-size: var(--font-size-md);
   white-space: pre-wrap;
+}
+
+.spellPickerModal {
+  width: min(40rem, calc(100dvw - var(--space-6)));
+}
+
+.spellPickerModalContent {
+  padding: 0;
 }
 
 .spellPicker {
   display: grid;
-  width: min(32rem, calc(100dvw - var(--space-8)));
-  max-height: min(38rem, calc(100dvh - var(--space-8)));
-  gap: var(--space-3);
-  grid-template-rows: auto auto minmax(10rem, 1fr) auto;
+  max-height: min(38rem, calc(100dvh - var(--space-10)));
+  grid-template-rows: auto auto minmax(0, auto) auto;
 }
 
-.spellPicker > h2,
-.spellPickerList p {
+.spellPickerHeader {
+  display: flex;
+  min-width: 0;
+  padding: var(--space-4);
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: var(--color-surface-raised);
+  border-bottom: var(--border-width) solid var(--color-border-strong);
+}
+
+.spellPickerHeader > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.spellPickerHeader h2,
+.spellPickerHeader p,
+.spellPickerFooter p,
+.spellPickerEmpty {
   margin: 0;
+}
+
+.spellPickerHeader h2 {
+  font-size: var(--font-size-xl);
+  line-height: var(--line-height-tight);
+}
+
+.spellPickerHeader > div > p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.spellPickerSelection {
+  flex: 0 0 auto;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-xs);
+}
+
+.spellPickerSearch {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border-bottom: var(--border-width) solid var(--color-border);
 }
 
 .spellPickerList {
   display: grid;
   min-height: 0;
-  padding: var(--space-2);
+  max-height: min(24rem, 48dvh);
+  padding: var(--space-3) var(--space-4);
   overflow: auto;
   align-content: start;
   gap: var(--space-2);
   background: var(--color-surface-muted);
+}
+
+.spellPickerOption {
+  min-width: 0;
+  padding: var(--space-3);
+  align-items: center;
+  gap: var(--space-3);
+  background: var(--color-surface);
   border: var(--border-width) solid var(--color-border);
+}
+
+.spellPickerOption:hover:not(.spellPickerOptionAttached) {
+  background: var(--color-overlay-hover);
+  border-color: var(--color-border-strong);
+}
+
+.spellPickerOption:has(input:focus-visible) {
+  outline: var(--focus-outline);
+  outline-offset: -2px;
+}
+
+.spellPickerOption:has(input:checked:not(:disabled)) {
+  background: var(--color-surface-raised);
+  border-color: var(--color-action);
+}
+
+.spellPickerOption > span:last-child {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.spellPickerOptionContent {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.spellPickerOptionIdentity {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.spellPickerOptionIdentity strong,
+.spellPickerOptionIdentity > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spellPickerOptionIdentity strong {
+  font-size: var(--font-size-md);
+}
+
+.spellPickerOptionIdentity > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.spellPickerOptionAttached {
+  background: var(--color-surface-muted);
+}
+
+.spellPickerAttached {
+  flex: 0 0 auto;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  border: var(--border-width) solid var(--color-border);
+  font-size: var(--font-size-3xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.spellPickerEmpty {
+  padding: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  text-align: center;
+}
+
+.spellPickerFooter {
+  display: flex;
+  min-width: 0;
+  padding: var(--space-3) var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: var(--color-surface-raised);
+  border-top: var(--border-width) solid var(--color-border-strong);
+}
+
+.spellPickerFooter > p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
 }
 
 .spellPickerActions {
