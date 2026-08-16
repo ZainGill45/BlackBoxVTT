@@ -22,6 +22,7 @@ import { addDefaultDnd5eSpellcastingToValue } from './campaignArchiveCharacterSp
 import { convertDnd5eCharacterDataFromArchiveFormat8 } from './campaignArchiveCharacterHealth';
 import { addDefaultDnd5eSkillOffsetsToValue } from './campaignArchiveCharacterSkills';
 import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFormat5';
+import { convertDnd5eSpellFlatScalingFromFormat14 } from './campaignArchiveSpellFlatScaling';
 
 /**
  * Reading a campaign database that this release cannot open.
@@ -36,7 +37,7 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
  */
 
 export type HistoricalCampaignFormatVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
 
 export type CampaignSalvageConversion =
   | 1
@@ -52,6 +53,7 @@ export type CampaignSalvageConversion =
   | 11
   | 12
   | 13
+  | 14
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -242,7 +244,7 @@ function detectFormat4To13CharacterEra(
       reason: schemaCouldBeCurrent
         ? 'This campaign’s structure is already current, so an outdated ' +
           'format is not what makes it unreadable.'
-        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13.',
+        : 'This campaign has no Character data that identifies format 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, or 14.',
     };
   }
   const shapes = new Set<
@@ -312,7 +314,7 @@ function detectFormat4To13CharacterEra(
     return {
       ok: false,
       reason:
-        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13.',
+        'This campaign’s character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, or 14.',
     };
   }
   if (shapes.has('4') && shapes.size === 1) return { ok: true, version: 4 };
@@ -334,8 +336,46 @@ function detectFormat4To13CharacterEra(
   }
   return {
     ok: false,
-    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, and the current format.',
+    reason: 'This campaign’s characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, and the current format.',
   };
+}
+
+function detectFormat14SpellFlatScaling(
+  connection: DatabaseSync,
+): CampaignFormatDetection | null {
+  const characterRows = connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_CHARACTER_ENTRY_TYPE_ID) as unknown as Array<{ data_json: string }>;
+  for (const row of characterRows) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data_json);
+    } catch {
+      return null;
+    }
+    if (!isDnd5eCharacterData(parsed as JsonValue)) return null;
+  }
+
+  const spellRows = connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_SPELL_ENTRY_TYPE_ID) as unknown as Array<{ data_json: string }>;
+  let convertedCount = 0;
+  for (const row of spellRows) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data_json);
+    } catch {
+      return null;
+    }
+    const converted = convertDnd5eSpellFlatScalingFromFormat14(parsed);
+    if (!converted) return null;
+    convertedCount += converted.convertedCount;
+  }
+  return convertedCount > 0 ? { ok: true, version: 14 } : null;
 }
 
 function detectFormat13ActionEffects(
@@ -417,6 +457,8 @@ export function detectCampaignFormatVersion(
     return detectFormat4To13CharacterEra(connection);
   }
   if (fingerprint === FORMAT_7_TO_CURRENT_SCHEMA_FINGERPRINT) {
+    const format14 = detectFormat14SpellFlatScaling(connection);
+    if (format14) return format14;
     const format13 = detectFormat13ActionEffects(connection);
     return format13 ?? detectFormat4To13CharacterEra(connection, true);
   }

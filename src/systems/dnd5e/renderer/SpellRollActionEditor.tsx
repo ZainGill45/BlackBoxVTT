@@ -28,13 +28,16 @@ import {
   MAX_DND5E_SPELL_FIELD_CODE_UNITS,
   MAX_DND5E_SPELL_ROLL_STEPS,
   MAX_DND5E_SPELL_ROLL_TERMS,
+  MAX_DND5E_SPELL_SCALING_TIERS,
   analyzeDnd5eSpellRollStep,
   createDefaultDnd5eSpellRollStep,
   createDefaultDnd5eSpellValueTerm,
   type Dnd5eSpellDiceTier,
+  type Dnd5eSpellFlatTier,
   type Dnd5eSpellLevel,
   type Dnd5eSpellRollStep,
   type Dnd5eSpellRollStepMutation,
+  type Dnd5eSpellScalingMode,
   type Dnd5eSpellValueTerm,
 } from '../spellData';
 import { CharacterSheetAddEntryButton } from './CharacterSheetAddEntryButton';
@@ -90,6 +93,47 @@ function mutationTarget(mutation: Dnd5eSpellRollStepMutation): string | null {
   return mutation.kind === 'reorder' || mutation.kind === 'add'
     ? null
     : mutation.id;
+}
+
+function scalingLabel(
+  scaling: Dnd5eSpellScalingMode,
+  valueType: 'Dice' | 'Value',
+): string {
+  return scaling === 'fixed'
+    ? `Fixed ${valueType}`
+    : scaling === 'caster-level'
+      ? `Caster-Level ${valueType}`
+      : `Cast-Level ${valueType}`;
+}
+
+function retainValidTiers<Tier extends { minimum: number }>(
+  tiers: readonly Tier[],
+  scaling: Dnd5eSpellScalingMode,
+  level: Dnd5eSpellLevel,
+): Tier[] {
+  if (scaling === 'fixed') return [];
+  const minimum = scaling === 'caster-level' ? 1 : Math.max(1, level);
+  const maximum = scaling === 'caster-level' ? 20 : 9;
+  return tiers.filter((tier) => tier.minimum >= minimum && tier.minimum <= maximum);
+}
+
+function updateTermScaling(
+  term: Extract<Dnd5eSpellValueTerm, { kind: 'dice' | 'flat' }>,
+  scaling: Dnd5eSpellScalingMode,
+  level: Dnd5eSpellLevel,
+): Dnd5eSpellValueTerm {
+  if (term.kind === 'dice') {
+    return {
+      ...term,
+      scaling,
+      tiers: retainValidTiers(term.tiers, scaling, level),
+    };
+  }
+  return {
+    ...term,
+    scaling,
+    tiers: retainValidTiers(term.tiers, scaling, level),
+  };
 }
 
 function TermEditor({
@@ -169,48 +213,59 @@ function TermEditor({
               </RollEditorField>
             )}
           </div>
-          {term.kind === 'dice' ? (
+          {term.kind === 'dice' || term.kind === 'flat' ? (
             <>
               <div className={styles.scaleToggle}>
                 <RollEditorField label="Scaling">
                   <Dropdown
                     disabled={!canEdit}
-                    label={term.scaling === 'fixed'
-                      ? 'Fixed Dice'
-                      : term.scaling === 'caster-level'
-                        ? 'Caster-Level Dice'
-                        : 'Cast-Level Dice'}
-                    panelLabel="Dice scaling options"
+                    label={scalingLabel(
+                      term.scaling,
+                      term.kind === 'dice' ? 'Dice' : 'Value',
+                    )}
+                    panelLabel={term.kind === 'dice'
+                      ? 'Dice scaling options'
+                      : 'Flat value scaling options'}
                   >
                     {DND5E_SPELL_SCALING_MODES.map((scaling) => (
                       <DropdownOption
                         active={scaling === term.scaling}
                         disabled={scaling === 'cast-level' && level === 0}
                         key={scaling}
-                        label={scaling === 'fixed'
-                          ? 'Fixed Dice'
-                          : scaling === 'caster-level'
-                            ? 'Caster-Level Dice'
-                            : 'Cast-Level Dice'}
-                        onSelect={() => update(index, {
-                          ...term,
+                        label={scalingLabel(
                           scaling,
-                          tiers: [],
-                        })}
+                          term.kind === 'dice' ? 'Dice' : 'Value',
+                        )}
+                        onSelect={() => update(
+                          index,
+                          updateTermScaling(term, scaling, level),
+                        )}
                       />
                     ))}
                   </Dropdown>
                 </RollEditorField>
               </div>
               {term.scaling !== 'fixed' ? (
-                <DiceTierEditor
-                  canEdit={canEdit}
-                  level={level}
-                  scaling={term.scaling}
-                  sides={term.sides}
-                  tiers={term.tiers}
-                  onChange={(tiers) => update(index, { ...term, tiers })}
-                />
+                term.kind === 'dice' ? (
+                  <DiceTierEditor
+                    baseCount={term.count}
+                    canEdit={canEdit}
+                    level={level}
+                    scaling={term.scaling}
+                    sides={term.sides}
+                    tiers={term.tiers}
+                    onChange={(tiers) => update(index, { ...term, tiers })}
+                  />
+                ) : (
+                  <FlatTierEditor
+                    baseValue={term.value}
+                    canEdit={canEdit}
+                    level={level}
+                    scaling={term.scaling}
+                    tiers={term.tiers}
+                    onChange={(tiers) => update(index, { ...term, tiers })}
+                  />
+                )
               ) : null}
             </>
           ) : null}
@@ -242,6 +297,7 @@ function TermEditor({
 }
 
 function DiceTierEditor({
+  baseCount,
   canEdit,
   level,
   onChange,
@@ -249,6 +305,7 @@ function DiceTierEditor({
   sides,
   tiers,
 }: {
+  baseCount: number;
   canEdit: boolean;
   level: Dnd5eSpellLevel;
   onChange: (tiers: Dnd5eSpellDiceTier[]) => void;
@@ -304,12 +361,92 @@ function DiceTierEditor({
           </div>
         );
       })}
-      {canEdit && tiers.length < 20 && addMinimum <= maximum ? (
+      {canEdit && tiers.length < MAX_DND5E_SPELL_SCALING_TIERS && addMinimum <= maximum ? (
         <Button
           size="compact"
           onClick={() => onChange([
             ...tiers,
-            { count: tiers.at(-1)?.count ?? 1, minimum: addMinimum },
+            { count: tiers.at(-1)?.count ?? baseCount, minimum: addMinimum },
+          ])}
+        >
+          Add Tier
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function FlatTierEditor({
+  baseValue,
+  canEdit,
+  level,
+  onChange,
+  scaling,
+  tiers,
+}: {
+  baseValue: number;
+  canEdit: boolean;
+  level: Dnd5eSpellLevel;
+  onChange: (tiers: Dnd5eSpellFlatTier[]) => void;
+  scaling: 'cast-level' | 'caster-level';
+  tiers: readonly Dnd5eSpellFlatTier[];
+}) {
+  const minimum = scaling === 'caster-level' ? 1 : Math.max(1, level);
+  const maximum = scaling === 'caster-level' ? 20 : 9;
+  const addMinimum = Math.max(minimum, (tiers.at(-1)?.minimum ?? minimum - 1) + 1);
+  return (
+    <div
+      aria-label={scaling === 'caster-level'
+        ? 'Caster level flat value tiers'
+        : 'Cast level flat value tiers'}
+      className={styles.tierList}
+    >
+      {tiers.map((tier, index) => {
+        const previous = tiers[index - 1]?.minimum ?? minimum - 1;
+        const next = tiers[index + 1]?.minimum ?? maximum + 1;
+        return (
+          <div className={styles.tierRow} key={`${tier.minimum}:${index}`}>
+            <span>{scaling === 'caster-level' ? 'Lv' : 'Cast'}</span>
+            <RollNumericField
+              accessibleLabel={`Tier ${index + 1} minimum ${scaling}`}
+              maximum={next - 1}
+              minimum={previous + 1}
+              readOnly={!canEdit}
+              value={tier.minimum}
+              onCommit={(value) => onChange(tiers.map((candidate, currentIndex) =>
+                currentIndex === index ? { ...candidate, minimum: value } : candidate))}
+            />
+            <span aria-hidden>→</span>
+            <RollNumericField
+              accessibleLabel={`Tier ${index + 1} flat value`}
+              readOnly={!canEdit}
+              value={tier.value}
+              onCommit={(value) => onChange(tiers.map((candidate, currentIndex) =>
+                currentIndex === index ? { ...candidate, value } : candidate))}
+            />
+            <span aria-hidden>Value</span>
+            {canEdit ? (
+              <Button
+                aria-label={`Remove tier ${index + 1}`}
+                size="compact"
+                onClick={() => onChange(
+                  tiers.filter((_, currentIndex) => currentIndex !== index),
+                )}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
+        );
+      })}
+      {canEdit &&
+      tiers.length < MAX_DND5E_SPELL_SCALING_TIERS &&
+      addMinimum <= maximum ? (
+        <Button
+          size="compact"
+          onClick={() => onChange([
+            ...tiers,
+            { minimum: addMinimum, value: tiers.at(-1)?.value ?? baseValue },
           ])}
         >
           Add Tier

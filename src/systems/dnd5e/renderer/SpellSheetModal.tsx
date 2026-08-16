@@ -116,10 +116,23 @@ function normalizeStepsForLevel(data: Dnd5eSpellData, level: Dnd5eSpellLevel) {
     if (!('terms' in step)) return step;
     const terms = step.terms.map((term): Dnd5eSpellValueTerm => {
       if (level === 0 && term.kind === 'cast-level') {
-        return { kind: 'flat', value: 0 };
+        return { kind: 'flat', scaling: 'fixed', tiers: [], value: 0 };
       }
-      if (level === 0 && term.kind === 'dice' && term.scaling === 'cast-level') {
-        return { ...term, scaling: 'fixed', tiers: [] };
+      if (term.kind === 'dice' && term.scaling === 'cast-level') {
+        return level === 0
+          ? { ...term, scaling: 'fixed', tiers: [] }
+          : {
+              ...term,
+              tiers: term.tiers.filter(({ minimum }) => minimum >= level),
+            };
+      }
+      if (term.kind === 'flat' && term.scaling === 'cast-level') {
+        return level === 0
+          ? { ...term, scaling: 'fixed', tiers: [] }
+          : {
+              ...term,
+              tiers: term.tiers.filter(({ minimum }) => minimum >= level),
+            };
       }
       return term;
     });

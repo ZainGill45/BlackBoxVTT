@@ -15,6 +15,7 @@ import type {
   Dnd5eSpellData,
   Dnd5eSpellLevel,
   Dnd5eSpellRollStep,
+  Dnd5eSpellScalingMode,
   Dnd5eSpellValueTerm,
 } from './spellData';
 
@@ -181,14 +182,32 @@ function resolveDiceCount(
   casterLevel: number,
   selectedCastLevel: Dnd5eSpellLevel,
 ): number | null {
-  if (term.scaling === 'fixed') return term.count;
-  const source = term.scaling === 'caster-level' ? casterLevel : selectedCastLevel;
-  if (term.scaling === 'cast-level' && selectedCastLevel === 0) return null;
-  let count = term.count;
-  for (const tier of term.tiers) {
-    if (source >= tier.minimum) count = tier.count;
+  return resolveScaledValue(
+    term.count,
+    term.scaling,
+    term.tiers,
+    (tier) => tier.count,
+    casterLevel,
+    selectedCastLevel,
+  );
+}
+
+function resolveScaledValue<Tier extends { minimum: number }>(
+  base: number,
+  scaling: Dnd5eSpellScalingMode,
+  tiers: readonly Tier[],
+  tierValue: (tier: Tier) => number,
+  casterLevel: number,
+  selectedCastLevel: Dnd5eSpellLevel,
+): number | null {
+  if (scaling === 'fixed') return base;
+  const source = scaling === 'caster-level' ? casterLevel : selectedCastLevel;
+  if (scaling === 'cast-level' && selectedCastLevel === 0) return null;
+  let resolved = base;
+  for (const tier of tiers) {
+    if (source >= tier.minimum) resolved = tierValue(tier);
   }
-  return count;
+  return resolved;
 }
 
 function resolveTerms(
@@ -212,7 +231,16 @@ function resolveTerms(
       continue;
     }
     if (term.kind === 'flat') {
-      modifiers.push({ label: 'Flat Modifier', value: term.value });
+      const value = resolveScaledValue(
+        term.value,
+        term.scaling,
+        term.tiers,
+        (tier) => tier.value,
+        casterLevel,
+        selectedCastLevel,
+      );
+      if (value === null) return null;
+      modifiers.push({ label: 'Flat Modifier', value });
       continue;
     }
     if (term.kind === 'caster-level') {

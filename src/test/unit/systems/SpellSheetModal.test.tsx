@@ -12,6 +12,7 @@ import { DND5E_SPELL_ENTRY_TYPE_ID } from '../../../systems/dnd5e/definition';
 import { SpellSheetModal } from '../../../systems/dnd5e/renderer/SpellSheetModal';
 import {
   createDefaultDnd5eSpellData,
+  createDefaultDnd5eSpellRollStep,
   describeDnd5eSpellData,
   type Dnd5eSpellData,
 } from '../../../systems/dnd5e/spellData';
@@ -170,6 +171,155 @@ describe('SpellSheetModal', () => {
       .queryByRole('button', { name: 'Effect' })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Value Type')).not.toBeInTheDocument();
     expect(within(dialog).getByText('Add term')).toBeVisible();
+  });
+
+  it('authors Flat Value tiers and preserves valid Dice and Flat tiers', async () => {
+    const user = userEvent.setup();
+    const data = createDefaultDnd5eSpellData();
+    data.level = 3;
+    const damage = createDefaultDnd5eSpellRollStep('damage');
+    if (damage.purpose !== 'damage') throw new Error('fixture');
+    damage.terms = [
+      {
+        count: 3,
+        kind: 'dice',
+        scaling: 'caster-level',
+        sides: 4,
+        tiers: [
+          { count: 3, minimum: 1 },
+          { count: 4, minimum: 5 },
+          { count: 5, minimum: 10 },
+        ],
+      },
+      {
+        kind: 'flat',
+        scaling: 'caster-level',
+        tiers: [
+          { minimum: 1, value: 3 },
+          { minimum: 5, value: 4 },
+          { minimum: 10, value: 5 },
+        ],
+        value: 3,
+      },
+    ];
+    data.rollSteps = [damage];
+    const entry = spellEntry(data);
+    const controlled = controlledApi(entry);
+    renderSpell(entry, controlled.api);
+    const dialog = screen.getByRole('dialog', { name: 'New Spell spell sheet' });
+    await user.click(within(dialog).getByRole('button', { name: /Damage Damage/u }));
+
+    await user.click(within(dialog).getAllByRole('button', {
+      name: 'Caster-Level Dice',
+    })[0]!);
+    await user.click(within(screen.getByRole('group', { name: 'Dice scaling options' }))
+      .getByRole('button', { name: 'Cast-Level Dice' }));
+    await user.click(within(dialog).getAllByRole('button', {
+      name: 'Caster-Level Value',
+    })[0]!);
+    await user.click(within(screen.getByRole('group', { name: 'Flat value scaling options' }))
+      .getByRole('button', { name: 'Cast-Level Value' }));
+    await waitFor(() => expect(
+      (controlled.server.data as Dnd5eSpellData).rollSteps[0],
+    ).toMatchObject({
+      terms: [
+        { scaling: 'cast-level', tiers: [{ count: 4, minimum: 5 }] },
+        { scaling: 'cast-level', tiers: [{ minimum: 5, value: 4 }] },
+      ],
+    }));
+
+    await user.click(within(dialog).getByRole('button', { name: 'Level' }));
+    await user.click(within(screen.getByRole('group', { name: 'Level options' }))
+      .getByRole('button', { name: '6th Level' }));
+    await waitFor(() => expect(
+      (controlled.server.data as Dnd5eSpellData).rollSteps[0],
+    ).toMatchObject({ terms: [{ tiers: [] }, { tiers: [] }] }));
+    expect(within(dialog).getAllByText('Needs setup').length).toBeGreaterThan(0);
+
+    await user.click(within(dialog).getAllByRole('button', {
+      name: 'Cast-Level Value',
+    })[0]!);
+    await user.click(within(screen.getByRole('group', { name: 'Flat value scaling options' }))
+      .getByRole('button', { name: 'Fixed Value' }));
+    await user.click(within(dialog).getAllByRole('button', {
+      name: 'Fixed Value',
+    })[0]!);
+    await user.click(within(screen.getByRole('group', { name: 'Flat value scaling options' }))
+      .getByRole('button', { name: 'Cast-Level Value' }));
+    const flatTiers = within(dialog).getByLabelText('Cast level flat value tiers');
+    await user.click(within(flatTiers).getByRole('button', { name: 'Add Tier' }));
+    expect(within(flatTiers).getByRole('textbox', {
+      name: 'Tier 1 minimum cast-level',
+    })).toHaveValue('6');
+    const flatValue = within(flatTiers).getByRole('textbox', {
+      name: 'Tier 1 flat value',
+    });
+    expect(flatValue).toHaveValue('3');
+    fireEvent.change(flatValue, { target: { value: '-2' } });
+    fireEvent.blur(flatValue);
+    await waitFor(() => expect(
+      (controlled.server.data as Dnd5eSpellData).rollSteps[0],
+    ).toMatchObject({ terms: [expect.anything(), { tiers: [{ minimum: 6, value: -2 }] }] }));
+    await user.click(within(flatTiers).getByRole('button', { name: 'Remove tier 1' }));
+
+    await user.click(within(dialog).getAllByRole('button', {
+      name: 'Cast-Level Dice',
+    })[0]!);
+    await user.click(within(screen.getByRole('group', { name: 'Dice scaling options' }))
+      .getByRole('button', { name: 'Fixed Dice' }));
+    await user.click(within(dialog).getAllByRole('button', {
+      name: 'Fixed Dice',
+    })[0]!);
+    await user.click(within(screen.getByRole('group', { name: 'Dice scaling options' }))
+      .getByRole('button', { name: 'Cast-Level Dice' }));
+    const diceTiers = within(dialog).getByLabelText('Cast level tiers');
+    await user.click(within(diceTiers).getByRole('button', { name: 'Add Tier' }));
+    expect(within(diceTiers).getByRole('textbox', {
+      name: 'Tier 1 dice count',
+    })).toHaveValue('3');
+  });
+
+  it('makes cast-level Dice and Flat Values fixed when changing to a cantrip', async () => {
+    const user = userEvent.setup();
+    const data = createDefaultDnd5eSpellData();
+    data.level = 1;
+    const damage = createDefaultDnd5eSpellRollStep('damage');
+    if (damage.purpose !== 'damage') throw new Error('fixture');
+    damage.terms = [
+      {
+        count: 3,
+        kind: 'dice',
+        scaling: 'cast-level',
+        sides: 4,
+        tiers: [{ count: 4, minimum: 2 }],
+      },
+      {
+        kind: 'flat',
+        scaling: 'cast-level',
+        tiers: [{ minimum: 2, value: 4 }],
+        value: 3,
+      },
+      { kind: 'cast-level' },
+    ];
+    data.rollSteps = [damage];
+    const entry = spellEntry(data);
+    const controlled = controlledApi(entry);
+    renderSpell(entry, controlled.api);
+    const dialog = screen.getByRole('dialog', { name: 'New Spell spell sheet' });
+
+    await user.click(within(dialog).getByRole('button', { name: 'Level' }));
+    await user.click(within(screen.getByRole('group', { name: 'Level options' }))
+      .getByRole('button', { name: 'Cantrip' }));
+    await waitFor(() => expect(controlled.server.data).toMatchObject({
+      level: 0,
+      rollSteps: [{
+        terms: [
+          { kind: 'dice', scaling: 'fixed', tiers: [] },
+          { kind: 'flat', scaling: 'fixed', tiers: [], value: 3 },
+          { kind: 'flat', scaling: 'fixed', tiers: [], value: 0 },
+        ],
+      }],
+    }));
   });
 
   it('flushes text on blur and rebases it over a conflicting remote field update', async () => {

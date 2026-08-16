@@ -32,7 +32,9 @@ async function openFixture(version: number): Promise<DatabaseSync> {
     file: path.resolve(
       version === 13
         ? 'src/test/fixtures/archives/dnd5e-effect-steps-format-13.blackbox-campaign'
-        : `src/test/fixtures/archives/dnd5e-character-format-${version}.blackbox-campaign`,
+        : version === 14
+          ? 'src/test/fixtures/archives/dnd5e-spell-flat-format-14.blackbox-campaign'
+          : `src/test/fixtures/archives/dnd5e-character-format-${version}.blackbox-campaign`,
     ),
     gzip: true,
     strict: true,
@@ -49,7 +51,7 @@ afterEach(async () => {
 });
 
 describe('detectCampaignFormatVersion', () => {
-  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])(
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])(
     'recognizes the frozen format-%i fixture from its data alone',
     async (version) => {
       const connection = await openFixture(version);
@@ -135,6 +137,38 @@ describe('detectCampaignFormatVersion', () => {
     }
   });
 
+  it('refuses near-match and mixed format-14 Flat Value shapes', async () => {
+    for (const mutation of ['near-match', 'mixed'] as const) {
+      const connection = await openFixture(14);
+      try {
+        const row = connection.prepare(
+          `SELECT data_json FROM journal_entries
+           WHERE type_id = 'dnd5e.spell'`,
+        ).get() as { data_json: string };
+        const data = JSON.parse(row.data_json);
+        const terms = data.rollSteps[0].terms;
+        if (mutation === 'near-match') {
+          terms[1].unexpected = true;
+        } else {
+          terms.push({
+            kind: 'flat',
+            scaling: 'fixed',
+            tiers: [],
+            value: 1,
+          });
+        }
+        connection.prepare(
+          `UPDATE journal_entries SET data_json = ?
+           WHERE type_id = 'dnd5e.spell'`,
+        ).run(JSON.stringify(data));
+
+        expect(detectCampaignFormatVersion(connection)).toMatchObject({ ok: false });
+      } finally {
+        connection.close();
+      }
+    }
+  });
+
   it('recognizes the exact intermediate permission schema as format 4', async () => {
     const connection = await openFixture(3);
     try {
@@ -192,7 +226,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(mixed)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, and the current format',
+          'characters mix archive formats 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, and the current format',
         ),
       });
     } finally {
@@ -215,7 +249,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, or 14',
         ),
       });
     } finally {
@@ -236,7 +270,7 @@ describe('detectCampaignFormatVersion', () => {
       expect(detectCampaignFormatVersion(connection)).toEqual({
         ok: false,
         reason: expect.stringContaining(
-          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, or 13',
+          'character data does not exactly match archive format 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, or 14',
         ),
       });
     } finally {

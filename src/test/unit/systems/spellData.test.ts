@@ -7,9 +7,11 @@ import {
 import {
   DND5E_SPELL_SCHOOLS,
   MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS,
+  analyzeDnd5eSpellRollStep,
   applyDnd5eSpellRollStepMutations,
   createDefaultDnd5eSpellData,
   createDefaultDnd5eSpellRollStep,
+  createDefaultDnd5eSpellValueTerm,
   describeDnd5eSpellData,
   isDnd5eSpellData,
 } from '../../../systems/dnd5e/spellData';
@@ -150,6 +152,84 @@ describe('D&D Spell authored data', () => {
     expect(isDnd5eSpellData(asJson(spell))).toBe(false);
     damage.terms = [{ kind: 'cast-level' }];
     expect(isDnd5eSpellData(asJson(spell))).toBe(false);
+  });
+
+  it('uses one exact fixed or scaled shape for signed Flat Values', () => {
+    expect(createDefaultDnd5eSpellValueTerm('flat')).toEqual({
+      kind: 'flat',
+      scaling: 'fixed',
+      tiers: [],
+      value: 0,
+    });
+    const spell = createDefaultDnd5eSpellData();
+    spell.level = 1;
+    const damage = createDefaultDnd5eSpellRollStep('damage');
+    if (damage.purpose !== 'damage') throw new Error('fixture');
+    spell.rollSteps = [damage];
+    damage.terms = [{
+      kind: 'flat',
+      scaling: 'caster-level',
+      tiers: [
+        { minimum: 1, value: -2 },
+        { minimum: 5, value: 4 },
+        { minimum: 11, value: -1 },
+      ],
+      value: 0,
+    }];
+    expect(isDnd5eSpellData(asJson(spell))).toBe(true);
+
+    damage.terms = [{ kind: 'flat', value: 3 } as never];
+    expect(isDnd5eSpellData(asJson(spell))).toBe(false);
+    damage.terms = [{
+      kind: 'flat',
+      scaling: 'fixed',
+      tiers: [{ minimum: 1, value: 3 }],
+      value: 3,
+    }];
+    expect(isDnd5eSpellData(asJson(spell))).toBe(false);
+    damage.terms = [{
+      kind: 'flat',
+      scaling: 'cast-level',
+      tiers: [
+        { minimum: 2, value: 4 },
+        { minimum: 2, value: 5 },
+      ],
+      value: 3,
+    }];
+    expect(isDnd5eSpellData(asJson(spell))).toBe(false);
+    spell.level = 0;
+    damage.terms = [{
+      kind: 'flat',
+      scaling: 'cast-level',
+      tiers: [],
+      value: 3,
+    }];
+    expect(isDnd5eSpellData(asJson(spell))).toBe(false);
+  });
+
+  it('describes scaled Flat Value tiers and flags an empty table', () => {
+    const damage = createDefaultDnd5eSpellRollStep('damage');
+    if (damage.purpose !== 'damage') throw new Error('fixture');
+    damage.terms = [{
+      kind: 'flat',
+      scaling: 'cast-level',
+      tiers: [{ minimum: 1, value: 3 }],
+      value: 3,
+    }];
+    expect(analyzeDnd5eSpellRollStep(damage)).toMatchObject({
+      issues: [],
+      summary: '3 (Cast Level tiers)',
+    });
+    damage.terms[0] = {
+      kind: 'flat',
+      scaling: 'cast-level',
+      tiers: [],
+      value: 3,
+    };
+    expect(analyzeDnd5eSpellRollStep(damage)).toEqual({
+      issues: ['Scaled flat values require at least one tier.'],
+      summary: 'Needs setup',
+    });
   });
 
   it('rebases mutations by UUID and lets a remote deletion win', () => {

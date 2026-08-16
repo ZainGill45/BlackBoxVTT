@@ -135,7 +135,7 @@
   grid-column: 1;
 }
 
-.termRow:not([data-term-kind='dice']) .termControls {
+.termRow:not([data-term-kind='dice']):not([data-term-kind='flat']) .termControls {
   grid-column: 1 / 3;
 }
 
@@ -238,7 +238,7 @@
     grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .termRow:not([data-term-kind='dice']) .termControls {
+  .termRow:not([data-term-kind='dice']):not([data-term-kind='flat']) .termControls {
     grid-column: 1;
   }
 

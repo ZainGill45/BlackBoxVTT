@@ -14,7 +14,7 @@ export const MAX_DND5E_SPELL_FIELD_CODE_UNITS = 128;
 export const MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS = 16_384;
 export const MAX_DND5E_SPELL_ROLL_STEPS = 32;
 export const MAX_DND5E_SPELL_ROLL_TERMS = 32;
-export const MAX_DND5E_SPELL_DICE_TIERS = 20;
+export const MAX_DND5E_SPELL_SCALING_TIERS = 20;
 
 export const DND5E_SPELL_LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export const DND5E_SPELL_SCHOOLS = [
@@ -42,6 +42,11 @@ export type Dnd5eSpellDiceTier = {
   minimum: number;
 };
 
+export type Dnd5eSpellFlatTier = {
+  minimum: number;
+  value: number;
+};
+
 export type Dnd5eSpellValueTerm =
   | {
       count: number;
@@ -50,7 +55,12 @@ export type Dnd5eSpellValueTerm =
       sides: number;
       tiers: Dnd5eSpellDiceTier[];
     }
-  | { kind: 'flat'; value: number }
+  | {
+      kind: 'flat';
+      scaling: Dnd5eSpellScalingMode;
+      tiers: Dnd5eSpellFlatTier[];
+      value: number;
+    }
   | { kind: 'spellcasting-modifier' }
   | { kind: 'caster-level' }
   | { kind: 'cast-level' };
@@ -231,7 +241,7 @@ export function createDefaultDnd5eSpellValueTerm(
   kind: Dnd5eSpellValueTerm['kind'] = 'flat',
 ): Dnd5eSpellValueTerm {
   if (kind === 'dice') return createDefaultDiceTerm(6);
-  if (kind === 'flat') return { kind, value: 0 };
+  if (kind === 'flat') return { kind, scaling: 'fixed', tiers: [], value: 0 };
   return { kind };
 }
 
@@ -383,16 +393,36 @@ function isTerm(value: JsonValue, spellLevel: Dnd5eSpellLevel): value is Dnd5eSp
     return hasExactKeys(value, ['kind']);
   }
   if (value.kind === 'flat') {
-    return hasExactKeys(value, ['kind', 'value']) && isSafeInteger(value.value);
+    return hasExactKeys(value, ['kind', 'scaling', 'tiers', 'value']) &&
+      isSafeInteger(value.value) &&
+      hasValidScalingTiers(value, spellLevel, (tier) =>
+        hasExactKeys(tier, ['minimum', 'value']) && isSafeInteger(tier.value)
+      );
   }
   if (
     value.kind !== 'dice' ||
     !hasExactKeys(value, ['count', 'kind', 'scaling', 'sides', 'tiers']) ||
     !isSafeInteger(value.count) || value.count < 1 || value.count > 1_000 ||
-    !isSafeInteger(value.sides) || value.sides < 2 ||
+    !isSafeInteger(value.sides) || value.sides < 2
+  ) {
+    return false;
+  }
+  return hasValidScalingTiers(value, spellLevel, (tier) =>
+    hasExactKeys(tier, ['count', 'minimum']) &&
+    isSafeInteger(tier.count) && tier.count >= 1 && tier.count <= 1_000
+  );
+}
+
+function hasValidScalingTiers(
+  value: Record<string, JsonValue>,
+  spellLevel: Dnd5eSpellLevel,
+  isTierValueValid: (tier: Record<string, JsonValue>) => boolean,
+): boolean {
+  if (
     typeof value.scaling !== 'string' ||
     !DND5E_SPELL_SCALING_MODES.includes(value.scaling as Dnd5eSpellScalingMode) ||
-    !Array.isArray(value.tiers) || value.tiers.length > MAX_DND5E_SPELL_DICE_TIERS
+    !Array.isArray(value.tiers) ||
+    value.tiers.length > MAX_DND5E_SPELL_SCALING_TIERS
   ) {
     return false;
   }
@@ -405,8 +435,7 @@ function isTerm(value: JsonValue, spellLevel: Dnd5eSpellLevel): value is Dnd5eSp
   return value.tiers.every((tier) => {
     if (
       !isRecord(tier) ||
-      !hasExactKeys(tier, ['count', 'minimum']) ||
-      !isSafeInteger(tier.count) || tier.count < 1 || tier.count > 1_000 ||
+      !isTierValueValid(tier) ||
       !isSafeInteger(tier.minimum) || tier.minimum < minimum || tier.minimum > maximum ||
       tier.minimum <= previous
     ) {
@@ -501,6 +530,11 @@ export function analyzeDnd5eSpellRollStep(step: Dnd5eSpellRollStep): {
     )) {
       issues.push('Scaled dice require at least one tier.');
     }
+    if (step.terms.some((term) =>
+      term.kind === 'flat' && term.scaling !== 'fixed' && term.tiers.length === 0
+    )) {
+      issues.push('Scaled flat values require at least one tier.');
+    }
     if (step.purpose === 'damage' && step.damageType) {
       summary = `${summary} ${step.damageType}`.trim();
     }
@@ -515,7 +549,12 @@ function describeTerm(term: Dnd5eSpellValueTerm): string {
       ? base
       : `${base} (${term.scaling === 'caster-level' ? 'Caster Level' : 'Cast Level'} tiers)`;
   }
-  if (term.kind === 'flat') return String(term.value);
+  if (term.kind === 'flat') {
+    const base = String(term.value);
+    return term.scaling === 'fixed'
+      ? base
+      : `${base} (${term.scaling === 'caster-level' ? 'Caster Level' : 'Cast Level'} tiers)`;
+  }
   if (term.kind === 'spellcasting-modifier') return 'Spellcasting Modifier';
   if (term.kind === 'caster-level') return 'Caster Level';
   return 'Cast Level';

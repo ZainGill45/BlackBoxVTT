@@ -113,7 +113,7 @@ describe('D&D spell casting compiler', () => {
       purpose: 'roll',
       terms: [
         { count: 2, kind: 'dice', scaling: 'fixed', sides: 4, tiers: [] },
-        { kind: 'flat', value: 3 },
+        { kind: 'flat', scaling: 'fixed', tiers: [], value: 3 },
       ],
     }];
     compiled = compileDnd5eSpellCast(
@@ -170,6 +170,89 @@ describe('D&D spell casting compiler', () => {
       .toBe('+9 · 1d6');
     expect(upcast.ok && presentDnd5eSpellHeader(spell, upcast.definition).rollSummary)
       .toBe('+9 · 3d6');
+  });
+
+  it('scales Magic Missile dice and Flat Values together when upcast', () => {
+    const { character, derived, spell } = fixture();
+    spell.level = 1;
+    spell.rollSteps = [{
+      criticalSourceStepId: null,
+      damageType: 'force',
+      id: '10000000-0000-4000-8000-000000000001',
+      label: 'Missile Damage',
+      purpose: 'damage',
+      terms: [
+        {
+          count: 3,
+          kind: 'dice',
+          scaling: 'cast-level',
+          sides: 4,
+          tiers: [
+            { count: 4, minimum: 2 },
+            { count: 11, minimum: 9 },
+          ],
+        },
+        {
+          kind: 'flat',
+          scaling: 'cast-level',
+          tiers: [
+            { minimum: 2, value: 4 },
+            { minimum: 9, value: 11 },
+          ],
+          value: 3,
+        },
+      ],
+    }];
+
+    for (const [mode, expectedNotation, expectedFlat] of [
+      [{ kind: 'without-slot' as const }, '3d4', 3],
+      [{ kind: 'slot' as const, level: 2 as const }, '4d4', 4],
+      [{ kind: 'slot' as const, level: 9 as const }, '11d4', 11],
+    ] as const) {
+      const compiled = compileDnd5eSpellCast(
+        'Magic Missile', spell, character, derived, mode,
+      );
+      expect(compiled.ok).toBe(true);
+      if (!compiled.ok) continue;
+      expect(compiled.definition.sections.at(-1)).toMatchObject({
+        modifiers: [{ label: 'Flat Modifier', value: expectedFlat }],
+        notation: expectedNotation,
+      });
+      expect(presentDnd5eSpellHeader(spell, compiled.definition).rollSummary)
+        .toBe(`${expectedNotation} + ${expectedFlat}`);
+    }
+  });
+
+  it('resolves signed caster-level Flat Value tiers for cantrips', () => {
+    const { character, derived, spell } = fixture();
+    spell.level = 0;
+    spell.rollSteps = [{
+      criticalSourceStepId: null,
+      damageType: null,
+      id: '10000000-0000-4000-8000-000000000001',
+      label: 'Cantrip Value',
+      purpose: 'damage',
+      terms: [{
+        kind: 'flat',
+        scaling: 'caster-level',
+        tiers: [
+          { minimum: 1, value: -1 },
+          { minimum: 5, value: 2 },
+          { minimum: 11, value: -4 },
+        ],
+        value: 0,
+      }],
+    }];
+    const compiled = compileDnd5eSpellCast(
+      'Level Pulse', spell, character, derived, { kind: 'cantrip' },
+    );
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) {
+      expect(compiled.definition.sections.at(-1)).toMatchObject({
+        modifiers: [{ label: 'Flat Modifier', value: 2 }],
+        notation: '0',
+      });
+    }
   });
 
   it('creates sectioned details-only cards and exposes higher text only for a true upcast', () => {
@@ -340,7 +423,12 @@ describe('D&D spell casting compiler', () => {
           { kind: 'spellcasting-modifier' },
           { kind: 'caster-level' },
           { kind: 'cast-level' },
-          { kind: 'flat', value: 2 },
+          {
+            kind: 'flat',
+            scaling: 'cast-level',
+            tiers: [{ minimum: 3, value: 2 }],
+            value: 1,
+          },
         ],
       },
       {

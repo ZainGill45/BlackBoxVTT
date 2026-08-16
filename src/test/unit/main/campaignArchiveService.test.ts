@@ -14,6 +14,8 @@ import { create as createTar, extract as extractTar } from 'tar';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AssetRepository } from '../../../main/assetRepository';
 import { CampaignArchiveService } from '../../../main/campaignArchiveService';
+import { convertCampaignArchiveFormat12 } from '../../../main/campaignArchiveFormat12';
+import { convertCampaignArchiveFormat13 } from '../../../main/campaignArchiveFormat13';
 import { CampaignRepository } from '../../../main/campaignRepository';
 import { JournalRepository } from '../../../main/journalRepository';
 import type { SceneRepository } from '../../../main/sceneRepository';
@@ -154,16 +156,27 @@ async function fixture() {
   );
   if (damage.purpose !== 'damage') throw new Error('Damage fixture is invalid.');
   damage.damageType = 'fire';
-  damage.terms = [{
-    count: 8,
-    kind: 'dice',
-    scaling: 'cast-level',
-    sides: 6,
-    tiers: [
-      { count: 8, minimum: 3 },
-      { count: 9, minimum: 4 },
-    ],
-  }];
+  damage.terms = [
+    {
+      count: 8,
+      kind: 'dice',
+      scaling: 'cast-level',
+      sides: 6,
+      tiers: [
+        { count: 8, minimum: 3 },
+        { count: 9, minimum: 4 },
+      ],
+    },
+    {
+      kind: 'flat',
+      scaling: 'cast-level',
+      tiers: [
+        { minimum: 3, value: 3 },
+        { minimum: 4, value: 4 },
+      ],
+      value: 3,
+    },
+  ];
   spellData.rollSteps = [damage];
   const updatedSpell = await journal.updateEntryData({ kind: 'gm' }, {
     data: spellData,
@@ -246,7 +259,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 14 });
+    ))).toMatchObject({ formatVersion: 15 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -308,7 +321,19 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(spellRow!.data_json)).toMatchObject({
       classes: ['Sorcerer', 'Wizard'],
       level: 3,
-      rollSteps: [{ damageType: 'fire', purpose: 'damage' }],
+      rollSteps: [{
+        damageType: 'fire',
+        purpose: 'damage',
+        terms: expect.arrayContaining([{
+          kind: 'flat',
+          scaling: 'cast-level',
+          tiers: [
+            { minimum: 3, value: 3 },
+            { minimum: 4, value: 4 },
+          ],
+          value: 3,
+        }]),
+      }],
       school: 'Evocation',
     });
     importedDatabase.close();
@@ -372,7 +397,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 15;
+    manifest.formatVersion = 16;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -991,6 +1016,101 @@ describe('CampaignArchiveService', () => {
       importedDatabase.close();
     }
   });
+
+  it('directly marks Flat Values fixed in the untouched format-14 fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-spell-flat-format-14.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-dev',
+          warnings: [
+            'Marked 1 D&D Spell Flat Value term as fixed when importing archive format 14.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const spell = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.spell'`,
+      ).get() as { data_json: string };
+      expect(JSON.parse(spell.data_json).rollSteps[0].terms).toContainEqual({
+        kind: 'flat',
+        scaling: 'fixed',
+        tiers: [],
+        value: 3,
+      });
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it.each([
+    [12, 'dnd5e-character-format-12.blackbox-campaign'],
+    [13, 'dnd5e-effect-steps-format-13.blackbox-campaign'],
+  ] as const)(
+    'includes Flat Value scaling in the direct format-%i converter',
+    async (version, fixtureName) => {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), `blackbox-flat-format-${version}-`),
+      );
+      temporaryDirectories.push(directory);
+      await extractTar({
+        cwd: directory,
+        file: path.resolve(`src/test/fixtures/archives/${fixtureName}`),
+        gzip: true,
+        strict: true,
+      });
+      const connection = new DatabaseSync(path.join(directory, 'campaign.sqlite'));
+      try {
+        const row = connection.prepare(
+          `SELECT data_json FROM journal_entries
+           WHERE type_id = 'dnd5e.spell'`,
+        ).get() as { data_json: string };
+        const data = JSON.parse(row.data_json);
+        data.rollSteps.push({
+          criticalSourceStepId: null,
+          damageType: 'force',
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          label: 'Legacy Flat Value',
+          purpose: 'damage',
+          terms: [{ kind: 'flat', value: -2 }],
+        });
+        connection.prepare(
+          `UPDATE journal_entries SET data_json = ?
+           WHERE type_id = 'dnd5e.spell'`,
+        ).run(JSON.stringify(data));
+
+        const warnings = version === 12
+          ? convertCampaignArchiveFormat12(connection)
+          : convertCampaignArchiveFormat13(connection);
+        expect(warnings).toContain(
+          `Marked 1 D&D Spell Flat Value term as fixed when importing archive format ${version}.`,
+        );
+        const converted = connection.prepare(
+          `SELECT data_json FROM journal_entries
+           WHERE type_id = 'dnd5e.spell'`,
+        ).get() as { data_json: string };
+        expect(JSON.parse(converted.data_json).rollSteps.at(-1).terms).toEqual([{
+          kind: 'flat',
+          scaling: 'fixed',
+          tiers: [],
+          value: -2,
+        }]);
+      } finally {
+        connection.close();
+      }
+    },
+  );
 
   it('treats canceled dialogs as successful no-ops', async () => {
     const { campaigns, dialogs, service } = await fixture();
