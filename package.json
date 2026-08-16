@@ -78,7 +78,7 @@
     "@tiptap/starter-kit": "^3.29.2",
     "electron-squirrel-startup": "^1.0.1",
     "lucide-react": "^1.27.0",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.2.108",
     "pixi.js": "^8.19.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
