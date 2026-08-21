@@ -42,7 +42,9 @@ export function registerJournalIpcHandlers(
   getAllowedWebContents: () => WebContents[],
 ) {
   const channels = Object.values(journalIpcChannels).filter(
-    (channel) => channel !== journalIpcChannels.changed,
+    (channel) =>
+      channel !== journalIpcChannels.changed &&
+      channel !== journalIpcChannels.preparationProgress,
   );
   for (const channel of channels) ipc.removeHandler(channel);
   const handle = (channel: string, listener: (input: unknown) => unknown) => {
@@ -58,6 +60,12 @@ export function registerJournalIpcHandlers(
   handle(journalIpcChannels.listUsers, (input) => {
     const parsed = campaign.safeParse(input);
     return parsed.success ? manager.listUsers(parsed.data.campaignId) : invalid();
+  });
+  handle(journalIpcChannels.prepareContent, (input) => {
+    const parsed = campaign.safeParse(input);
+    return parsed.success
+      ? manager.prepareContent(parsed.data.campaignId)
+      : invalid();
   });
   handle(journalIpcChannels.getNote, (input) => {
     const parsed = entry.safeParse(input);
@@ -213,9 +221,18 @@ export function registerJournalIpcHandlers(
       }
     }
   };
+  const onPreparationProgress = (event: unknown) => {
+    for (const contents of getAllowedWebContents()) {
+      if (isAllowedSender(contents) && !contents.isDestroyed()) {
+        contents.send(journalIpcChannels.preparationProgress, event);
+      }
+    }
+  };
   manager.on('changed', onChanged);
+  manager.on('preparation-progress', onPreparationProgress);
   return () => {
     for (const channel of channels) ipc.removeHandler(channel);
     manager.off('changed', onChanged);
+    manager.off('preparation-progress', onPreparationProgress);
   };
 }

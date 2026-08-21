@@ -374,6 +374,104 @@ describe('SceneRenderer', () => {
     });
   });
 
+  it('prepares every scene once while decoding a shared image only once', async () => {
+    const first = scene({ mapImage: placement });
+    const second = scene({
+      id: '33333333-3333-4333-8333-333333333333',
+      mapImage: placement,
+      name: 'Lower Keep',
+    });
+    const progress = vi.fn();
+
+    await renderer.prepareScenes(
+      [first, second],
+      { [placement.assetId]: MAP_URL },
+      first.id,
+      progress,
+    );
+
+    expect(requestedUrls).toEqual([MAP_URL]);
+    expect(
+      progress.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.phase === 'scene-graphs')
+        .map((event) => event.currentName),
+    ).toEqual(['Iron Keep', 'Lower Keep']);
+
+    requestedUrls.length = 0;
+    renderer.setScene(second, { [placement.assetId]: MAP_URL });
+    renderer.setScene(first, { [placement.assetId]: MAP_URL });
+    await settle();
+    expect(requestedUrls).toEqual([]);
+  });
+
+  it('pauses an inactive prepared GIF and resumes its retained frame', async () => {
+    gifNextLoad = true;
+    const animated = scene({ mapImage: placement });
+    const empty = scene({
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'Quiet Keep',
+    });
+    await renderer.prepareScenes(
+      [animated, empty],
+      { [placement.assetId]: MAP_URL },
+      animated.id,
+    );
+    const firstSprite = spriteOf(renderer) as Sprite & {
+      currentFrame: number;
+      playing: boolean;
+    };
+    firstSprite.currentFrame = 4;
+
+    renderer.setScene(empty, { [placement.assetId]: MAP_URL });
+    expect(firstSprite.playing).toBe(false);
+    renderer.setScene(animated, { [placement.assetId]: MAP_URL });
+
+    const resumed = spriteOf(renderer) as Sprite & {
+      currentFrame: number;
+      playing: boolean;
+    };
+    expect(resumed).toBe(firstSprite);
+    expect(resumed.currentFrame).toBe(4);
+    expect(resumed.playing).toBe(true);
+  });
+
+  it('warms changed graphs offscreen and removes inaccessible retained graphs', async () => {
+    const first = scene({ mapImage: placement });
+    const second = scene({
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'Lower Keep',
+    });
+    await renderer.prepareScenes(
+      [first, second],
+      { [placement.assetId]: MAP_URL },
+      second.id,
+    );
+    const state = renderer as unknown as {
+      activeGraph: object;
+      retainedSceneGraphs: Map<string, { prepared: boolean }>;
+    };
+    const original = state.retainedSceneGraphs.get(first.id);
+    const changed = { ...first, name: 'Rebuilt Keep', revision: first.revision + 1 };
+
+    await renderer.warmScenes(
+      [changed, second],
+      { [placement.assetId]: MAP_URL },
+    );
+
+    const warmed = state.retainedSceneGraphs.get(first.id);
+    expect(warmed).not.toBe(original);
+    expect(warmed?.prepared).toBe(true);
+    expect(state.activeGraph).not.toBe(warmed);
+    renderer.setScene(changed, { [placement.assetId]: MAP_URL });
+    expect(state.activeGraph).toBe(warmed);
+
+    await renderer.warmScenes([second], { [placement.assetId]: MAP_URL });
+    expect(state.retainedSceneGraphs.has(first.id)).toBe(false);
+    renderer.setScene(second, { [placement.assetId]: MAP_URL });
+    expect(state.activeGraph).toBe(state.retainedSceneGraphs.get(second.id));
+  });
+
   it('keeps fixed map, grid, token, GM, and overlay render bands', async () => {
     const tokenId = '44444444-4444-4444-8444-444444444444';
     renderer.setScene(

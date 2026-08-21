@@ -15,12 +15,19 @@ export class GifSource {
 }
 
 export class GifSprite extends Sprite {
+  currentFrame = 0;
+  playing = true;
+
   constructor(source: GifSource) {
     super();
     this.texture = new Texture(source.width, source.height);
   }
 
   play(): void {
-    // Animation timing belongs to Pixi; renderer tests only need the display node.
+    this.playing = true;
+  }
+
+  stop(): void {
+    this.playing = false;
   }
 }

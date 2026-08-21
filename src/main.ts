@@ -286,6 +286,8 @@ app.whenReady().then(() => {
   );
   networkManager.on('campaign-closed', (event: { campaignId: string }) => {
     void journalWindowManager?.closeCampaign(event.campaignId);
+    assetManager?.releaseCampaign(event.campaignId);
+    journalManager?.releaseCampaign(event.campaignId);
   });
   assetManager.on('changed', (event: { campaignId?: string }) => {
     if (event.campaignId) {
@@ -293,7 +295,7 @@ app.whenReady().then(() => {
     }
   });
   networkManager.on('assets-changed', (event) =>
-    assetManager?.emit('changed', event),
+    assetManager?.notifyChanged(event),
   );
   networkManager.on('asset-progress', (event) =>
     assetManager?.emit('progress', event),

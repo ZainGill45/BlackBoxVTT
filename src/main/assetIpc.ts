@@ -65,6 +65,7 @@ export function registerAssetIpcHandlers(
     assetIpcChannels.list,
     assetIpcChannels.pickAndImport,
     assetIpcChannels.pickImages,
+    assetIpcChannels.preparePreviews,
     assetIpcChannels.prepareRemote,
     assetIpcChannels.releasePreview,
     assetIpcChannels.rename,
@@ -107,6 +108,12 @@ export function registerAssetIpcHandlers(
     const parsed = campaignSchema.safeParse(input);
     return parsed.success
       ? manager.prepareRemote(parsed.data.campaignId)
+      : invalid();
+  });
+  handle(assetIpcChannels.preparePreviews, (input) => {
+    const parsed = campaignSchema.safeParse(input);
+    return parsed.success
+      ? manager.preparePreviews(parsed.data.campaignId)
       : invalid();
   });
   handle(assetIpcChannels.rename, (input) => {

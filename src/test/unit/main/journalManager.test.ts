@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CampaignRepository } from '../../../main/campaignRepository';
 import {
   CampaignRuntimeRegistry,
@@ -15,7 +15,14 @@ import {
   parsePayload,
   type ProtocolMessageType,
 } from '../../../main/network/tcpProtocol';
-import type { JournalResult } from '../../../shared/journal';
+import {
+  defaultJournalTitleStyle,
+  emptyRichTextDocument,
+  type JournalManifest,
+  type JournalPage,
+  type JournalResult,
+  type SystemJournalEntry,
+} from '../../../shared/journal';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 
 /**
@@ -138,6 +145,140 @@ const pagePermissions = {
   allPlayers: 'inherit' as const,
   overrides: [{ access: 'view' as const, userId }],
 };
+
+describe('prepared Journal content', () => {
+  const capabilities = {
+    delete: false,
+    edit: false,
+    managePages: false,
+    managePermissions: false,
+    reorder: false,
+    view: true,
+  };
+  const preparedEntry: SystemJournalEntry = {
+    capabilities,
+    data: { identity: { className: 'Ranger' } },
+    detail: 'Level 4 Ranger',
+    groupId: 'dnd5e.characters',
+    id: entryId,
+    kind: 'system',
+    name: 'Arannis',
+    permissionRevision: 0,
+    permissions: null,
+    position: 0,
+    revision: 2,
+    typeId: 'dnd5e.character',
+  };
+  const preparedPage: JournalPage = {
+    capabilities: {
+      delete: false,
+      edit: false,
+      managePermissions: false,
+      reorder: false,
+      view: true,
+    },
+    content: emptyRichTextDocument(),
+    entryId: '66666666-6666-4666-8666-666666666666',
+    id: pageId,
+    permissionRevision: 0,
+    permissions: null,
+    position: 0,
+    revision: 3,
+    title: 'Known Paths',
+    titleStyle: defaultJournalTitleStyle(),
+  };
+  const preparedManifest: JournalManifest = {
+    entries: [
+      preparedEntry,
+      {
+        capabilities,
+        groupId: 'core.notes',
+        id: preparedPage.entryId,
+        kind: 'note',
+        name: 'Expedition Notes',
+        nameStyle: defaultJournalTitleStyle(),
+        pages: [preparedPage],
+        permissionRevision: 0,
+        permissions: null,
+        position: 1,
+        revision: 1,
+        typeId: 'core.note',
+      },
+    ],
+    revision: 4,
+  };
+
+  it('snapshots actor-filtered bodies, reports items, and serves read-through consumers', async () => {
+    const getEntry = vi.fn(async () => ({
+      ok: true as const,
+      value: preparedEntry,
+    }));
+    const getPage = vi.fn(async () => ({
+      ok: true as const,
+      value: preparedPage,
+    }));
+    const runtime = {
+      journal: {
+        getEntry,
+        getPage,
+        list: vi.fn(async () => ({
+          ok: true as const,
+          value: preparedManifest,
+        })),
+      },
+    };
+    const preparedManager = new JournalManager({
+      resolve: vi.fn(async () => runtime),
+    } as unknown as CampaignRuntimeRegistry);
+    const progress = vi.fn();
+    preparedManager.on('preparation-progress', progress);
+
+    await expect(preparedManager.prepareContent(campaignId)).resolves.toEqual({
+      ok: true,
+      value: { entries: [preparedEntry], pages: [preparedPage] },
+    });
+    await preparedManager.getEntry({ campaignId, entryId });
+    await preparedManager.getPage({ campaignId, entryId: preparedPage.entryId, pageId });
+
+    expect(getEntry).toHaveBeenCalledOnce();
+    expect(getPage).toHaveBeenCalledOnce();
+    expect(progress.mock.calls.map(([event]) => event.currentName).sort()).toEqual(
+      ['Arannis', 'Known Paths'],
+    );
+  });
+
+  it('invalidates prepared bodies on permission change and campaign teardown', async () => {
+    const getEntry = vi.fn(async () => ({
+      ok: true as const,
+      value: preparedEntry,
+    }));
+    const runtime = {
+      journal: {
+        getEntry,
+        getPage: vi.fn(),
+        list: vi.fn(async () => ({
+          ok: true as const,
+          value: { entries: [preparedEntry], revision: 1 },
+        })),
+      },
+    };
+    const preparedManager = new JournalManager({
+      resolve: vi.fn(async () => runtime),
+    } as unknown as CampaignRuntimeRegistry);
+    await preparedManager.prepareContent(campaignId);
+
+    preparedManager.notifyRemoteChanged({
+      campaignId,
+      entryId,
+      type: 'permissions',
+    });
+    await preparedManager.getEntry({ campaignId, entryId });
+    preparedManager.releaseCampaign(campaignId);
+    await preparedManager.getEntry({ campaignId, entryId });
+
+    expect(getEntry).toHaveBeenCalledTimes(3);
+  });
+});
 
 /**
  * Each case is one manager call and the protocol message a joined runtime turns

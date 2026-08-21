@@ -734,7 +734,10 @@ describe('PlayScreen', () => {
       preload: {
         assets: { assets: [storedImage], users: [] },
         chat: null,
+        createRenderer: null,
         journal: null,
+        journalContent: null,
+        previews: new Map(),
         scenes: null,
         thumbnails: new Map(),
       },

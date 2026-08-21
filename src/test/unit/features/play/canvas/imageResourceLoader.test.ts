@@ -52,4 +52,24 @@ describe('SceneImageResourceCache', () => {
     await cache.load('asset', 'url', () => true, vi.fn());
     expect(cache.texture('asset')).toBe(current.resource.texture);
   });
+
+  it('disposes a decode that completes after its preparation was cancelled', async () => {
+    const stale = textureResource();
+    let resolveLoad!: (resource: LoadedImageResource) => void;
+    const loader = vi.fn(
+      () =>
+        new Promise<LoadedImageResource>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+    const cache = new SceneImageResourceCache(loader);
+    const loading = cache.load('asset', 'url', () => true, vi.fn());
+
+    cache.cancelLoad('asset', 'url');
+    resolveLoad(stale.resource);
+    await loading;
+
+    expect(cache.texture('asset')).toBeNull();
+    expect(stale.destroy).toHaveBeenCalledWith(true);
+  });
 });

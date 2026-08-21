@@ -3,6 +3,7 @@ import {
   journalIpcChannels,
   type JournalApi,
   type JournalChangedEvent,
+  type JournalPreparationProgress,
 } from '../shared/journal';
 
 export function createJournalApi(ipc: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'>): JournalApi {
@@ -34,6 +35,15 @@ export function createJournalApi(ipc: Pick<IpcRenderer, 'invoke' | 'on' | 'remov
       ipc.on(journalIpcChannels.changed, handler);
       return () => ipc.removeListener(journalIpcChannels.changed, handler);
     },
+    onPreparationProgress: (listener) => {
+      const handler = (_event: unknown, value: JournalPreparationProgress) =>
+        listener(value);
+      ipc.on(journalIpcChannels.preparationProgress, handler);
+      return () =>
+        ipc.removeListener(journalIpcChannels.preparationProgress, handler);
+    },
+    prepareContent: (input) =>
+      ipc.invoke(journalIpcChannels.prepareContent, input),
     prepareDelete: (input) => ipc.invoke(journalIpcChannels.prepareDelete, input),
     releaseLease: (input) => ipc.invoke(journalIpcChannels.releaseLease, input),
     reorderNotes: (input) => ipc.invoke(journalIpcChannels.reorderNotes, input),

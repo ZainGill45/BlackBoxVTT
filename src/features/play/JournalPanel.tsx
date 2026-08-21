@@ -21,6 +21,7 @@ import type { AssetApi } from '../../shared/assets';
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import {
   type JournalApi,
+  type JournalContentSnapshot,
   type JournalDeletePreview,
   type JournalEntry,
   type JournalEntrySummary,
@@ -59,6 +60,7 @@ interface JournalPanelProps {
   assetApi?: AssetApi;
   campaignId?: string;
   journalApi?: JournalApi;
+  journalContent?: JournalContentSnapshot | null;
   /**
    * The campaign's journal. Owned above the sidebar so that leaving this tab
    * and returning to it shows the entries instead of reading them again.
@@ -152,6 +154,7 @@ export function JournalPanel({
   assetApi,
   campaignId = '',
   journalApi,
+  journalContent,
   journalStore,
   journalWindowApi,
   networkApi,
@@ -166,6 +169,7 @@ export function JournalPanel({
       assetApi={assetApi}
       campaignId={campaignId}
       journalApi={journalApi}
+      journalContent={journalContent ?? null}
       journalStore={journalStore}
       journalWindowApi={journalWindowApi}
       networkApi={networkApi}
@@ -197,6 +201,7 @@ function ConnectedJournalPanel({
   assetApi,
   campaignId,
   journalApi,
+  journalContent,
   journalStore,
   journalWindowApi,
   networkApi,
@@ -207,6 +212,14 @@ function ConnectedJournalPanel({
   const entryTypes = useMemo(
     () => listJournalEntryTypeDefinitions(system),
     [system],
+  );
+  const preparedEntries = useMemo(
+    () => new Map(journalContent?.entries.map((entry) => [entry.id, entry]) ?? []),
+    [journalContent],
+  );
+  const preparedPages = useMemo(
+    () => new Map(journalContent?.pages.map((page) => [page.id, page]) ?? []),
+    [journalContent],
   );
   const typeById = useMemo(
     () => new Map(entryTypes.map((definition) => [definition.id, definition])),
@@ -500,6 +513,11 @@ function ConnectedJournalPanel({
       }
       if (focused.value) return;
     }
+    const prepared = preparedEntries.get(entry.id);
+    if (prepared?.revision === entry.revision) {
+      setSelectedSystemEntry(prepared);
+      return;
+    }
     const result = await journalApi.getEntry({ campaignId, entryId: entry.id });
     if (!result.ok) {
       setError(result.error.message);
@@ -767,6 +785,7 @@ function ConnectedJournalPanel({
           note={selectedNote.note}
           onClose={() => setSelectedNote(null)}
           onUpdated={acceptUpdatedNote}
+          preparedPages={preparedPages}
           users={users}
         />
       ) : null}

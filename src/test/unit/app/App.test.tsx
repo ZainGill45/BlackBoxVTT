@@ -100,6 +100,10 @@ function createMockAssetApi(
     onProgress: vi.fn(() => () => undefined),
     pickAndImport: vi.fn(),
     pickImages: vi.fn(),
+    preparePreviews: vi.fn(async () => ({
+      ok: true as const,
+      value: { failedAssetIds: [], previews: [] },
+    })),
     prepareRemote: vi.fn(async () => ({ ok: true as const, value: [] })),
     releasePreview: vi.fn(),
     rename: vi.fn(),
@@ -444,7 +448,7 @@ describe('App campaign integration', () => {
     expect(screen.getByRole('button', { name: 'Connect' })).toBeInTheDocument();
   });
 
-  it('gates saved-campaign play on asset synchronization and reports failure', async () => {
+  it('gates saved-campaign play on asset synchronization and enters after a best-effort failure', async () => {
     const user = userEvent.setup();
     const campaignApi: CampaignApi = {
       ...campaignTransferStubs(),
@@ -515,13 +519,9 @@ describe('App campaign integration', () => {
       ok: false,
     });
     expect(
-      await screen.findByRole('dialog', {
-        name: 'Campaign asset synchronization failed',
-      }),
-    ).toHaveTextContent('Map.png failed integrity verification.');
-    expect(
-      screen.queryByRole('region', { name: /Map play area/ }),
-    ).not.toBeInTheDocument();
+      await screen.findByRole('region', { name: /Map play area/ }),
+    ).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('cancels remote entry when the session closes during synchronization', async () => {
@@ -629,7 +629,7 @@ describe('App campaign integration', () => {
     );
 
     expect(
-      screen.getByRole('heading', {
+      await screen.findByRole('heading', {
         name: 'Iron Meridian — Game Master',
       }),
     ).toBeInTheDocument();
@@ -747,7 +747,7 @@ describe('App campaign integration', () => {
     await user.click(
       await screen.findByRole('button', { name: 'Open Iron Meridian' }),
     );
-    await user.click(screen.getByRole('tab', { name: 'Settings' }));
+    await user.click(await screen.findByRole('tab', { name: 'Settings' }));
 
     const port = screen.getByLabelText('Server port');
     await user.clear(port);
@@ -770,7 +770,7 @@ describe('App campaign integration', () => {
     await user.click(
       screen.getByRole('button', { name: 'Open Iron Meridian' }),
     );
-    await user.click(screen.getByRole('tab', { name: 'Settings' }));
+    await user.click(await screen.findByRole('tab', { name: 'Settings' }));
 
     expect(screen.getByLabelText('Server port')).toHaveValue(31_000);
     expect(screen.getByLabelText('Username for Alice')).toHaveValue('Alice');
@@ -811,7 +811,7 @@ describe('App campaign integration', () => {
       await screen.findByRole('button', { name: 'Open Iron Meridian' }),
     );
     await user.click(
-      screen.getByRole('button', { name: 'Exit application' }),
+      await screen.findByRole('button', { name: 'Exit application' }),
     );
 
     expect(applicationApi.quit).toHaveBeenCalledOnce();

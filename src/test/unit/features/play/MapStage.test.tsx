@@ -83,6 +83,44 @@ describe('MapStage', () => {
     expect(renderer.resize).toHaveBeenCalled();
   });
 
+  it('does not report readiness until every scene preparation settles', async () => {
+    const { createRenderer, renderer } = fakeRenderer();
+    const first = makeScene();
+    const second = makeScene({
+      id: '33333333-3333-4333-8333-333333333333',
+      name: 'Lower Keep',
+    });
+    let finishPreparation!: () => void;
+    renderer.prepareScenes = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishPreparation = resolve;
+        }),
+    );
+    const onPrepared = vi.fn();
+
+    render(
+      <MapStage
+        availableScenes={[first, second]}
+        createRenderer={createRenderer}
+        onPrepared={onPrepared}
+        scene={first}
+        session={session}
+      />,
+    );
+    await waitFor(() => expect(renderer.prepareScenes).toHaveBeenCalled());
+    expect(renderer.prepareScenes).toHaveBeenCalledWith(
+      [first, second],
+      {},
+      first.id,
+      expect.any(Function),
+    );
+    expect(onPrepared).not.toHaveBeenCalled();
+
+    finishPreparation();
+    await waitFor(() => expect(onPrepared).toHaveBeenCalledOnce());
+  });
+
   it('resolves the map image before handing the scene over', async () => {
     const { createRenderer, renderer } = fakeRenderer();
     const asset = makeImageAsset();

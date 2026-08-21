@@ -132,6 +132,7 @@ function createApi(initial: AssetView[]) {
     onProgress: vi.fn(() => () => undefined),
     pickAndImport,
     pickImages: vi.fn(),
+    preparePreviews: vi.fn(),
     prepareRemote: vi.fn(),
     releasePreview: vi.fn(),
     rename,

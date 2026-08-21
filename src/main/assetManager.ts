@@ -13,6 +13,7 @@ import type {
   AssetErrorEvent,
   AssetPreview,
   AssetProgressEvent,
+  PreparedAssetPreviews,
   AssetResult,
   AssetView,
   ImportImageBytesInput,
@@ -39,10 +40,43 @@ function failure<T>(
   return fail({ assetId, code, message });
 }
 
+const ASSET_PREPARATION_INACTIVITY_MS = 30_000;
+
+async function settleAssetPreparation<T>(
+  operation: Promise<T>,
+  onLate: (value: T) => void,
+): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    let active = true;
+    const timer = setTimeout(() => {
+      active = false;
+      resolve(undefined);
+    }, ASSET_PREPARATION_INACTIVITY_MS);
+    void operation.then(
+      (value) => {
+        if (!active) {
+          onLate(value);
+          return;
+        }
+        active = false;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        if (!active) return;
+        active = false;
+        clearTimeout(timer);
+        resolve(undefined);
+      },
+    );
+  });
+}
+
 export class AssetManager extends EventEmitter {
   private readonly getWindow: () => BrowserWindow | null;
   private readonly policy: AssetPolicy;
   private readonly previewRegistry: AssetPreviewRegistry;
+  private readonly previewRuntimes = new Map<string, object>();
   private readonly reportedUnavailable = new Set<string>();
   private readonly runtimes: CampaignRuntimeRegistry;
 
@@ -234,7 +268,7 @@ export class AssetManager extends EventEmitter {
     }
     const outcome = await runtime.assets.trash(input, this.policy);
     if (outcome.releasePreviews) {
-      this.previewRegistry.releaseCampaign(input.campaignId);
+      this.previewRegistry.releaseAsset(input.campaignId, input.assetId);
     }
     if (outcome.changed) {
       this.emitChanged(input.campaignId, outcome.changed);
@@ -275,6 +309,93 @@ export class AssetManager extends EventEmitter {
     );
   }
 
+  async preparePreviews(
+    campaignId: string,
+  ): Promise<AssetResult<PreparedAssetPreviews>> {
+    const runtime = await this.runtimes.resolve(campaignId);
+    if (!runtime) {
+      return failure('not_found', 'Campaign storage is unavailable.');
+    }
+    this.adoptPreviewRuntime(campaignId, runtime);
+    const listed = await settleAssetPreparation(
+      runtime.assets.list(this.policy),
+      () => undefined,
+    );
+    if (!listed) {
+      return { ok: true, value: { failedAssetIds: [], previews: [] } };
+    }
+    if (!listed.ok) return listed;
+    const assets = listed.value.filter((asset) => asset.capabilities.preview);
+    const totalBytes = assets.reduce((total, asset) => total + asset.sizeBytes, 0);
+    const sizes = new Map(assets.map((asset) => [asset.id, asset.sizeBytes]));
+    const completedByAsset = new Map<string, number>();
+    const previews: AssetPreview[] = [];
+    const failedAssetIds: string[] = [];
+    const queue = [...assets];
+    const actor = runtime.assets.actor;
+    const worker = async () => {
+      for (let asset = queue.shift(); asset; asset = queue.shift()) {
+        try {
+          if (!asset.available) {
+            failedAssetIds.push(asset.id);
+            continue;
+          }
+          if (!this.policy.authorize({ action: 'preview', asset, subject: actor })) {
+            failedAssetIds.push(asset.id);
+            continue;
+          }
+          let acceptingProgress = true;
+          const filePath = await settleAssetPreparation(
+            runtime.assets.getPreviewPath(asset),
+            () => undefined,
+          );
+          if (!filePath) {
+            failedAssetIds.push(asset.id);
+            continue;
+          }
+          const token = await this.previewRegistry.prepare(
+            {
+              assetId: asset.id,
+              cacheKey: `${campaignId}:${asset.id}:${asset.sha256}`,
+              campaignId,
+              filePath,
+              mimeType: asset.mimeType,
+            },
+            (completedBytes) => {
+              if (!acceptingProgress) return;
+              completedByAsset.set(asset.id, completedBytes);
+              this.emitProgress({
+                assetId: asset.id,
+                campaignId,
+                completedBytes: [...completedByAsset.values()].reduce(
+                  (total, value) => total + value,
+                  0,
+                ),
+                completedItems: [...completedByAsset].filter(
+                  ([assetId, bytes]) =>
+                    bytes >=
+                    (sizes.get(assetId) ?? Number.POSITIVE_INFINITY),
+                ).length,
+                currentName: asset.displayName,
+                phase: 'caching',
+                scope: 'preload',
+                totalBytes,
+                totalItems: assets.length,
+              });
+            },
+          );
+          acceptingProgress = false;
+          completedByAsset.set(asset.id, asset.sizeBytes);
+          previews.push(this.preview(asset, token));
+        } catch {
+          failedAssetIds.push(asset.id);
+        }
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    return { ok: true, value: { failedAssetIds, previews } };
+  }
+
   async getPreview(
     campaignId: string,
     assetId: string,
@@ -283,8 +404,9 @@ export class AssetManager extends EventEmitter {
     if (!runtime) {
       return failure('not_found', 'Campaign storage is unavailable.', assetId);
     }
+    this.adoptPreviewRuntime(campaignId, runtime);
     const actor = runtime.assets.actor;
-    const list = await this.list(campaignId);
+    const list = await runtime.assets.list(this.policy);
     if (!list.ok) {
       return list;
     }
@@ -307,21 +429,14 @@ export class AssetManager extends EventEmitter {
     }
     const token = this.previewRegistry.create({
       assetId,
+      cacheKey: `${campaignId}:${asset.id}:${asset.sha256}`,
       campaignId,
       filePath,
       mimeType: asset.mimeType,
     });
     return {
       ok: true,
-      value: {
-        assetId,
-        displayName: asset.displayName,
-        format: asset.format,
-        kind: asset.kind,
-        mimeType: asset.mimeType,
-        token,
-        url: `blackbox-asset://${token}/${assetId}`,
-      },
+      value: this.preview(asset, token),
     };
   }
 
@@ -329,12 +444,45 @@ export class AssetManager extends EventEmitter {
     this.previewRegistry.release(token);
   }
 
+  releaseCampaign(campaignId: string): void {
+    this.previewRuntimes.delete(campaignId);
+    this.previewRegistry.releaseCampaign(campaignId);
+  }
+
+  notifyChanged(event: AssetChangedEvent): void {
+    this.previewRegistry.reconcileCampaign(
+      event.campaignId,
+      event.assets.filter((asset) => asset.capabilities.preview),
+    );
+    this.emit('changed', event);
+  }
+
   private emitChanged(campaignId: string, assets: AssetView[]): void {
-    this.emit('changed', {
+    this.notifyChanged({
       assets,
       campaignId,
       revision: Math.max(0, ...assets.map((asset) => asset.revision)),
-    } satisfies AssetChangedEvent);
+    });
+  }
+
+  private adoptPreviewRuntime(campaignId: string, runtime: object): void {
+    const previous = this.previewRuntimes.get(campaignId);
+    if (previous && previous !== runtime) {
+      this.previewRegistry.releaseCampaign(campaignId);
+    }
+    this.previewRuntimes.set(campaignId, runtime);
+  }
+
+  private preview(asset: AssetView, token: string): AssetPreview {
+    return {
+      assetId: asset.id,
+      displayName: asset.displayName,
+      format: asset.format,
+      kind: asset.kind,
+      mimeType: asset.mimeType,
+      token,
+      url: `blackbox-asset://${token}/${asset.id}`,
+    };
   }
 
   private emitProgress(event: AssetProgressEvent): void {

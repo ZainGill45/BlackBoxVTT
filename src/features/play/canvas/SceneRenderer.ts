@@ -195,6 +195,7 @@ const MEASUREMENT_UPDATE_INTERVAL_MS = 1_000 / MAX_TRANSFORM_PREVIEW_RATE;
 const MEASUREMENT_KEEPALIVE_MS = 500;
 const MEASUREMENT_EXPIRY_MS = 1_500;
 const SHAPE_PREVIEW_EXPIRY_MS = 30_000;
+const PREPARATION_INACTIVITY_MS = 30_000;
 const FOG_POINT_SPACING_PX = 2;
 const LOCAL_TEXT_PREVIEW_ID = '00000000-0000-4000-8000-000000000000';
 
@@ -202,11 +203,36 @@ type RendererMapPing = Omit<MapPing, 'campaignId'>;
 type RendererMeasurementUpdate = Omit<MeasurementUpdate, 'campaignId'>;
 type RendererDrawingPreview = Omit<DrawingPreviewUpdate, 'campaignId'>;
 
+type PausableSceneGif = Sprite & {
+  currentFrame: number;
+  play(): void;
+  stop(): void;
+};
+
+function pausableSceneGif(sprite: Sprite): sprite is PausableSceneGif {
+  const candidate = sprite as unknown as Partial<PausableSceneGif>;
+  return (
+    'currentFrame' in sprite &&
+    typeof candidate.play === 'function' &&
+    typeof candidate.stop === 'function'
+  );
+}
+
 export interface SceneRendererHandle {
   destroy(): void;
   fitToScene(): void;
   clientToScene(clientX: number, clientY: number): { x: number; y: number };
   mount(element: HTMLElement): Promise<void>;
+  prepareScenes(
+    scenes: readonly SceneRecord[],
+    imageUrls: Record<string, string>,
+    initialSceneId: string | null,
+    onProgress?: (progress: ScenePreparationProgress) => void,
+  ): Promise<void>;
+  warmScenes(
+    scenes: readonly SceneRecord[],
+    imageUrls: Record<string, string>,
+  ): Promise<void>;
   resize(width: number, height: number): void;
   selectImages(ids: string[]): void;
   showMeasurement(update: MeasurementEvent): void;
@@ -221,6 +247,13 @@ export interface SceneRendererHandle {
     scene: SceneRecord | null,
     imageUrls: Record<string, string> | string | null,
   ): void;
+}
+
+export interface ScenePreparationProgress {
+  completedItems: number;
+  currentName?: string;
+  phase: 'final-frame' | 'image-decoding' | 'scene-graphs';
+  totalItems: number;
 }
 
 export interface SceneRendererInteraction {
@@ -413,6 +446,33 @@ function createHatchTexture(color: number): Texture {
   return Texture.from(canvas);
 }
 
+interface RetainedSceneGraph {
+  active: boolean;
+  additionalImages: AdditionalImageRenderer;
+  base: Graphics;
+  camera: Camera;
+  drawingRenderer: SceneDrawingRenderer;
+  fogRenderer: SceneFogRenderer;
+  gmWorld: Container;
+  hatch: TilingSprite | null;
+  imageToken: number;
+  imageUrl: string | null;
+  imageUrls: Record<string, string>;
+  mapGifSource: GifSource | null;
+  mapPlaceholder: Graphics | null;
+  mapResourceAssetId: string | null;
+  mapSprite: Sprite | null;
+  mapSpriteKind: 'gif' | 'texture' | null;
+  mapTexture: Texture | null;
+  prepared: boolean;
+  resourceSignature: string;
+  scene: SceneRecord | null;
+  shapeRenderer: SceneShapeRenderer;
+  textRenderer: SceneTextRenderer;
+  tokenWorld: Container;
+  world: Container;
+}
+
 /**
  * Owns the Pixi application for the play area. The scene's surface — its fill,
  * its crosshatch, and the map image — lives in `world` and carries the camera
@@ -423,8 +483,9 @@ function createHatchTexture(color: number): Texture {
  */
 export class SceneRenderer implements SceneRendererHandle {
   private readonly app = new Application();
-  private readonly base = new Graphics();
-  private camera: Camera = createCamera();
+  private activeGraph: RetainedSceneGraph;
+  private readonly retainedSceneGraphs = new Map<string, RetainedSceneGraph>();
+  private accessibleSceneIds = new Set<string>();
   private container: HTMLElement | null = null;
   private destroyed = false;
   private readonly interactionEngine = new SceneInteractionEngine();
@@ -444,29 +505,10 @@ export class SceneRenderer implements SceneRendererHandle {
     targetX: number;
     targetY: number;
   } | null = null;
-  private hatch: TilingSprite | null = null;
   private hatchTexture: Texture | null = null;
-  private imageToken = 0;
-  private imageUrl: string | null = null;
-  private imageUrls: Record<string, string> = {};
-  private readonly drawingRenderer: SceneDrawingRenderer;
-  private readonly shapeRenderer: SceneShapeRenderer;
-  private readonly textRenderer = new SceneTextRenderer();
   private activeTextEditor: SceneTextEditorController | null = null;
   private textDraftFontTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly imageResources = new SceneImageResourceCache();
-  private readonly additionalImages = new AdditionalImageRenderer(
-    this.imageResources,
-    () => this.placeholderColor,
-    () => this.rebuildScene(),
-    (assetId) => {
-      if (this.scene?.mapImage?.assetId === assetId) {
-        this.mapSprite?.destroy();
-        this.mapSprite = null;
-        this.mapSpriteKind = null;
-      }
-    },
-  );
   private interaction: SceneRendererInteraction = {
     activeLayer: 'token',
     editable: false,
@@ -485,7 +527,6 @@ export class SceneRenderer implements SceneRendererHandle {
       (preview) => this.interaction.onDrawingPreview?.(preview),
     );
   private readonly paintPreviewGraphics = new Graphics();
-  private readonly fogRenderer = new SceneFogRenderer();
   private fogFrameId: number | null = null;
   private localFogOperation: SceneFogOperation | null = null;
   private readonly remotePaintGraphics = new Graphics();
@@ -506,36 +547,108 @@ export class SceneRenderer implements SceneRendererHandle {
   private readonly contextMenu = new ContextMenuController();
   private readonly imageClipboard = new SceneImageClipboard();
   private lastSentPingAt: number | null = null;
-  private mapSprite: Sprite | null = null;
-  private mapPlaceholder: Graphics | null = null;
-  private mapGifSource: GifSource | null = null;
-  private mapResourceAssetId: string | null = null;
-  private mapTexture: Texture | null = null;
-  private mapSpriteKind: 'gif' | 'texture' | null = null;
+  private readonly pausedMapGifFrames = new Map<string, number>();
+  private readonly preparedSceneRevisions = new Map<string, number>();
   private mounted = false;
   private readonly outline = new Graphics();
   private placeholderColor = Number.parseInt(
     FALLBACK_OUTLINE_COLOR.slice(1),
     16,
   );
-  private scene: SceneRecord | null = null;
   private draftShape: SceneShape | null = null;
   private viewport: Viewport = { height: 0, width: 0 };
-  private readonly world = new Container();
-  private readonly tokenWorld = new Container();
-  private readonly gmWorld = new Container();
 
   constructor() {
-    this.drawingRenderer = new SceneDrawingRenderer(
-      this.world,
-      this.tokenWorld,
-      this.gmWorld,
+    this.activeGraph = this.createSceneGraph();
+    this.resumeSceneGraph(this.activeGraph);
+  }
+
+  private get additionalImages(): AdditionalImageRenderer { return this.activeGraph.additionalImages; }
+  private get base(): Graphics { return this.activeGraph.base; }
+  private get camera(): Camera { return this.activeGraph.camera; }
+  private set camera(value: Camera) { this.activeGraph.camera = value; }
+  private get drawingRenderer(): SceneDrawingRenderer { return this.activeGraph.drawingRenderer; }
+  private get fogRenderer(): SceneFogRenderer { return this.activeGraph.fogRenderer; }
+  private get gmWorld(): Container { return this.activeGraph.gmWorld; }
+  private get hatch(): TilingSprite | null { return this.activeGraph.hatch; }
+  private set hatch(value: TilingSprite | null) { this.activeGraph.hatch = value; }
+  private get imageToken(): number { return this.activeGraph.imageToken; }
+  private set imageToken(value: number) { this.activeGraph.imageToken = value; }
+  private get imageUrl(): string | null { return this.activeGraph.imageUrl; }
+  private set imageUrl(value: string | null) { this.activeGraph.imageUrl = value; }
+  private get imageUrls(): Record<string, string> { return this.activeGraph.imageUrls; }
+  private set imageUrls(value: Record<string, string>) { this.activeGraph.imageUrls = value; }
+  private get mapGifSource(): GifSource | null { return this.activeGraph.mapGifSource; }
+  private set mapGifSource(value: GifSource | null) { this.activeGraph.mapGifSource = value; }
+  private get mapPlaceholder(): Graphics | null { return this.activeGraph.mapPlaceholder; }
+  private set mapPlaceholder(value: Graphics | null) { this.activeGraph.mapPlaceholder = value; }
+  private get mapResourceAssetId(): string | null { return this.activeGraph.mapResourceAssetId; }
+  private set mapResourceAssetId(value: string | null) { this.activeGraph.mapResourceAssetId = value; }
+  private get mapSprite(): Sprite | null { return this.activeGraph.mapSprite; }
+  private set mapSprite(value: Sprite | null) { this.activeGraph.mapSprite = value; }
+  private get mapSpriteKind(): 'gif' | 'texture' | null { return this.activeGraph.mapSpriteKind; }
+  private set mapSpriteKind(value: 'gif' | 'texture' | null) { this.activeGraph.mapSpriteKind = value; }
+  private get mapTexture(): Texture | null { return this.activeGraph.mapTexture; }
+  private set mapTexture(value: Texture | null) { this.activeGraph.mapTexture = value; }
+  private get scene(): SceneRecord | null { return this.activeGraph.scene; }
+  private set scene(value: SceneRecord | null) { this.activeGraph.scene = value; }
+  private get shapeRenderer(): SceneShapeRenderer { return this.activeGraph.shapeRenderer; }
+  private get textRenderer(): SceneTextRenderer { return this.activeGraph.textRenderer; }
+  private get tokenWorld(): Container { return this.activeGraph.tokenWorld; }
+  private get world(): Container { return this.activeGraph.world; }
+
+  private createSceneGraph(): RetainedSceneGraph {
+    const world = new Container();
+    const tokenWorld = new Container();
+    const gmWorld = new Container();
+    const base = new Graphics();
+    world.sortableChildren = true;
+    tokenWorld.sortableChildren = true;
+    gmWorld.sortableChildren = true;
+    base.zIndex = 0;
+    world.addChild(base);
+    gmWorld.alpha = this.interaction.activeLayer === 'gm' ? 1 : 0.5;
+    const fogRenderer = new SceneFogRenderer();
+    if (this.mounted) fogRenderer.attach(this.app.renderer);
+    const additionalImages = new AdditionalImageRenderer(
+      this.imageResources,
+      () => this.placeholderColor,
+      () => this.refreshSceneGraph(graph),
+      (assetId) => {
+        if (graph.scene?.mapImage?.assetId !== assetId) return;
+        graph.mapSprite?.destroy();
+        graph.mapSprite = null;
+        graph.mapSpriteKind = null;
+      },
     );
-    this.shapeRenderer = new SceneShapeRenderer(
-      this.world,
-      this.tokenWorld,
-      this.gmWorld,
-    );
+    const graph: RetainedSceneGraph = {
+      active: false,
+      additionalImages,
+      base,
+      camera: createCamera(),
+      drawingRenderer: new SceneDrawingRenderer(world, tokenWorld, gmWorld),
+      fogRenderer,
+      gmWorld,
+      hatch: null,
+      imageToken: 0,
+      imageUrl: null,
+      imageUrls: {},
+      mapGifSource: null,
+      mapPlaceholder: null,
+      mapResourceAssetId: null,
+      mapSprite: null,
+      mapSpriteKind: null,
+      mapTexture: null,
+      prepared: false,
+      resourceSignature: '',
+      scene: null,
+      shapeRenderer: new SceneShapeRenderer(world, tokenWorld, gmWorld),
+      textRenderer: new SceneTextRenderer(),
+      tokenWorld,
+      world,
+    };
+    additionalImages.setActive(false);
+    return graph;
   }
 
   private beginGesture(gesture: ActiveSceneGesture): boolean {
@@ -780,7 +893,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.tokenWorld.sortableChildren = true;
     this.gmWorld.sortableChildren = true;
     this.base.zIndex = 0;
-    this.world.addChild(this.base);
+    if (this.base.parent !== this.world) this.world.addChild(this.base);
     this.app.stage.addChild(this.world);
     this.app.stage.addChild(this.grid);
     this.app.stage.addChild(this.tokenWorld);
@@ -815,6 +928,407 @@ export class SceneRenderer implements SceneRendererHandle {
     this.syncPaintCursor();
 
     this.rebuildScene();
+  }
+
+  private sceneResourceSignature(
+    scene: SceneRecord,
+    imageUrls: Record<string, string>,
+  ): string {
+    const assetIds = new Set<string>();
+    if (scene.mapImage) assetIds.add(scene.mapImage.assetId);
+    for (const layer of Object.values(scene.images) as SceneImage[][]) {
+      for (const image of layer) assetIds.add(image.assetId);
+    }
+    return [...assetIds]
+      .sort()
+      .map((assetId) => `${assetId}:${imageUrls[assetId] ?? ''}`)
+      .join('|');
+  }
+
+  private retainedSceneGraph(
+    scene: SceneRecord,
+    imageUrls: Record<string, string>,
+  ): RetainedSceneGraph | null {
+    const graph = this.retainedSceneGraphs.get(scene.id);
+    return graph?.scene?.revision === scene.revision &&
+      graph.resourceSignature === this.sceneResourceSignature(scene, imageUrls)
+      ? graph
+      : null;
+  }
+
+  private pauseSceneGraph(graph: RetainedSceneGraph): void {
+    graph.active = false;
+    graph.additionalImages.setActive(false);
+    if (graph.scene && graph.mapSprite && pausableSceneGif(graph.mapSprite)) {
+      this.pausedMapGifFrames.set(graph.scene.id, graph.mapSprite.currentFrame);
+      graph.mapSprite.stop();
+    }
+  }
+
+  private resumeSceneGraph(graph: RetainedSceneGraph): void {
+    graph.active = true;
+    graph.additionalImages.setActive(true);
+    if (graph.scene && graph.mapSprite && pausableSceneGif(graph.mapSprite)) {
+      graph.mapSprite.currentFrame =
+        this.pausedMapGifFrames.get(graph.scene.id) ?? graph.mapSprite.currentFrame;
+      graph.mapSprite.play();
+    }
+  }
+
+  private activateSceneGraph(graph: RetainedSceneGraph): void {
+    if (graph === this.activeGraph) return;
+    const previous = this.activeGraph;
+    this.pauseSceneGraph(previous);
+    previous.world.parent?.removeChild(previous.world);
+    previous.tokenWorld.parent?.removeChild(previous.tokenWorld);
+    previous.fogRenderer.sprite.parent?.removeChild(previous.fogRenderer.sprite);
+    previous.gmWorld.parent?.removeChild(previous.gmWorld);
+    this.activeGraph = graph;
+    graph.fogRenderer.attach(this.app.renderer);
+    graph.gmWorld.alpha = this.interaction.activeLayer === 'gm' ? 1 : 0.5;
+    if (this.mounted) {
+      const renderBands = [
+        graph.world,
+        this.grid,
+        graph.tokenWorld,
+        this.remotePaintGraphics,
+        this.paintPreviewGraphics,
+        this.selectionOverlay.selection,
+        this.selectionOverlay.marquee,
+        graph.fogRenderer.sprite,
+        graph.gmWorld,
+        this.outline,
+        this.pingGraphics,
+        this.measurementGraphics,
+      ];
+      for (const child of renderBands) child.parent?.removeChild(child);
+      for (const child of renderBands) this.app.stage.addChild(child);
+    }
+    this.resumeSceneGraph(graph);
+  }
+
+  private destroySceneGraph(graph: RetainedSceneGraph): void {
+    this.pauseSceneGraph(graph);
+    graph.world.parent?.removeChild(graph.world);
+    graph.tokenWorld.parent?.removeChild(graph.tokenWorld);
+    graph.gmWorld.parent?.removeChild(graph.gmWorld);
+    graph.drawingRenderer.clear();
+    graph.shapeRenderer.clear();
+    graph.textRenderer.clear();
+    graph.additionalImages.destroy(false);
+    graph.fogRenderer.destroy();
+    graph.mapPlaceholder?.destroy();
+    graph.mapSprite?.destroy();
+    graph.mapTexture?.destroy(true);
+    graph.mapGifSource?.destroy();
+    graph.hatch?.destroy();
+    graph.base.destroy();
+    graph.world.destroy();
+    graph.tokenWorld.destroy();
+    graph.gmWorld.destroy();
+  }
+
+  private renderRetainedGraph(graph: RetainedSceneGraph): void {
+    const previous = this.activeGraph;
+    this.activeGraph = graph;
+    try {
+      this.drawSceneSurface();
+      this.drawMap();
+      this.additionalImages.render(
+        this.scene,
+        this.imageUrls,
+        { gm: this.gmWorld, map: this.world, token: this.tokenWorld },
+        {
+          assetId: this.mapResourceAssetId,
+          gif: this.mapGifSource,
+          texture: this.mapTexture,
+          url: this.imageUrl,
+        },
+      );
+      this.drawingRenderer.render(
+        this.scene?.drawings ?? null,
+        this.scene?.objectOrder,
+      );
+      this.textRenderer.render(this.scene?.texts ?? null, {
+        gm: this.gmWorld,
+        map: this.world,
+        token: this.tokenWorld,
+      }, this.scene?.objectOrder);
+      this.world.scale.set(this.camera.zoom);
+      this.world.position.set(
+        this.viewport.width / 2 - this.camera.x * this.camera.zoom,
+        this.viewport.height / 2 - this.camera.y * this.camera.zoom,
+      );
+      for (const container of [this.tokenWorld, this.gmWorld]) {
+        container.scale.set(this.camera.zoom);
+        container.position.set(this.world.position.x, this.world.position.y);
+      }
+      if (this.scene) {
+        const halfWidth = this.viewport.width / (2 * this.camera.zoom);
+        const halfHeight = this.viewport.height / (2 * this.camera.zoom);
+        this.shapeRenderer.render(
+          this.scene.shapes,
+          this.scene,
+          this.camera.zoom,
+          {
+            maxX: this.camera.x + halfWidth,
+            maxY: this.camera.y + halfHeight,
+            minX: this.camera.x - halfWidth,
+            minY: this.camera.y - halfHeight,
+          },
+        );
+      }
+      this.fogRenderer.render({
+        camera: this.camera,
+        gmOpacity: this.interaction.fogGmOpacity ?? 0.35,
+        isGameMaster: this.interaction.actorId == null,
+        scene: this.scene,
+        viewport: this.viewport,
+      });
+    } finally {
+      this.activeGraph = previous;
+    }
+  }
+
+  private refreshSceneGraph(graph: RetainedSceneGraph): void {
+    if (this.destroyed) return;
+    if (graph === this.activeGraph) {
+      this.rebuildScene();
+      return;
+    }
+    this.renderRetainedGraph(graph);
+  }
+
+  private async prepareSceneGraph(
+    scene: SceneRecord,
+    imageUrls: Record<string, string>,
+  ): Promise<RetainedSceneGraph> {
+    const retained = this.retainedSceneGraph(scene, imageUrls);
+    if (retained?.prepared) return retained;
+    const graph = retained ?? this.createSceneGraph();
+    if (!retained) {
+      graph.scene = scene;
+      graph.imageUrls = imageUrls;
+      graph.imageUrl = scene.mapImage
+        ? imageUrls[scene.mapImage.assetId] ?? null
+        : null;
+      graph.resourceSignature = this.sceneResourceSignature(scene, imageUrls);
+      graph.camera = fitToScene(scene, this.viewport);
+      graph.additionalImages.setSceneState(scene, imageUrls);
+    }
+    if (graph === this.activeGraph) {
+      this.rebuildScene();
+      const uploaded = await this.attemptPreparation(
+        this.uploadPrepared(this.app.stage),
+      );
+      if (!uploaded) throw new Error('Scene graph GPU preparation timed out.');
+      this.app.renderer.render(this.app.stage);
+      graph.prepared = true;
+      this.preparedSceneRevisions.set(scene.id, scene.revision);
+      return graph;
+    }
+    this.renderRetainedGraph(graph);
+
+    const root = new Container();
+    root.addChild(graph.world);
+    root.addChild(graph.tokenWorld);
+    root.addChild(graph.fogRenderer.sprite);
+    root.addChild(graph.gmWorld);
+    try {
+      const uploaded = await this.attemptPreparation(this.uploadPrepared(root));
+      if (!uploaded) throw new Error('Scene graph GPU preparation timed out.');
+      this.app.renderer.render(root);
+    } catch (error) {
+      this.destroySceneGraph(graph);
+      throw error;
+    } finally {
+      root.removeChild(graph.world);
+      root.removeChild(graph.tokenWorld);
+      root.removeChild(graph.fogRenderer.sprite);
+      root.removeChild(graph.gmWorld);
+      root.destroy();
+    }
+    this.pauseSceneGraph(graph);
+    graph.prepared = true;
+    const previous = this.retainedSceneGraphs.get(scene.id);
+    this.retainedSceneGraphs.set(scene.id, graph);
+    this.preparedSceneRevisions.set(scene.id, scene.revision);
+    if (previous && previous !== this.activeGraph) {
+      this.destroySceneGraph(previous);
+    }
+    return graph;
+  }
+
+  async prepareScenes(
+    scenes: readonly SceneRecord[],
+    imageUrls: Record<string, string>,
+    initialSceneId: string | null,
+    onProgress?: (progress: ScenePreparationProgress) => void,
+  ): Promise<void> {
+    this.accessibleSceneIds = new Set(scenes.map((scene) => scene.id));
+    this.imageResources.retainAll();
+    await this.warmSceneResources(scenes, imageUrls, onProgress);
+
+    let prepared = 0;
+    for (const scene of scenes) {
+      if (this.destroyed) return;
+      const text = this.sceneFontContent(scene);
+      await this.attemptPreparation(
+        ensureSceneTextFontsLoaded(text || undefined),
+      );
+      try {
+        await this.prepareSceneGraph(scene, imageUrls);
+      } catch {
+        // A failed graph remains cold and falls back to normal activation.
+        this.preparedSceneRevisions.delete(scene.id);
+      }
+      prepared += 1;
+      onProgress?.({
+        completedItems: prepared,
+        currentName: scene.name,
+        phase: 'scene-graphs',
+        totalItems: scenes.length,
+      });
+    }
+
+    const initial =
+      scenes.find((scene) => scene.id === initialSceneId) ?? null;
+    try {
+      this.setScene(initial, imageUrls);
+      this.app.renderer.render(this.app.stage);
+      await this.attemptPreparation(
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => resolve());
+        }),
+      );
+    } catch {
+      // Readiness is best effort; a later activation keeps normal fallbacks.
+    }
+    onProgress?.({
+      completedItems: 1,
+      currentName: initial?.name,
+      phase: 'final-frame',
+      totalItems: 1,
+    });
+  }
+
+  async warmScenes(
+    scenes: readonly SceneRecord[],
+    imageUrls: Record<string, string>,
+  ): Promise<void> {
+    const accessibleIds = new Set(scenes.map((scene) => scene.id));
+    this.accessibleSceneIds = accessibleIds;
+    for (const [sceneId, graph] of this.retainedSceneGraphs) {
+      if (!accessibleIds.has(sceneId)) {
+        this.retainedSceneGraphs.delete(sceneId);
+        this.preparedSceneRevisions.delete(sceneId);
+        this.pausedMapGifFrames.delete(sceneId);
+        if (graph !== this.activeGraph) this.destroySceneGraph(graph);
+      }
+    }
+    await this.warmSceneResources(scenes, imageUrls);
+    const queue = scenes.filter(
+      (scene) => !this.retainedSceneGraph(scene, imageUrls)?.prepared,
+    );
+    for (const scene of queue) {
+      if (this.destroyed) return;
+      await this.attemptPreparation(
+        ensureSceneTextFontsLoaded(this.sceneFontContent(scene) || undefined),
+      );
+      try {
+        await this.prepareSceneGraph(scene, imageUrls);
+      } catch {
+        this.preparedSceneRevisions.delete(scene.id);
+      }
+    }
+  }
+
+  private async warmSceneResources(
+    scenes: readonly SceneRecord[],
+    imageUrls: Record<string, string>,
+    onProgress?: (progress: ScenePreparationProgress) => void,
+  ): Promise<void> {
+    const assetIds = [
+      ...new Set(
+        scenes.flatMap((scene) => [
+          ...(scene.mapImage ? [scene.mapImage.assetId] : []),
+          ...(Object.values(scene.images) as SceneImage[][])
+            .flat()
+            .map((image) => image.assetId),
+        ]),
+      ),
+    ];
+    const queue = [...assetIds];
+    let decoded = 0;
+    const worker = async () => {
+      for (let assetId = queue.shift(); assetId; assetId = queue.shift()) {
+        const url = imageUrls[assetId];
+        if (url && !this.imageResources.matchesOrLoads(assetId, url)) {
+          await this.attemptPreparation(
+            this.imageResources.load(
+              assetId,
+              url,
+              () => !this.destroyed,
+              () => undefined,
+            ),
+            () => this.imageResources.cancelLoad(assetId, url),
+          );
+        }
+        const texture = this.imageResources.texture(assetId);
+        if (texture && !this.destroyed) {
+          await this.attemptPreparation(this.uploadPrepared(texture));
+        }
+        decoded += 1;
+        onProgress?.({
+          completedItems: decoded,
+          currentName: assetId,
+          phase: 'image-decoding',
+          totalItems: assetIds.length,
+        });
+      }
+    };
+    await Promise.all([worker(), worker()]);
+  }
+
+  private sceneFontContent(scene: SceneRecord): string {
+    return [
+      ...Object.values(scene.texts).flat().map((item) => item.content),
+      ...(Object.values(scene.shapes).some((layer) => layer.length > 0)
+        ? ['Shape']
+        : []),
+    ].join('\n');
+  }
+
+  private async attemptPreparation(
+    operation: Promise<void>,
+    onTimeout?: () => void,
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      let active = true;
+      const finish = (completed: boolean) => {
+        if (!active) return;
+        active = false;
+        clearTimeout(timeout);
+        resolve(completed);
+      };
+      const timeout = setTimeout(() => {
+        onTimeout?.();
+        finish(false);
+      }, PREPARATION_INACTIVITY_MS);
+      void operation.then(
+        () => finish(true),
+        () => finish(false),
+      );
+    });
+  }
+
+  private async uploadPrepared(resource: unknown): Promise<void> {
+    const prepare = (
+      this.app.renderer as typeof this.app.renderer & {
+        prepare?: { upload(resource: unknown): Promise<void> };
+      }
+    ).prepare;
+    if (prepare) await prepare.upload(resource);
   }
 
   setInteraction(options: SceneRendererInteraction): void {
@@ -887,10 +1401,17 @@ export class SceneRenderer implements SceneRendererHandle {
     scene: SceneRecord | null,
     imageUrls: Record<string, string> | string | null,
   ): void {
-    const sceneChanged = scene?.id !== this.scene?.id;
+    const previousGraph = this.activeGraph;
+    const previousScene = this.scene;
+    const nextImageUrls =
+      typeof imageUrls === 'object' && imageUrls !== null ? imageUrls : {};
+    const sceneChanged = scene?.id !== previousScene?.id;
     const revisionChanged =
-      scene?.id === this.scene?.id &&
-      scene?.revision !== this.scene?.revision;
+      scene?.id === previousScene?.id &&
+      scene?.revision !== previousScene?.revision;
+    const retained = scene && typeof imageUrls !== 'string'
+      ? this.retainedSceneGraph(scene, nextImageUrls)
+      : null;
     if (sceneChanged || revisionChanged) {
       this.remotePaintPreviews.clear();
       this.remotePaintGraphics.clear();
@@ -924,6 +1445,41 @@ export class SceneRenderer implements SceneRendererHandle {
       this.cancelEditGesture();
       void this.finishNudge(true);
     }
+    let activatedRetained = false;
+    if (retained && retained !== this.activeGraph) {
+      this.activateSceneGraph(retained);
+      activatedRetained = true;
+      if (
+        previousScene &&
+        previousScene.id === scene?.id &&
+        previousGraph !== retained &&
+        this.retainedSceneGraphs.get(previousScene.id) !== previousGraph
+      ) {
+        this.destroySceneGraph(previousGraph);
+      }
+    } else if (sceneChanged && !retained) {
+      if (previousScene && this.accessibleSceneIds.has(previousScene.id)) {
+        previousGraph.resourceSignature = this.sceneResourceSignature(
+          previousScene,
+          previousGraph.imageUrls,
+        );
+        this.retainedSceneGraphs.set(previousScene.id, previousGraph);
+      }
+      this.activateSceneGraph(this.createSceneGraph());
+      if (previousScene && !this.accessibleSceneIds.has(previousScene.id)) {
+        this.destroySceneGraph(previousGraph);
+      }
+    }
+    if (
+      !activatedRetained &&
+      scene &&
+      (revisionChanged ||
+        this.activeGraph.resourceSignature !==
+          this.sceneResourceSignature(scene, nextImageUrls))
+    ) {
+      this.activeGraph.prepared = false;
+      this.preparedSceneRevisions.delete(scene.id);
+    }
     this.scene = scene;
     const textFontContent = scene
       ? Object.values(scene.texts)
@@ -934,7 +1490,7 @@ export class SceneRenderer implements SceneRendererHandle {
     const hasShapeLabels = Boolean(
       scene && Object.values(scene.shapes).some((layer) => layer.length > 0),
     );
-    if (scene && (textFontContent || hasShapeLabels)) {
+    if (!activatedRetained && scene && (textFontContent || hasShapeLabels)) {
       const expectedSceneId = scene.id;
       const expectedRevision = scene.revision;
       void ensureSceneTextFontsLoaded(textFontContent || undefined).then(() => {
@@ -950,8 +1506,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.selected = new Set(
       [...this.selected].filter((id) => this.target(id) !== null),
     );
-    this.imageUrls =
-      typeof imageUrls === 'object' && imageUrls !== null ? imageUrls : {};
+    this.imageUrls = nextImageUrls;
     this.additionalImages.setSceneState(scene, this.imageUrls);
     const mapAssetId = scene?.mapImage?.assetId ?? null;
     const imageUrl =
@@ -999,7 +1554,17 @@ export class SceneRenderer implements SceneRendererHandle {
     if (!this.mounted) {
       return;
     }
-    this.rebuildScene();
+    if (!activatedRetained) this.rebuildScene();
+    if (scene && this.accessibleSceneIds.has(scene.id)) {
+      this.activeGraph.resourceSignature = this.sceneResourceSignature(
+        scene,
+        this.imageUrls,
+      );
+      this.retainedSceneGraphs.set(scene.id, this.activeGraph);
+      if (this.activeGraph.prepared) {
+        this.preparedSceneRevisions.set(scene.id, scene.revision);
+      }
+    }
     if (sceneChanged) {
       this.selected.clear();
       this.groupSelectionRotation = 0;
@@ -1059,21 +1624,17 @@ export class SceneRenderer implements SceneRendererHandle {
     this.finishTextEditor(false);
     this.measurementLabels?.remove();
     this.measurementLabels = null;
-    this.mapTexture?.destroy(true);
-    this.mapTexture = null;
-    this.mapResourceAssetId = null;
     this.hatchTexture?.destroy(true);
     this.hatchTexture = null;
-    this.drawingRenderer.clear();
-    this.shapeRenderer.clear();
-    this.textRenderer.clear();
-    this.additionalImages.destroy();
-    this.fogRenderer.destroy();
-    this.mapPlaceholder?.destroy();
-    this.mapPlaceholder = null;
-    this.mapGifSource?.destroy();
-    this.mapGifSource = null;
-    this.mapSpriteKind = null;
+    const graphs = new Set([
+      this.activeGraph,
+      ...this.retainedSceneGraphs.values(),
+    ]);
+    this.retainedSceneGraphs.clear();
+    for (const graph of graphs) this.destroySceneGraph(graph);
+    this.imageResources.destroy();
+    this.pausedMapGifFrames.clear();
+    this.preparedSceneRevisions.clear();
     if (this.animationTimer) {
       clearInterval(this.animationTimer);
       this.animationTimer = null;
@@ -1093,7 +1654,8 @@ export class SceneRenderer implements SceneRendererHandle {
     url: string | null,
     assetId: string | null,
   ): Promise<void> {
-    const token = (this.imageToken += 1);
+    const graph = this.activeGraph;
+    const token = (graph.imageToken += 1);
     if (!url) {
       this.replaceMapResource(null, null, null);
       return;
@@ -1108,7 +1670,11 @@ export class SceneRenderer implements SceneRendererHandle {
     } catch {
       // A missing or undecodable image is rendered as a transformed placeholder.
     }
-    if (this.destroyed || token !== this.imageToken) {
+    if (
+      this.destroyed ||
+      graph !== this.activeGraph ||
+      token !== graph.imageToken
+    ) {
       resource.texture?.destroy(true);
       resource.gif?.destroy();
       return;
@@ -1337,6 +1903,11 @@ export class SceneRenderer implements SceneRendererHandle {
       this.mapSpriteKind = nextKind;
       this.mapSprite.zIndex = MAP_IMAGE_Z_INDEX;
       this.world.addChild(this.mapSprite);
+      if (pausableSceneGif(this.mapSprite) && this.scene) {
+        this.mapSprite.currentFrame =
+          this.pausedMapGifFrames.get(this.scene.id) ?? 0;
+        if (this.activeGraph.active) this.mapSprite.play();
+      }
     }
     if (texture) {
       this.mapSprite.texture = texture;

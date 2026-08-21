@@ -407,6 +407,10 @@ export function createFakeAssetApi(assets: AssetView[] = []): AssetApi {
     onProgress: () => () => undefined,
     pickAndImport: vi.fn(async () => ({ ok: true as const, value: assets })),
     pickImages: vi.fn(async () => ({ ok: true as const, value: assets })),
+    preparePreviews: vi.fn(async () => ({
+      ok: true as const,
+      value: { failedAssetIds: [], previews: [] },
+    })),
     prepareRemote: vi.fn(async () => ({ ok: true as const, value: assets })),
     releasePreview: vi.fn(async () => undefined),
     rename: vi.fn(async () => ({ ok: true as const, value: assets[0] })),

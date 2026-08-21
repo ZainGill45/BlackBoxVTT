@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
 import {
   DEFAULT_TRANSFORM_PREVIEW_RATE,
@@ -14,7 +14,10 @@ import {
   type SceneFogMutation,
   type SceneRecord,
 } from '../../shared/scenes';
-import type { SceneRendererHandle } from './canvas/SceneRenderer';
+import type {
+  ScenePreparationProgress,
+  SceneRendererHandle,
+} from './canvas/SceneRenderer';
 import type { PlaySession, PlayToolId } from './types';
 import type { TextSettings } from './textSettings';
 import type { ShapeSettings, ShapeSubtool } from './shapeSettings';
@@ -47,11 +50,14 @@ function rememberPing(seen: Set<string>, id: string): boolean {
 }
 
 interface MapStageProps {
+  availableScenes?: readonly SceneRecord[];
   assetApi: AssetApi;
   /** Injected so tests can drive the stage without a WebGL context. */
   createRenderer?: () => SceneRendererHandle;
   networkApi: NetworkApi;
   networkUpdateRate?: number;
+  onPrepared?: () => void;
+  onPreparationProgress?: (progress: ScenePreparationProgress) => void;
   activeLayer?: SceneImageLayer;
   activeTool?: PlayToolId;
   onActiveLayerChange?: (layer: SceneImageLayer) => void;
@@ -73,6 +79,7 @@ interface MapStageProps {
   onRedo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   onUndo?: (scene: SceneRecord) => Promise<SceneRecord | null>;
   paintSettings?: PaintSettings;
+  preparedImageUrls?: Record<string, string>;
   paintSubtool?: PaintSubtool;
   fogMode?: FogMode;
   fogSettings?: FogToolSettings;
@@ -98,11 +105,14 @@ async function loadDefaultRenderer(): Promise<SceneRendererHandle> {
 
 export function MapStage({
   assetApi,
+  availableScenes = [],
   activeLayer = 'token',
   activeTool = 'select',
   createRenderer,
   networkApi,
   networkUpdateRate = DEFAULT_TRANSFORM_PREVIEW_RATE,
+  onPrepared,
+  onPreparationProgress,
   scene,
   sceneApi,
   session,
@@ -113,6 +123,7 @@ export function MapStage({
   onRedo,
   onUndo,
   paintSettings,
+  preparedImageUrls = {},
   paintSubtool = 'freeform',
   fogMode = 'reveal',
   fogSettings,
@@ -123,15 +134,46 @@ export function MapStage({
 }: MapStageProps) {
   const elementRef = useRef<HTMLElement | null>(null);
   const sceneRef = useRef(scene);
+  const availableScenesRef = useRef(availableScenes);
+  const preparedCallbackRef = useRef(onPrepared);
+  const progressCallbackRef = useRef(onPreparationProgress);
   const seenPingIds = useRef(new Set<string>());
   const [renderer, setRenderer] = useState<SceneRendererHandle | null>(null);
   const sessionUserId =
     session.role === 'player' ? session.userId : null;
-  const imageUrls = useSceneImageUrls(assetApi, session.campaignId, scene);
+  const preparableScenes = useMemo<readonly SceneRecord[]>(
+    () =>
+      scene && !availableScenes.some((candidate) => candidate.id === scene.id)
+        ? [...availableScenes, scene]
+        : availableScenes,
+    [availableScenes, scene],
+  );
+  const imageUrls = useSceneImageUrls(
+    assetApi,
+    session.campaignId,
+    preparableScenes,
+  );
+  const resolvedImageUrls = useMemo(
+    () => ({ ...preparedImageUrls, ...imageUrls }),
+    [imageUrls, preparedImageUrls],
+  );
+  const resolvedImageUrlsRef = useRef(resolvedImageUrls);
 
   useEffect(() => {
     sceneRef.current = scene;
   }, [scene]);
+
+  useEffect(() => {
+    availableScenesRef.current = preparableScenes;
+    resolvedImageUrlsRef.current = resolvedImageUrls;
+    preparedCallbackRef.current = onPrepared;
+    progressCallbackRef.current = onPreparationProgress;
+  }, [
+    preparableScenes,
+    onPreparationProgress,
+    onPrepared,
+    resolvedImageUrls,
+  ]);
 
   useEffect(() => {
     const element = elementRef.current;
@@ -153,7 +195,23 @@ export function MapStage({
         instance.destroy();
         return null;
       }
+      try {
+        await instance.prepareScenes(
+          availableScenesRef.current,
+          resolvedImageUrlsRef.current,
+          sceneRef.current?.id ?? null,
+          (progress) => progressCallbackRef.current?.(progress),
+        );
+      } catch {
+        // Preparation is deliberately best effort; normal stage behavior is
+        // still the fallback for anything that could not be warmed.
+      }
+      if (disposed) {
+        instance.destroy();
+        return null;
+      }
       setRenderer(instance);
+      preparedCallbackRef.current?.();
       return instance;
     });
 
@@ -178,8 +236,15 @@ export function MapStage({
   }, [renderer]);
 
   useEffect(() => {
-    renderer?.setScene(scene, imageUrls);
-  }, [imageUrls, renderer, scene]);
+    renderer?.setScene(scene, resolvedImageUrls);
+  }, [renderer, resolvedImageUrls, scene]);
+
+  useEffect(() => {
+    if (!renderer) return;
+    void renderer
+      .warmScenes(preparableScenes, resolvedImageUrls)
+      .catch(() => undefined);
+  }, [preparableScenes, renderer, resolvedImageUrls]);
 
   useEffect(() => {
     if (!renderer) {

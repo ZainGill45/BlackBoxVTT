@@ -51,6 +51,10 @@ export function createAssetApi(ipc: AssetIpcRenderer): AssetApi {
       ipc.invoke(assetIpcChannels.pickImages, input) as ReturnType<
         AssetApi['pickImages']
       >,
+    preparePreviews: (input) =>
+      ipc.invoke(assetIpcChannels.preparePreviews, input) as ReturnType<
+        AssetApi['preparePreviews']
+      >,
     prepareRemote: (input) =>
       ipc.invoke(assetIpcChannels.prepareRemote, input) as ReturnType<
         AssetApi['prepareRemote']

@@ -8,6 +8,8 @@ export function createFakeSceneRenderer(): SceneRendererHandle {
     destroy: vi.fn(),
     fitToScene: vi.fn(),
     mount: vi.fn(async () => undefined),
+    prepareScenes: vi.fn(async () => undefined),
+    warmScenes: vi.fn(async () => undefined),
     resize: vi.fn(),
     selectImages: vi.fn(),
     setInteraction: vi.fn(),

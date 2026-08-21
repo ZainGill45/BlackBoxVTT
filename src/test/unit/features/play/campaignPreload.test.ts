@@ -1,5 +1,9 @@
-import { describe, expect, it, vi } from 'vitest';
-import { preloadCampaign } from '../../../../features/play/campaignPreload';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  CAMPAIGN_PRELOAD_INACTIVITY_MS,
+  preloadCampaign,
+  releaseCampaignPreload,
+} from '../../../../features/play/campaignPreload';
 import type { JournalApi, JournalManifest } from '../../../../shared/journal';
 import { createMockNetworkApi } from '../../../support/networkApi';
 import {
@@ -16,6 +20,11 @@ function createFakeJournalApi(): JournalApi {
   return {
     list: vi.fn(async () => ({ ok: true as const, value: manifest })),
     listUsers: vi.fn(async () => ({ ok: true as const, value: [] })),
+    onPreparationProgress: () => () => undefined,
+    prepareContent: vi.fn(async () => ({
+      ok: true as const,
+      value: { entries: [], pages: [] },
+    })),
   } as unknown as JournalApi;
 }
 
@@ -29,6 +38,8 @@ function apis() {
 }
 
 describe('campaign preload', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('reads every tab a play screen opens with', async () => {
     const preload = await preloadCampaign({
       ...apis(),
@@ -45,14 +56,65 @@ describe('campaign preload', () => {
   });
 
   it('reports the steps it is working through', async () => {
-    const onStep = vi.fn();
-    await preloadCampaign({ ...apis(), campaignId, onStep, role: 'gm' });
+    const onProgress = vi.fn();
+    await preloadCampaign({ ...apis(), campaignId, onProgress, role: 'gm' });
 
-    expect(onStep.mock.calls.length).toBeGreaterThan(0);
-    for (const [label] of onStep.mock.calls) {
-      expect(typeof label).toBe('string');
-      expect(label).not.toHaveLength(0);
+    expect(onProgress.mock.calls.length).toBeGreaterThan(0);
+    for (const [progress] of onProgress.mock.calls) {
+      expect(typeof progress.label).toBe('string');
+      expect(progress.label).not.toHaveLength(0);
+      expect(progress.completedItems).toBeGreaterThanOrEqual(0);
     }
+    expect(
+      new Set(onProgress.mock.calls.map(([progress]) => progress.phase)),
+    ).toEqual(
+      new Set([
+        'asset-payloads',
+        'campaign-data',
+        'image-decoding',
+        'journal-content',
+        'viewer-engines',
+      ]),
+    );
+  });
+
+  it('retains prepared grants and releases them when an entry attempt is abandoned', async () => {
+    const parts = apis();
+    const assetId = '22222222-2222-4222-8222-222222222222';
+    const preview = {
+      assetId,
+      displayName: 'World Map',
+      format: 'png' as const,
+      kind: 'image' as const,
+      mimeType: 'image/png',
+      token: '33333333-3333-4333-8333-333333333333',
+      url: `blackbox-asset://token/${assetId}`,
+    };
+    vi.mocked(parts.assetApi.preparePreviews).mockResolvedValue({
+      ok: true,
+      value: { failedAssetIds: [], previews: [preview] },
+    });
+
+    const preload = await preloadCampaign({ ...parts, campaignId, role: 'gm' });
+    expect(preload.previews.get(assetId)).toEqual(preview);
+
+    releaseCampaignPreload(parts.assetApi, preload);
+    expect(parts.assetApi.releasePreview).toHaveBeenCalledWith({
+      token: preview.token,
+    });
+  });
+
+  it('abandons a campaign-data item after 30 seconds without progress', async () => {
+    vi.useFakeTimers();
+    const parts = apis();
+    vi.mocked(parts.sceneApi.list).mockReturnValue(new Promise(() => undefined));
+
+    const loading = preloadCampaign({ ...parts, campaignId, role: 'gm' });
+    await vi.advanceTimersByTimeAsync(CAMPAIGN_PRELOAD_INACTIVITY_MS);
+    const preload = await loading;
+
+    expect(preload.scenes).toBeNull();
+    expect(preload.assets).not.toBeNull();
   });
 
   it('leaves out what it could not read rather than failing the campaign', async () => {

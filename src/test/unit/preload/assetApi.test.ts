@@ -23,6 +23,14 @@ describe('createAssetApi', () => {
     });
   });
 
+  it('prepares campaign previews through its explicit channel', async () => {
+    await api.preparePreviews({ campaignId: 'campaign' });
+
+    expect(invoke).toHaveBeenCalledWith(assetIpcChannels.preparePreviews, {
+      campaignId: 'campaign',
+    });
+  });
+
   it('subscribes to asset change events', () => {
     api.onChanged(vi.fn());
 

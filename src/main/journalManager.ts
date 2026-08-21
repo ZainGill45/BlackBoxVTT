@@ -5,6 +5,7 @@ import type {
   JournalAssetInput,
   JournalAssetDependent,
   JournalChangedEvent,
+  JournalContentSnapshot,
   JournalDeletePreview,
   JournalDeleteResult,
   JournalEntryInput,
@@ -61,7 +62,41 @@ function forwarded<T extends { campaignId: string }>(
   return request;
 }
 
+const CONTENT_PREPARATION_INACTIVITY_MS = 30_000;
+
+async function settleContentRead<T>(
+  operation: Promise<T>,
+): Promise<T | undefined> {
+  return new Promise((resolve) => {
+    let active = true;
+    const finish = (value: T | undefined) => {
+      if (!active) return;
+      active = false;
+      clearTimeout(timeout);
+      resolve(value);
+    };
+    const timeout = setTimeout(
+      () => finish(undefined),
+      CONTENT_PREPARATION_INACTIVITY_MS,
+    );
+    void operation.then(
+      (value) => finish(value),
+      () => finish(undefined),
+    );
+  });
+}
+
 export class JournalManager extends EventEmitter {
+  private readonly contentGenerations = new Map<string, number>();
+  private readonly contentCaches = new Map<
+    string,
+    {
+      entries: Map<string, JournalEntry>;
+      pages: Map<string, JournalPage>;
+      runtime: object;
+    }
+  >();
+
   constructor(private readonly runtimes: CampaignRuntimeRegistry) {
     super();
   }
@@ -83,12 +118,133 @@ export class JournalManager extends EventEmitter {
 
   async getEntry(input: JournalEntryInput): Promise<JournalResult<JournalEntry>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    return runtime ? runtime.journal.getEntry(input.entryId) : unavailable();
+    if (!runtime) return unavailable();
+    const cache = this.contentCache(input.campaignId, runtime);
+    const cached = cache.entries.get(input.entryId);
+    if (cached) return { ok: true, value: structuredClone(cached) };
+    const generation = this.contentGeneration(input.campaignId);
+    const result = await runtime.journal.getEntry(input.entryId);
+    if (
+      result.ok &&
+      generation === this.contentGeneration(input.campaignId) &&
+      this.contentCaches.get(input.campaignId) === cache
+    ) {
+      cache.entries.set(input.entryId, structuredClone(result.value));
+    }
+    return result;
   }
 
   async getPage(input: JournalPageInput): Promise<JournalResult<JournalPage>> {
     const runtime = await this.runtimes.resolve(input.campaignId);
-    return runtime ? runtime.journal.getPage(input.entryId, input.pageId) : unavailable();
+    if (!runtime) return unavailable();
+    const cache = this.contentCache(input.campaignId, runtime);
+    const cached = cache.pages.get(input.pageId);
+    if (cached && cached.entryId === input.entryId) {
+      return { ok: true, value: structuredClone(cached) };
+    }
+    const generation = this.contentGeneration(input.campaignId);
+    const result = await runtime.journal.getPage(input.entryId, input.pageId);
+    if (
+      result.ok &&
+      generation === this.contentGeneration(input.campaignId) &&
+      this.contentCaches.get(input.campaignId) === cache
+    ) {
+      cache.pages.set(input.pageId, structuredClone(result.value));
+    }
+    return result;
+  }
+
+  async prepareContent(
+    campaignId: string,
+  ): Promise<JournalResult<JournalContentSnapshot>> {
+    const runtime = await this.runtimes.resolve(campaignId);
+    if (!runtime) return unavailable();
+    const generation = this.contentGeneration(campaignId);
+    const manifest = await settleContentRead(runtime.journal.list());
+    if (!manifest) {
+      return { ok: true, value: { entries: [], pages: [] } };
+    }
+    if (!manifest.ok) return manifest;
+    const cache = this.contentCache(campaignId, runtime);
+    const entries: JournalEntry[] = [];
+    const pages: JournalPage[] = [];
+    const jobs: Array<{ name: string; run: () => Promise<void> }> = [];
+    for (const entry of manifest.value.entries) {
+      if (entry.kind === 'system') {
+        jobs.push({
+          name: entry.name,
+          run: async () => {
+            const result = await settleContentRead(
+              runtime.journal.getEntry(entry.id),
+            );
+            if (
+              result?.ok &&
+              result.value.kind === 'system' &&
+              generation === this.contentGeneration(campaignId) &&
+              this.contentCaches.get(campaignId) === cache
+            ) {
+              cache.entries.set(entry.id, structuredClone(result.value));
+              entries.push(result.value);
+            }
+          },
+        });
+      } else {
+        for (const page of entry.pages) {
+          jobs.push({
+            name: page.title,
+            run: async () => {
+              const result = await settleContentRead(
+                runtime.journal.getPage(entry.id, page.id),
+              );
+              if (
+                result?.ok &&
+                generation === this.contentGeneration(campaignId) &&
+                this.contentCaches.get(campaignId) === cache
+              ) {
+                cache.pages.set(page.id, structuredClone(result.value));
+                pages.push(result.value);
+              }
+            },
+          });
+        }
+      }
+    }
+    const queue = [...jobs];
+    let completedItems = 0;
+    const worker = async () => {
+      for (let job = queue.shift(); job; job = queue.shift()) {
+        try {
+          await job.run();
+        } catch {
+          // A broken body is absent from the best-effort snapshot.
+        } finally {
+          completedItems += 1;
+          this.emit('preparation-progress', {
+            campaignId,
+            completedItems,
+            currentName: job.name,
+            totalItems: jobs.length,
+          });
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    if (
+      generation !== this.contentGeneration(campaignId) ||
+      this.contentCaches.get(campaignId) !== cache
+    ) {
+      return { ok: true, value: { entries: [], pages: [] } };
+    }
+    return {
+      ok: true,
+      value: {
+        entries: entries.filter(
+          (entry): entry is Extract<JournalEntry, { kind: 'system' }> =>
+            entry.kind === 'system',
+        ),
+        pages,
+      },
+    };
   }
 
   async createNote(campaignId: string): Promise<JournalResult<NoteEntry>> {
@@ -278,11 +434,58 @@ export class JournalManager extends EventEmitter {
   }
 
   notifyRemoteChanged(event: JournalChangedEvent): void {
+    this.invalidateContent(event);
     this.emit('changed', event);
   }
 
+  releaseCampaign(campaignId: string): void {
+    this.contentGenerations.set(
+      campaignId,
+      this.contentGeneration(campaignId) + 1,
+    );
+    this.contentCaches.delete(campaignId);
+  }
+
   private changed(event: JournalChangedEvent): void {
+    this.invalidateContent(event);
     this.emit('changed', event);
     this.emit('local-changed', event);
+  }
+
+  private contentCache(campaignId: string, runtime: object) {
+    const current = this.contentCaches.get(campaignId);
+    if (current?.runtime === runtime) return current;
+    const next = {
+      entries: new Map<string, JournalEntry>(),
+      pages: new Map<string, JournalPage>(),
+      runtime,
+    };
+    this.contentCaches.set(campaignId, next);
+    return next;
+  }
+
+  private contentGeneration(campaignId: string): number {
+    return this.contentGenerations.get(campaignId) ?? 0;
+  }
+
+  private invalidateContent(event: JournalChangedEvent): void {
+    this.contentGenerations.set(
+      event.campaignId,
+      this.contentGeneration(event.campaignId) + 1,
+    );
+    const cache = this.contentCaches.get(event.campaignId);
+    if (!cache) return;
+    if (!event.entryId) {
+      this.contentCaches.delete(event.campaignId);
+      return;
+    }
+    cache.entries.delete(event.entryId);
+    if (event.pageId) {
+      cache.pages.delete(event.pageId);
+      return;
+    }
+    for (const [pageId, page] of cache.pages) {
+      if (page.entryId === event.entryId) cache.pages.delete(pageId);
+    }
   }
 }

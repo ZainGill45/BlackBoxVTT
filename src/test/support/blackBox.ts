@@ -117,6 +117,9 @@ const assetApi: AssetApi = {
   async pickImages() {
     return assetUnavailable();
   },
+  async preparePreviews() {
+    return { ok: true, value: { failedAssetIds: [], previews: [] } };
+  },
   async prepareRemote() {
     return { ok: true, value: [] };
   },
@@ -350,6 +353,8 @@ const journalApi: JournalApi = {
   moveEntry: journalUnavailable,
   movePage: journalUnavailable,
   onChanged: () => () => undefined,
+  onPreparationProgress: () => () => undefined,
+  prepareContent: journalUnavailable,
   prepareDelete: journalUnavailable,
   releaseLease: journalUnavailable,
   reorderNotes: journalUnavailable,

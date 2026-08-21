@@ -44,4 +44,17 @@ describe('createJournalApi', () => {
     remove();
     expect(removeListener).toHaveBeenCalledWith(journalIpcChannels.changed, expect.any(Function));
   });
+
+  it('subscribes and removes Journal preparation progress listeners', () => {
+    const remove = api.onPreparationProgress(vi.fn());
+    expect(on).toHaveBeenCalledWith(
+      journalIpcChannels.preparationProgress,
+      expect.any(Function),
+    );
+    remove();
+    expect(removeListener).toHaveBeenCalledWith(
+      journalIpcChannels.preparationProgress,
+      expect.any(Function),
+    );
+  });
 });

@@ -52,6 +52,7 @@ export async function loadImageResource(
 /** Owns decoded additional-image resources and in-flight replacement state. */
 export class SceneImageResourceCache {
   private destroyed = false;
+  private retainUnused = false;
   private readonly gifs = new Map<string, GifSource>();
   private readonly loadTokens = new Map<string, number>();
   private readonly loadingUrls = new Map<string, string>();
@@ -86,10 +87,20 @@ export class SceneImageResourceCache {
     );
   }
 
+  cancelLoad(assetId: string, url: string): void {
+    if (this.loadingUrls.get(assetId) !== url) return;
+    this.loadTokens.set(assetId, (this.loadTokens.get(assetId) ?? 0) + 1);
+    this.loadingUrls.delete(assetId);
+  }
+
   rememberSpriteClass(spriteClass: typeof GifSprite | null): void {
     if (spriteClass) {
       this.spriteClassValue = spriteClass;
     }
+  }
+
+  retainAll(): void {
+    this.retainUnused = true;
   }
 
   adopt(
@@ -168,6 +179,7 @@ export class SceneImageResourceCache {
   }
 
   releaseExcept(wantedAssetIds: Set<string>): void {
+    if (this.retainUnused) return;
     for (const [assetId, texture] of this.textures) {
       if (!wantedAssetIds.has(assetId)) {
         texture.destroy(true);

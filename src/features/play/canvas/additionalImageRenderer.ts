@@ -23,6 +23,21 @@ interface ImageLayerContainers {
   token: Container;
 }
 
+type PausableGifSprite = Sprite & {
+  currentFrame: number;
+  play(): void;
+  stop(): void;
+};
+
+function animated(sprite: Sprite): sprite is PausableGifSprite {
+  const candidate = sprite as unknown as Partial<PausableGifSprite>;
+  return (
+    'currentFrame' in sprite &&
+    typeof candidate.play === 'function' &&
+    typeof candidate.stop === 'function'
+  );
+}
+
 export function drawImagePlaceholder(
   graphic: Graphics,
   placement: SceneMapImage,
@@ -47,9 +62,11 @@ export function drawImagePlaceholder(
 
 /** Reconciles placed-image sprites and placeholders against scene state. */
 export class AdditionalImageRenderer {
+  private active = true;
   private destroyed = false;
   private imageUrls: Record<string, string> = {};
   private readonly placeholders = new Map<string, Graphics>();
+  private readonly pausedGifFrames = new Map<string, number>();
   private scene: SceneRecord | null = null;
   private readonly spriteKinds = new Map<string, 'gif' | 'texture'>();
   private readonly sprites = new Map<string, Sprite>();
@@ -115,6 +132,7 @@ export class AdditionalImageRenderer {
         let sprite = this.sprites.get(image.id);
         if (resourceReady) {
           if (sprite && this.spriteKinds.get(image.id) !== nextKind) {
+            this.rememberGifFrame(image.id, sprite);
             sprite.parent?.removeChild(sprite);
             sprite.destroy();
             this.sprites.delete(image.id);
@@ -130,6 +148,10 @@ export class AdditionalImageRenderer {
             this.sprites.set(image.id, sprite);
             this.spriteKinds.set(image.id, nextKind);
             container.addChild(sprite);
+            if (animated(sprite)) {
+              sprite.currentFrame = this.pausedGifFrames.get(image.id) ?? 0;
+              if (this.active) sprite.play();
+            }
           } else if (sprite.parent !== container) {
             sprite.parent?.removeChild(sprite);
             container.addChild(sprite);
@@ -150,6 +172,7 @@ export class AdditionalImageRenderer {
           this.removePlaceholder(image.id);
         } else {
           if (sprite) {
+            this.rememberGifFrame(image.id, sprite);
             sprite.parent?.removeChild(sprite);
             sprite.destroy();
             this.sprites.delete(image.id);
@@ -192,6 +215,7 @@ export class AdditionalImageRenderer {
     }
     for (const [id, sprite] of this.sprites) {
       if (!wanted.has(id)) {
+        this.rememberGifFrame(id, sprite);
         sprite.parent?.removeChild(sprite);
         sprite.destroy();
         this.sprites.delete(id);
@@ -209,7 +233,21 @@ export class AdditionalImageRenderer {
     containers.gm.sortChildren();
   }
 
-  destroy(): void {
+  setActive(active: boolean): void {
+    if (this.active === active) return;
+    this.active = active;
+    for (const [id, sprite] of this.sprites) {
+      if (!animated(sprite)) continue;
+      if (active) {
+        sprite.currentFrame = this.pausedGifFrames.get(id) ?? sprite.currentFrame;
+        sprite.play();
+      } else {
+        this.rememberGifFrame(id, sprite);
+      }
+    }
+  }
+
+  destroy(destroyResources = true): void {
     this.destroyed = true;
     for (const sprite of this.sprites.values()) {
       sprite.parent?.removeChild(sprite);
@@ -217,12 +255,13 @@ export class AdditionalImageRenderer {
     }
     this.sprites.clear();
     this.spriteKinds.clear();
+    this.pausedGifFrames.clear();
     for (const placeholder of this.placeholders.values()) {
       placeholder.parent?.removeChild(placeholder);
       placeholder.destroy();
     }
     this.placeholders.clear();
-    this.resources.destroy();
+    if (destroyResources) this.resources.destroy();
   }
 
   async loadAsset(assetId: string, url: string): Promise<void> {
@@ -264,11 +303,18 @@ export class AdditionalImageRenderer {
           continue;
         }
         const sprite = this.sprites.get(image.id);
+        if (sprite) this.rememberGifFrame(image.id, sprite);
         sprite?.parent?.removeChild(sprite);
         sprite?.destroy();
         this.sprites.delete(image.id);
         this.spriteKinds.delete(image.id);
       }
     }
+  }
+
+  private rememberGifFrame(id: string, sprite: Sprite): void {
+    if (!animated(sprite)) return;
+    this.pausedGifFrames.set(id, sprite.currentFrame);
+    sprite.stop();
   }
 }

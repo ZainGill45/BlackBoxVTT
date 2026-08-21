@@ -84,6 +84,8 @@ export const journalIpcChannels = {
   moveEntry: 'journal:move-entry',
   moveNote: 'journal:move-note',
   movePage: 'journal:move-page',
+  prepareContent: 'journal:prepare-content',
+  preparationProgress: 'journal:preparation-progress',
   prepareDelete: 'journal:prepare-delete',
   releaseLease: 'journal:release-lease',
   renameEntry: 'journal:rename-entry',
@@ -185,6 +187,19 @@ export type JournalEntry = NoteEntry | SystemJournalEntry;
 export interface JournalManifest {
   entries: JournalEntrySummary[];
   revision: number;
+}
+
+/** All readable Journal bodies at one actor-filtered campaign snapshot. */
+export interface JournalContentSnapshot {
+  entries: SystemJournalEntry[];
+  pages: JournalPage[];
+}
+
+export interface JournalPreparationProgress {
+  campaignId: string;
+  completedItems: number;
+  currentName: string;
+  totalItems: number;
 }
 
 export interface JournalPage extends JournalPageSummary {
@@ -367,6 +382,12 @@ export interface JournalApi {
   moveNote(input: MoveJournalEntryInput): Promise<JournalResult<JournalManifest>>;
   movePage(input: MoveJournalPageInput): Promise<JournalResult<NoteEntry>>;
   onChanged(listener: (event: JournalChangedEvent) => void): () => void;
+  onPreparationProgress(
+    listener: (event: JournalPreparationProgress) => void,
+  ): () => void;
+  prepareContent(
+    input: JournalCampaignInput,
+  ): Promise<JournalResult<JournalContentSnapshot>>;
   prepareDelete(input: PrepareJournalDeleteInput): Promise<JournalResult<JournalDeletePreview>>;
   releaseLease(input: JournalLeaseInput): Promise<JournalResult<null>>;
   renameEntry(input: RenameJournalEntryInput): Promise<JournalResult<JournalEntry>>;

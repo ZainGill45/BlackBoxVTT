@@ -8,8 +8,10 @@ import type {
 } from '../features/connection/types';
 import { PlayScreen } from '../features/play/PlayScreen';
 import {
+  CAMPAIGN_PRELOAD_INACTIVITY_MS,
   preloadCampaign,
   releaseCampaignPreload,
+  type CampaignPreparationProgress,
   type CampaignPreload,
 } from '../features/play/campaignPreload';
 import {
@@ -58,6 +60,49 @@ function sortCampaigns(campaigns: readonly CampaignSummary[]) {
   );
 }
 
+function prepareRemoteWithin(
+  assetApi: AssetApi,
+  campaignId: string,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let active = true;
+    let timer = window.setTimeout(
+      () => finish(),
+      CAMPAIGN_PRELOAD_INACTIVITY_MS,
+    );
+    const resetTimer = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        () => finish(),
+        CAMPAIGN_PRELOAD_INACTIVITY_MS,
+      );
+    };
+    const removeProgress = assetApi.onProgress((event) => {
+      if (
+        event.scope === 'sync' &&
+        (!event.campaignId || event.campaignId === campaignId)
+      ) {
+        resetTimer();
+      }
+    });
+    function finish() {
+      if (!active) return;
+      active = false;
+      window.clearTimeout(timer);
+      removeProgress();
+      resolve();
+    }
+    try {
+      void Promise.resolve(assetApi.prepareRemote({ campaignId })).then(
+        () => finish(),
+        () => finish(),
+      );
+    } catch {
+      finish();
+    }
+  });
+}
+
 export function App({
   applicationApi = window.blackBox.application,
   assetApi = window.blackBox.assets,
@@ -88,10 +133,13 @@ export function App({
   const [syncingRemote, setSyncingRemote] = useState(false);
   const [showSyncLoader, setShowSyncLoader] = useState(false);
   const [preload, setPreload] = useState<CampaignPreload | null>(null);
-  const [preloadLabel, setPreloadLabel] = useState<string | null>(null);
+  const [preloadProgress, setPreloadProgress] =
+    useState<CampaignPreparationProgress | null>(null);
+  const [playReady, setPlayReady] = useState(true);
   /* Invalidates async entry work when a newer attempt starts or a remote
      session closes before its assets and campaign reads have finished. */
   const entryRequestRef = useRef(0);
+  const campaignPreparingRef = useRef(false);
 
   useEffect(() => {
     const removeHostListener = networkApi.onHostStatusChanged(setHostStatus);
@@ -101,9 +149,11 @@ export function App({
         current?.source === 'remote' ? null : current,
       );
       setPreload(null);
-      setPreloadLabel(null);
+      setPreloadProgress(null);
+      setPlayReady(true);
       setSyncingRemote(false);
       setShowSyncLoader(false);
+      campaignPreparingRef.current = false;
       setConnectionNotice(event.message);
     });
     void networkApi.getHostStatus().then(setHostStatus);
@@ -116,10 +166,25 @@ export function App({
   }, [networkApi]);
 
   useEffect(() => {
-    const removeError = assetApi.onError(setAssetError);
+    const removeError = assetApi.onError((event) => {
+      if (!campaignPreparingRef.current) setAssetError(event);
+    });
     const removeProgress = assetApi.onProgress((event) => {
       if (event.scope === 'sync') {
         setAssetProgress(event);
+        setPreloadProgress((current) =>
+          current?.phase === 'remote-synchronization'
+            ? {
+                completedBytes: event.completedBytes,
+                completedItems: 0,
+                currentName: event.currentName,
+                label: 'Synchronizing campaign assets…',
+                phase: 'remote-synchronization',
+                totalBytes: event.totalBytes,
+                totalItems: 0,
+              }
+            : current,
+        );
       }
     });
     return () => {
@@ -256,25 +321,30 @@ export function App({
     if (request !== entryRequestRef.current) {
       return;
     }
-    setPreloadLabel('Reading the campaign…');
+    campaignPreparingRef.current = true;
+    setPreloadProgress({
+      completedItems: 0,
+      label: 'Reading campaign data…',
+      phase: 'campaign-data',
+      totalItems: 4,
+    });
     const nextPreload = await preloadCampaign({
       assetApi,
       campaignId: session.campaignId,
       journalApi,
       networkApi,
-      onStep: (label) => {
-        if (request === entryRequestRef.current) setPreloadLabel(label);
+      onProgress: (progress) => {
+        if (request === entryRequestRef.current) setPreloadProgress(progress);
       },
       role: session.role === 'gm' ? 'gm' : 'player',
       sceneApi,
-    }).finally(() => {
-      if (request === entryRequestRef.current) setPreloadLabel(null);
     });
     if (request !== entryRequestRef.current) {
       releaseCampaignPreload(assetApi, nextPreload);
       return;
     }
     setPreload(nextPreload);
+    setPlayReady(false);
     setPlaySession(session);
   };
 
@@ -300,6 +370,7 @@ export function App({
       return;
     }
     if (!result.ok) {
+      campaignPreparingRef.current = false;
       setConnectionNotice(result.error.message);
       return;
     }
@@ -372,7 +443,8 @@ export function App({
     const session = playSession;
     if (!session) return;
     entryRequestRef.current += 1;
-    setPreloadLabel(null);
+    campaignPreparingRef.current = false;
+    setPreloadProgress(null);
     await journalWindowApi
       .closeCampaign({ campaignId: session.campaignId })
       .catch(() => undefined);
@@ -387,11 +459,21 @@ export function App({
       current?.campaignId === session.campaignId ? null : current,
     );
     setPreload(null);
+    setPlayReady(true);
   };
+
+  const entryCovered =
+    Boolean(preloadProgress && (!playSession || !playReady)) ||
+    (showSyncLoader && syncingRemote);
 
   return (
     <main className={styles.application}>
-      <section className={styles.shell} hidden={playSession !== null}>
+      <section
+        aria-hidden={entryCovered || undefined}
+        className={styles.shell}
+        hidden={playSession !== null}
+        inert={entryCovered || undefined}
+      >
         <h1 className="sr-only">Campaign connection</h1>
         <ConnectionScreen
           campaignLoadError={campaignLoadError}
@@ -411,33 +493,19 @@ export function App({
             setAssetProgress(null);
             setShowSyncLoader(false);
             setSyncingRemote(true);
-            void assetApi
-              .prepareRemote({ campaignId: session.campaignId })
-              .then((result) => {
+            campaignPreparingRef.current = true;
+            setPreloadProgress({
+              completedItems: 0,
+              label: 'Synchronizing campaign assets…',
+              phase: 'remote-synchronization',
+              totalItems: 0,
+            });
+            void prepareRemoteWithin(assetApi, session.campaignId)
+              .then(() => {
                 if (request !== entryRequestRef.current) {
                   return undefined;
                 }
-                if (result.ok) {
-                  // Chained so the loader stays up until the campaign is read.
-                  return enterCampaign(session, request);
-                }
-                setAssetError({
-                  ...result.error,
-                  campaignId: session.campaignId,
-                  title: 'Campaign asset synchronization failed',
-                });
-                return undefined;
-              })
-              .catch(() => {
-                if (request !== entryRequestRef.current) {
-                  return;
-                }
-                setAssetError({
-                  campaignId: session.campaignId,
-                  code: 'sync_error',
-                  message: 'Campaign assets could not be synchronized.',
-                  title: 'Campaign asset synchronization failed',
-                });
+                return enterCampaign(session, request);
               })
               .finally(() => {
                 if (request === entryRequestRef.current) {
@@ -457,7 +525,14 @@ export function App({
           networkApi={networkApi}
           journalApi={journalApi}
           journalWindowApi={journalWindowApi}
+          onPrepared={() => {
+            campaignPreparingRef.current = false;
+            setPlayReady(true);
+            setPreloadProgress(null);
+          }}
+          onPreparationProgress={setPreloadProgress}
           preload={preload ?? undefined}
+          preparing={!playReady}
           sceneApi={sceneApi}
           session={playSession}
           serverSettings={
@@ -532,8 +607,16 @@ export function App({
       ) : null}
 
       {/* Neither loader outlives the screen it was covering for. */}
-      {playSession ? null : preloadLabel ? (
-        <CanonicalLoader label={preloadLabel} mode="fullscreen" />
+      {preloadProgress && (!playSession || !playReady) ? (
+        <CanonicalLoader
+          completedBytes={preloadProgress.completedBytes}
+          completedItems={preloadProgress.completedItems}
+          currentName={preloadProgress.currentName}
+          label={preloadProgress.label}
+          mode="fullscreen"
+          totalBytes={preloadProgress.totalBytes}
+          totalItems={preloadProgress.totalItems}
+        />
       ) : showSyncLoader && syncingRemote ? (
         <CanonicalLoader
           completedBytes={assetProgress?.completedBytes}

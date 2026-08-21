@@ -58,6 +58,7 @@ interface NoteModalProps {
   note: NoteEntry;
   onClose: () => void;
   onUpdated: (note: NoteEntry | null) => void;
+  preparedPages?: ReadonlyMap<string, JournalPage>;
   users: PermissionSubject[];
 }
 
@@ -109,6 +110,7 @@ export function NoteModal({
   note,
   onClose,
   onUpdated,
+  preparedPages,
   users,
 }: NoteModalProps) {
   const [current, setCurrent] = useState(note);
@@ -166,8 +168,10 @@ export function NoteModal({
   const pageMenu = useRef<ContextMenuController | null>(null);
   const pageListRef = useRef<HTMLOListElement>(null);
   const pageOrder = useRef<OrderedCollectionController | null>(null);
+  const preparedPagesRef = useRef(preparedPages);
   const savePageRef = useRef<() => Promise<boolean>>(async () => true);
   const releaseLeaseRef = useRef<() => Promise<void>>(async () => undefined);
+  preparedPagesRef.current = preparedPages;
 
   const acceptCurrent = useCallback(
     (next: NoteEntry) => {
@@ -539,19 +543,35 @@ export function NoteModal({
     let retryTimer: number | null = null;
     if (permissionTarget) return () => { active = false; };
     const selectedPageId = pageId;
+    const summary = currentRef.current.pages.find(
+      (item) => item.id === selectedPageId,
+    );
+    const prepared = selectedPageId
+      ? preparedPagesRef.current?.get(selectedPageId)
+      : null;
+    const usePrepared = Boolean(
+      prepared &&
+        prepared.entryId === currentRef.current.id &&
+        prepared.revision === summary?.revision,
+    );
     pageIdRef.current = selectedPageId;
-    pageRef.current = null;
-    titleRef.current = '';
-    titleStyleRef.current = null;
-    contentRef.current = null;
     leaseRef.current = null;
-    setPage(null);
-    setTitle('');
-    setTitleStyle(null);
-    setContent(null);
     setLeaseId(null);
     setPageMessage(null);
-    setPageStatus('loading');
+    if (usePrepared && prepared) {
+      acceptPage(prepared);
+      setPageStatus('saved');
+    } else {
+      pageRef.current = null;
+      titleRef.current = '';
+      titleStyleRef.current = null;
+      contentRef.current = null;
+      setPage(null);
+      setTitle('');
+      setTitleStyle(null);
+      setContent(null);
+      setPageStatus('loading');
+    }
     if (!selectedPageId) return () => { active = false; };
 
     const acquireEditing = async (): Promise<'acquired' | 'retry' | 'unavailable'> => {
@@ -613,6 +633,9 @@ export function NoteModal({
         : 'unavailable';
       if (editing === 'acquired' || !active) return;
 
+      if (usePrepared && prepared && !summary?.capabilities.edit) {
+        return;
+      }
       const pageResult = await journalApi.getPage({
         campaignId,
         entryId: currentRef.current.id,

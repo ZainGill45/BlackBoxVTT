@@ -70,6 +70,7 @@ import type {
   PlayToolId,
   SidebarTabId,
 } from './types';
+import { usePreparedAssetApi } from './usePreparedAssetApi';
 import styles from './PlayScreen.module.css';
 
 function getSessionTitle(session: PlayScreenProps['session']) {
@@ -90,6 +91,8 @@ export function PlayScreen({
   onLayerChange,
   onLogout,
   onMaxChatMessageCharactersChange,
+  onPrepared,
+  onPreparationProgress,
   onServerPasswordReset,
   onServerPortChange,
   onServerUsernameChange,
@@ -97,6 +100,7 @@ export function PlayScreen({
   onToolChange,
   onTransformPreviewRateChange,
   preload,
+  preparing = false,
   sceneApi,
   serverSettings = createDefaultServerSettings(),
   serverStatus = OFFLINE_SERVER_STATUS,
@@ -127,6 +131,24 @@ export function PlayScreen({
   const [fogSubtool, setFogSubtool] = useState<FogSubtool>('brush');
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
+  const preparedAssetApi = usePreparedAssetApi(
+    assetApi,
+    session.campaignId,
+    preload?.previews,
+    preload?.assets?.assets,
+  );
+  const [preparedJournalContent, setPreparedJournalContent] = useState(
+    preload?.journalContent,
+  );
+  const preparedImageUrls = useMemo(
+    () =>
+      Object.fromEntries(
+        [...(preload?.previews.values() ?? [])]
+          .filter((preview) => preview.kind === 'image')
+          .map((preview) => [preview.assetId, preview.url]),
+      ),
+    [preload?.previews],
+  );
   const scenes = useScenes(
     sceneApi,
     session.campaignId,
@@ -137,7 +159,7 @@ export function PlayScreen({
      panel it switches away from. Seeded from the campaign read before this
      screen was built, so every tab is populated on its first render. */
   const assetStore = useAssets(
-    assetApi,
+    preparedAssetApi,
     session.campaignId,
     preload?.assets ?? undefined,
   );
@@ -157,7 +179,7 @@ export function PlayScreen({
   // Built here, at campaign open, because the panel below unmounts on every
   // sidebar tab switch and would otherwise re-decode every map on each visit.
   const scenePreviews = useAssetThumbnails(
-    assetApi,
+    preparedAssetApi,
     session.campaignId,
     sceneImageIds,
     preload?.thumbnails,
@@ -176,6 +198,57 @@ export function PlayScreen({
      otherwise. Presenting is unaffected either way: the presented scene reaches
      the table whatever the library says. */
   const showScenes = activeSidebarTab === 'scenes';
+
+  useEffect(() => {
+    if (!journalApi) return undefined;
+    let disposed = false;
+    let requested = 0;
+    let completed = 0;
+    let running = false;
+    const warmLatest = async () => {
+      if (running) return;
+      running = true;
+      while (!disposed && completed < requested) {
+        const attempt = requested;
+        try {
+          const result = await journalApi.prepareContent({
+            campaignId: session.campaignId,
+          });
+          if (!disposed && attempt === requested && result.ok) {
+            setPreparedJournalContent(result.value);
+          }
+        } catch {
+          // Post-entry Journal warming is deliberately best effort.
+        }
+        completed = attempt;
+      }
+      running = false;
+    };
+    const remove = journalApi.onChanged((event) => {
+      if (event.campaignId !== session.campaignId) return;
+      setPreparedJournalContent((current) =>
+        !event.entryId
+          ? { entries: [], pages: [] }
+          : current
+          ? {
+              entries: current.entries.filter(
+                (entry) => entry.id !== event.entryId,
+              ),
+              pages: current.pages.filter(
+                (page) =>
+                  page.entryId !== event.entryId && page.id !== event.pageId,
+              ),
+            }
+          : current,
+      );
+      requested += 1;
+      void warmLatest();
+    });
+    return () => {
+      disposed = true;
+      remove();
+    };
+  }, [journalApi, session.campaignId]);
 
   useEffect(() => {
     savePaintSettings(session, paintSettings);
@@ -255,7 +328,12 @@ export function PlayScreen({
   };
 
   return (
-    <section className={styles.screen} aria-labelledby="play-screen-title">
+    <section
+      aria-hidden={preparing || undefined}
+      aria-labelledby="play-screen-title"
+      className={styles.screen}
+      inert={preparing || undefined}
+    >
       <h1 id="play-screen-title" className="sr-only">
         {getSessionTitle(session)}
       </h1>
@@ -263,9 +341,24 @@ export function PlayScreen({
       <MapStage
         activeLayer={activeLayer}
         activeTool={activeTool}
-        assetApi={assetApi}
+        assetApi={preparedAssetApi}
+        availableScenes={scenes.scenes}
+        createRenderer={preload?.createRenderer ?? undefined}
         networkApi={networkApi}
         networkUpdateRate={serverSettings.transformPreviewRate}
+        onPrepared={onPrepared}
+        onPreparationProgress={(progress) =>
+          onPreparationProgress?.({
+            ...progress,
+            label:
+              progress.phase === 'image-decoding'
+                ? 'Decoding scene images…'
+                : progress.phase === 'scene-graphs'
+                  ? 'Preparing scene renderers…'
+                  : 'Rendering the initial scene…',
+          })
+        }
+        preparedImageUrls={preparedImageUrls}
         scene={scenes.viewedScene}
         sceneApi={sceneApi}
         session={session}
@@ -507,7 +600,7 @@ export function PlayScreen({
                 />
               ) : showStorage ? (
                 <StoragePanel
-                  assetApi={assetApi}
+                  assetApi={preparedAssetApi}
                   assetStore={assetStore}
                   campaignId={session.campaignId}
                   canDragImages={session.role === 'gm'}
@@ -523,7 +616,7 @@ export function PlayScreen({
                 />
               ) : showScenes ? (
                 <ScenePanel
-                  assetApi={assetApi}
+                  assetApi={preparedAssetApi}
                   campaignId={session.campaignId}
                   canCreate={session.role === 'gm'}
                   sceneApi={sceneApi}
@@ -533,9 +626,10 @@ export function PlayScreen({
               ) : showJournal ? (
                 <JournalPanel
                   journalStore={journalStore}
-                  assetApi={assetApi}
+                  assetApi={preparedAssetApi}
                   campaignId={session.campaignId}
                   journalApi={journalApi}
+                  journalContent={preparedJournalContent}
                   journalWindowApi={journalWindowApi}
                   networkApi={networkApi}
                   role={session.role}

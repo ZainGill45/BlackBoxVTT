@@ -7,7 +7,10 @@ import type {
 } from '../../shared/network';
 import type { AssetApi } from '../../shared/assets';
 import type { SceneApi } from '../../shared/scenes';
-import type { CampaignPreload } from './campaignPreload';
+import type {
+  CampaignPreparationProgress,
+  CampaignPreload,
+} from './campaignPreload';
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import type { JournalApi } from '../../shared/journal';
 import type { JournalWindowApi } from '../../shared/journalWindows';
@@ -78,6 +81,8 @@ export interface PlayScreenProps {
   onExit: () => void;
   onLayerChange?: (id: PlayLayerId) => void;
   onLogout: () => void;
+  onPrepared?: () => void;
+  onPreparationProgress?: (progress: CampaignPreparationProgress) => void;
   onCreateServerUser?: (username: string, password: string) => void;
   onDeleteServerUser?: (userId: string) => void;
   onServerPortChange?: (port: number) => void;
@@ -93,6 +98,7 @@ export interface PlayScreenProps {
    * always has.
    */
   preload?: CampaignPreload;
+  preparing?: boolean;
   sceneApi: SceneApi;
   serverSettings?: CampaignServerSettings;
   serverStatus?: ServerStatus;

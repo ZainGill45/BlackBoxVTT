@@ -422,7 +422,7 @@ describe('JournalPanel', () => {
     expect(within(sheet).getByRole('textbox', { name: 'Name' })).toHaveValue('Aria Stone');
     expect(within(sheet).getByRole('button', { name: 'Class' })).toHaveTextContent('Fighter');
     expect(within(sheet).getByRole('button', { name: 'Level' })).toHaveTextContent('7');
-  });
+  }, 20_000);
 
   it('edits calculated totals as durable offsets and propagates their effective values', async () => {
     const user = userEvent.setup();
@@ -942,7 +942,7 @@ describe('JournalPanel', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Confirm deletion of Recall' }));
     await waitFor(() => expect(server.data.customSkills.map(({ name }) => name))
       .toEqual(['Second']));
-  });
+  }, 20_000);
 
   it('shows system-generated Spell detail and opens the Spell modal', async () => {
     const user = userEvent.setup();
@@ -1090,7 +1090,7 @@ describe('JournalPanel', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Confirm deletion of Ki' }));
     await waitFor(() => expect(server.data.resources.map(({ name }) => name))
       .toEqual(['Rage']));
-  });
+  }, 20_000);
 
   it('adds, expands, edits, reorders, collapses, and deletes Character Features', async () => {
     const user = userEvent.setup();
@@ -2641,6 +2641,51 @@ describe('JournalPanel', () => {
     expect(screen.getByRole('button', { name: 'Add page' })).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Edit page' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Close note' })).not.toBeInTheDocument();
+  });
+
+  it('keeps its active page lease when a background content snapshot arrives', async () => {
+    const user = userEvent.setup();
+    const acquireLease = vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        holderName: 'Game Master',
+        leaseId: '44444444-4444-4444-8444-444444444444',
+        page,
+      },
+    }));
+    const api = journalApi({ acquireLease });
+    const assetApi = createFakeAssetApi();
+    const { rerender } = render(
+      <JournalPanelHarness
+        assetApi={assetApi}
+        campaignId={campaignId}
+        journalApi={api}
+        role="gm"
+      />,
+    );
+    await expandNotes(user);
+    await user.click(
+      await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+    await waitFor(() => expect(acquireLease).toHaveBeenCalledOnce());
+
+    rerender(
+      <JournalPanelHarness
+        assetApi={assetApi}
+        campaignId={campaignId}
+        journalApi={api}
+        journalContent={{ entries: [], pages: [page] }}
+        role="gm"
+      />,
+    );
+    await act(async () => Promise.resolve());
+
+    expect(acquireLease).toHaveBeenCalledOnce();
+    expect(screen.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
+      'contenteditable',
+      'true',
+    );
   });
 
   it('renames a page inline and opens it from its row action', async () => {

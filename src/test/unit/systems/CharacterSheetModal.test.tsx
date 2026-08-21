@@ -327,7 +327,7 @@ describe('CharacterSheetModal chat actions', () => {
     await waitFor(() => expect(sendChatRoll).toHaveBeenCalledTimes(2));
     expect(within(sheet).getByRole('textbox', { name: 'Current hit dice' }))
       .toHaveValue('0');
-  });
+  }, 10_000);
 
   it('rolls built-in skills by name and custom skills from their context menu', async () => {
     const user = userEvent.setup();

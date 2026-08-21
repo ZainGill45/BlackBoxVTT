@@ -18,6 +18,7 @@ export const assetIpcChannels = {
   importImageBytes: 'assets:import-image-bytes',
   pickImages: 'assets:pick-images',
   pickAndImport: 'assets:pick-and-import',
+  preparePreviews: 'assets:prepare-previews',
   prepareRemote: 'assets:prepare-remote',
   progress: 'assets:progress',
   releasePreview: 'assets:release-preview',
@@ -191,6 +192,12 @@ export interface AssetPreview {
   url: string;
 }
 
+/** Successfully retained preview grants plus assets that could not be warmed. */
+export interface PreparedAssetPreviews {
+  failedAssetIds: string[];
+  previews: AssetPreview[];
+}
+
 export interface ReleaseAssetPreviewInput {
   token: string;
 }
@@ -203,11 +210,20 @@ export interface ImportImageBytesInput extends AssetCampaignInput {
 
 export interface AssetProgressEvent {
   assetId?: string;
+  campaignId?: string;
   completedBytes: number;
+  completedItems?: number;
   currentName?: string;
-  phase: 'checking' | 'downloading' | 'hashing' | 'importing' | 'removing';
-  scope: 'import' | 'preview' | 'sync';
+  phase:
+    | 'caching'
+    | 'checking'
+    | 'downloading'
+    | 'hashing'
+    | 'importing'
+    | 'removing';
+  scope: 'import' | 'preload' | 'preview' | 'sync';
   totalBytes: number | null;
+  totalItems?: number;
 }
 
 export interface AssetChangedEvent {
@@ -232,6 +248,9 @@ export interface AssetApi {
   onProgress(listener: (event: AssetProgressEvent) => void): () => void;
   pickAndImport(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
   pickImages(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
+  preparePreviews(
+    input: AssetCampaignInput,
+  ): Promise<AssetResult<PreparedAssetPreviews>>;
   prepareRemote(input: AssetCampaignInput): Promise<AssetResult<AssetView[]>>;
   releasePreview(input: ReleaseAssetPreviewInput): Promise<void>;
   rename(input: RenameAssetInput): Promise<AssetResult<AssetView>>;
