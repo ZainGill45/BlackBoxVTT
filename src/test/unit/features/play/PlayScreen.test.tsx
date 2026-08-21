@@ -737,6 +737,12 @@ describe('PlayScreen', () => {
         createRenderer: null,
         journal: null,
         journalContent: null,
+        preparation: {
+          completedItems: 0,
+          sceneGraphItems: 0,
+          sceneImageItems: 0,
+          totalItems: 1,
+        },
         previews: new Map(),
         scenes: null,
         thumbnails: new Map(),

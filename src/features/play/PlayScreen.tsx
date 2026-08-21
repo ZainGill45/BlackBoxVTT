@@ -23,6 +23,7 @@ import { StoragePanel } from './StoragePanel';
 import { useAssets } from './useAssets';
 import { useJournal } from './journal/useJournal';
 import { JournalPanel } from './JournalPanel';
+import { campaignScenePreparationProgress } from './campaignPreload';
 import {
   createDefaultServerSettings,
   OFFLINE_SERVER_STATUS,
@@ -347,17 +348,18 @@ export function PlayScreen({
         networkApi={networkApi}
         networkUpdateRate={serverSettings.transformPreviewRate}
         onPrepared={onPrepared}
-        onPreparationProgress={(progress) =>
-          onPreparationProgress?.({
-            ...progress,
-            label:
-              progress.phase === 'image-decoding'
-                ? 'Decoding scene images…'
-                : progress.phase === 'scene-graphs'
-                  ? 'Preparing scene renderers…'
-                  : 'Rendering the initial scene…',
-          })
-        }
+        onPreparationProgress={(progress) => {
+          const label = progress.phase === 'image-decoding'
+            ? 'Decoding scene images…'
+            : progress.phase === 'scene-graphs'
+              ? 'Preparing scene renderers…'
+              : 'Rendering the initial scene…';
+          onPreparationProgress?.(
+            preload?.preparation
+              ? campaignScenePreparationProgress(preload.preparation, progress)
+              : { ...progress, label },
+          );
+        }}
         preparedImageUrls={preparedImageUrls}
         scene={scenes.viewedScene}
         sceneApi={sceneApi}

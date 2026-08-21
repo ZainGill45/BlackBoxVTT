@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CAMPAIGN_PRELOAD_INACTIVITY_MS,
+  campaignScenePreparationProgress,
   preloadCampaign,
   releaseCampaignPreload,
 } from '../../../../features/play/campaignPreload';
@@ -71,11 +72,40 @@ describe('campaign preload', () => {
       new Set([
         'asset-payloads',
         'campaign-data',
-        'image-decoding',
         'journal-content',
+        'scene-thumbnails',
         'viewer-engines',
       ]),
     );
+    const determinate = onProgress.mock.calls
+      .map(([progress]) => progress)
+      .filter((progress) => progress.totalItems > 0);
+    expect(new Set(determinate.map(({ totalItems }) => totalItems)).size).toBe(1);
+    expect(determinate.map(({ completedItems }) => completedItems)).toEqual(
+      [...determinate.map(({ completedItems }) => completedItems)]
+        .sort((left, right) => left - right),
+    );
+  });
+
+  it('continues scene preparation on the same campaign-wide scale', async () => {
+    const preload = await preloadCampaign({ ...apis(), campaignId, role: 'gm' });
+    const graphProgress = campaignScenePreparationProgress(
+      preload.preparation,
+      {
+        completedItems: 1,
+        currentName: 'Iron Keep',
+        phase: 'scene-graphs',
+        totalItems: 1,
+      },
+    );
+    const finalProgress = campaignScenePreparationProgress(
+      preload.preparation,
+      { completedItems: 1, phase: 'final-frame', totalItems: 1 },
+    );
+
+    expect(graphProgress.completedItems).toBeLessThan(graphProgress.totalItems);
+    expect(finalProgress.completedItems).toBe(finalProgress.totalItems);
+    expect(finalProgress.totalItems).toBe(graphProgress.totalItems);
   });
 
   it('retains prepared grants and releases them when an entry attempt is abandoned', async () => {

@@ -77,4 +77,38 @@ test.describe('map rendering', () => {
       })
       .toBeGreaterThan(0.05);
   });
+
+  test('reveals the prepared map rather than a placeholder after reopening', async () => {
+    await createSceneWithMap(gm.window, CAMPAIGN);
+    const present = gm.window.getByRole('button', {
+      name: 'Present New Scene',
+    });
+    await present.click();
+    await expect(present).toHaveAttribute('aria-pressed', 'true');
+    await expect
+      .poll(async () => {
+        const frame = await stage(gm.window).screenshot();
+        return Math.min(
+          ...MAP_FIXTURE_COLORS.map((color) =>
+            pixelColorCoverage(frame, color, 40),
+          ),
+        );
+      })
+      .toBeGreaterThan(0.001);
+
+    await gm.window.getByRole('button', { name: 'Logout' }).click();
+    await gm.window.getByRole('tab', { name: 'Create Campaign' }).click();
+    await gm.window.getByRole('button', { name: `Open ${CAMPAIGN}` }).click();
+    await expect(gm.window.getByRole('tab', { name: 'Chat' })).toBeVisible();
+
+    const firstExposedFrame = await stage(gm.window).screenshot();
+    expect(
+      Math.min(
+        ...MAP_FIXTURE_COLORS.map((color) =>
+          pixelColorCoverage(firstExposedFrame, color, 40),
+        ),
+      ),
+      'campaign readiness exposed the map placeholder on reopen',
+    ).toBeGreaterThan(0.001);
+  });
 });

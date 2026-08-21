@@ -2,11 +2,67 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetApi } from '../../shared/assets';
 import type { SceneImage, SceneRecord } from '../../shared/scenes';
 
+const SCENE_PREVIEW_INACTIVITY_MS = 30_000;
+
+export interface SceneImageResources {
+  /** True once every initially required preview URL has succeeded or failed. */
+  ready: boolean;
+  urls: Record<string, string>;
+}
+
+function acquireScenePreview(
+  assetApi: AssetApi,
+  input: Parameters<AssetApi['getPreview']>[0],
+): Promise<Awaited<ReturnType<AssetApi['getPreview']>> | null> {
+  return new Promise((resolve) => {
+    let active = true;
+    const finish = (
+      result: Awaited<ReturnType<AssetApi['getPreview']>> | null,
+    ) => {
+      if (!active) return;
+      active = false;
+      window.clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = window.setTimeout(
+      () => finish(null),
+      SCENE_PREVIEW_INACTIVITY_MS,
+    );
+    let request: ReturnType<AssetApi['getPreview']>;
+    try {
+      request = assetApi.getPreview(input);
+    } catch {
+      finish(null);
+      return;
+    }
+    void request.then(
+      (result) => {
+        if (!active) {
+          if (result.ok) {
+            void assetApi.releasePreview({ token: result.value.token });
+          }
+          return;
+        }
+        finish(result);
+      },
+      () => finish(null),
+    );
+  });
+}
+
 export function useSceneImageUrls(
   assetApi: AssetApi | undefined,
   campaignId: string,
   sceneOrScenes: SceneRecord | readonly SceneRecord[] | null,
 ): Record<string, string> {
+  return useSceneImageResources(assetApi, campaignId, sceneOrScenes).urls;
+}
+
+export function useSceneImageResources(
+  assetApi: AssetApi | undefined,
+  campaignId: string,
+  sceneOrScenes: SceneRecord | readonly SceneRecord[] | null,
+): SceneImageResources {
   const ids = useMemo(
     () => {
       const scenes: readonly SceneRecord[] = Array.isArray(sceneOrScenes)
@@ -29,6 +85,9 @@ export function useSceneImageUrls(
   const key = desiredIds.join(' ');
   const [assetRevision, setAssetRevision] = useState(0);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [initialAttemptComplete, setInitialAttemptComplete] = useState(
+    desiredIds.length === 0,
+  );
   const previews = useRef(
     new Map<
       string,
@@ -93,7 +152,13 @@ export function useSceneImageUrls(
           if (existing?.revision === assetRevision) {
             continue;
           }
-          const result = await assetApi.getPreview({ assetId, campaignId });
+          const result = await acquireScenePreview(assetApi, {
+            assetId,
+            campaignId,
+          });
+          if (!result) {
+            continue;
+          }
           if (!result.ok) {
             continue;
           }
@@ -117,6 +182,9 @@ export function useSceneImageUrls(
         }
       };
       await Promise.all([worker(), worker()]);
+      if (current) {
+        setInitialAttemptComplete(true);
+      }
     })();
 
     return () => {
@@ -124,5 +192,8 @@ export function useSceneImageUrls(
     };
   }, [assetApi, assetRevision, campaignId, desiredIds, key]);
 
-  return assetApi ? urls : {};
+  return {
+    ready: !assetApi || initialAttemptComplete,
+    urls: assetApi ? urls : {},
+  };
 }

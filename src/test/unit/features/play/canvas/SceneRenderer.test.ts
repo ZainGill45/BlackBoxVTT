@@ -43,8 +43,10 @@ import {
 const MAP_URL = 'blackbox-asset://token/22222222-2222-4222-8222-222222222222';
 
 const requestedUrls: string[] = [];
-let failNextLoad = false;
+let failedLoadsRemaining = 0;
 let gifNextLoad = false;
+let blockedLoadNumber: number | null = null;
+let finishBlockedLoad: (() => void) | null = null;
 
 /**
  * jsdom has neither `fetch` for custom protocols nor `createImageBitmap`, so
@@ -52,7 +54,9 @@ let gifNextLoad = false;
  */
 const stubFetch = ((url: string) => {
   requestedUrls.push(url);
-  return Promise.resolve({
+  const failed = failedLoadsRemaining > 0;
+  if (failed) failedLoadsRemaining -= 1;
+  const response = {
     blob: () =>
       Promise.resolve(
         gifNextLoad
@@ -63,9 +67,15 @@ const stubFetch = ((url: string) => {
             } as Blob)
           : new Blob([], { type: 'image/png' }),
       ),
-    ok: !failNextLoad,
-    status: failNextLoad ? 404 : 200,
-  } as unknown as Response);
+    ok: !failed,
+    status: failed ? 404 : 200,
+  } as unknown as Response;
+  if (requestedUrls.length === blockedLoadNumber) {
+    return new Promise<Response>((resolve) => {
+      finishBlockedLoad = () => resolve(response);
+    });
+  }
+  return Promise.resolve(response);
 }) as unknown as typeof fetch;
 
 const stubCreateImageBitmap = (() =>
@@ -285,8 +295,10 @@ function rendererSelectionCorners(): Array<{ x: number; y: number }> {
 
 beforeEach(async () => {
   requestedUrls.length = 0;
-  failNextLoad = false;
+  failedLoadsRemaining = 0;
   gifNextLoad = false;
+  blockedLoadNumber = null;
+  finishBlockedLoad = null;
   globalThis.fetch = stubFetch;
   globalThis.createImageBitmap = stubCreateImageBitmap;
   element = document.createElement('div');
@@ -348,7 +360,7 @@ describe('SceneRenderer', () => {
   });
 
   it('keeps the scene when the image cannot be loaded', async () => {
-    failNextLoad = true;
+    failedLoadsRemaining = 1;
     renderer.setScene(scene({ mapImage: placement }), MAP_URL);
     await settle();
 
@@ -403,6 +415,41 @@ describe('SceneRenderer', () => {
     renderer.setScene(first, { [placement.assetId]: MAP_URL });
     await settle();
     expect(requestedUrls).toEqual([]);
+  });
+
+  it('retries a transient initial map failure before preparing its graph', async () => {
+    failedLoadsRemaining = 1;
+    const initial = scene({ mapImage: placement });
+
+    await renderer.prepareScenes(
+      [initial],
+      { [placement.assetId]: MAP_URL },
+      initial.id,
+    );
+
+    expect(requestedUrls).toEqual([MAP_URL, MAP_URL]);
+    expect(spriteOf(renderer)?.texture).not.toBeNull();
+  });
+
+  it('keeps readiness pending for the final initial-map activation load', async () => {
+    failedLoadsRemaining = 2;
+    blockedLoadNumber = 3;
+    const initial = scene({ mapImage: placement });
+    let settled = false;
+
+    const preparing = renderer.prepareScenes(
+      [initial],
+      { [placement.assetId]: MAP_URL },
+      initial.id,
+    ).then(() => {
+      settled = true;
+    });
+    await vi.waitFor(() => expect(requestedUrls).toHaveLength(3));
+    expect(settled).toBe(false);
+
+    finishBlockedLoad?.();
+    await preparing;
+    expect(spriteOf(renderer)?.texture).not.toBeNull();
   });
 
   it('pauses an inactive prepared GIF and resumes its retained frame', async () => {

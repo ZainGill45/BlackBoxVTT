@@ -509,6 +509,10 @@ export class SceneRenderer implements SceneRendererHandle {
   private activeTextEditor: SceneTextEditorController | null = null;
   private textDraftFontTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly imageResources = new SceneImageResourceCache();
+  private pendingMapLoad: {
+    graph: RetainedSceneGraph;
+    promise: Promise<void>;
+  } | null = null;
   private interaction: SceneRendererInteraction = {
     activeLayer: 'token',
     editable: false,
@@ -1168,6 +1172,13 @@ export class SceneRenderer implements SceneRendererHandle {
     this.accessibleSceneIds = new Set(scenes.map((scene) => scene.id));
     this.imageResources.retainAll();
     await this.warmSceneResources(scenes, imageUrls, onProgress);
+    const initial =
+      scenes.find((scene) => scene.id === initialSceneId) ?? null;
+    if (initial && this.sceneHasMissingResources(initial, imageUrls)) {
+      // A transient first fetch must not turn the initial committed graph into
+      // a placeholder that is exposed while the normal activation retries it.
+      await this.warmSceneResources([initial], imageUrls);
+    }
 
     let prepared = 0;
     for (const scene of scenes) {
@@ -1191,10 +1202,20 @@ export class SceneRenderer implements SceneRendererHandle {
       });
     }
 
-    const initial =
-      scenes.find((scene) => scene.id === initialSceneId) ?? null;
     try {
       this.setScene(initial, imageUrls);
+      const initialMapLoad = this.pendingMapLoad;
+      if (initialMapLoad?.graph === this.activeGraph) {
+        const loaded = await this.attemptPreparation(
+          initialMapLoad.promise,
+          () => {
+            initialMapLoad.graph.imageToken += 1;
+          },
+        );
+        if (!loaded && this.pendingMapLoad === initialMapLoad) {
+          this.pendingMapLoad = null;
+        }
+      }
       this.app.renderer.render(this.app.stage);
       await this.attemptPreparation(
         new Promise<void>((resolve) => {
@@ -1210,6 +1231,21 @@ export class SceneRenderer implements SceneRendererHandle {
       phase: 'final-frame',
       totalItems: 1,
     });
+  }
+
+  private sceneHasMissingResources(
+    scene: SceneRecord,
+    imageUrls: Record<string, string>,
+  ): boolean {
+    const assetIds = [
+      ...(scene.mapImage ? [scene.mapImage.assetId] : []),
+      ...(Object.values(scene.images) as SceneImage[][])
+        .flat()
+        .map((image) => image.assetId),
+    ];
+    return assetIds.some(
+      (assetId) => Boolean(imageUrls[assetId]) && !this.imageResources.has(assetId),
+    );
   }
 
   async warmScenes(
@@ -1526,7 +1562,7 @@ export class SceneRenderer implements SceneRendererHandle {
         mapAssetId !== this.mapResourceAssetId)
     ) {
       this.imageUrl = imageUrl;
-      void this.loadMapTexture(imageUrl, mapAssetId);
+      this.startMapTextureLoad(imageUrl, mapAssetId);
     } else if (mapAssetId && sharedMapResourceReady) {
       if (
         imageUrl &&
@@ -1573,15 +1609,24 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   resize(width: number, height: number): void {
-    this.viewport = {
+    const nextViewport = {
       height: Math.max(1, height),
       width: Math.max(1, width),
     };
+    const changed =
+      nextViewport.height !== this.viewport.height ||
+      nextViewport.width !== this.viewport.width;
+    this.viewport = nextViewport;
     if (!this.mounted) {
       return;
     }
-    this.app.renderer.resize(this.viewport.width, this.viewport.height);
+    if (changed) {
+      this.app.renderer.resize(this.viewport.width, this.viewport.height);
+    }
     this.applyCamera();
+    // Resizing clears the WebGL backbuffer. Paint immediately so revealing the
+    // prepared play screen can never expose the empty stage for one frame.
+    this.app.renderer.render(this.app.stage);
   }
 
   fitToScene(): void {
@@ -1635,6 +1680,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.imageResources.destroy();
     this.pausedMapGifFrames.clear();
     this.preparedSceneRevisions.clear();
+    this.pendingMapLoad = null;
     if (this.animationTimer) {
       clearInterval(this.animationTimer);
       this.animationTimer = null;
@@ -1681,6 +1727,23 @@ export class SceneRenderer implements SceneRendererHandle {
     }
     this.imageResources.rememberSpriteClass(resource.gifSpriteClass);
     this.replaceMapResource(resource.texture, resource.gif, assetId);
+  }
+
+  private startMapTextureLoad(
+    url: string,
+    assetId: string | null,
+  ): void {
+    const pending = {
+      graph: this.activeGraph,
+      promise: this.loadMapTexture(url, assetId),
+    };
+    this.pendingMapLoad = pending;
+    const clear = () => {
+      if (this.pendingMapLoad === pending) {
+        this.pendingMapLoad = null;
+      }
+    };
+    void pending.promise.then(clear, clear);
   }
 
   private replaceMapResource(

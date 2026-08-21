@@ -558,10 +558,7 @@ export function AssetPreviewModal({
       returnFocusRef={returnFocusRef}
     >
       {!preview ? (
-        <CanonicalLoader
-          currentName={asset?.displayName}
-          label="Preparing preview…"
-        />
+        <CanonicalLoader label="Preparing preview…" />
       ) : preview.kind === 'image' ? (
         <img
           className={styles.image}

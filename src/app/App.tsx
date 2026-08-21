@@ -23,7 +23,6 @@ import type { ApplicationApi } from '../shared/application';
 import type {
   AssetApi,
   AssetErrorEvent,
-  AssetProgressEvent,
 } from '../shared/assets';
 import {
   isUnavailableCampaignSummary,
@@ -128,8 +127,6 @@ export function App({
     null,
   );
   const [assetError, setAssetError] = useState<AssetErrorEvent | null>(null);
-  const [assetProgress, setAssetProgress] =
-    useState<AssetProgressEvent | null>(null);
   const [syncingRemote, setSyncingRemote] = useState(false);
   const [showSyncLoader, setShowSyncLoader] = useState(false);
   const [preload, setPreload] = useState<CampaignPreload | null>(null);
@@ -171,7 +168,6 @@ export function App({
     });
     const removeProgress = assetApi.onProgress((event) => {
       if (event.scope === 'sync') {
-        setAssetProgress(event);
         setPreloadProgress((current) =>
           current?.phase === 'remote-synchronization'
             ? {
@@ -326,11 +322,12 @@ export function App({
       completedItems: 0,
       label: 'Reading campaign data…',
       phase: 'campaign-data',
-      totalItems: 4,
+      totalItems: 0,
     });
     const nextPreload = await preloadCampaign({
       assetApi,
       campaignId: session.campaignId,
+      completedItemsBefore: session.source === 'remote' ? 1 : 0,
       journalApi,
       networkApi,
       onProgress: (progress) => {
@@ -490,7 +487,6 @@ export function App({
           onRemoteAuthenticated={(session) => {
             const request = ++entryRequestRef.current;
             setConnectionNotice(null);
-            setAssetProgress(null);
             setShowSyncLoader(false);
             setSyncingRemote(true);
             campaignPreparingRef.current = true;
@@ -609,21 +605,15 @@ export function App({
       {/* Neither loader outlives the screen it was covering for. */}
       {preloadProgress && (!playSession || !playReady) ? (
         <CanonicalLoader
-          completedBytes={preloadProgress.completedBytes}
           completedItems={preloadProgress.completedItems}
-          currentName={preloadProgress.currentName}
           label={preloadProgress.label}
           mode="fullscreen"
-          totalBytes={preloadProgress.totalBytes}
           totalItems={preloadProgress.totalItems}
         />
       ) : showSyncLoader && syncingRemote ? (
         <CanonicalLoader
-          completedBytes={assetProgress?.completedBytes}
-          currentName={assetProgress?.currentName}
           label="Synchronizing campaign assets…"
           mode="fullscreen"
-          totalBytes={assetProgress?.totalBytes}
         />
       ) : null}
 

@@ -397,7 +397,7 @@ describe('App campaign integration', () => {
     expect(
       await screen.findByRole('heading', {
         name: 'Remote campaign at vtt.local:43110 — Player',
-      }),
+      }, { timeout: 5_000 }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole('region', {

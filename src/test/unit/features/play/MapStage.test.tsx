@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -13,7 +13,10 @@ import {
 } from '../../../support/scenes';
 import type { PlaySession } from '../../../../features/play/types';
 import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
-import { CANVAS_IMAGE_DRAG_TYPE } from '../../../../shared/assets';
+import {
+  CANVAS_IMAGE_DRAG_TYPE,
+  type AssetApi,
+} from '../../../../shared/assets';
 import { createEmptyImageLayers } from '../../../../shared/scenes';
 import { createFakeSceneRenderer } from '../../../support/sceneRenderer';
 
@@ -119,6 +122,84 @@ describe('MapStage', () => {
 
     finishPreparation();
     await waitFor(() => expect(onPrepared).toHaveBeenCalledOnce());
+  });
+
+  it('keeps readiness covered until the prepared canvas crosses a paint boundary', async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        frames.push(callback);
+        return frames.length;
+      }),
+    );
+    const { createRenderer, renderer } = fakeRenderer();
+    const onPrepared = vi.fn();
+
+    render(
+      <MapStage
+        createRenderer={createRenderer}
+        onPrepared={onPrepared}
+        scene={makeScene()}
+        session={session}
+      />,
+    );
+
+    await waitFor(() => expect(frames).toHaveLength(1));
+    expect(renderer.resize).toHaveBeenCalled();
+    expect(onPrepared).not.toHaveBeenCalled();
+
+    act(() => frames[0](performance.now()));
+    expect(onPrepared).not.toHaveBeenCalled();
+    await waitFor(() => expect(onPrepared).toHaveBeenCalledOnce());
+  });
+
+  it('does not prepare a placeholder while a missing preload URL is acquired', async () => {
+    const asset = makeImageAsset();
+    const scene = makeScene({
+      mapImage: {
+        assetId: asset.id,
+        height: 600,
+        rotation: 0,
+        width: 800,
+        x: 400,
+        y: 300,
+      },
+    });
+    const assetApi = createFakeAssetApi([asset]);
+    const getPreview = assetApi.getPreview;
+    let finishPreview!: () => void;
+    const previewPending = new Promise<void>((resolve) => {
+      finishPreview = resolve;
+    });
+    assetApi.getPreview = vi.fn(
+      async (input: Parameters<AssetApi['getPreview']>[0]) => {
+        await previewPending;
+        return getPreview(input);
+      },
+    );
+    const { createRenderer, renderer } = fakeRenderer();
+
+    render(
+      <MapStage
+        assetApi={assetApi}
+        createRenderer={createRenderer}
+        scene={scene}
+        session={session}
+      />,
+    );
+
+    await waitFor(() => expect(assetApi.getPreview).toHaveBeenCalledOnce());
+    expect(renderer.mount).not.toHaveBeenCalled();
+
+    finishPreview();
+    await waitFor(() => expect(renderer.prepareScenes).toHaveBeenCalledOnce());
+    expect(renderer.prepareScenes).toHaveBeenCalledWith(
+      [scene],
+      { [asset.id]: `blackbox-asset://token/${asset.id}` },
+      scene.id,
+      expect.any(Function),
+    );
   });
 
   it('resolves the map image before handing the scene over', async () => {

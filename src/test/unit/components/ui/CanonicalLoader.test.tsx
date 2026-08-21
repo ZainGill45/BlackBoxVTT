@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { CanonicalLoader } from '../../../../components/ui/CanonicalLoader';
 
 describe('CanonicalLoader', () => {
-  it('switches from indeterminate status to determinate percentage', () => {
+  it('shows only its graphic and progress bar while preserving accessible progress', () => {
     const { rerender } = render(
-      <CanonicalLoader label="Checking assets…" totalBytes={null} />,
+      <CanonicalLoader label="Checking assets…" />,
     );
     expect(
       screen.getByRole('progressbar', { name: 'Checking assets…' }),
@@ -13,16 +13,15 @@ describe('CanonicalLoader', () => {
 
     rerender(
       <CanonicalLoader
-        completedBytes={50}
-        currentName="Map.png"
+        completedItems={5}
         label="Downloading assets…"
-        totalBytes={100}
+        totalItems={10}
       />,
     );
     expect(
       screen.getByRole('progressbar', { name: 'Downloading assets…' }),
     ).toHaveAttribute('aria-valuenow', '50');
-    expect(screen.getByText('50%')).toBeVisible();
-    expect(screen.getByText('Map.png')).toBeVisible();
+    expect(screen.queryByText('50%')).not.toBeInTheDocument();
+    expect(screen.queryByText('Downloading assets…')).not.toBeInTheDocument();
   });
 });

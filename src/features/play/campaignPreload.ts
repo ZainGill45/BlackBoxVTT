@@ -6,7 +6,10 @@ import type {
 } from '../../shared/journal';
 import type { NetworkApi } from '../../shared/network';
 import type { SceneApi, SceneManifest } from '../../shared/scenes';
-import type { SceneRendererHandle } from './canvas/SceneRenderer';
+import type {
+  ScenePreparationProgress,
+  SceneRendererHandle,
+} from './canvas/SceneRenderer';
 import type { JournalSnapshot } from './journal/useJournal';
 import {
   buildAssetThumbnail,
@@ -25,6 +28,7 @@ export type CampaignPreparationPhase =
   | 'journal-content'
   | 'remote-synchronization'
   | 'scene-graphs'
+  | 'scene-thumbnails'
   | 'viewer-engines';
 
 export interface CampaignPreparationProgress {
@@ -45,6 +49,7 @@ export interface CampaignPreload {
   journal: JournalSnapshot | null;
   journalContent: JournalContentSnapshot | null;
   previews: ReadonlyMap<string, AssetPreview>;
+  preparation: CampaignPreparationSummary;
   scenes: SceneManifest | null;
   thumbnails: ReadonlyMap<string, AssetThumbnailEntry>;
 }
@@ -58,8 +63,56 @@ export interface CampaignPreloadApis {
 
 export interface CampaignPreloadInput extends CampaignPreloadApis {
   campaignId: string;
+  completedItemsBefore?: number;
   onProgress?: (progress: CampaignPreparationProgress) => void;
   role: 'gm' | 'player';
+}
+
+export interface CampaignPreparationSummary {
+  completedItems: number;
+  sceneGraphItems: number;
+  sceneImageItems: number;
+  totalItems: number;
+}
+
+type PhaseTotals = Partial<Record<CampaignPreparationPhase, number>>;
+
+class CampaignProgressLedger {
+  private readonly completedByPhase = new Map<CampaignPreparationPhase, number>();
+  readonly totalItems: number;
+
+  constructor(
+    private readonly input: CampaignPreloadInput,
+    private readonly phaseTotals: PhaseTotals,
+    private readonly completedBefore: number,
+  ) {
+    this.totalItems = completedBefore + Object.values(phaseTotals)
+      .reduce((total, value) => total + (value ?? 0), 0);
+  }
+
+  report(progress: CampaignPreparationProgress): void {
+    const phaseTotal = this.phaseTotals[progress.phase] ?? 0;
+    const completed = progress.totalBytes && progress.totalBytes > 0
+      ? phaseTotal * Math.min(
+          1,
+          (progress.completedBytes ?? 0) / progress.totalBytes,
+        )
+      : progress.totalItems > 0
+        ? phaseTotal * Math.min(1, progress.completedItems / progress.totalItems)
+        : phaseTotal;
+    const previous = this.completedByPhase.get(progress.phase) ?? 0;
+    this.completedByPhase.set(progress.phase, Math.max(previous, completed));
+    this.input.onProgress?.({
+      ...progress,
+      completedItems: this.completedItems,
+      totalItems: this.totalItems,
+    });
+  }
+
+  get completedItems(): number {
+    return this.completedBefore + [...this.completedByPhase.values()]
+      .reduce((total, value) => total + value, 0);
+  }
 }
 
 /** Reads and warms all non-DOM campaign resources before PlayScreen mounts. */
@@ -78,7 +131,7 @@ export async function preloadCampaign(
     completedItems: 0,
     label: 'Reading campaign data…',
     phase: 'campaign-data',
-    totalItems: dataTasks.length,
+    totalItems: 0,
   });
   const trackedDataTasks = dataTasks.map(async (task) => {
     const value = await task;
@@ -87,7 +140,7 @@ export async function preloadCampaign(
       completedItems: dataCompleted,
       label: 'Reading campaign data…',
       phase: 'campaign-data',
-      totalItems: dataTasks.length,
+      totalItems: 0,
     });
     return value;
   });
@@ -98,23 +151,52 @@ export async function preloadCampaign(
     ChatBootstrap | null,
   ];
 
+  const sceneImageItems = uniqueSceneImageIds(scenes).length;
+  const sceneGraphItems = scenes?.scenes.length ?? 0;
+  const phaseTotals: PhaseTotals = {
+    'asset-payloads':
+      assets?.assets.filter((asset) => asset.capabilities.preview).length ?? 0,
+    'campaign-data': dataTasks.length,
+    'final-frame': 1,
+    'image-decoding': sceneImageItems,
+    'journal-content': journalContentItems(journal),
+    'scene-graphs': sceneGraphItems,
+    'scene-thumbnails': uniqueSceneMapIds(scenes).length,
+    'viewer-engines': 3,
+  };
+  const ledger = new CampaignProgressLedger(
+    input,
+    phaseTotals,
+    input.completedItemsBefore ?? 0,
+  );
+  ledger.report({
+    completedItems: dataTasks.length,
+    label: 'Reading campaign data…',
+    phase: 'campaign-data',
+    totalItems: dataTasks.length,
+  });
+  const trackedInput: CampaignPreloadInput = {
+    ...input,
+    onProgress: (progress) => ledger.report(progress),
+  };
+
   const [prepared, journalContent, createRenderer] = await Promise.all([
-    prepareAssetPayloads(input, assets),
-    prepareJournalContent(input, journal),
-    prepareViewerEngines(input, scenes),
+    prepareAssetPayloads(trackedInput, assets),
+    prepareJournalContent(trackedInput, journal),
+    prepareViewerEngines(trackedInput, scenes),
   ]);
   const previews = new Map(
     prepared?.previews.map((preview) => [preview.assetId, preview]) ?? [],
   );
 
-  input.onProgress?.({
+  trackedInput.onProgress?.({
     completedItems: 0,
     label: 'Preparing scene thumbnails…',
-    phase: 'image-decoding',
+    phase: 'scene-thumbnails',
     totalItems: uniqueSceneMapIds(scenes).length,
   });
   const thumbnails =
-    (await attempt(() => buildThumbnails(input, scenes))) ?? new Map();
+    await buildThumbnails(trackedInput, scenes).catch(() => new Map());
 
   return {
     assets,
@@ -123,6 +205,12 @@ export async function preloadCampaign(
     journal,
     journalContent,
     previews,
+    preparation: {
+      completedItems: ledger.completedItems,
+      sceneGraphItems,
+      sceneImageItems,
+      totalItems: ledger.totalItems,
+    },
     scenes,
     thumbnails,
   };
@@ -145,6 +233,38 @@ export function releaseCampaignPreload(
       // The bridge can already be gone during application shutdown.
     }
   }
+}
+
+/** Projects renderer-local progress onto the campaign-wide work ledger. */
+export function campaignScenePreparationProgress(
+  preparation: CampaignPreparationSummary,
+  progress: ScenePreparationProgress,
+): CampaignPreparationProgress {
+  const phaseTotal = progress.phase === 'image-decoding'
+    ? preparation.sceneImageItems
+    : progress.phase === 'scene-graphs'
+      ? preparation.sceneGraphItems
+      : 1;
+  const phaseCompleted = progress.totalItems > 0
+    ? phaseTotal * Math.min(1, progress.completedItems / progress.totalItems)
+    : phaseTotal;
+  const completedBefore = preparation.completedItems +
+    (progress.phase === 'image-decoding' ? 0 : preparation.sceneImageItems) +
+    (progress.phase === 'final-frame' ? preparation.sceneGraphItems : 0);
+  return {
+    completedItems: Math.min(
+      preparation.totalItems,
+      completedBefore + phaseCompleted,
+    ),
+    currentName: progress.currentName,
+    label: progress.phase === 'image-decoding'
+      ? 'Decoding scene images…'
+      : progress.phase === 'scene-graphs'
+        ? 'Preparing scene renderers…'
+        : 'Rendering the initial scene…',
+    phase: progress.phase,
+    totalItems: preparation.totalItems,
+  };
 }
 
 async function prepareAssetPayloads(
@@ -254,7 +374,15 @@ async function prepareViewerEngines(
       import('pdfjs-dist'),
     ]),
   );
-  if (!result) return null;
+  if (!result) {
+    input.onProgress?.({
+      completedItems: 3,
+      label: 'Loading viewers and scene fonts…',
+      phase: 'viewer-engines',
+      totalItems: 3,
+    });
+    return null;
+  }
   input.onProgress?.({
     completedItems: 2,
     label: 'Loading viewers and scene fonts…',
@@ -365,6 +493,24 @@ function uniqueSceneMapIds(scenes: SceneManifest | null): string[] {
   ];
 }
 
+function uniqueSceneImageIds(scenes: SceneManifest | null): string[] {
+  return [
+    ...new Set(
+      (scenes?.scenes ?? []).flatMap((scene) => [
+        ...(scene.mapImage ? [scene.mapImage.assetId] : []),
+        ...Object.values(scene.images).flat().map((image) => image.assetId),
+      ]),
+    ),
+  ];
+}
+
+function journalContentItems(journal: JournalSnapshot | null): number {
+  return journal?.manifest.entries.reduce(
+    (total, entry) => total + (entry.kind === 'note' ? entry.pages.length : 1),
+    0,
+  ) ?? 0;
+}
+
 async function buildThumbnails(
   input: CampaignPreloadInput,
   scenes: SceneManifest | null,
@@ -390,7 +536,7 @@ async function buildThumbnails(
         input.onProgress?.({
           completedItems: completed,
           label: 'Preparing scene thumbnails…',
-          phase: 'image-decoding',
+          phase: 'scene-thumbnails',
           totalItems: assetIds.length,
         });
       }

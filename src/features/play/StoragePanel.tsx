@@ -733,11 +733,10 @@ export function StoragePanel({
 
       {importing ? (
         <CanonicalLoader
-          completedBytes={progress?.completedBytes}
-          currentName={progress?.currentName}
+          completedItems={progress?.completedBytes}
           label="Adding campaign assets…"
           mode="fullscreen"
-          totalBytes={progress?.totalBytes}
+          totalItems={progress?.totalBytes ?? undefined}
         />
       ) : null}
 

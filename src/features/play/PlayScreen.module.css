@@ -139,6 +139,10 @@
   overflow-y: auto;
 }
 
+.screen[aria-hidden="true"] {
+  visibility: hidden;
+}
+
 .chatPanelContent {
   height: 100%;
   min-height: 0;

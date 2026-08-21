@@ -32,8 +32,11 @@ import {
   type PaintSubtool,
 } from './paintSettings';
 import { snapMove } from './canvas/imageGeometry';
-import { useSceneImageUrls } from './useSceneImageUrls';
+import { useSceneImageResources } from './useSceneImageUrls';
 import styles from './PlayScreen.module.css';
+
+const EMPTY_IMAGE_URLS: Record<string, string> = {};
+const EMPTY_SCENES: readonly SceneRecord[] = [];
 
 function rememberPing(seen: Set<string>, id: string): boolean {
   if (seen.has(id)) {
@@ -103,9 +106,18 @@ async function loadDefaultRenderer(): Promise<SceneRendererHandle> {
   return createSceneRenderer();
 }
 
+function waitForCompositedFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    // Animation-frame callbacks run before paint. Continue from a new task so
+    // the prepared canvas is composited once while the play screen is still
+    // hidden, then allow the loader to be removed.
+    requestAnimationFrame(() => window.setTimeout(resolve, 0));
+  });
+}
+
 export function MapStage({
   assetApi,
-  availableScenes = [],
+  availableScenes = EMPTY_SCENES,
   activeLayer = 'token',
   activeTool = 'select',
   createRenderer,
@@ -123,7 +135,7 @@ export function MapStage({
   onRedo,
   onUndo,
   paintSettings,
-  preparedImageUrls = {},
+  preparedImageUrls = EMPTY_IMAGE_URLS,
   paintSubtool = 'freeform',
   fogMode = 'reveal',
   fogSettings,
@@ -148,11 +160,12 @@ export function MapStage({
         : availableScenes,
     [availableScenes, scene],
   );
-  const imageUrls = useSceneImageUrls(
+  const imageResources = useSceneImageResources(
     assetApi,
     session.campaignId,
     preparableScenes,
   );
+  const imageUrls = imageResources.urls;
   const resolvedImageUrls = useMemo(
     () => ({ ...preparedImageUrls, ...imageUrls }),
     [imageUrls, preparedImageUrls],
@@ -177,7 +190,7 @@ export function MapStage({
 
   useEffect(() => {
     const element = elementRef.current;
-    if (!element) {
+    if (!element || !imageResources.ready) {
       return undefined;
     }
     let disposed = false;
@@ -211,6 +224,12 @@ export function MapStage({
         return null;
       }
       setRenderer(instance);
+      instance.resize(element.clientWidth, element.clientHeight);
+      await waitForCompositedFrame();
+      if (disposed) {
+        instance.destroy();
+        return null;
+      }
       preparedCallbackRef.current?.();
       return instance;
     });
@@ -220,7 +239,7 @@ export function MapStage({
       setRenderer(null);
       void ready.then((instance) => instance?.destroy());
     };
-  }, [createRenderer]);
+  }, [createRenderer, imageResources.ready]);
 
   useEffect(() => {
     const element = elementRef.current;
