@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CanonicalLoader } from '../components/ui/CanonicalLoader';
 import { ErrorModal } from '../components/ui/ErrorModal';
 import { ConnectionScreen } from '../features/connection/ConnectionScreen';
@@ -7,6 +7,11 @@ import type {
   CreateCampaignDraft,
 } from '../features/connection/types';
 import { PlayScreen } from '../features/play/PlayScreen';
+import {
+  preloadCampaign,
+  releaseCampaignPreload,
+  type CampaignPreload,
+} from '../features/play/campaignPreload';
 import {
   createDefaultServerSettings,
   OFFLINE_SERVER_STATUS,
@@ -82,18 +87,29 @@ export function App({
     useState<AssetProgressEvent | null>(null);
   const [syncingRemote, setSyncingRemote] = useState(false);
   const [showSyncLoader, setShowSyncLoader] = useState(false);
+  const [preload, setPreload] = useState<CampaignPreload | null>(null);
+  const [preloadLabel, setPreloadLabel] = useState<string | null>(null);
+  /* Invalidates async entry work when a newer attempt starts or a remote
+     session closes before its assets and campaign reads have finished. */
+  const entryRequestRef = useRef(0);
 
   useEffect(() => {
     const removeHostListener = networkApi.onHostStatusChanged(setHostStatus);
     const removeClosedListener = networkApi.onSessionClosed((event) => {
+      entryRequestRef.current += 1;
       setPlaySession((current) =>
         current?.source === 'remote' ? null : current,
       );
+      setPreload(null);
+      setPreloadLabel(null);
+      setSyncingRemote(false);
+      setShowSyncLoader(false);
       setConnectionNotice(event.message);
     });
     void networkApi.getHostStatus().then(setHostStatus);
 
     return () => {
+      entryRequestRef.current += 1;
       removeHostListener();
       removeClosedListener();
     };
@@ -223,12 +239,52 @@ export function App({
       return result;
     };
 
+  /**
+   * Reads a campaign's tabs, then enters it.
+   *
+   * The play screen is only built once it can be built complete. Its long-lived
+   * stores are seeded before the sidebar panels mount, so a screen entered cold
+   * does not show each tab empty while its first read is in flight.
+   *
+   * Reading ahead is best effort: whatever could not be read is simply left
+   * out, and the store that owns it reads and reports it exactly as before.
+   */
+  const enterCampaign = async (
+    session: PlaySession,
+    request = ++entryRequestRef.current,
+  ): Promise<void> => {
+    if (request !== entryRequestRef.current) {
+      return;
+    }
+    setPreloadLabel('Reading the campaign…');
+    const nextPreload = await preloadCampaign({
+      assetApi,
+      campaignId: session.campaignId,
+      journalApi,
+      networkApi,
+      onStep: (label) => {
+        if (request === entryRequestRef.current) setPreloadLabel(label);
+      },
+      role: session.role === 'gm' ? 'gm' : 'player',
+      sceneApi,
+    }).finally(() => {
+      if (request === entryRequestRef.current) setPreloadLabel(null);
+    });
+    if (request !== entryRequestRef.current) {
+      releaseCampaignPreload(assetApi, nextPreload);
+      return;
+    }
+    setPreload(nextPreload);
+    setPlaySession(session);
+  };
+
   const handleOpenCampaign = async (id: string): Promise<void> => {
     const campaign = campaigns.find((candidate) => candidate.id === id);
 
     if (!campaign || isUnavailableCampaignSummary(campaign)) {
       return;
     }
+    const request = ++entryRequestRef.current;
 
     const session: PlaySession = {
       campaignId: campaign.id,
@@ -240,17 +296,26 @@ export function App({
     setConnectionNotice(null);
     setServerSettings(createDefaultServerSettings());
     const result = await networkApi.openHost({ campaignId: campaign.id });
+    if (request !== entryRequestRef.current) {
+      return;
+    }
     if (!result.ok) {
       setConnectionNotice(result.error.message);
       return;
     }
-    await refreshServerSettings(campaign.id);
-    setPlaySession(session);
+    await refreshServerSettings(campaign.id, request);
+    await enterCampaign(session, request);
   };
 
-  const refreshServerSettings = async (campaignId: string) => {
+  const refreshServerSettings = async (
+    campaignId: string,
+    entryRequest?: number,
+  ) => {
     const result = await networkApi.getServerSettings({ campaignId });
-    if (result.ok) {
+    if (
+      result.ok &&
+      (entryRequest === undefined || entryRequest === entryRequestRef.current)
+    ) {
       setServerSettings(result.value);
     }
   };
@@ -306,6 +371,8 @@ export function App({
   const handleLogout = async () => {
     const session = playSession;
     if (!session) return;
+    entryRequestRef.current += 1;
+    setPreloadLabel(null);
     await journalWindowApi
       .closeCampaign({ campaignId: session.campaignId })
       .catch(() => undefined);
@@ -319,6 +386,7 @@ export function App({
     setPlaySession((current) =>
       current?.campaignId === session.campaignId ? null : current,
     );
+    setPreload(null);
   };
 
   return (
@@ -338,6 +406,7 @@ export function App({
           onSalvageCampaign={handleSalvageCampaign}
           onOpenCampaign={handleOpenCampaign}
           onRemoteAuthenticated={(session) => {
+            const request = ++entryRequestRef.current;
             setConnectionNotice(null);
             setAssetProgress(null);
             setShowSyncLoader(false);
@@ -345,17 +414,24 @@ export function App({
             void assetApi
               .prepareRemote({ campaignId: session.campaignId })
               .then((result) => {
-                if (result.ok) {
-                  setPlaySession(session);
-                } else {
-                  setAssetError({
-                    ...result.error,
-                    campaignId: session.campaignId,
-                    title: 'Campaign asset synchronization failed',
-                  });
+                if (request !== entryRequestRef.current) {
+                  return undefined;
                 }
+                if (result.ok) {
+                  // Chained so the loader stays up until the campaign is read.
+                  return enterCampaign(session, request);
+                }
+                setAssetError({
+                  ...result.error,
+                  campaignId: session.campaignId,
+                  title: 'Campaign asset synchronization failed',
+                });
+                return undefined;
               })
               .catch(() => {
+                if (request !== entryRequestRef.current) {
+                  return;
+                }
                 setAssetError({
                   campaignId: session.campaignId,
                   code: 'sync_error',
@@ -364,8 +440,10 @@ export function App({
                 });
               })
               .finally(() => {
-                setSyncingRemote(false);
-                setShowSyncLoader(false);
+                if (request === entryRequestRef.current) {
+                  setSyncingRemote(false);
+                  setShowSyncLoader(false);
+                }
               });
           }}
         />
@@ -373,11 +451,13 @@ export function App({
 
       {playSession ? (
         <PlayScreen
+          key={playSession.campaignId}
           applicationApi={applicationApi}
           assetApi={assetApi}
           networkApi={networkApi}
           journalApi={journalApi}
           journalWindowApi={journalWindowApi}
+          preload={preload ?? undefined}
           sceneApi={sceneApi}
           session={playSession}
           serverSettings={
@@ -451,7 +531,10 @@ export function App({
         />
       ) : null}
 
-      {showSyncLoader && syncingRemote ? (
+      {/* Neither loader outlives the screen it was covering for. */}
+      {playSession ? null : preloadLabel ? (
+        <CanonicalLoader label={preloadLabel} mode="fullscreen" />
+      ) : showSyncLoader && syncingRemote ? (
         <CanonicalLoader
           completedBytes={assetProgress?.completedBytes}
           currentName={assetProgress?.currentName}

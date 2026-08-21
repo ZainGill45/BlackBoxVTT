@@ -1,7 +1,29 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import { JournalPanel } from '../../../../features/play/JournalPanel';
+import { useJournal } from '../../../../features/play/journal/useJournal';
+
+/**
+ * The journal lives above the sidebar in the real screen, so the panel is
+ * exercised through the same store the play screen builds for it rather than
+ * against a hand-made one.
+ */
+function JournalPanelHarness(
+  props: NonNullable<ComponentProps<typeof JournalPanel>>,
+) {
+  return (
+    <JournalPanel
+      {...props}
+      journalStore={useJournal(
+        props.journalApi,
+        props.campaignId ?? '',
+        props.role ?? 'gm',
+      )}
+    />
+  );
+}
 import type {
   JournalApi,
   JournalChangedEvent,
@@ -117,7 +139,7 @@ function journalApi(overrides: Partial<JournalApi> = {}): JournalApi {
 describe('JournalPanel', () => {
   it('renders the empty searchable shell with an enabled no-op add control', async () => {
     const user = userEvent.setup();
-    render(<JournalPanel />);
+    render(<JournalPanelHarness />);
     const search = screen.getByRole('searchbox', { name: 'Search journal' });
     const add = screen.getByRole('button', { name: 'Add journal entry' });
 
@@ -145,7 +167,7 @@ describe('JournalPanel', () => {
       value: typeId === JOURNAL_ENTRY_TYPE_NOTE ? note : character,
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -326,7 +348,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -416,7 +438,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -620,7 +642,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -825,7 +847,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -925,7 +947,7 @@ describe('JournalPanel', () => {
   it('shows system-generated Spell detail and opens the Spell modal', async () => {
     const user = userEvent.setup();
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -959,7 +981,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1084,7 +1106,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1240,7 +1262,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1448,7 +1470,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1534,7 +1556,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1638,7 +1660,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1691,7 +1713,7 @@ describe('JournalPanel', () => {
       };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1742,7 +1764,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1820,7 +1842,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1887,7 +1909,7 @@ describe('JournalPanel', () => {
       };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -1961,7 +1983,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2022,7 +2044,7 @@ describe('JournalPanel', () => {
       };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2100,7 +2122,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2168,7 +2190,7 @@ describe('JournalPanel', () => {
       };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2217,7 +2239,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: server };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2318,7 +2340,7 @@ describe('JournalPanel', () => {
     const renameEntry = vi.fn();
     const updateEntryData = vi.fn();
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2473,7 +2495,7 @@ describe('JournalPanel', () => {
       },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2569,7 +2591,7 @@ describe('JournalPanel', () => {
       },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ renameEntry })}
@@ -2603,7 +2625,7 @@ describe('JournalPanel', () => {
 
   it('searches page titles and opens the matching page in the inline note editor', async () => {
     const user = userEvent.setup();
-    render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi()} role="gm" />);
+    render(<JournalPanelHarness assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi()} role="gm" />);
     const search = await screen.findByRole('searchbox', { name: 'Search journal' });
     await user.type(search, 'Babylon');
     await user.click(screen.getByRole('button', { name: 'Open Gathered Magic Items' }));
@@ -2671,7 +2693,7 @@ describe('JournalPanel', () => {
       return { ok: true as const, value: updatedPage };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2781,7 +2803,7 @@ describe('JournalPanel', () => {
       return { ok: true as const, value: { cleanupFailures: [] } };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2845,7 +2867,7 @@ describe('JournalPanel', () => {
   it('exposes the same note controls read-only without acquiring an edit lease', async () => {
     const user = userEvent.setup();
     const editable = render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi()}
@@ -2890,7 +2912,7 @@ describe('JournalPanel', () => {
     };
     const acquireLease = vi.fn();
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -2952,7 +2974,7 @@ describe('JournalPanel', () => {
         },
       });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ acquireLease })}
@@ -2991,7 +3013,7 @@ describe('JournalPanel', () => {
       value: { ...page, content: input.content, revision: page.revision + 1 },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={assetApi}
         campaignId={campaignId}
         journalApi={journalApi({ updatePage })}
@@ -3037,7 +3059,7 @@ describe('JournalPanel', () => {
       },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ updateNote })}
@@ -3079,7 +3101,7 @@ describe('JournalPanel', () => {
         permissions: input.permissions,
       },
     }));
-    render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi({ updatePagePermissions })} role="gm" />);
+    render(<JournalPanelHarness assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi({ updatePagePermissions })} role="gm" />);
 
     await expandNotes(user);
     await user.click(await screen.findByRole('button', { name: 'Open Gathered Magic Items' }));
@@ -3145,7 +3167,7 @@ describe('JournalPanel', () => {
       return { ok: true, value };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -3197,7 +3219,7 @@ describe('JournalPanel', () => {
       ok: false,
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ updatePagePermissions })}
@@ -3239,7 +3261,7 @@ describe('JournalPanel', () => {
       value: { cleanupFailures: [] },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ deleteTarget, prepareDelete })}
@@ -3303,7 +3325,7 @@ describe('JournalPanel', () => {
       value: { cleanupFailures: [] },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ deleteTarget, prepareDelete })}
@@ -3349,7 +3371,7 @@ describe('JournalPanel', () => {
       value: { cleanupFailures: [] },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ deleteTarget, prepareDelete })}
@@ -3407,7 +3429,7 @@ describe('JournalPanel', () => {
       value: { cleanupFailures: [] },
     }));
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ deleteTarget, prepareDelete })}
@@ -3470,7 +3492,7 @@ describe('JournalPanel', () => {
       return { ok: true, value: currentNote };
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({ updateNote })}
@@ -3524,7 +3546,7 @@ describe('JournalPanel', () => {
       },
     });
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={api}
@@ -3555,7 +3577,7 @@ describe('JournalPanel', () => {
   });
 
   it('prevents players from creating parent notes', async () => {
-    render(<JournalPanel assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi()} role="player" />);
+    render(<JournalPanelHarness assetApi={createFakeAssetApi()} campaignId={campaignId} journalApi={journalApi()} role="player" />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add journal entry' })).toBeDisabled());
   });
 
@@ -3612,7 +3634,7 @@ describe('JournalPanel', () => {
       async () => ({ ok: true, value: 'opened' }),
     );
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({
@@ -3671,7 +3693,7 @@ describe('JournalPanel', () => {
       async () => ({ ok: true, value: false }),
     );
     render(
-      <JournalPanel
+      <JournalPanelHarness
         assetApi={createFakeAssetApi()}
         campaignId={campaignId}
         journalApi={journalApi({

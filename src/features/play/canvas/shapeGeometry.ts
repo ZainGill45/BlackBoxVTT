@@ -6,7 +6,7 @@ import type {
 } from '../../../shared/scenes';
 
 export const DEFAULT_CONE_SPREAD = 53.13;
-export const SHAPE_UNIT_INCREMENT = 5;
+export const SHAPE_UNIT_INCREMENT = 2.5;
 const MIN_SHAPE_SIZE = 1;
 
 export interface Point {
@@ -118,13 +118,13 @@ export function createShapeFromDrag(input: {
     return radius * 2 < MIN_SHAPE_SIZE
       ? null
       : {
-          ...base,
-          height: radius * 2,
-          kind: 'sphere',
-          width: radius * 2,
-          x: start.x,
-          y: start.y,
-        };
+        ...base,
+        height: radius * 2,
+        kind: 'sphere',
+        width: radius * 2,
+        x: start.x,
+        y: start.y,
+      };
   }
   if (input.kind === 'square') {
     let width = independentLength(rawDx);
@@ -233,7 +233,7 @@ export function containsShapePoint(shape: SceneShape, point: Point): boolean {
   const ny = local.y / geometry.radiusY;
   return nx >= 0 && nx * nx + ny * ny <= 1 &&
     Math.abs(Math.atan2(local.y, local.x + shape.width / 2)) <=
-      geometry.actualHalfAngle;
+    geometry.actualHalfAngle;
 }
 
 export function semanticShapeHandles(
@@ -365,14 +365,14 @@ export function editShapeWithSemanticHandle(
       89.5,
       Math.abs(
         (Math.atan2(fromApex.y, fromApex.x) * 180) /
-          Math.PI,
+        Math.PI,
       ),
     ),
   );
   const halfRadians = (half * Math.PI) / 180;
   const radius = 1 / Math.sqrt(
     (Math.cos(halfRadians) ** 2) / (shape.width ** 2) +
-      (Math.sin(halfRadians) ** 2) / (geometry.radiusY ** 2),
+    (Math.sin(halfRadians) ** 2) / (geometry.radiusY ** 2),
   );
   return {
     ...shape,

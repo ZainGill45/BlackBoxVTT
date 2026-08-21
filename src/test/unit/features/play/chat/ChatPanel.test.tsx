@@ -138,6 +138,63 @@ describe('ChatPanel startup', () => {
     expect(calls.slice(0, 2)).toEqual(['subscribe', 'bootstrap']);
   });
 
+  it('paints a preload immediately and revalidates it after subscribing', async () => {
+    let listener: ((event: ChatEvent) => void) | undefined;
+    let resolveBootstrap:
+      | ((
+          result: Awaited<ReturnType<NetworkApi['getChatBootstrap']>>,
+        ) => void)
+      | undefined;
+    const seeded = message({ content: 'Already here' });
+    const incoming = message({
+      clientMessageId: '88888888-8888-4888-8888-888888888888',
+      content: 'Arrived while opening',
+      id: '99999999-9999-4999-8999-999999999999',
+      sequence: 2,
+    });
+    const networkApi = createMockNetworkApi({
+      getChatBootstrap: vi.fn(
+        () =>
+          new Promise<Awaited<ReturnType<NetworkApi['getChatBootstrap']>>>(
+            (resolve) => {
+              resolveBootstrap = resolve;
+            },
+          ),
+      ),
+      onChatEvent: vi.fn((nextListener) => {
+        listener = nextListener;
+        return () => undefined;
+      }),
+    });
+
+    render(
+      <ChatPanel
+        applicationApi={applicationApi}
+        bootstrap={bootstrap({ messages: [seeded] })}
+        networkApi={networkApi}
+        session={playerSession}
+        visible
+      />,
+    );
+
+    expect(screen.getByText('Already here')).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeEnabled();
+    expect(networkApi.onChatEvent).toHaveBeenCalledOnce();
+    expect(networkApi.getChatBootstrap).toHaveBeenCalledOnce();
+
+    act(() => {
+      listener?.({ campaignId, message: incoming, type: 'message' });
+    });
+    await act(async () => {
+      resolveBootstrap?.({
+        ok: true,
+        value: bootstrap({ messages: [seeded] }),
+      });
+    });
+
+    expect(await screen.findByText('Arrived while opening')).toBeInTheDocument();
+  });
+
   it('does not play notification sounds for initial history', async () => {
     const networkApi = createMockNetworkApi({
       getChatBootstrap: vi.fn(async () => ({

@@ -20,6 +20,8 @@ import { ScenePanel } from './scenes/ScenePanel';
 import { useAssetThumbnails } from './scenes/useAssetThumbnails';
 import { useScenes } from './scenes/useScenes';
 import { StoragePanel } from './StoragePanel';
+import { useAssets } from './useAssets';
+import { useJournal } from './journal/useJournal';
 import { JournalPanel } from './JournalPanel';
 import {
   createDefaultServerSettings,
@@ -94,6 +96,7 @@ export function PlayScreen({
   onSidebarTabChange,
   onToolChange,
   onTransformPreviewRateChange,
+  preload,
   sceneApi,
   serverSettings = createDefaultServerSettings(),
   serverStatus = OFFLINE_SERVER_STATUS,
@@ -124,7 +127,26 @@ export function PlayScreen({
   const [fogSubtool, setFogSubtool] = useState<FogSubtool>('brush');
   const [activeSidebarTab, setActiveSidebarTab] =
     useState<SidebarTabId>('chat');
-  const scenes = useScenes(sceneApi, session.campaignId, session.role === 'gm');
+  const scenes = useScenes(
+    sceneApi,
+    session.campaignId,
+    session.role === 'gm',
+    preload?.scenes ?? undefined,
+  );
+  /* Owned here, beside the scene library, because the sidebar unmounts every
+     panel it switches away from. Seeded from the campaign read before this
+     screen was built, so every tab is populated on its first render. */
+  const assetStore = useAssets(
+    assetApi,
+    session.campaignId,
+    preload?.assets ?? undefined,
+  );
+  const journalStore = useJournal(
+    journalApi,
+    session.campaignId,
+    session.role === 'gm' ? 'gm' : 'player',
+    preload?.journal ?? undefined,
+  );
   const sceneImageIds = useMemo(
     () =>
       scenes.scenes
@@ -138,6 +160,7 @@ export function PlayScreen({
     assetApi,
     session.campaignId,
     sceneImageIds,
+    preload?.thumbnails,
   );
   const tools =
     session.role === 'gm' ? [...playerTools, fogTool] : playerTools;
@@ -444,6 +467,7 @@ export function PlayScreen({
           >
             <ChatPanel
               applicationApi={applicationApi}
+              bootstrap={preload?.chat ?? undefined}
               networkApi={networkApi}
               session={session}
               visible={showChat}
@@ -484,6 +508,7 @@ export function PlayScreen({
               ) : showStorage ? (
                 <StoragePanel
                   assetApi={assetApi}
+                  assetStore={assetStore}
                   campaignId={session.campaignId}
                   canDragImages={session.role === 'gm'}
                   onDetachFromScenes={scenes.detachAsset}
@@ -507,6 +532,7 @@ export function PlayScreen({
                 />
               ) : showJournal ? (
                 <JournalPanel
+                  journalStore={journalStore}
                   assetApi={assetApi}
                   campaignId={session.campaignId}
                   journalApi={journalApi}

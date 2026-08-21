@@ -34,7 +34,7 @@ function drag(
 }
 
 describe('shape creation geometry', () => {
-  it('implements every 5-unit and proportional modifier combination', () => {
+  it('implements every quantized and proportional modifier combination', () => {
     const proportional = drag('sphere');
     const ctrlOnly = drag('sphere', { ctrlKey: true });
     const nonProportional = drag('sphere', { altKey: true });
@@ -48,7 +48,7 @@ describe('shape creation geometry', () => {
     });
     expect(ctrlOnly).toEqual(proportional);
     expect(nonProportional).toMatchObject({
-      height: 400,
+      height: 300,
       width: 200,
       x: 17,
       y: 26,
@@ -62,9 +62,9 @@ describe('shape creation geometry', () => {
   });
 
   it('uses dominant square sides and independent Alt dimensions', () => {
-    expect(drag('square')).toMatchObject({ height: 200, width: 200 });
+    expect(drag('square')).toMatchObject({ height: 150, width: 150 });
     expect(drag('square', { altKey: true })).toMatchObject({
-      height: 200,
+      height: 150,
       width: 100,
     });
   });
@@ -73,7 +73,7 @@ describe('shape creation geometry', () => {
     expect(drag('cone')).toMatchObject({ kind: 'cone', spread: 53.13 });
     const quantized = drag('cone', { altKey: true });
     expect(quantized).toMatchObject({
-      height: 400,
+      height: 300,
       kind: 'cone',
       width: 100,
     });

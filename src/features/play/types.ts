@@ -7,6 +7,7 @@ import type {
 } from '../../shared/network';
 import type { AssetApi } from '../../shared/assets';
 import type { SceneApi } from '../../shared/scenes';
+import type { CampaignPreload } from './campaignPreload';
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import type { JournalApi } from '../../shared/journal';
 import type { JournalWindowApi } from '../../shared/journalWindows';
@@ -86,6 +87,12 @@ export interface PlayScreenProps {
   onServerUsernameChange?: (userId: string, username: string) => void;
   onSidebarTabChange?: (id: SidebarTabId) => void;
   onToolChange?: (id: PlayToolId) => void;
+  /**
+   * The campaign as it was read before this screen was built. Absent only when
+   * nothing warmed it, in which case every store reads its own slice as it
+   * always has.
+   */
+  preload?: CampaignPreload;
   sceneApi: SceneApi;
   serverSettings?: CampaignServerSettings;
   serverStatus?: ServerStatus;

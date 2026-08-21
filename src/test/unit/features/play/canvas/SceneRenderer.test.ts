@@ -725,7 +725,7 @@ describe('SceneRenderer', () => {
     expect(element.style.cursor).toBe('');
   });
 
-  it('creates the same 5-unit sphere with either grid mode and uses the true release point', async () => {
+  it('creates the same snapped sphere with either grid mode and uses the true release point', async () => {
     const create = async (grid: SceneRecord['grid']) => {
       const existingImage = {
         ...placement,
@@ -869,11 +869,14 @@ describe('SceneRenderer', () => {
     renderer.setScene(current, null);
     await drag(2, true);
 
-    expect(shapes[0].width % 140).toBe(0);
-    expect(shapes[0].height % 140).toBe(0);
+    /* An Alt sphere is two independently quantized radii, so each dimension
+       lands on twice the shape increment: 2.5 units is 35px at this scene's
+       scale, so both sides are multiples of 70. */
+    expect(shapes[0].width % 70).toBe(0);
+    expect(shapes[0].height % 70).toBe(0);
     expect(shapes[0].width).not.toBe(shapes[0].height);
-    expect(shapes[1].width % 140).not.toBeCloseTo(0);
-    expect(shapes[1].height % 140).not.toBeCloseTo(0);
+    expect(shapes[1].width % 70).not.toBeCloseTo(0);
+    expect(shapes[1].height % 70).not.toBeCloseTo(0);
     expect(shapes[1].width).not.toBe(shapes[1].height);
   });
 

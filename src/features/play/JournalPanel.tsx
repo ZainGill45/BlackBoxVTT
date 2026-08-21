@@ -24,12 +24,10 @@ import {
   type JournalDeletePreview,
   type JournalEntry,
   type JournalEntrySummary,
-  type JournalManifest,
   MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
   type NoteEntry,
   type SystemJournalEntry,
 } from '../../shared/journal';
-import type { PermissionSubject } from '../../shared/permissions';
 import type { NetworkApi } from '../../shared/network';
 import type { JournalWindowApi } from '../../shared/journalWindows';
 import {
@@ -54,12 +52,18 @@ import {
 import { PermissionsModal } from '../../components/ui/PermissionsModal';
 import { NoteModal } from './journal/NoteModal';
 import { journalEntryPermissionSubject } from './journal/permissionSubjects';
+import type { JournalStore } from './journal/useJournal';
 import styles from './JournalPanel.module.css';
 
 interface JournalPanelProps {
   assetApi?: AssetApi;
   campaignId?: string;
   journalApi?: JournalApi;
+  /**
+   * The campaign's journal. Owned above the sidebar so that leaving this tab
+   * and returning to it shows the entries instead of reading them again.
+   */
+  journalStore?: JournalStore;
   journalWindowApi?: JournalWindowApi;
   networkApi?: NetworkApi;
   role?: 'gm' | 'player';
@@ -148,17 +152,21 @@ export function JournalPanel({
   assetApi,
   campaignId = '',
   journalApi,
+  journalStore,
   journalWindowApi,
   networkApi,
   role = 'gm',
   system,
 }: JournalPanelProps = {}) {
-  if (!assetApi || !journalApi || !campaignId) return <JournalEmptyShell />;
+  if (!assetApi || !journalApi || !campaignId || !journalStore) {
+    return <JournalEmptyShell />;
+  }
   return (
     <ConnectedJournalPanel
       assetApi={assetApi}
       campaignId={campaignId}
       journalApi={journalApi}
+      journalStore={journalStore}
       journalWindowApi={journalWindowApi}
       networkApi={networkApi}
       role={role}
@@ -189,6 +197,7 @@ function ConnectedJournalPanel({
   assetApi,
   campaignId,
   journalApi,
+  journalStore,
   journalWindowApi,
   networkApi,
   role,
@@ -216,7 +225,16 @@ function ConnectedJournalPanel({
       left.order - right.order || left.label.localeCompare(right.label),
     );
   }, [entryTypes]);
-  const [manifest, setManifest] = useState<JournalManifest | null>(null);
+  const {
+    error,
+    manifest,
+    onRead,
+    refresh,
+    refreshUsers,
+    setError,
+    setManifest,
+    users,
+  } = journalStore;
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [selectedNote, setSelectedNote] = useState<{
@@ -230,33 +248,14 @@ function ConnectedJournalPanel({
     preview: JournalDeletePreview;
   } | null>(null);
   const [cleanupIds, setCleanupIds] = useState<string[]>([]);
-  const [users, setUsers] = useState<PermissionSubject[]>([]);
-  const [error, setError] = useState<string | null>(null);
   const [reorderState, setReorderState] = useState<ReorderState | null>(null);
   const menu = useRef<ContextMenuController | null>(null);
-  const refreshRequestRef = useRef(0);
   const rowsRefs = useRef(new Map<string, HTMLUListElement>());
   const reorder = useRef<OrderedCollectionController | null>(null);
   const {
     pendingId: pendingDeleteId,
     request: requestDeleteConfirmation,
   } = useDeleteConfirmation();
-
-  const refresh = useCallback(async () => {
-    const request = ++refreshRequestRef.current;
-    const result = await journalApi.list({ campaignId });
-    if (request !== refreshRequestRef.current) return;
-    if (result.ok) {
-      setManifest(result.value);
-      setSelectedSystemEntry((current) => {
-        if (!current) return current;
-        const summary = result.value.entries.find(({ id }) => id === current.id);
-        return summary?.kind === 'system' ? { ...current, ...summary } : null;
-      });
-    } else {
-      setError(result.error.message);
-    }
-  }, [campaignId, journalApi]);
 
   const acceptUpdatedNote = useCallback((updated: NoteEntry | null) => {
     if (!updated) {
@@ -269,7 +268,7 @@ function ConnectedJournalPanel({
           entries: current.entries.map((entry) => entry.id === updated.id ? updated : entry),
         }
       : current);
-  }, [refresh]);
+  }, [refresh, setManifest]);
 
   const acceptUpdatedPermissions = useCallback((updated: JournalEntry) => {
     setEditingPermissions(updated);
@@ -281,7 +280,7 @@ function ConnectedJournalPanel({
       : current);
     setSelectedSystemEntry((current) =>
       current?.id === updated.id && updated.kind === 'system' ? updated : current);
-  }, []);
+  }, [setManifest]);
 
   /* Built once per subject so the editor is not handed a fresh commit closure
      on every render of the panel behind it. */
@@ -306,26 +305,30 @@ function ConnectedJournalPanel({
         }
       : current);
     setSelectedSystemEntry((current) => current?.id === updated.id ? updated : current);
-  }, []);
+  }, [setManifest]);
 
+  /* An open system entry is a copy of one journal row, so it is re-read from
+     every journal that comes back - and closed when the entry it was showing
+     is gone. It follows the stored journal rather than the panel's own
+     optimistic edits, which the open sheet has already applied itself. */
+  useEffect(
+    () =>
+      onRead((next) => {
+        setSelectedSystemEntry((current) => {
+          if (!current) return current;
+          const summary = next.entries.find(({ id }) => id === current.id);
+          return summary?.kind === 'system' ? { ...current, ...summary } : null;
+        });
+      }),
+    [onRead],
+  );
+
+  /* Read again whenever this tab is opened, because the roster is edited in
+     server settings rather than here and the library above outlives the tab.
+     Deferred so it never lands during this effect. */
   useEffect(() => {
-    let active = true;
-    const remove = journalApi.onChanged((event) => {
-      if (event.campaignId === campaignId) void refresh();
-    });
-    void Promise.resolve().then(async () => {
-      if (active) await refresh();
-    });
-    if (role === 'gm') {
-      void journalApi.listUsers({ campaignId }).then((result) => {
-        if (active && result.ok) setUsers(result.value);
-      });
-    }
-    return () => {
-      active = false;
-      remove();
-    };
-  }, [campaignId, journalApi, refresh, role]);
+    void Promise.resolve().then(refreshUsers);
+  }, [refreshUsers]);
 
   useEffect(() => {
     menu.current = new ContextMenuController();
@@ -566,7 +569,11 @@ function ConnectedJournalPanel({
       entries.push({
         kind: 'action',
         label: 'Edit Permissions',
-        onSelect: () => setEditingPermissions(entry),
+        onSelect: () => {
+          // The roster is edited in server settings, so it is re-read here.
+          void refreshUsers();
+          setEditingPermissions(entry);
+        },
       });
     }
     if (entry.capabilities.reorder) {

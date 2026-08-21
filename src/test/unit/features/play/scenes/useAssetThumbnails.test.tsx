@@ -162,12 +162,20 @@ describe('useAssetThumbnails', () => {
       undefined as unknown as typeof createImageBitmap;
     const assetApi = createFakeAssetApi([asset]);
 
-    render(<Probe assetApi={assetApi} assetIds={[asset.id]} />);
+    const { unmount } = render(
+      <Probe assetApi={assetApi} assetIds={[asset.id]} />,
+    );
 
     expect(
       await screen.findByText(`${asset.id}=blackbox-asset://token/${asset.id}`),
     ).toBeInTheDocument();
     // That URL only works while its grant is held, so this one is not released.
     expect(assetApi.releasePreview).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(assetApi.releasePreview).toHaveBeenCalledWith({
+      token: '44444444-4444-4444-8444-444444444444',
+    });
   });
 });

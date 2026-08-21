@@ -62,9 +62,11 @@ export function useScenes(
   sceneApi: SceneApi,
   campaignId: string,
   canPresent: boolean,
+  /** A manifest already read, so the scene list paints on the first render. */
+  seed?: SceneManifest,
 ): SceneStore {
   const [manifest, setManifest] = useState<SceneManifest>(
-    createEmptySceneManifest,
+    () => seed ?? createEmptySceneManifest(),
   );
   const [error, setError] = useState<SceneError | null>(null);
   const [requestedSceneId, setRequestedSceneId] = useState<string | null>(null);

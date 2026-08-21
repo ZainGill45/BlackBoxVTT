@@ -26,10 +26,8 @@ import { InlineRename } from '../../components/ui/InlineRename';
 import { OrderedCollectionController } from '../../components/ui/orderedCollection';
 import type {
   AssetApi,
-  AssetErrorEvent,
   AssetKind,
   AssetPreview,
-  AssetProgressEvent,
   AssetView,
 } from '../../shared/assets';
 import { CANVAS_IMAGE_DRAG_TYPE } from '../../shared/assets';
@@ -40,9 +38,9 @@ import {
   useDeleteConfirmation,
 } from '../connection/useDeleteConfirmation';
 import { PermissionsModal } from '../../components/ui/PermissionsModal';
-import type { PermissionSubject } from '../../shared/permissions';
 import { AssetPreviewModal } from './AssetPreviewModal';
 import { assetPermissionSubject } from './assetPermissionSubject';
+import type { AssetStore } from './useAssets';
 import {
   SidebarCollectionGroup,
   SidebarCollectionPanel,
@@ -169,6 +167,11 @@ function AssetRow({
 
 interface StoragePanelProps {
   assetApi: AssetApi;
+  /**
+   * The campaign's asset library. Owned above the sidebar so that leaving this
+   * tab and returning to it shows the assets instead of fetching them again.
+   */
+  assetStore: AssetStore;
   campaignId: string;
   canDragImages?: boolean;
   /** Clears the asset from every canonical or additional scene placement. */
@@ -181,6 +184,7 @@ interface StoragePanelProps {
 
 export function StoragePanel({
   assetApi,
+  assetStore,
   campaignId,
   canDragImages = false,
   onDetachFromScenes,
@@ -188,20 +192,27 @@ export function StoragePanel({
   onDetachFromJournal,
   onFindJournalDependents,
 }: StoragePanelProps) {
-  const [assets, setAssets] = useState<AssetView[]>([]);
+  const {
+    assets,
+    error,
+    onChanged,
+    progress,
+    refreshUsers,
+    setAssets,
+    setError,
+    setProgress,
+    users,
+  } = assetStore;
   const [query, setQuery] = useState('');
   const [expanded, setExpanded] = useState<Record<AssetKind, boolean>>({
     audio: false,
     document: false,
     image: false,
   });
-  const [error, setError] = useState<AssetErrorEvent | null>(null);
   const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState<AssetProgressEvent | null>(null);
   const [selected, setSelected] = useState<AssetView | null>(null);
   const [preview, setPreview] = useState<AssetPreview | null>(null);
   const [editingPermissions, setEditingPermissions] = useState<AssetView | null>(null);
-  const [users, setUsers] = useState<PermissionSubject[]>([]);
   const [dependencyPrompt, setDependencyPrompt] = useState<{
     asset: AssetView;
     journal: JournalAssetDependent[];
@@ -234,53 +245,30 @@ export function StoragePanel({
     [assetApi],
   );
 
+  /* Read again whenever this tab is opened, because the roster is edited in
+     server settings rather than here and the library above outlives the tab.
+     Deferred so it never lands during this effect. */
+  useEffect(() => {
+    void Promise.resolve().then(refreshUsers);
+  }, [refreshUsers]);
+
   useEffect(() => {
     menu.current = new ContextMenuController();
     return () => menu.current?.close();
   }, []);
 
-  useEffect(() => {
-    let current = true;
-    void assetApi.list({ campaignId }).then((result) => {
-      if (!current) {
-        return;
-      }
-      if (result.ok) {
-        setAssets(result.value);
-      } else {
-        setError({
-          ...result.error,
-          campaignId,
-          title: 'Campaign assets could not be loaded',
-        });
-      }
-    });
-    /* Only the Game Master is offered the roster, and only the Game Master is
-       ever allowed to read it, so a player's denial is not an error to show. */
-    void assetApi.listUsers({ campaignId }).then((result) => {
-      if (current && result.ok) setUsers(result.value);
-    });
-    const removeChanged = assetApi.onChanged((event) => {
-      if (event.campaignId === campaignId) {
-        setAssets(event.assets);
+  /* The permissions editor holds one asset by value, so it is re-read from
+     every library that arrives - and closed when the asset it was editing has
+     been removed. */
+  useEffect(
+    () =>
+      onChanged((next) => {
         setEditingPermissions((editing) =>
-          editing
-            ? event.assets.find(({ id }) => id === editing.id) ?? null
-            : editing,
+          editing ? next.find(({ id }) => id === editing.id) ?? null : editing,
         );
-      }
-    });
-    const removeProgress = assetApi.onProgress((event) => {
-      if (event.scope === 'import') {
-        setProgress(event);
-      }
-    });
-    return () => {
-      current = false;
-      removeChanged();
-      removeProgress();
-    };
-  }, [assetApi, campaignId]);
+      }),
+    [onChanged],
+  );
 
   useEffect(() => {
     if (!selected || preview) {
@@ -315,14 +303,14 @@ export function StoragePanel({
     return () => {
       active = false;
     };
-  }, [assetApi, assets, campaignId, preview, selected]);
+  }, [assetApi, assets, campaignId, preview, selected, setError]);
 
   const acceptUpdatedAsset = useCallback((updated: AssetView) => {
     setEditingPermissions(updated);
     setAssets((current) =>
       current.map((asset) => (asset.id === updated.id ? updated : asset)),
     );
-  }, []);
+  }, [setAssets]);
 
   /* Built once per asset so the editor is not handed a fresh commit closure on
      every render of the library behind it. */
@@ -456,7 +444,11 @@ export function StoragePanel({
       entries.push({
         kind: 'action',
         label: 'Edit Permissions',
-        onSelect: () => setEditingPermissions(asset),
+        onSelect: () => {
+          // The roster is edited in server settings, so it is re-read here.
+          void refreshUsers();
+          setEditingPermissions(asset);
+        },
       });
     }
     if (asset.capabilities.reorder) {

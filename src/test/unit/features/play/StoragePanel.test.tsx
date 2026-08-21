@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { ComponentProps } from 'react';
 import type {
   AssetApi,
   AssetCapability,
@@ -8,6 +9,27 @@ import type {
 } from '../../../../shared/assets';
 import { makeScene } from '../../../support/scenes';
 import { StoragePanel } from '../../../../features/play/StoragePanel';
+import { useAssets } from '../../../../features/play/useAssets';
+
+/**
+ * The library lives above the sidebar in the real screen, so the panel is
+ * exercised through the same store the play screen builds for it rather than
+ * against a hand-made one.
+ */
+function StoragePanelHarness({
+  assetApi,
+  campaignId,
+  ...rest
+}: Omit<ComponentProps<typeof StoragePanel>, 'assetStore'>) {
+  return (
+    <StoragePanel
+      assetApi={assetApi}
+      assetStore={useAssets(assetApi, campaignId)}
+      campaignId={campaignId}
+      {...rest}
+    />
+  );
+}
 
 const capabilities: AssetCapability = {
   delete: true,
@@ -137,7 +159,7 @@ describe('StoragePanel', () => {
       ),
     ]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
@@ -185,7 +207,7 @@ describe('StoragePanel', () => {
     );
     const { api, rename, trash } = createApi([original]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
@@ -230,7 +252,7 @@ describe('StoragePanel', () => {
     const { api, trash } = createApi([original]);
     const onDetachFromScenes = vi.fn(async () => undefined);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
         onDetachFromScenes={onDetachFromScenes}
@@ -285,7 +307,7 @@ describe('StoragePanel', () => {
       asset('11111111-1111-4111-8111-111111111111', 'Map.png', 'image', 'png'),
     ]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
         onFindSceneDependents={async () => []}
@@ -315,7 +337,7 @@ describe('StoragePanel', () => {
       asset(second, 'Beta.png', 'image', 'png'),
     ]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
@@ -349,7 +371,7 @@ describe('StoragePanel', () => {
       asset('11111111-1111-4111-8111-111111111111', 'Map.png', 'image', 'png'),
     ]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
@@ -373,7 +395,7 @@ describe('StoragePanel', () => {
       asset('11111111-1111-4111-8111-111111111111', 'Map.png', 'image', 'png'),
     ]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
@@ -407,6 +429,64 @@ describe('StoragePanel', () => {
     }), { timeout: 3_000 });
   });
 
+  it('re-reads the roster when the permissions editor opens', async () => {
+    const user = userEvent.setup();
+    const { api } = createApi([
+      asset('11111111-1111-4111-8111-111111111111', 'Map.png', 'image', 'png'),
+    ]);
+    /* The campaign opens with nobody on it, and a player is added in server
+       settings afterwards - so a roster read once, on the way in, would leave
+       the editor with nobody to grant anything to. */
+    let roster: { id: string; username: string }[] = [];
+    let resolveOldRoster:
+      | ((result: Awaited<ReturnType<AssetApi['listUsers']>>) => void)
+      | undefined;
+    vi.mocked(api.listUsers)
+      .mockImplementationOnce(
+        () =>
+          new Promise<Awaited<ReturnType<AssetApi['listUsers']>>>(
+            (resolve) => {
+              resolveOldRoster = resolve;
+            },
+          ),
+      )
+      .mockImplementation(async () => ({
+        ok: true as const,
+        value: roster,
+      }));
+
+    render(
+      <StoragePanelHarness
+        assetApi={api}
+        campaignId="33333333-3333-4333-8333-333333333333"
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Images' }));
+
+    roster = [{ id: '99999999-9999-4999-8999-999999999999', username: 'Chris' }];
+
+    fireEvent.contextMenu(
+      screen.getByRole('textbox', { name: 'Name for Map.png' }),
+    );
+    await user.click(screen.getByRole('menuitem', { name: 'Edit Permissions' }));
+
+    const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
+    expect(
+      await within(permissions).findByRole('button', {
+        name: 'Chris permission',
+      }),
+    ).toBeVisible();
+
+    await act(async () => {
+      resolveOldRoster?.({ ok: true, value: [] });
+    });
+    expect(
+      within(permissions).getByRole('button', {
+        name: 'Chris permission',
+      }),
+    ).toBeVisible();
+  });
+
   it('keeps an asset the player was not granted out of the library', async () => {
     const withheld = asset(
       '11111111-1111-4111-8111-111111111111',
@@ -420,7 +500,7 @@ describe('StoragePanel', () => {
       { ...withheld, capabilities: { ...withheld.capabilities, list: false } },
     ]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,
@@ -434,7 +514,7 @@ describe('StoragePanel', () => {
   it('offers asset import when no assets exist', async () => {
     const { api } = createApi([]);
     render(
-      <StoragePanel
+      <StoragePanelHarness
         assetApi={api}
         campaignId="33333333-3333-4333-8333-333333333333"
       />,

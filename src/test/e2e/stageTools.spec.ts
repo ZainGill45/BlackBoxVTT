@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Locator } from '@playwright/test';
+import { SHAPE_UNIT_INCREMENT } from '../../features/play/canvas/shapeGeometry';
 import { AppFixture } from './support/app';
 import type { LaunchedApp } from './support/app';
 import { createAndOpenCampaign, openTab } from './support/flows';
@@ -174,7 +175,7 @@ test.describe('stage camera and tools', () => {
       .toBeGreaterThan(THIN_LINE_CHANGE);
   });
 
-  test('renders a stable 5-unit shape while zooming', async () => {
+  test('renders a stable snapped shape while zooming', async () => {
     await gm.window.getByRole('button', { name: 'Shape', exact: true }).click();
     const rail = gm.window.getByRole('toolbar', { name: 'Shape tools' });
     await expect(rail.getByRole('button', { name: 'Sphere' }))
@@ -201,7 +202,7 @@ test.describe('stage camera and tools', () => {
     });
     const radius = ((sphere.width / 2) / storedScene.pixelScale) *
       storedScene.distance;
-    expect(radius % 5).toBeCloseTo(0);
+    expect(radius % SHAPE_UNIT_INCREMENT).toBeCloseTo(0);
     expect(
       (sphere.x - storedScene.grid.offsetX) % storedScene.grid.size,
     ).not.toBeCloseTo(0);

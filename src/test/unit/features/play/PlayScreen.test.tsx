@@ -17,6 +17,7 @@ import {
 import { createMockNetworkApi } from '../../../support/networkApi';
 import { createDefaultServerSettings } from '../../../../features/play/serverSettings';
 import type { PlayScreenProps } from '../../../../features/play/types';
+import type { AssetView } from '../../../../shared/assets';
 import { TEST_CAMPAIGN_SYSTEM } from '../../../support/gameSystems';
 
 const playerSession: PlayScreenProps['session'] = {
@@ -37,6 +38,41 @@ const gmSession: PlayScreenProps['session'] = {
   role: 'gm',
   source: 'local',
   system: TEST_CAMPAIGN_SYSTEM,
+};
+
+const storedImage: AssetView = {
+  available: true,
+  capabilities: {
+    delete: true,
+    import: true,
+    list: true,
+    managePermissions: true,
+    preview: true,
+    read: true,
+    rename: true,
+    reorder: true,
+  },
+  chunkHashes: [
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  ],
+  createdAt: '2026-01-01T00:00:00.000Z',
+  createdBy: 'gm',
+  displayName: 'Keep gatehouse',
+  extension: 'png',
+  fileModifiedAtMs: 1,
+  format: 'png',
+  id: '55555555-5555-4555-8555-555555555555',
+  kind: 'image',
+  lastModifiedAt: '2026-01-01T00:00:00.000Z',
+  lastModifiedBy: 'gm',
+  mimeType: 'image/png',
+  originalFilename: 'gatehouse.png',
+  permissionRevision: 0,
+  permissions: { allPlayers: 'none', overrides: [] },
+  revision: 1,
+  sha256: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  sizeBytes: 2048,
+  syncState: 'ready',
 };
 
 function renderPlayScreen(
@@ -666,6 +702,47 @@ describe('PlayScreen', () => {
     expect(
       screen.getByText('Server Online 4 Players Connected'),
     ).toBeInTheDocument();
+  });
+
+  it('keeps a sidebar tab populated across switches without reading it again', async () => {
+    const user = userEvent.setup();
+    const assetApi = createFakeAssetApi([storedImage]);
+    renderPlayScreen({ assetApi, session: gmSession });
+
+    await user.click(screen.getByRole('tab', { name: 'Storage' }));
+    expect(await screen.findByRole('button', { name: 'Images' })).toBeVisible();
+    expect(vi.mocked(assetApi.list).mock.calls).toHaveLength(1);
+
+    await user.click(screen.getByRole('tab', { name: 'Chat' }));
+    await user.click(screen.getByRole('tab', { name: 'Storage' }));
+
+    /* Found without waiting, because the library outlived the switch: the tab
+       that comes back is already populated rather than empty until it has
+       read itself in again. */
+    expect(screen.getByRole('button', { name: 'Images' })).toBeVisible();
+    expect(vi.mocked(assetApi.list).mock.calls).toHaveLength(1);
+  });
+
+  it('opens a preloaded library without waiting to read it', async () => {
+    const user = userEvent.setup();
+    const assetApi = createFakeAssetApi([]);
+    /* Never settles, so everything on screen can only have come from the
+       preload rather than from a read this screen performed itself. */
+    vi.mocked(assetApi.list).mockImplementation(() => new Promise(() => {}));
+    renderPlayScreen({
+      assetApi,
+      preload: {
+        assets: { assets: [storedImage], users: [] },
+        chat: null,
+        journal: null,
+        scenes: null,
+        thumbnails: new Map(),
+      },
+      session: gmSession,
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Storage' }));
+    expect(screen.getByRole('button', { name: 'Images' })).toBeVisible();
   });
 
   it('discards transient GM settings drafts after leaving the tab', async () => {

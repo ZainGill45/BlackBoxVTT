@@ -17,17 +17,56 @@ export interface AssetThumbnail {
   url: string;
 }
 
-interface Entry extends AssetThumbnail {
-  /** True when this is the untouched asset URL rather than a thumbnail. */
-  isFallback: boolean;
+export type AssetThumbnailEntry = AssetThumbnail & (
+  | {
+      /** A generated object URL whose source preview grant was released. */
+      isFallback: false;
+      token: null;
+    }
+  | {
+      /** The untouched asset URL, which only works while this grant is held. */
+      isFallback: true;
+      token: string;
+    }
+);
+
+/** Releases whichever renderer resource backs an entry. */
+export function releaseAssetThumbnail(
+  assetApi: AssetApi | undefined,
+  entry: AssetThumbnailEntry,
+): void {
+  if (entry.isFallback) {
+    if (!assetApi) return;
+    try {
+      void Promise.resolve(
+        assetApi.releasePreview({ token: entry.token }),
+      ).catch(() => undefined);
+    } catch {
+      // Cleanup is best effort when the bridge itself has already gone away.
+    }
+  } else {
+    URL.revokeObjectURL(entry.url);
+  }
 }
 
-async function buildThumbnail(
+/**
+ * Builds one thumbnail, and hands its renderer resource to the caller to own.
+ *
+ * Exported so a campaign can be warmed before its play screen exists; whoever
+ * builds an entry is responsible for handing it to `useAssetThumbnails`, which
+ * releases the resource once nothing references the asset any more.
+ */
+export async function buildAssetThumbnail(
   assetApi: AssetApi,
   campaignId: string,
   assetId: string,
-): Promise<Entry | null> {
-  const preview = await assetApi.getPreview({ assetId, campaignId });
+): Promise<AssetThumbnailEntry | null> {
+  let preview: Awaited<ReturnType<AssetApi['getPreview']>>;
+  try {
+    preview = await assetApi.getPreview({ assetId, campaignId });
+  } catch {
+    return null;
+  }
   if (!preview.ok) {
     return null;
   }
@@ -35,7 +74,13 @@ async function buildThumbnail(
 
   // If anything below fails, the asset URL still renders — at the cost of
   // decoding the full image — rather than the row showing nothing at all.
-  let entry: Entry = { isFallback: true, sourceHeight: 0, sourceWidth: 0, url };
+  let entry: AssetThumbnailEntry = {
+    isFallback: true,
+    sourceHeight: 0,
+    sourceWidth: 0,
+    token,
+    url,
+  };
   try {
     const response = await fetch(url);
     if (response.ok) {
@@ -45,6 +90,7 @@ async function buildThumbnail(
           isFallback: false,
           sourceHeight: thumbnail.sourceHeight,
           sourceWidth: thumbnail.sourceWidth,
+          token: null,
           url: URL.createObjectURL(thumbnail.blob),
         };
       }
@@ -75,12 +121,19 @@ export function useAssetThumbnails(
   assetApi: AssetApi | undefined,
   campaignId: string,
   assetIds: readonly string[],
+  /**
+   * Thumbnails built before this hook existed, whose object URLs it adopts:
+   * their object URLs or fallback grants are released here like any it built
+   * itself, and must not be released by whoever passed them in.
+   */
+  seed?: ReadonlyMap<string, AssetThumbnailEntry>,
 ): ReadonlyMap<string, AssetThumbnail> {
+  // Renderer resources must be released, and only the ones we minted or adopted.
+  const owned = useRef(new Map<string, AssetThumbnailEntry>(seed));
+  const owningAssetApi = useRef(assetApi);
   const [thumbnails, setThumbnails] = useState<
     ReadonlyMap<string, AssetThumbnail>
-  >(EMPTY);
-  // Object URLs must be revoked, and only the ones we minted.
-  const owned = useRef(new Map<string, Entry>());
+  >(() => (seed && seed.size > 0 ? new Map(seed) : EMPTY));
 
   // A string key so a rename or a present, which produce a new manifest object
   // holding the same images, does not rebuild anything.
@@ -102,9 +155,7 @@ export function useAssetThumbnails(
     let changed = false;
     for (const [assetId, entry] of [...cache]) {
       if (!wanted.includes(assetId)) {
-        if (!entry.isFallback) {
-          URL.revokeObjectURL(entry.url);
-        }
+        releaseAssetThumbnail(assetApi, entry);
         cache.delete(assetId);
         changed = true;
       }
@@ -121,11 +172,9 @@ export function useAssetThumbnails(
     const queue = [...pending];
     const worker = async () => {
       for (let assetId = queue.shift(); assetId; assetId = queue.shift()) {
-        const entry = await buildThumbnail(assetApi, campaignId, assetId);
+        const entry = await buildAssetThumbnail(assetApi, campaignId, assetId);
         if (!active) {
-          if (entry && !entry.isFallback) {
-            URL.revokeObjectURL(entry.url);
-          }
+          if (entry) releaseAssetThumbnail(assetApi, entry);
           return;
         }
         if (entry) {
@@ -145,11 +194,10 @@ export function useAssetThumbnails(
 
   useEffect(() => {
     const cache = owned.current;
+    const owner = owningAssetApi.current;
     return () => {
       for (const entry of cache.values()) {
-        if (!entry.isFallback) {
-          URL.revokeObjectURL(entry.url);
-        }
+        releaseAssetThumbnail(owner, entry);
       }
       cache.clear();
     };

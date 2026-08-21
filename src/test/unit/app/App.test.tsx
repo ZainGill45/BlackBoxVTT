@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -518,6 +519,88 @@ describe('App campaign integration', () => {
         name: 'Campaign asset synchronization failed',
       }),
     ).toHaveTextContent('Map.png failed integrity verification.');
+    expect(
+      screen.queryByRole('region', { name: /Map play area/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('cancels remote entry when the session closes during synchronization', async () => {
+    const user = userEvent.setup();
+    const campaignApi: CampaignApi = {
+      ...campaignTransferStubs(),
+      create: vi.fn(),
+      list: vi.fn(async () => ({ ok: true as const, value: [] })),
+      trash: vi.fn(),
+    };
+    let closeSession:
+      | Parameters<NetworkApi['onSessionClosed']>[0]
+      | undefined;
+    const networkApi = createAuthenticatedNetworkApi({
+      connect: vi.fn(async () => ({
+        ok: true as const,
+        value: {
+          state: 'authentication_required' as const,
+          challenge: {
+            attemptId: '33333333-3333-4333-8333-333333333333',
+            campaignId: remoteSession.campaignId,
+            campaignName: remoteSession.campaignName,
+            system: TEST_CAMPAIGN_SYSTEM,
+            users: [
+              {
+                hasSavedPassword: true,
+                id: remoteSession.userId,
+                username: remoteSession.username,
+              },
+            ],
+          },
+        },
+      })),
+      listHistory: vi.fn(async () => ({
+        ok: true as const,
+        value: [remoteSavedConnection],
+      })),
+      onSessionClosed: vi.fn((listener) => {
+        closeSession = listener;
+        return () => undefined;
+      }),
+    });
+    let resolveSync:
+      | ((value: Awaited<ReturnType<AssetApi['prepareRemote']>>) => void)
+      | undefined;
+    const assetApi = createMockAssetApi({
+      prepareRemote: vi.fn(
+        () =>
+          new Promise<Awaited<ReturnType<AssetApi['prepareRemote']>>>(
+            (resolve) => {
+              resolveSync = resolve;
+            },
+          ),
+      ),
+    });
+    render(
+      <App
+        assetApi={assetApi}
+        campaignApi={campaignApi}
+        networkApi={networkApi}
+      />,
+    );
+    const savedRow = (await screen.findByText('Remote Campaign')).closest('li')!;
+    await user.click(within(savedRow).getByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(assetApi.prepareRemote).toHaveBeenCalledOnce());
+
+    act(() => {
+      closeSession?.({
+        code: 'connection_failed',
+        message: 'The host ended this session.',
+      });
+    });
+    await act(async () => {
+      resolveSync?.({ ok: true, value: [] });
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(screen.getByText('The host ended this session.')).toBeVisible();
+    expect(assetApi.list).not.toHaveBeenCalled();
     expect(
       screen.queryByRole('region', { name: /Map play area/ }),
     ).not.toBeInTheDocument();

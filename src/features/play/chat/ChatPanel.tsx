@@ -17,6 +17,7 @@ import {
   chatUtf8ByteLength,
   countChatGraphemes,
   normalizeChatContent,
+  type ChatBootstrap,
   type ChatEvent,
   type ChatIdentity,
   type ChatMessage,
@@ -44,6 +45,12 @@ import styles from './ChatPanel.module.css';
 
 interface ChatPanelProps {
   applicationApi: ApplicationApi;
+  /**
+   * Chat as it was read before this panel existed. It paints the first render,
+   * then the panel re-reads after subscribing so events that landed between
+   * the preload and this mount cannot be lost.
+   */
+  bootstrap?: ChatBootstrap;
   networkApi: NetworkApi;
   session: PlaySession;
   visible: boolean;
@@ -221,23 +228,32 @@ function rowDate(row: TimelineRow): Date {
 
 export function ChatPanel({
   applicationApi,
+  bootstrap,
   networkApi,
   session,
   visible,
 }: ChatPanelProps) {
   const [phase, setPhase] = useState<'loading' | 'ready' | 'unavailable'>(
-    'loading',
+    bootstrap ? 'ready' : 'loading',
   );
   const [unavailableMessage, setUnavailableMessage] = useState(
     'Campaign chat is unavailable.',
   );
-  const [generation, setGeneration] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [systemRows, setSystemRows] = useState<ChatParticipantEvent[]>([]);
+  const [generation, setGeneration] = useState(bootstrap?.generation ?? '');
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+    ...(bootstrap?.messages ?? []),
+  ]);
+  const [systemRows, setSystemRows] = useState<ChatParticipantEvent[]>(() => [
+    ...(bootstrap?.systemEvents ?? []),
+  ]);
   const [helpRows, setHelpRows] = useState<HelpRow[]>([]);
   const [pendingRows, setPendingRows] = useState<PendingChatRow[]>([]);
-  const [directory, setDirectory] = useState<ChatIdentity[]>([]);
-  const [maxMessageCharacters, setMaxMessageCharacters] = useState(10_000);
+  const [directory, setDirectory] = useState<ChatIdentity[]>(() => [
+    ...(bootstrap?.directory ?? []),
+  ]);
+  const [maxMessageCharacters, setMaxMessageCharacters] = useState(
+    bootstrap?.maxMessageCharacters ?? 10_000,
+  );
   const [pageDirection, setPageDirection] = useState<'newer' | 'older' | null>(
     null,
   );
@@ -249,17 +265,23 @@ export function ChatPanel({
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const submissionHistoryRef = useRef(createChatSubmissionHistory());
   const placeComposerCaretAtEndRef = useRef(false);
-  const generationRef = useRef('');
-  const messagesRef = useRef<ChatMessage[]>([]);
-  const hasOlderRef = useRef(false);
-  const hasNewerRef = useRef(false);
+  const generationRef = useRef(bootstrap?.generation ?? '');
+  const messagesRef = useRef<ChatMessage[]>([
+    ...(bootstrap?.messages ?? []),
+  ]);
+  const hasOlderRef = useRef(bootstrap?.hasOlder ?? false);
+  const hasNewerRef = useRef(bootstrap?.hasNewer ?? false);
   const visibleRef = useRef(visible);
   const atBottomRef = useRef(true);
-  const requestBottomRef = useRef(false);
+  const requestBottomRef = useRef(bootstrap !== undefined);
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
   const bootstrapQueueRef = useRef<ChatEvent[]>([]);
-  const soundedMessageIdsRef = useRef(new Set<string>());
+  const soundedMessageIdsRef = useRef(
+    new Set(bootstrap?.messages.map(({ id }) => id) ?? []),
+  );
   const bootstrappingRef = useRef(true);
+  // The first authoritative read keeps a warm timeline visible while it lands.
+  const preserveSeedRef = useRef(bootstrap !== undefined);
   const composingRef = useRef(false);
   const loadingPageRef = useRef(false);
   const bootstrapRef = useRef<() => Promise<void>>(async () => undefined);
@@ -379,7 +401,11 @@ export function ChatPanel({
   };
 
   const loadBootstrap = async () => {
-    setPhase('loading');
+    const preserveSeed = preserveSeedRef.current;
+    preserveSeedRef.current = false;
+    if (!preserveSeed) {
+      setPhase('loading');
+    }
     setComposerError(null);
     bootstrappingRef.current = true;
     bootstrapQueueRef.current = [];
@@ -442,7 +468,9 @@ export function ChatPanel({
 
   useEffect(() => {
     submissionHistoryRef.current = createChatSubmissionHistory();
-    soundedMessageIdsRef.current = new Set();
+    soundedMessageIdsRef.current = new Set(
+      messagesRef.current.map(({ id }) => id),
+    );
     placeComposerCaretAtEndRef.current = false;
   }, [historyScope]);
 

@@ -213,7 +213,8 @@
   padding: 0;
 }
 
-.rollSection[data-static-role="description"] {
+.rollSection[data-static-role="description"],
+.rollSection[data-static-role="unheaded"] {
   margin-bottom: var(--space-2);
 }
 
