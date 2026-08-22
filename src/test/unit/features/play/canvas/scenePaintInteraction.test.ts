@@ -4,6 +4,7 @@ import {
   appendFreeformPoint,
   compactPreviewPoints,
   createSceneDrawing,
+  smoothFreeform,
 } from '../../../../../features/play/canvas/scenePaintInteraction';
 import type { SceneDrawingStyle } from '../../../../../shared/scenes';
 
@@ -66,5 +67,29 @@ describe('scene paint interaction', () => {
     expect(compacted).toHaveLength(5);
     expect(compacted[0]).toEqual(points[0]);
     expect(compacted.at(-1)).toEqual(points.at(-1));
+  });
+
+  it('filters coarse Freeform jitter without moving its endpoints', () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 10, y: 4 },
+      { x: 20, y: -4 },
+      { x: 30, y: 4 },
+      { x: 40, y: 0 },
+    ];
+
+    const smoothed = smoothFreeform(points);
+
+    expect(smoothed[0]).toEqual(points[0]);
+    expect(smoothed.at(-1)).toEqual(points.at(-1));
+    expect(Math.max(...smoothed.slice(1, -1).map((point) => Math.abs(point.y))))
+      .toBeLessThan(1);
+    expect(points).toEqual([
+      { x: 0, y: 0 },
+      { x: 10, y: 4 },
+      { x: 20, y: -4 },
+      { x: 30, y: 4 },
+      { x: 40, y: 0 },
+    ]);
   });
 });

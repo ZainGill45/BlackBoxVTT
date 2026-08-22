@@ -1071,23 +1071,73 @@ describe('SceneRenderer', () => {
       strokeOpacity: 0.75,
       strokeWidth: 32,
     };
-    const GraphicsConstructor = gridOf(renderer).constructor as new () => Graphics;
+    const GraphicsConstructor = gridOf(renderer).constructor as new () =>
+      Graphics;
     const path = new GraphicsConstructor();
     const dot = new GraphicsConstructor();
 
     strokeDrawingPath(path, {
       closed: false,
+      kind: 'freeform',
       points: [{ x: 0, y: 0 }, { x: 20, y: 20 }],
       style,
     });
     strokeDrawingPath(dot, {
       closed: false,
+      kind: 'freeform',
       points: [{ x: 0, y: 0 }],
       style,
     });
 
     expect(path.calls.filter((call) => call.op === 'stroke')).toHaveLength(16);
     expect(dot.calls.filter((call) => call.op === 'fill')).toHaveLength(16);
+  });
+
+  it('filters sparse Freeform samples while keeping Polyline corners exact', () => {
+    const style: SceneDrawingStyle = {
+      edge: 'hard',
+      fillColor: '#ffffff',
+      fillEnabled: false,
+      fillOpacity: 0.25,
+      hardness: 1,
+      strokeColor: '#ffffff',
+      strokeOpacity: 1,
+      strokeWidth: 8,
+    };
+    const GraphicsConstructor = gridOf(renderer).constructor as new () =>
+      Graphics;
+    const freeform = new GraphicsConstructor();
+    const polyline = new GraphicsConstructor();
+    const points = [
+      { x: 0, y: 0 },
+      { x: 50, y: 10 },
+      { x: 90, y: 50 },
+      { x: 100, y: 100 },
+    ];
+
+    strokeDrawingPath(freeform, {
+      closed: false,
+      kind: 'freeform',
+      points,
+      style,
+    });
+    strokeDrawingPath(polyline, {
+      closed: false,
+      kind: 'polyline',
+      points,
+      style,
+    });
+
+    const curves = freeform.calls.filter(
+      (call) => call.op === 'bezierCurveTo',
+    );
+    expect(curves).toHaveLength(points.length - 1);
+    expect(curves.at(-1)?.args.slice(4, 6)).toEqual([100, 100]);
+    expect(curves[0].args.slice(4, 6)).not.toEqual([50, 10]);
+    expect(polyline.calls.filter((call) => call.op === 'bezierCurveTo'))
+      .toHaveLength(0);
+    expect(polyline.calls.filter((call) => call.op === 'lineTo'))
+      .toHaveLength(points.length - 1);
   });
 
   it('finishes open Polylines with Enter and cancels unfinished work on tool change', async () => {

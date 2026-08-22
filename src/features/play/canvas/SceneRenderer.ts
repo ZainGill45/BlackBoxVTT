@@ -3508,6 +3508,7 @@ export class SceneRenderer implements SceneRendererHandle {
       );
       strokeDrawingPath(this.remotePaintGraphics, {
         closed: preview.closed,
+        kind: preview.kind,
         points,
         style: {
           ...preview.style,
@@ -3999,6 +4000,7 @@ export class SceneRenderer implements SceneRendererHandle {
     );
     strokeDrawingPath(this.paintPreviewGraphics, {
       closed: false,
+      kind: 'hover' in active ? 'polyline' : 'freeform',
       points: screenPoints,
       style: {
         ...active.style,

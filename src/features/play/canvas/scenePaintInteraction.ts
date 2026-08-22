@@ -5,6 +5,11 @@ import {
   type SceneDrawingStyle,
 } from '../../../shared/scenes';
 
+// Screen-pixel wobble expands in scene space as the camera zooms out. Repeated
+// local averaging removes that high-frequency input without baking camera zoom
+// into the canonical drawing shape; dense close-up samples move much less.
+const FREEFORM_SMOOTHING_PASSES = 4;
+
 export function appendFreeformPoint(
   points: SceneDrawingPoint[],
   point: SceneDrawingPoint,
@@ -70,6 +75,35 @@ export function simplifyFreeform(
       Math.min(simplified.length - 1, Math.round(index * step))
     ],
   }));
+}
+
+export function smoothFreeform(
+  points: readonly SceneDrawingPoint[],
+): SceneDrawingPoint[] {
+  if (points.length <= 2) {
+    return points.map((point) => ({ ...point }));
+  }
+  let smoothed = points.map((point) => ({ ...point }));
+  for (let pass = 0; pass < FREEFORM_SMOOTHING_PASSES; pass += 1) {
+    const next = [smoothed[0]];
+    for (let index = 1; index < smoothed.length - 1; index += 1) {
+      next.push({
+        x:
+          (smoothed[index - 1].x +
+            smoothed[index].x * 2 +
+            smoothed[index + 1].x) /
+          4,
+        y:
+          (smoothed[index - 1].y +
+            smoothed[index].y * 2 +
+            smoothed[index + 1].y) /
+          4,
+      });
+    }
+    next.push(smoothed[smoothed.length - 1]);
+    smoothed = next;
+  }
+  return smoothed;
 }
 
 export function createSceneDrawing(

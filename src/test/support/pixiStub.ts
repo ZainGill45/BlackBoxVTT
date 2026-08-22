@@ -56,7 +56,15 @@ export class Container {
 
 interface GraphicsCall {
   args: unknown[];
-  op: 'circle' | 'clear' | 'fill' | 'lineTo' | 'moveTo' | 'rect' | 'stroke';
+  op:
+    | 'bezierCurveTo'
+    | 'circle'
+    | 'clear'
+    | 'fill'
+    | 'lineTo'
+    | 'moveTo'
+    | 'rect'
+    | 'stroke';
 }
 
 export class Graphics extends Container {
@@ -71,6 +79,10 @@ export class Graphics extends Container {
   clear(): this {
     this.calls = [];
     return this.record('clear', []);
+  }
+
+  bezierCurveTo(...args: unknown[]): this {
+    return this.record('bezierCurveTo', args);
   }
 
   circle(...args: unknown[]): this {

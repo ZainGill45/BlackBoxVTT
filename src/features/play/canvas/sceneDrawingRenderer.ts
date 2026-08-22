@@ -7,9 +7,53 @@ import {
   type SceneObjectOrderLayers,
 } from '../../../shared/scenes';
 import { sceneObjectZIndex } from './sceneObjectOrder';
+import { smoothFreeform } from './scenePaintInteraction';
 import { softBrushPasses } from './softBrush';
 
+// Pixi flattens curves in scene space. Its finest supported tolerance keeps
+// that tessellation below one screen pixel even at the maximum camera zoom.
+const FREEFORM_CURVE_SMOOTHNESS = 0.99;
+
+function freeformTangents(points: SceneDrawing['points']): SceneDrawing['points'] {
+  return points.map((point, index) => {
+    const previous = points[Math.max(0, index - 1)];
+    const next = points[Math.min(points.length - 1, index + 1)];
+    if (index === 0) {
+      return { x: (next.x - point.x) / 3, y: (next.y - point.y) / 3 };
+    }
+    if (index === points.length - 1) {
+      return {
+        x: (point.x - previous.x) / 3,
+        y: (point.y - previous.y) / 3,
+      };
+    }
+    const directionX = next.x - previous.x;
+    const directionY = next.y - previous.y;
+    const directionLength = Math.hypot(directionX, directionY);
+    if (directionLength === 0) {
+      return { x: 0, y: 0 };
+    }
+    const handleLength = Math.min(
+      Math.hypot(point.x - previous.x, point.y - previous.y),
+      Math.hypot(next.x - point.x, next.y - point.y),
+    ) / 3;
+    return {
+      x: (directionX / directionLength) * handleLength,
+      y: (directionY / directionLength) * handleLength,
+    };
+  });
+}
+
 export interface DrawingGraphics {
+  bezierCurveTo(
+    cp1x: number,
+    cp1y: number,
+    cp2x: number,
+    cp2y: number,
+    x: number,
+    y: number,
+    smoothness?: number,
+  ): DrawingGraphics;
   circle(x: number, y: number, radius: number): DrawingGraphics;
   fill(options: { alpha?: number; color: number }): DrawingGraphics;
   lineTo(x: number, y: number): DrawingGraphics;
@@ -25,9 +69,11 @@ export interface DrawingGraphics {
 
 export function strokeDrawingPath(
   graphics: DrawingGraphics,
-  drawing: Pick<SceneDrawing, 'closed' | 'points' | 'style'>,
+  drawing: Pick<SceneDrawing, 'closed' | 'kind' | 'points' | 'style'>,
 ): void {
-  const points = drawing.points;
+  const points = drawing.kind === 'freeform'
+    ? smoothFreeform(drawing.points)
+    : drawing.points;
   const color = Number.parseInt(drawing.style.strokeColor.slice(1), 16);
   const passes =
     drawing.style.edge === 'soft'
@@ -51,10 +97,29 @@ export function strokeDrawingPath(
     }
     return;
   }
+  const tangents = drawing.kind === 'freeform' && points.length > 2
+    ? freeformTangents(points)
+    : null;
   const trace = () => {
     graphics.moveTo(points[0].x, points[0].y);
-    for (let index = 1; index < points.length; index += 1) {
-      graphics.lineTo(points[index].x, points[index].y);
+    if (tangents) {
+      for (let index = 0; index < points.length - 1; index += 1) {
+        const start = points[index];
+        const end = points[index + 1];
+        graphics.bezierCurveTo(
+          start.x + tangents[index].x,
+          start.y + tangents[index].y,
+          end.x - tangents[index + 1].x,
+          end.y - tangents[index + 1].y,
+          end.x,
+          end.y,
+          FREEFORM_CURVE_SMOOTHNESS,
+        );
+      }
+    } else {
+      for (let index = 1; index < points.length; index += 1) {
+        graphics.lineTo(points[index].x, points[index].y);
+      }
     }
     if (drawing.closed) {
       graphics.lineTo(points[0].x, points[0].y);
