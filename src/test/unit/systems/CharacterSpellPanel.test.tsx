@@ -76,6 +76,7 @@ function renderPanel({
 }: RenderPanelOptions) {
   let visibleEntries = initialEntries;
   let changeListener: Parameters<CharacterSheetJournalApi['onChanged']>[0] | null = null;
+  let changeLevel: ((level: number) => void) | null = null;
   const journalApi: CharacterSheetJournalApi = {
     getEntry: vi.fn(async ({ entryId }) => {
       const entry = visibleEntries.find(({ id }) => id === entryId);
@@ -122,6 +123,10 @@ function renderPanel({
       [data],
     );
     if (!derived) throw new Error('Character fixture must derive.');
+    changeLevel = (level) => setData((current) => ({
+      ...current,
+      identity: { ...current.identity, level },
+    }));
     const commit = useCallback(async (
       mutations: readonly Dnd5eCharacterSpellMutation[],
     ) => {
@@ -218,6 +223,10 @@ function renderPanel({
     onError,
     onPreparedSummaryChange,
     onSendRoll,
+    setLevel: (level: number) => {
+      if (!changeLevel) throw new Error('Character harness was not rendered.');
+      act(() => changeLevel?.(level));
+    },
     setVisibleEntries: (entries: SystemJournalEntry[]) => {
       visibleEntries = entries;
     },
@@ -677,6 +686,34 @@ describe('Character spell browser', () => {
     expect(panel.onError).toHaveBeenCalledWith(
       'The cast was not sent. The spell slot was refunded.',
     );
+  });
+
+  it('removes a cast level when leveling down locks its stale current slots', async () => {
+    const spell = spellEntry(
+      '30000000-0000-4000-8000-000000000001', 'Level Gate', 3,
+    );
+    const panel = renderPanel({
+      entries: [spell],
+      references: [{ entryId: spell.id, preparation: 'unprepared' }],
+      slots: { '3': 1 },
+    });
+
+    await screen.findByRole('heading', { name: 'Level Gate' });
+    expect(screen.getByRole('button', { name: 'Spell cast mode' }))
+      .toHaveTextContent('Cast at 3rd Level');
+
+    panel.setLevel(4);
+
+    await waitFor(() => expect(screen.getByRole('button', {
+      name: 'Spell cast mode',
+    })).toHaveTextContent('Cast without slot'));
+    await userEvent.setup().click(screen.getByRole('button', {
+      name: 'Spell cast mode',
+    }));
+    expect(within(screen.getByRole('group', {
+      name: 'Spell cast mode options',
+    })).queryByRole('button', { name: 'Cast at 3rd Level' }))
+      .not.toBeInTheDocument();
   });
 
   it('defaults view-only casting to no-slot and never consumes a slot', async () => {

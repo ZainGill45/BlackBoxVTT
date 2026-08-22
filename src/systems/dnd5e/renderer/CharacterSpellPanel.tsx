@@ -27,6 +27,7 @@ import type {
 } from '../../../shared/journalWindows';
 import {
   DND5E_SPELL_SLOT_LEVELS,
+  hasUsableDnd5eSpellSlot,
   MAX_DND5E_CHARACTER_SPELLS,
   type Dnd5eCharacterData,
   type Dnd5eCharacterSpellMutation,
@@ -478,9 +479,9 @@ export function CharacterSpellPanel({
   const availableSlotLevels = useMemo(() => selected
     ? DND5E_SPELL_SLOT_LEVELS.filter((level) =>
         Number(level) >= selected.data.level &&
-        data.spellcasting.slots[level].current > 0,
+        hasUsableDnd5eSpellSlot(data, derived, level),
       )
-    : [], [data.spellcasting.slots, selected]);
+    : [], [data, derived, selected]);
 
   const castMode = useMemo<Dnd5eSpellCastMode>(() => {
     if (!selected) return { kind: 'without-slot' };

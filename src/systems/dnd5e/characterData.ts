@@ -2273,6 +2273,17 @@ export function deriveDnd5eCharacterValues(
   };
 }
 
+export function hasUsableDnd5eSpellSlot(
+  data: Dnd5eCharacterData,
+  derived: Dnd5eDerivedCharacterValues,
+  slotLevel: Dnd5eSpellSlotLevel,
+): boolean {
+  const slot = derived.spellcasting.slots[slotLevel];
+  return slot.baseTotal > 0 &&
+    slot.total > 0 &&
+    data.spellcasting.slots[slotLevel].current > 0;
+}
+
 export function nextDnd5eSkillTraining(
   training: Dnd5eSkillTraining,
 ): Dnd5eSkillTraining {

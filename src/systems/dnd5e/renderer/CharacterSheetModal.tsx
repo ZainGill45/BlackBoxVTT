@@ -77,6 +77,7 @@ import {
   DND5E_SPELL_SLOT_LEVELS,
   deriveDnd5eCharacterValues,
   formatDnd5eSignedValue,
+  hasUsableDnd5eSpellSlot,
   isDnd5eCharacterData,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
   parseDnd5eSafeInteger,
@@ -1306,16 +1307,16 @@ function CharacterSheetEditor({
           setError('Editing permission is required to consume spell slots.');
           return false;
         }
-        if (active.data.spellcasting.slots[slotLevel].current < 1) {
-          setError('That spell slot is no longer available.');
-          return false;
-        }
         const latestDerived = deriveDnd5eCharacterValues(
           active.data,
           rulesVersion,
         );
         if (!latestDerived) {
           setError('The Character values are invalid and the spell cannot be cast.');
+          return false;
+        }
+        if (!hasUsableDnd5eSpellSlot(active.data, latestDerived, slotLevel)) {
+          setError('That spell slot is no longer available.');
           return false;
         }
         const compiled = compile(active.data, latestDerived);
