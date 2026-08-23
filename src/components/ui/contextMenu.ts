@@ -1,4 +1,5 @@
 import styles from './contextMenu.module.css';
+import { createButtonElement } from './Button';
 
 export type ContextMenuEntry =
   | {
@@ -56,8 +57,7 @@ export class ContextMenuController {
         menu.appendChild(divider);
         continue;
       }
-      const button = document.createElement('button');
-      button.type = 'button';
+      const button = createButtonElement({ align: 'left', variant: 'list' });
       button.role = 'menuitem';
       button.textContent = entry.label;
       button.disabled = entry.disabled ?? false;

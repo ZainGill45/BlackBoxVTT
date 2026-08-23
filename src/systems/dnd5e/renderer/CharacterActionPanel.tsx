@@ -11,7 +11,7 @@ import { Button } from '../../../components/ui/Button';
 import { Collapsible } from '../../../components/ui/Collapsible';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
-import { TextInput } from '../../../components/ui/FormField';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import { IconButton } from '../../../components/ui/IconButton';
 import { Modal } from '../../../components/ui/Modal';
 import {
@@ -306,6 +306,7 @@ function TermEditor({
           className={styles.addTerm}
           disabled={!canAdd}
           label="Choose term type"
+          mode="action"
           panelLabel={allowDice ? 'Roll term types' : 'DC term types'}
         >
           {allowDice ? (
@@ -393,7 +394,7 @@ function StepEditor({
       >
         <div className={styles.stepGrid}>
           <EditorField label="Step name">
-            <TextInput
+            <DefaultInput
               aria-label={`${stepLabel(step)} label`}
               maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
               placeholder="Step name"
@@ -451,7 +452,8 @@ function StepEditor({
             </div>
             <div className={styles.stepGrid}>
               <EditorField label="On success">
-                <textarea
+                <DefaultInput
+                  as="textarea"
                   aria-label={`${stepLabel(step)} success`}
                   className={styles.compactTextarea}
                   maxLength={MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS}
@@ -464,7 +466,8 @@ function StepEditor({
                 />
               </EditorField>
               <EditorField label="On failure">
-                <textarea
+                <DefaultInput
+                  as="textarea"
                   aria-label={`${stepLabel(step)} failure`}
                   className={styles.compactTextarea}
                   maxLength={MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS}
@@ -537,7 +540,7 @@ function StepEditor({
                   step.damageType as (typeof DND5E_DAMAGE_TYPES)[number],
                 ) ? (
                   <EditorField label="Custom type">
-                    <TextInput
+                    <DefaultInput
                       aria-label={`${stepLabel(step)} custom damage type`}
                       maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                       readOnly={!canEdit}
@@ -966,22 +969,25 @@ export function CharacterActionPanel({
                 onContextMenu={(event) => openActionContext(event, action)}
                 role="listitem"
               >
-                <button
+                <Button
+                  align="left"
                   aria-busy={pendingIds.has(action.id)}
                   aria-label={`Use ${actionLabel(action)}`}
                   className={styles.actionUse}
                   disabled={disabled}
+                  layout="block"
                   title={result?.ok
                     ? canEdit
                       ? `Use ${actionLabel(action)}. Right-click for options.`
                       : `Use ${actionLabel(action)}.`
                     : result?.issues[0]?.message ?? 'Needs setup'}
                   type="button"
+                  variant="text"
                   onClick={() => void executeAction(action)}
                   onKeyDown={(event) => openActionKeyboardMenu(event, action)}
                 >
                   <strong>{actionLabel(action)}</strong>
-                </button>
+                </Button>
                 {canEdit ? (
                   <IconButton
                     className={styles.actionEdit}
@@ -1026,7 +1032,7 @@ export function CharacterActionPanel({
                 <div className={styles.builderMain}>
                   <div className={styles.actionBasics}>
                     <EditorField label="Action name">
-                      <TextInput
+                      <DefaultInput
                         aria-label="Action Name"
                         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                         placeholder="Action name"
@@ -1039,7 +1045,8 @@ export function CharacterActionPanel({
                       />
                     </EditorField>
                     <EditorField label="Description">
-                      <textarea
+                      <DefaultInput
+                        as="textarea"
                         aria-label="Action description"
                         className={styles.actionDescription}
                         maxLength={MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS}

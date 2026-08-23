@@ -1,4 +1,5 @@
-import { FormField, SelectInput } from '../../components/ui/FormField';
+import { Dropdown, DropdownOption } from '../../components/ui/Dropdown';
+import { FormField } from '../../components/ui/FormField';
 import { Modal } from '../../components/ui/Modal';
 import {
   SCENE_TEXT_FAMILIES,
@@ -64,20 +65,28 @@ export function ShapeSettingsModal({
               label="Background type"
               showLabel
             >
-              <SelectInput
+              <Dropdown
+                accessibleLabel="Background type"
                 id="shape-background-type"
-                value={settings.backgroundType}
-                onChange={(event) =>
-                  update({
-                    backgroundType: event.currentTarget
-                      .value as ShapeSettings['backgroundType'],
-                  })
-                }
+                label={settings.backgroundType === 'crosshatched'
+                  ? 'Crosshatched'
+                  : settings.backgroundType === 'transparent'
+                    ? 'Transparent'
+                    : 'Fill'}
               >
-                <option value="fill">Fill</option>
-                <option value="crosshatched">Crosshatched</option>
-                <option value="transparent">Transparent</option>
-              </SelectInput>
+                {([
+                  ['fill', 'Fill'],
+                  ['crosshatched', 'Crosshatched'],
+                  ['transparent', 'Transparent'],
+                ] as const).map(([value, label]) => (
+                  <DropdownOption
+                    active={settings.backgroundType === value}
+                    key={value}
+                    label={label}
+                    onSelect={() => update({ backgroundType: value })}
+                  />
+                ))}
+              </Dropdown>
             </FormField>
           </div>
         </section>
@@ -110,20 +119,20 @@ export function ShapeSettingsModal({
               label="Stroke type"
               showLabel
             >
-              <SelectInput
+              <Dropdown
+                accessibleLabel="Stroke type"
                 id="shape-stroke-type"
-                value={settings.strokeType}
-                onChange={(event) =>
-                  update({
-                    strokeType: event.currentTarget
-                      .value as ShapeSettings['strokeType'],
-                  })
-                }
+                label={settings.strokeType[0].toUpperCase() + settings.strokeType.slice(1)}
               >
-                <option value="solid">Solid</option>
-                <option value="dashed">Dashed</option>
-                <option value="dotted">Dotted</option>
-              </SelectInput>
+                {(['solid', 'dashed', 'dotted'] as const).map((value) => (
+                  <DropdownOption
+                    active={settings.strokeType === value}
+                    key={value}
+                    label={value[0].toUpperCase() + value.slice(1)}
+                    onSelect={() => update({ strokeType: value })}
+                  />
+                ))}
+              </Dropdown>
             </FormField>
             <NumberControl
               id="shape-stroke-width"
@@ -148,45 +157,40 @@ export function ShapeSettingsModal({
               label="Font family"
               showLabel
             >
-              <SelectInput
+              <Dropdown
+                accessibleLabel="Font family"
                 id="shape-font-family"
-                value={settings.fontFamily}
-                onChange={(event) =>
-                  update({
-                    fontFamily: event.currentTarget
-                      .value as ShapeSettings['fontFamily'],
-                  })
-                }
+                label={SCENE_TEXT_FAMILY_LABELS[settings.fontFamily]}
               >
                 {SCENE_TEXT_FAMILIES.map((family) => (
-                  <option key={family} value={family}>
-                    {SCENE_TEXT_FAMILY_LABELS[family]}
-                  </option>
+                  <DropdownOption
+                    active={settings.fontFamily === family}
+                    key={family}
+                    label={SCENE_TEXT_FAMILY_LABELS[family]}
+                    onSelect={() => update({ fontFamily: family })}
+                  />
                 ))}
-              </SelectInput>
+              </Dropdown>
             </FormField>
             <FormField
               htmlFor="shape-font-weight"
               label="Font weight"
               showLabel
             >
-              <SelectInput
+              <Dropdown
+                accessibleLabel="Font weight"
                 id="shape-font-weight"
-                value={String(settings.fontWeight)}
-                onChange={(event) =>
-                  update({
-                    fontWeight: Number(
-                      event.currentTarget.value,
-                    ) as ShapeSettings['fontWeight'],
-                  })
-                }
+                label={SCENE_TEXT_WEIGHT_LABELS[settings.fontWeight]}
               >
                 {SCENE_TEXT_WEIGHTS.map((weight) => (
-                  <option key={weight} value={weight}>
-                    {SCENE_TEXT_WEIGHT_LABELS[weight]}
-                  </option>
+                  <DropdownOption
+                    active={settings.fontWeight === weight}
+                    key={weight}
+                    label={SCENE_TEXT_WEIGHT_LABELS[weight]}
+                    onSelect={() => update({ fontWeight: weight })}
+                  />
                 ))}
-              </SelectInput>
+              </Dropdown>
             </FormField>
             <ColorControl
               id="shape-font-color"

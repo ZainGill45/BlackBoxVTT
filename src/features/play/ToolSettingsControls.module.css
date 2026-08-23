@@ -31,19 +31,9 @@
   opacity: 0;
 }
 
-.hexInput {
-  min-width: 0;
-  font-family: var(--font-mono);
-  letter-spacing: 0.04em;
-}
-
 .numberShell {
   position: relative;
   display: block;
-}
-
-.numberInput {
-  padding-right: 4.25rem;
 }
 
 .numberShell>span {

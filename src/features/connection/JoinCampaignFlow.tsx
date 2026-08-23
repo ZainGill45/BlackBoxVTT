@@ -6,11 +6,9 @@ import {
   type FormEvent,
 } from 'react';
 import { Button } from '../../components/ui/Button';
-import {
-  FormField,
-  SelectInput,
-  TextInput,
-} from '../../components/ui/FormField';
+import { DefaultInput } from '../../components/ui/DefaultInput';
+import { Dropdown, DropdownOption } from '../../components/ui/Dropdown';
+import { FormField } from '../../components/ui/FormField';
 import { Modal } from '../../components/ui/Modal';
 import type {
   AuthenticationChallenge,
@@ -425,7 +423,7 @@ export function JoinCampaignFlow({
       >
         <div className={styles.connectionFields}>
           <FormField htmlFor="campaign-host" label="IP address or host">
-            <TextInput
+            <DefaultInput
               id="campaign-host"
               name="host"
               type="text"
@@ -441,7 +439,7 @@ export function JoinCampaignFlow({
             />
           </FormField>
           <FormField htmlFor="campaign-port" label="Port">
-            <TextInput
+            <DefaultInput
               id="campaign-port"
               name="port"
               type="number"
@@ -478,32 +476,29 @@ export function JoinCampaignFlow({
             {authChallenge.users.length > 0 ? (
               <div className={styles.authenticationFields}>
                 <FormField htmlFor="campaign-username" label="Username">
-                  <SelectInput
+                  <Dropdown
+                    accessibleLabel="Username"
                     id="campaign-username"
-                    value={selectedUserId}
                     disabled={isBusy}
-                    onChange={(event) => {
-                      const userId = event.currentTarget.value;
-                      const user = authChallenge.users.find(
-                        (candidate) => candidate.id === userId,
-                      );
-                      setSelectedUserId(userId);
-                      setUseSavedPassword(
-                        user?.hasSavedPassword ?? false,
-                      );
-                      setPassword('');
-                      setError(null);
-                    }}
+                    label={selectedUser?.username ?? 'Select user'}
                   >
                     {authChallenge.users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.username}
-                      </option>
+                      <DropdownOption
+                        active={selectedUserId === user.id}
+                        key={user.id}
+                        label={user.username}
+                        onSelect={() => {
+                          setSelectedUserId(user.id);
+                          setUseSavedPassword(user.hasSavedPassword);
+                          setPassword('');
+                          setError(null);
+                        }}
+                      />
                     ))}
-                  </SelectInput>
+                  </Dropdown>
                 </FormField>
                 <FormField htmlFor="campaign-password" label="Password">
-                  <TextInput
+                  <DefaultInput
                     id="campaign-password"
                     autoComplete="current-password"
                     type="password"

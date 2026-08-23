@@ -14,7 +14,7 @@ import {
 } from '../../../components/ui/contextMenu';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
-import { TextInput } from '../../../components/ui/FormField';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import { OrderedCollectionController } from '../../../components/ui/orderedCollection';
 import {
   DND5E_ABILITIES,
@@ -276,6 +276,7 @@ function TermEditor({
           <Dropdown
             className={styles.addTerm}
             label="Choose term type"
+            mode="action"
             panelLabel="Spell value term types"
           >
             {TERM_KINDS.map((kind) => (
@@ -482,7 +483,7 @@ function StepEditor({
     <div className={styles.stepEditor}>
       <div className={styles.stepGrid}>
         <RollEditorField label="Step name">
-          <TextInput
+          <DefaultInput
             aria-label={`${stepLabel(step)} label`}
             maxLength={MAX_DND5E_SPELL_FIELD_CODE_UNITS}
             readOnly={!canEdit}
@@ -596,7 +597,8 @@ function StepEditor({
           </div>
           <div className={styles.stepGrid}>
             <RollEditorField label="On Success">
-              <textarea
+              <DefaultInput
+                as="textarea"
                 aria-label={`${stepLabel(step)} success`}
                 className={styles.compactTextarea}
                 maxLength={MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS}
@@ -608,7 +610,8 @@ function StepEditor({
               />
             </RollEditorField>
             <RollEditorField label="On Failure">
-              <textarea
+              <DefaultInput
+                as="textarea"
                 aria-label={`${stepLabel(step)} failure`}
                 className={styles.compactTextarea}
                 maxLength={MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS}

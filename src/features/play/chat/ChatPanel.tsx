@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import type { ApplicationApi } from '../../../shared/application';
 import {
   CHAT_SEND_TIMEOUT_MS,
@@ -198,14 +199,16 @@ function ChatText({
     }
     fragments.push(
       isExternalHttpUrl(url) ? (
-        <button
+        <Button
           className={styles.link}
           key={`${start}:${url}`}
+          layout="flow"
           type="button"
+          variant="text"
           onClick={() => void applicationApi.openExternal(url)}
         >
           {url}
-        </button>
+        </Button>
       ) : (
         url
       ),
@@ -1124,7 +1127,8 @@ export function ChatPanel({
 
       <div className={styles.composerArea}>
         <div className={styles.composer}>
-          <textarea
+          <DefaultInput
+            as="textarea"
             ref={composerRef}
             aria-label="Message"
             disabled={phase !== 'ready' || clearing}

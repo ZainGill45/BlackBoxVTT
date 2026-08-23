@@ -67,7 +67,7 @@
 }
 
 .messageCard[data-whisper="true"] {
-  background: rgb(31 31 31 / 96%);
+  background: var(--color-chat-floating-surface);
   border-color: var(--color-border-strong);
 }
 
@@ -178,7 +178,7 @@
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) 4.25rem;
-  background: rgb(255 255 255 / 2%);
+  background: var(--color-chat-message-overlay);
   border: var(--border-width) solid var(--color-border);
   border-left: 0.1875rem solid var(--roll-type-accent);
 }
@@ -309,7 +309,7 @@
   flex-wrap: wrap;
   align-items: center;
   padding: 0.125rem 0.3125rem;
-  background: rgb(0 0 0 / 28%);
+  background: var(--color-chat-controls-overlay);
   border: var(--border-width) solid var(--color-border);
   overflow-wrap: anywhere;
 }
@@ -370,7 +370,7 @@
 }
 
 .diceGeometry {
-  fill: rgb(24 24 24 / 92%);
+  fill: var(--color-die-face);
   stroke: var(--color-text-muted);
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -386,7 +386,7 @@
   font-family: var(--font-mono);
   font-weight: var(--font-weight-semibold);
   paint-order: stroke;
-  stroke: rgb(0 0 0 / 78%);
+  stroke: var(--color-die-edge);
   stroke-linejoin: round;
   stroke-width: 3px;
 }
@@ -401,13 +401,8 @@
 }
 
 .link {
-  display: inline;
-  padding: 0;
   color: var(--color-text);
-  background: transparent;
-  border: 0;
   cursor: pointer;
-  font: inherit;
   text-decoration: underline;
   overflow-wrap: anywhere;
 }
@@ -479,29 +474,11 @@
 }
 
 .composer textarea {
-  box-sizing: border-box;
   width: 100%;
   min-height: var(--control-height);
   max-height: 7rem;
-  padding: 0.4rem var(--space-2);
   resize: none;
   overflow-y: auto;
-  caret-color: var(--color-text);
-  color: var(--color-text);
-  background: var(--color-surface-muted);
-  border: var(--border-width) solid var(--color-border);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  line-height: 1rem;
-}
-
-.composer textarea:focus {
-  border-color: var(--color-focus);
-  outline: none;
-}
-
-.composer textarea:disabled {
-  color: var(--color-text-subtle);
 }
 
 .composerError {

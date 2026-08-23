@@ -26,7 +26,7 @@
   gap: var(--space-4);
   padding: var(--space-6);
   background:
-    radial-gradient(circle at 50% 0%, rgb(255 255 255 / 4%), transparent 42%),
+    radial-gradient(circle at 50% 0%, var(--color-preview-highlight), transparent 42%),
     var(--color-surface);
 }
 
@@ -105,7 +105,7 @@
 
 .waveformPlayed i {
   background: var(--color-action);
-  box-shadow: 0 0 0.75rem rgb(255 255 255 / 6%);
+  box-shadow: var(--shadow-preview-glow);
 }
 
 .waveformShell:hover .waveformBars:not(.waveformPlayed) i {
@@ -136,7 +136,7 @@
   background: var(--color-action);
   border: var(--border-width) solid var(--color-action);
   clip-path: circle(50%);
-  box-shadow: 0 0.5rem 1.25rem rgb(0 0 0 / 30%);
+  box-shadow: var(--shadow-preview-panel);
   transition:
     background-color var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),
@@ -147,11 +147,11 @@
 .playButton:hover {
   background: var(--color-action-hover);
   border-color: var(--color-action-hover);
-  box-shadow: 0 0.625rem 1.5rem rgb(0 0 0 / 36%);
+  box-shadow: var(--shadow-preview-toolbar);
 }
 
 .playButton:active {
-  box-shadow: 0 0.25rem 0.75rem rgb(0 0 0 / 36%);
+  box-shadow: var(--shadow-preview-button);
   transform: translateY(0) scale(0.96);
 }
 

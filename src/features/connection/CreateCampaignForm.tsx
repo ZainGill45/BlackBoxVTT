@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
 import { Button } from '../../components/ui/Button';
-import { FormField, TextInput } from '../../components/ui/FormField';
+import { DefaultInput } from '../../components/ui/DefaultInput';
+import { FormField } from '../../components/ui/FormField';
 import type { CreateCampaignDraft } from './types';
 import styles from './ConnectionScreen.module.css';
 
@@ -30,7 +31,7 @@ export function CreateCampaignForm({
     <form className={styles.form} onSubmit={handleSubmit}>
       <div className={styles.createFields}>
         <FormField htmlFor="campaign-name" label="Campaign name">
-          <TextInput
+          <DefaultInput
             id="campaign-name"
             name="campaignName"
             type="text"

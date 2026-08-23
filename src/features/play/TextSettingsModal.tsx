@@ -1,4 +1,5 @@
-import { FormField, SelectInput } from '../../components/ui/FormField';
+import { Dropdown, DropdownOption } from '../../components/ui/Dropdown';
+import { FormField } from '../../components/ui/FormField';
 import { Modal } from '../../components/ui/Modal';
 import { ColorControl, NumberControl } from './ToolSettingsControls';
 import type { TextSettings } from './textSettings';
@@ -37,40 +38,36 @@ export function TextSettingsModal({
     >
       <div className={styles.fields}>
         <FormField htmlFor="text-font-family" label="Font family" showLabel>
-          <SelectInput
+          <Dropdown
+            accessibleLabel="Font family"
             id="text-font-family"
-            value={settings.fontFamily}
-            onChange={(event) =>
-              update({
-                fontFamily: event.currentTarget.value as TextSettings['fontFamily'],
-              })
-            }
+            label={SCENE_TEXT_FAMILY_LABELS[settings.fontFamily]}
           >
             {SCENE_TEXT_FAMILIES.map((family) => (
-              <option key={family} value={family}>
-                {SCENE_TEXT_FAMILY_LABELS[family]}
-              </option>
+              <DropdownOption
+                active={settings.fontFamily === family}
+                key={family}
+                label={SCENE_TEXT_FAMILY_LABELS[family]}
+                onSelect={() => update({ fontFamily: family })}
+              />
             ))}
-          </SelectInput>
+          </Dropdown>
         </FormField>
         <FormField htmlFor="text-font-weight" label="Font weight" showLabel>
-          <SelectInput
+          <Dropdown
+            accessibleLabel="Font weight"
             id="text-font-weight"
-            value={String(settings.fontWeight)}
-            onChange={(event) =>
-              update({
-                fontWeight: Number(
-                  event.currentTarget.value,
-                ) as TextSettings['fontWeight'],
-              })
-            }
+            label={SCENE_TEXT_WEIGHT_LABELS[settings.fontWeight]}
           >
             {SCENE_TEXT_WEIGHTS.map((weight) => (
-              <option key={weight} value={weight}>
-                {SCENE_TEXT_WEIGHT_LABELS[weight]}
-              </option>
+              <DropdownOption
+                active={settings.fontWeight === weight}
+                key={weight}
+                label={SCENE_TEXT_WEIGHT_LABELS[weight]}
+                onSelect={() => update({ fontWeight: weight })}
+              />
             ))}
-          </SelectInput>
+          </Dropdown>
         </FormField>
         <NumberControl
           id="text-font-size"

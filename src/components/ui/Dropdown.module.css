@@ -7,25 +7,37 @@
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 2rem;
+  height: var(--control-height);
+  min-height: var(--control-height);
   padding-right: var(--space-1);
   padding-left: var(--space-2);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1);
-  color: var(--color-text);
-  background: var(--color-surface-raised);
-  border: var(--border-width) solid var(--color-border);
+  color: var(--color-control-text);
+  background: var(--color-control-background);
+  border: var(--border-width) solid var(--color-control-border);
   cursor: pointer;
-  font: inherit;
-  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-control);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-tight);
   list-style: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
   white-space: nowrap;
 }
 
 .dropdown>summary svg {
   flex: 0 0 auto;
   transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.dropdown>summary>span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dropdown>summary::-webkit-details-marker {
@@ -38,18 +50,87 @@
 
 .dropdown>summary:hover,
 .dropdown[open]>summary {
-  background: var(--color-overlay-hover);
-  border-color: var(--color-border-strong);
+  background: var(--color-control-background-hover);
+  border-color: var(--color-control-border-hover);
 }
 
 .dropdown>summary:focus-visible {
-  border-color: var(--color-border-strong);
+  border-color: var(--color-control-border-focus);
   outline: none;
 }
 
 .dropdown>summary[aria-disabled='true'] {
-  opacity: 0.42;
+  opacity: 0.72;
   cursor: default;
+}
+
+.alignCenter>summary {
+  justify-content: center;
+  text-align: center;
+}
+
+.alignRight>summary {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.withoutIndicator>summary {
+  padding-right: var(--space-2);
+}
+
+.densityCompact>summary {
+  height: calc(var(--control-height) - var(--space-1));
+  min-height: calc(var(--control-height) - var(--space-1));
+  padding-inline: var(--space-1);
+  font-size: var(--font-size-2xs);
+}
+
+.densityInline>summary {
+  height: auto;
+  min-height: 0;
+  padding-inline: 0;
+  font-size: var(--font-size-3xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.densityInline>summary[aria-disabled='true'] {
+  opacity: 1;
+}
+
+.heightFill>summary {
+  height: 100%;
+  min-height: 0;
+}
+
+.toneMuted>summary {
+  color: var(--color-text-muted);
+}
+
+.toneMuted>summary:hover,
+.toneMuted[open]>summary,
+.toneMuted>summary:focus-visible {
+  color: var(--color-control-text);
+}
+
+.surfaceBorderless>summary,
+.surfaceBorderless>summary:hover,
+.surfaceBorderless[open]>summary,
+.surfaceBorderless>summary:focus-visible {
+  background: transparent;
+  border-color: transparent;
+}
+
+.surfaceUnderline>summary {
+  background: transparent;
+  border: 0;
+  border-bottom: var(--border-width) solid var(--color-control-border);
+}
+
+.surfaceUnderline>summary:hover,
+.surfaceUnderline[open]>summary,
+.surfaceUnderline>summary:focus-visible {
+  background: transparent;
+  border-bottom-color: var(--color-control-border-hover);
 }
 
 /* Fixed rather than absolute so an open panel never joins the scrollable
@@ -86,7 +167,6 @@
   border: 0;
   font: inherit;
   font-size: var(--font-size-xs);
-  text-align: left;
 }
 
 .option::before {
@@ -95,7 +175,8 @@
   content: '';
 }
 
-.option[aria-pressed='true']::before {
+.option[aria-selected='true']::before,
+.option[aria-checked='true']::before {
   content: '✓';
 }
 
@@ -107,7 +188,8 @@
   padding-left: var(--space-2);
 }
 
-.optionWithIcon[aria-pressed='true']::before {
+.optionWithIcon[aria-selected='true']::before,
+.optionWithIcon[aria-checked='true']::before {
   content: '';
 }
 
@@ -124,7 +206,8 @@
   outline: none;
 }
 
-.option[aria-pressed='true'] {
+.option[aria-selected='true'],
+.option[aria-checked='true'] {
   color: var(--color-action-contrast);
   background: var(--color-action);
 }

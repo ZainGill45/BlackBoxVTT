@@ -90,7 +90,6 @@
 }
 
 .tokenPlaceholder span {
-  text-align: center;
 }
 
 .identityGrid {
@@ -108,36 +107,6 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-.dropdownField {
-  min-width: 0;
-  min-height: 0;
-}
-
-.classRow>.dropdownField>summary,
-.spellSummaryDropdown>summary {
-  height: 100%;
-  padding: 0 var(--space-2);
-  justify-content: center;
-  color: var(--color-text);
-  background: var(--color-surface-muted);
-  border-color: var(--color-border);
-  font-weight: var(--font-weight-regular);
-  line-height: var(--line-height-tight);
-  text-align: center;
-}
-
-.dropdownField>summary>span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.classRow>.dropdownPlaceholder>summary {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-regular);
-}
-
 .detailRow {
   display: grid;
   min-width: 0;
@@ -149,51 +118,6 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  padding: 0 var(--space-2);
-  align-content: center;
-  gap: 0;
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  border: var(--border-width) solid var(--color-border);
-  transition: border-color var(--duration-fast) var(--ease-standard);
-}
-
-.field:hover {
-  border-color: var(--color-border-strong);
-}
-
-.field:focus-within {
-  border-color: var(--color-focus);
-}
-
-.field>input {
-  width: 100%;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  color: var(--color-text);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  line-height: var(--line-height-tight);
-  text-align: center;
-}
-
-.field>input::placeholder {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-regular);
-  opacity: 1;
-}
-
-.field>input:focus,
-.field>input:focus-visible {
-  outline: 0;
-}
-
-.field>input[readonly] {
-  color: var(--color-text);
-  cursor: default;
 }
 
 .abilities {
@@ -244,9 +168,6 @@
   padding: var(--space-1) var(--space-2);
   overflow: hidden;
   color: inherit;
-  background: transparent;
-  border: 0;
-  font: inherit;
   letter-spacing: inherit;
   text-overflow: ellipsis;
   text-transform: inherit;
@@ -297,14 +218,10 @@
 .abilityValueField>.abilityRollButton {
   min-width: 0;
   min-height: 0;
-  padding: 0;
   color: var(--color-text-muted);
-  background: transparent;
-  border: 0;
   font-size: var(--font-size-2xs);
   font-weight: var(--font-weight-regular);
   line-height: 1;
-  text-align: center;
   margin-top: 0.175rem;
 }
 
@@ -352,7 +269,6 @@
 }
 
 .spellsPanel {
-  display: grid;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -386,11 +302,6 @@
   text-align: center;
 }
 
-.spellSummaryDropdown {
-  width: 100%;
-  height: 100%;
-}
-
 .spellSummaryInput {
   min-width: 0;
   color: var(--color-text);
@@ -419,12 +330,7 @@
   white-space: nowrap;
 }
 
-.preparedSpellValues>.spellSummaryInput {
-  field-sizing: content;
-  width: auto;
-  max-width: none;
-  flex: 0 0 auto;
-}
+.preparedSpellValues>.spellSummaryInput {}
 
 .spellSlotTracker {
   display: grid;
@@ -488,15 +394,10 @@
 }
 
 .spellSlotInput {
-  field-sizing: content;
-  width: auto;
   min-width: 0;
-  max-width: none;
-  flex: 0 0 auto;
   color: var(--color-text-muted);
   font-size: var(--font-size-2xs);
   line-height: var(--line-height-tight);
-  text-align: center;
 }
 
 .spellSlotSegments {
@@ -593,55 +494,6 @@
   font-size: var(--font-size-xs);
 }
 
-.spellSearch {
-  display: grid;
-  min-width: 0;
-  height: var(--control-height);
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  padding-left: var(--space-2);
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  border: var(--border-width) solid var(--color-border);
-}
-
-.spellSearch:focus-within {
-  outline: var(--focus-outline);
-  outline-offset: -2px;
-}
-
-.spellSearch input {
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  color: var(--color-text);
-  background: transparent;
-  border: 0;
-  outline: 0;
-  font: inherit;
-}
-
-.spellSearch input::-webkit-search-cancel-button {
-  display: none;
-}
-
-.spellSearch button {
-  display: grid;
-  width: var(--control-height);
-  height: 100%;
-  padding: 0;
-  place-items: center;
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 0;
-}
-
-.spellSearch button:hover {
-  color: var(--color-text);
-  background: var(--color-overlay-hover);
-}
-
 .spellListWarning {
   padding: var(--space-1) var(--space-2);
   margin: 0;
@@ -703,8 +555,6 @@
   color: var(--color-text);
   background: transparent;
   border: 0;
-  font: inherit;
-  text-align: left;
 }
 
 .spellSelectButton>strong,
@@ -1093,7 +943,6 @@
   padding: var(--space-5);
   color: var(--color-text-muted);
   font-size: var(--font-size-md);
-  text-align: center;
 }
 
 .spellPickerFooter {
@@ -1214,15 +1063,11 @@
 .statRow>.statLabel,
 .statRow>.statRollButton {
   min-width: 0;
-  padding: 0;
   overflow: hidden;
   color: inherit;
-  background: transparent;
-  border: 0;
   font-size: var(--font-size-2xs);
   font-weight: var(--font-weight-regular);
   line-height: var(--line-height-tight);
-  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1370,11 +1215,6 @@
 
 .skillNameRollButton {
   min-width: 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  font-family: inherit;
-  text-align: left;
 }
 
 .skillValues {
@@ -1393,14 +1233,9 @@
 }
 
 .skillValues>.skillValueInput {
-  field-sizing: content;
-  width: auto;
-  max-width: none;
-  flex: 0 0 auto;
   color: var(--color-text);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-tight);
-  text-align: right;
 }
 
 .skillValues>.skillValueInput[readonly] {
@@ -1413,40 +1248,6 @@
   min-width: 0;
   min-height: 0;
   grid-auto-rows: 1.75rem;
-}
-
-.customSkillAbilityDropdown {
-  min-width: 0;
-  height: 100%;
-}
-
-.customSkillAbilityDropdown>summary {
-  height: 100%;
-  min-height: 0;
-  padding: 0;
-  justify-content: center;
-  color: var(--color-text-muted);
-  background: transparent;
-  border: 0;
-  font-size: var(--font-size-3xs);
-  font-weight: var(--font-weight-medium);
-}
-
-.customSkillAbilityDropdown>summary:hover,
-.customSkillAbilityDropdown[open]>summary {
-  color: var(--color-text);
-  background: transparent;
-  border-color: transparent;
-}
-
-.customSkillAbilityDropdown>summary:focus-visible {
-  color: var(--color-text);
-  border-color: transparent;
-}
-
-.customSkillAbilityDropdown>summary[aria-disabled='true'] {
-  color: var(--color-text-muted);
-  opacity: 1;
 }
 
 .customSkillNameInput {
@@ -1492,7 +1293,6 @@
   font-size: var(--font-size-2xs);
   font-weight: var(--font-weight-medium);
   line-height: var(--line-height-tight);
-  text-align: center;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1512,10 +1312,6 @@
 
 .healthRollButton {
   min-width: 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  font-family: inherit;
 }
 
 .healthPair>span,
@@ -1538,12 +1334,8 @@
 
 .healthPair>.healthInput,
 .hitDiceValues>.healthInput {
-  field-sizing: content;
-  width: auto;
-  max-width: none;
   height: auto;
   padding: 0;
-  flex: 0 0 auto;
 }
 
 .healthField>.healthInput {
@@ -1733,30 +1525,15 @@
 .inventoryNameInput,
 .inventoryQuantityInput,
 .inventoryWeightInput,
-.inventoryCapacityInput,
 .inventoryCapacityOutput {
-  height: 100%;
   min-width: 0;
   color: var(--color-text);
   line-height: var(--line-height-tight);
 }
 
-.inventoryNameInput,
-.inventoryQuantityInput,
-.inventoryWeightInput,
 .inventoryCapacityOutput {
   height: calc(100% - var(--space-2));
   align-self: center;
-  border-bottom: var(--border-width) solid var(--color-border);
-}
-
-.inventoryEntryRow>.inventoryNameInput:focus,
-.inventoryEntryRow>.inventoryNameInput:focus-visible,
-.inventoryEntryRow>.inventoryQuantityInput:focus,
-.inventoryEntryRow>.inventoryQuantityInput:focus-visible,
-.inventoryEntryRow>.inventoryWeightInput:focus,
-.inventoryEntryRow>.inventoryWeightInput:focus-visible {
-  border: 0;
   border-bottom: var(--border-width) solid var(--color-border);
 }
 
@@ -1767,9 +1544,11 @@
 
 .inventoryQuantityInput,
 .inventoryWeightInput,
-.inventoryCapacityInput,
 .inventoryCapacityOutput {
   font-size: var(--font-size-2xs);
+}
+
+.inventoryCapacityOutput {
   text-align: right;
 }
 
@@ -1827,8 +1606,7 @@
 
 .inventoryNameInput[readonly],
 .inventoryQuantityInput[readonly],
-.inventoryWeightInput[readonly],
-.inventoryCapacityInput[readonly] {
+.inventoryWeightInput[readonly] {
   color: var(--color-text);
   cursor: default;
 }
@@ -1855,24 +1633,6 @@
   display: grid;
   min-width: 0;
   gap: var(--space-1);
-}
-
-.inventoryContentsDropdown>summary,
-.inventoryCapacityInput {
-  min-height: 1.8rem;
-  background: var(--color-surface);
-  border: var(--border-width) solid var(--color-border);
-}
-
-.inventoryContainerField>.inventoryCapacityInput:focus,
-.inventoryContainerField>.inventoryCapacityInput:focus-visible {
-  border: var(--border-width) solid var(--color-border);
-}
-
-.inventoryCapacityInput {
-  width: 100%;
-  padding: 0 var(--space-2);
-  text-align: left;
 }
 
 .inventoryWarningPanel {
@@ -1966,7 +1726,6 @@
 
 .settingsValueInput {
   width: 10rem;
-  text-align: center;
 }
 
 .resourcePanelBody {
@@ -2033,13 +1792,8 @@
 }
 
 .resourceValueInput {
-  field-sizing: content;
-  width: auto;
-  max-width: none;
-  flex: 0 0 auto;
   color: var(--color-text);
   font-size: var(--font-size-xs);
-  text-align: right;
 }
 
 .resourceNameInput[readonly],
@@ -2113,51 +1867,8 @@
   min-width: 0;
 }
 
-.featureInput,
 .featureDescription {
   min-width: 0;
-  padding: var(--space-2) var(--space-1);
-  color: var(--color-text);
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  font: inherit;
-  font-size: var(--font-size-xs);
-}
-
-.featureInput {
-  min-height: 1.8rem;
-  border-bottom: var(--border-width) solid var(--color-border);
-}
-
-.featureInput:focus,
-.featureInput:focus-visible,
-.featureDescription:focus,
-.featureDescription:focus-visible {
-  background: transparent;
-  outline: none;
-}
-
-.featureField>.featureInput:focus,
-.featureField>.featureInput:focus-visible {
-  border: 0;
-  border-bottom: var(--border-width) solid var(--color-border-strong);
-}
-
-.featureTypeDropdown>summary {
-  min-height: 1.8rem;
-  padding: var(--space-2) var(--space-1);
-  background: transparent;
-  border: 0;
-  border-bottom: var(--border-width) solid var(--color-border);
-  border-radius: 0;
-}
-
-.featureTypeDropdown>summary:hover,
-.featureTypeDropdown[open]>summary,
-.featureTypeDropdown>summary:focus-visible {
-  background: transparent;
-  border-bottom-color: var(--color-border-strong);
 }
 
 .featureDescriptionField {
@@ -2167,20 +1878,7 @@
 .featureDescription {
   width: 100%;
   min-height: 4.25rem;
-  line-height: var(--line-height-normal);
   resize: vertical;
-}
-
-.featureInput::placeholder,
-.featureDescription::placeholder {
-  color: var(--color-text-muted);
-  opacity: 1;
-}
-
-.featureInput[readonly],
-.featureDescription[readonly] {
-  color: var(--color-text);
-  cursor: default;
 }
 
 .featureDescription[readonly] {

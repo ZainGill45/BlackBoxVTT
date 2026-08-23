@@ -719,9 +719,9 @@ describe('Character spell browser', () => {
     await userEvent.setup().click(screen.getByRole('button', {
       name: 'Spell cast mode',
     }));
-    expect(within(screen.getByRole('group', {
+    expect(within(screen.getByRole('listbox', {
       name: 'Spell cast mode options',
-    })).queryByRole('button', { name: 'Cast at 3rd Level' }))
+    })).queryByRole('option', { name: 'Cast at 3rd Level' }))
       .not.toBeInTheDocument();
   });
 
@@ -745,9 +745,9 @@ describe('Character spell browser', () => {
     const castMode = screen.getByRole('button', { name: 'Spell cast mode' });
     expect(castMode).toHaveTextContent('Cast without slot');
     await user.click(castMode);
-    expect(within(screen.getByRole('group', {
+    expect(within(screen.getByRole('listbox', {
       name: 'Spell cast mode options',
-    })).getByRole('button', { name: 'Cast at 1st Level' }))
+    })).getByRole('option', { name: 'Cast at 1st Level' }))
       .toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Cast' }));
     await waitFor(() => expect(panel.onSendRoll).toHaveBeenCalledOnce());

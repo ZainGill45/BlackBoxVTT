@@ -47,13 +47,13 @@ interface SkillReorderState {
 }
 
 const ABILITY_OPTIONS = [
-  { abbreviation: 'STR', id: 'strength', label: 'STR — Strength' },
-  { abbreviation: 'DEX', id: 'dexterity', label: 'DEX — Dexterity' },
-  { abbreviation: 'CON', id: 'constitution', label: 'CON — Constitution' },
-  { abbreviation: 'INT', id: 'intelligence', label: 'INT — Intelligence' },
-  { abbreviation: 'WIS', id: 'wisdom', label: 'WIS — Wisdom' },
-  { abbreviation: 'CHA', id: 'charisma', label: 'CHA — Charisma' },
-  { abbreviation: 'NON', id: 'none', label: 'NON — None' },
+  { abbreviation: 'STR', id: 'strength', label: 'Strength' },
+  { abbreviation: 'DEX', id: 'dexterity', label: 'Dexterity' },
+  { abbreviation: 'CON', id: 'constitution', label: 'Constitution' },
+  { abbreviation: 'INT', id: 'intelligence', label: 'Intelligence' },
+  { abbreviation: 'WIS', id: 'wisdom', label: 'Wisdom' },
+  { abbreviation: 'CHA', id: 'charisma', label: 'Charisma' },
+  { abbreviation: 'NON', id: 'none', label: 'None' },
 ] as const satisfies readonly {
   abbreviation: string;
   id: Dnd5eCustomSkillAbility;
@@ -372,11 +372,15 @@ export function CharacterCustomSkillPanel({
               <span className={styles.skillLabel}>
                 <Dropdown
                   accessibleLabel={`${label} ability`}
-                  className={styles.customSkillAbilityDropdown}
+                  align="center"
+                  density="inline"
                   disabled={!canEdit}
+                  height="fill"
                   label={ability.abbreviation}
                   panelLabel={`${label} ability options`}
                   showIndicator={false}
+                  surface="borderless"
+                  tone="muted"
                 >
                   {ABILITY_OPTIONS.map((option) => (
                     <DropdownOption
@@ -398,6 +402,7 @@ export function CharacterCustomSkillPanel({
                   data-custom-skill-name
                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                   readOnly={!canEdit}
+                  surface="borderless"
                   value={skill.name}
                   onBlur={() => void onSave()}
                   onChange={(event) => onChange({
@@ -412,13 +417,14 @@ export function CharacterCustomSkillPanel({
               </span>
               <span className={styles.skillValues}>
                 <InlineInput
+                  align="right"
                   aria-label={`${label} bonus`}
                   autoComplete="off"
                   className={styles.skillValueInput}
                   inputMode="numeric"
                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                   readOnly={!canEdit}
-                  size={Math.max(1, displayedBonus.length)}
+                  sizing="content"
                   value={displayedBonus}
                   onBlur={() => commitTotal(skill, 'bonusOffset')}
                   onChange={(event) => {
@@ -434,13 +440,14 @@ export function CharacterCustomSkillPanel({
                 />
                 <span aria-hidden>/</span>
                 <InlineInput
+                  align="right"
                   aria-label={`${label} passive score`}
                   autoComplete="off"
                   className={styles.skillValueInput}
                   inputMode="numeric"
                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                   readOnly={!canEdit}
-                  size={Math.max(1, displayedPassive.length)}
+                  sizing="content"
                   value={displayedPassive}
                   onBlur={() => commitTotal(skill, 'passiveOffset')}
                   onChange={(event) => {

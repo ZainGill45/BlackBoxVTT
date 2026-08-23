@@ -133,13 +133,13 @@ describe('SpellSheetModal', () => {
       .not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: 'Level' }));
-    await user.click(within(within(dialog).getByRole('group', { name: 'Level options' }))
-      .getByRole('button', { name: '3rd Level' }));
+    await user.click(within(within(dialog).getByRole('listbox', { name: 'Level options' }))
+      .getByRole('option', { name: '3rd Level' }));
     await waitFor(() => expect(controlled.server.data).toMatchObject({ level: 3 }));
 
     await user.click(within(dialog).getByRole('button', { name: 'School' }));
-    await user.click(within(within(dialog).getByRole('group', { name: 'School options' }))
-      .getByRole('button', { name: 'Evocation' }));
+    await user.click(within(within(dialog).getByRole('listbox', { name: 'School options' }))
+      .getByRole('option', { name: 'Evocation' }));
     await waitFor(() => expect(controlled.server.data).toMatchObject({ school: 'Evocation' }));
 
     await user.click(within(dialog).getByRole('checkbox', { name: 'Material' }));
@@ -153,11 +153,11 @@ describe('SpellSheetModal', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Spell classes' }));
     expect(within(dialog).queryByRole('button', { name: 'Clear All' }))
       .not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole('button', { name: 'Wizard' }));
+    await user.click(within(dialog).getByRole('option', { name: 'Wizard' }));
     await waitFor(() => expect(controlled.server.data).toMatchObject({ classes: ['Wizard'] }));
-    expect(within(dialog).getByRole('group', { name: 'Spell class options' })).toBeVisible();
-    expect(within(dialog).getByRole('button', { name: 'Wizard' }))
-      .toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByRole('listbox', { name: 'Spell class options' })).toBeVisible();
+    expect(within(dialog).getByRole('option', { name: 'Wizard' }))
+      .toHaveAttribute('aria-selected', 'true');
 
     await user.click(within(dialog).getByRole('button', { name: 'Add Roll Action' }));
     await waitFor(() => expect(
@@ -167,8 +167,8 @@ describe('SpellSheetModal', () => {
     expect(within(dialog).getByText('1d20')).toBeVisible();
     expect(within(dialog).getByRole('textbox', { name: 'General Roll label' })).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'General Roll purpose' }));
-    expect(within(within(dialog).getByRole('group', { name: 'Roll action purposes' }))
-      .queryByRole('button', { name: 'Effect' })).not.toBeInTheDocument();
+    expect(within(within(dialog).getByRole('listbox', { name: 'Roll action purposes' }))
+      .queryByRole('option', { name: 'Effect' })).not.toBeInTheDocument();
     expect(within(dialog).queryByText('Value Type')).not.toBeInTheDocument();
     expect(within(dialog).getByText('Add term')).toBeVisible();
   });
@@ -212,13 +212,13 @@ describe('SpellSheetModal', () => {
     await user.click(within(dialog).getAllByRole('button', {
       name: 'Caster-Level Dice',
     })[0]!);
-    await user.click(within(screen.getByRole('group', { name: 'Dice scaling options' }))
-      .getByRole('button', { name: 'Cast-Level Dice' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Dice scaling options' }))
+      .getByRole('option', { name: 'Cast-Level Dice' }));
     await user.click(within(dialog).getAllByRole('button', {
       name: 'Caster-Level Value',
     })[0]!);
-    await user.click(within(screen.getByRole('group', { name: 'Flat value scaling options' }))
-      .getByRole('button', { name: 'Cast-Level Value' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Flat value scaling options' }))
+      .getByRole('option', { name: 'Cast-Level Value' }));
     await waitFor(() => expect(
       (controlled.server.data as Dnd5eSpellData).rollSteps[0],
     ).toMatchObject({
@@ -229,8 +229,8 @@ describe('SpellSheetModal', () => {
     }));
 
     await user.click(within(dialog).getByRole('button', { name: 'Level' }));
-    await user.click(within(screen.getByRole('group', { name: 'Level options' }))
-      .getByRole('button', { name: '6th Level' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Level options' }))
+      .getByRole('option', { name: '6th Level' }));
     await waitFor(() => expect(
       (controlled.server.data as Dnd5eSpellData).rollSteps[0],
     ).toMatchObject({ terms: [{ tiers: [] }, { tiers: [] }] }));
@@ -239,13 +239,13 @@ describe('SpellSheetModal', () => {
     await user.click(within(dialog).getAllByRole('button', {
       name: 'Cast-Level Value',
     })[0]!);
-    await user.click(within(screen.getByRole('group', { name: 'Flat value scaling options' }))
-      .getByRole('button', { name: 'Fixed Value' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Flat value scaling options' }))
+      .getByRole('option', { name: 'Fixed Value' }));
     await user.click(within(dialog).getAllByRole('button', {
       name: 'Fixed Value',
     })[0]!);
-    await user.click(within(screen.getByRole('group', { name: 'Flat value scaling options' }))
-      .getByRole('button', { name: 'Cast-Level Value' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Flat value scaling options' }))
+      .getByRole('option', { name: 'Cast-Level Value' }));
     const flatTiers = within(dialog).getByLabelText('Cast level flat value tiers');
     await user.click(within(flatTiers).getByRole('button', { name: 'Add Tier' }));
     expect(within(flatTiers).getByRole('textbox', {
@@ -265,13 +265,13 @@ describe('SpellSheetModal', () => {
     await user.click(within(dialog).getAllByRole('button', {
       name: 'Cast-Level Dice',
     })[0]!);
-    await user.click(within(screen.getByRole('group', { name: 'Dice scaling options' }))
-      .getByRole('button', { name: 'Fixed Dice' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Dice scaling options' }))
+      .getByRole('option', { name: 'Fixed Dice' }));
     await user.click(within(dialog).getAllByRole('button', {
       name: 'Fixed Dice',
     })[0]!);
-    await user.click(within(screen.getByRole('group', { name: 'Dice scaling options' }))
-      .getByRole('button', { name: 'Cast-Level Dice' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Dice scaling options' }))
+      .getByRole('option', { name: 'Cast-Level Dice' }));
     const diceTiers = within(dialog).getByLabelText('Cast level tiers');
     await user.click(within(diceTiers).getByRole('button', { name: 'Add Tier' }));
     expect(within(diceTiers).getByRole('textbox', {
@@ -308,8 +308,8 @@ describe('SpellSheetModal', () => {
     const dialog = screen.getByRole('dialog', { name: 'New Spell spell sheet' });
 
     await user.click(within(dialog).getByRole('button', { name: 'Level' }));
-    await user.click(within(screen.getByRole('group', { name: 'Level options' }))
-      .getByRole('button', { name: 'Cantrip' }));
+    await user.click(within(screen.getByRole('listbox', { name: 'Level options' }))
+      .getByRole('option', { name: 'Cantrip' }));
     await waitFor(() => expect(controlled.server.data).toMatchObject({
       level: 0,
       rollSteps: [{

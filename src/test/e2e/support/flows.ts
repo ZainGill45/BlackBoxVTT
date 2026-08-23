@@ -91,7 +91,11 @@ export async function joinCampaign(
     await trust.click();
   }
 
-  await window.getByLabel('Username').selectOption({ label: username });
+  await window.getByLabel('Username', { exact: true }).click();
+  await window
+    .getByRole('listbox', { name: 'Username options' })
+    .getByRole('option', { exact: true, name: username })
+    .click();
   await window.getByLabel('Password', { exact: true }).fill(password);
   await window.getByRole('button', { name: 'Save Credentials' }).click();
 

@@ -87,7 +87,7 @@ describe('SceneSettingsModal', () => {
     expect(screen.getByLabelText('Scene pixel scale')).toHaveValue(100);
     expect(screen.getByLabelText('Distance')).toHaveValue(5);
     expect(screen.getByLabelText('Unit')).toHaveValue('ft');
-    expect(screen.getByLabelText('Grid')).toHaveValue('square');
+    expect(screen.getByLabelText('Grid')).toHaveTextContent('Square Grid');
     expect(screen.getByLabelText('Grid size')).toHaveValue(70);
     expect(screen.getByLabelText('Line thickness')).toHaveValue(1);
     expect(screen.getByLabelText('Offset X')).toHaveValue(0);
@@ -99,7 +99,7 @@ describe('SceneSettingsModal', () => {
   it('hides every grid field while the scene is gridless', () => {
     renderModal(gridlessScene());
 
-    expect(screen.getByLabelText('Grid')).toHaveValue('gridless');
+    expect(screen.getByLabelText('Grid')).toHaveTextContent('Gridless');
     expect(screen.queryByLabelText('Grid size')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Offset X')).not.toBeInTheDocument();
     expect(
@@ -112,7 +112,8 @@ describe('SceneSettingsModal', () => {
   it('switches to a square grid from the dropdown', async () => {
     const { onUpdate, user } = renderModal(gridlessScene());
 
-    await user.selectOptions(screen.getByLabelText('Grid'), 'square');
+    await user.click(screen.getByLabelText('Grid'));
+    await user.click(screen.getByRole('option', { name: 'Square Grid' }));
 
     expect(patchOf(onUpdate)).toEqual({ grid: { type: 'square' } });
   });

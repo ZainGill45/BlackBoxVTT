@@ -5,9 +5,11 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Button } from '../../../components/ui/Button';
 import { CollapsibleStateIcon } from '../../../components/ui/Collapsible';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import {
   ContextMenuController,
@@ -720,7 +722,7 @@ export function CharacterInventoryPanel({
                 }}
               >
                 {depth === 1 ? (
-                  <button
+                  <Button variant="ghost"
                     aria-label={`${label} equipped`}
                     aria-pressed={entry.equipped}
                     className={styles.inventoryEquipped}
@@ -736,10 +738,10 @@ export function CharacterInventoryPanel({
                     <svg aria-hidden viewBox="0 0 8 8">
                       <circle cx="4" cy="4" r="3" />
                     </svg>
-                  </button>
+                  </Button>
                 ) : <span className={styles.inventoryControlSpacer} />}
                 {entry.kind === 'container' ? (
-                  <button
+                  <Button variant="ghost"
                     aria-expanded={expanded}
                     aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
                     className={styles.inventoryCollapse}
@@ -752,15 +754,17 @@ export function CharacterInventoryPanel({
                     })}
                   >
                     <CollapsibleStateIcon expanded={expanded} />
-                  </button>
+                  </Button>
                 ) : <span className={styles.inventoryControlSpacer} />}
                 <InlineInput
                   aria-label={`${label} name`}
                   autoComplete="off"
                   className={styles.inventoryNameInput}
                   data-inventory-name
+                  height="inset"
                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                   readOnly={!canEdit}
+                  surface="underline"
                   title="Name"
                   value={entry.name}
                   onBlur={() => void onSave()}
@@ -775,13 +779,16 @@ export function CharacterInventoryPanel({
                 />
                 {entry.kind === 'item' ? (
                   <InlineInput
+                    align="right"
                     aria-label={`${label} quantity`}
                     autoComplete="off"
                     className={styles.inventoryQuantityInput}
+                    height="inset"
                     inputMode="numeric"
                     maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                     readOnly={!canEdit}
-                    size={Math.max(1, quantityValue.length)}
+                    sizing="content"
+                    surface="underline"
                     title="Quantity"
                     value={quantityValue}
                     onBlur={() => commitEntryNumber(entry, 'quantity')}
@@ -798,13 +805,16 @@ export function CharacterInventoryPanel({
                   />
                 ) : null}
                 <InlineInput
+                  align="right"
                   aria-label={`${label} weight in pounds`}
                   autoComplete="off"
                   className={styles.inventoryWeightInput}
+                  height="inset"
                   inputMode="decimal"
                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                   readOnly={!canEdit}
-                  size={Math.max(1, weightValue.length)}
+                  sizing="content"
+                  surface="underline"
                   title="Weight"
                   value={weightValue}
                   onBlur={() => commitEntryNumber(entry, 'weight')}
@@ -843,7 +853,7 @@ export function CharacterInventoryPanel({
                       <span>Contents Weight</span>
                       <Dropdown
                         accessibleLabel={`${label} contents weight`}
-                        className={styles.inventoryContentsDropdown}
+                        density="compact"
                         disabled={!canEdit}
                         label={entry.contentsWeight === 'normal' ? 'Normal' : 'Weightless'}
                         panelLabel={`${label} contents weight options`}
@@ -864,10 +874,10 @@ export function CharacterInventoryPanel({
                     </label>
                     <label className={styles.inventoryContainerField}>
                       <span>Capacity</span>
-                      <InlineInput
+                      <DefaultInput
                         aria-label={`${label} capacity in pounds`}
                         autoComplete="off"
-                        className={styles.inventoryCapacityInput}
+                        density="compact"
                         inputMode="numeric"
                         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                         placeholder="Unlimited"
@@ -977,6 +987,7 @@ export function CharacterInventoryPanel({
                 inputMode="numeric"
                 maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                 readOnly={!canEdit}
+                surface="borderless"
                 value={numericBuffers[key] ?? String(inventory.currency[id])}
                 onBlur={() => commitCurrency(id)}
                 onChange={(event) => {

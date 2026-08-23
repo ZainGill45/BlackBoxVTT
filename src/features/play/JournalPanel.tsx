@@ -117,7 +117,7 @@ function JournalEntryRow({
       onContextMenu={onContextMenu}
       onDragStart={onDragStart}
     >
-      <button
+      <Button variant="ghost"
         aria-label={`Open ${entry.name}`}
         className={styles.entryIcon}
         type="button"
@@ -128,7 +128,7 @@ function JournalEntryRow({
         ) : (
           <SystemJournalEntryIcon typeId={entry.typeId} />
         )}
-      </button>
+      </Button>
       <InlineRename
         accessibleLabel={`Name for ${entry.name}`}
         detail={detail}

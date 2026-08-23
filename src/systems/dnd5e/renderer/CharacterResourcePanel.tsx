@@ -332,6 +332,7 @@ export function CharacterResourcePanel({
                   data-resource-name
                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                   readOnly={!canEdit}
+                  surface="borderless"
                   value={resource.name}
                   onBlur={() => void onSave()}
                   onChange={(event) => onChange({
@@ -351,13 +352,14 @@ export function CharacterResourcePanel({
                       <Fragment key={field}>
                         {index === 1 ? <span aria-hidden>/</span> : null}
                         <InlineInput
+                          align="right"
                           aria-label={`${label} ${field}`}
                           autoComplete="off"
                           className={styles.resourceValueInput}
                           inputMode="numeric"
                           maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                           readOnly={!canEdit}
-                          size={Math.max(1, displayedValue.length)}
+                          sizing="content"
                           value={displayedValue}
                           onBlur={() => commitNumeric(resource, field)}
                           onChange={(event) => {

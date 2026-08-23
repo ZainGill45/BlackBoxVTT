@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { TextInput } from '../../../components/ui/FormField';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import styles from './RollEditorControls.module.css';
 
 export function RollEditorField({
@@ -35,7 +35,7 @@ export function RollNumericField({
   value: number;
 }) {
   return (
-    <TextInput
+    <DefaultInput
       aria-label={accessibleLabel}
       defaultValue={String(value)}
       inputMode="numeric"

@@ -41,16 +41,16 @@ test.describe('networked Journal permissions', () => {
     await gmDraft.fill('Game Master draft');
     await gmDraft.press('Control+A');
     await gmNote.getByRole('button', { name: 'Font Size: Default' }).click();
-    await gmNote.getByRole('button', { name: '24px' }).click();
+    await gmNote.getByRole('option', { name: '24px' }).click();
     const formattedDraft = gmDraft.locator('span');
     await expect(formattedDraft).toHaveCSS('font-size', '24px');
     await gmNote.getByRole('button', { name: 'Line Length: Wide' }).click();
-    await gmNote.getByRole('button', { name: 'Full' }).click();
+    await gmNote.getByRole('option', { name: 'Full' }).click();
     const fullWidth = await gmDraft.evaluate(
       (element) => element.getBoundingClientRect().width,
     );
     await gmNote.getByRole('button', { name: 'Line Length: Full' }).click();
-    await gmNote.getByRole('button', { name: 'Narrow' }).click();
+    await gmNote.getByRole('option', { name: 'Narrow' }).click();
     await expect(gmDraft.locator('..')).toHaveAttribute('data-line-length', 'narrow');
     const narrowWidth = await gmDraft.evaluate(
       (element) => element.getBoundingClientRect().width,
@@ -71,23 +71,23 @@ test.describe('networked Journal permissions', () => {
       .locator(':scope > details')
       .first();
     await styleControl.locator('summary').click();
-    const stylePanel = styleControl.getByRole('group');
-    await expect(stylePanel.getByRole('button')).toHaveCount(12);
+    const stylePanel = styleControl.getByRole('listbox');
+    await expect(stylePanel.getByRole('option')).toHaveCount(12);
     await styleControl.locator('summary').click();
     await gmDraft.focus();
     await gmNote.getByRole('button', { name: 'Insert' }).click();
-    const insertPanel = gmNote.getByRole('group', { name: 'Insert options' });
+    const insertPanel = gmNote.getByRole('menu', { name: 'Insert options' });
     for (const label of ['Horizontal Rule', 'Table', 'Image']) {
-      const insertAction = insertPanel.getByRole('button', { name: label });
+      const insertAction = insertPanel.getByRole('menuitem', { name: label });
       await expect(insertAction).toBeVisible();
     }
     await gmNote.getByRole('button', { name: 'Insert' }).click();
     await gmNote.getByRole('button', { name: 'Text Color: Default', exact: true }).click();
-    const colorPanel = gmNote.getByRole('group', {
+    const colorPanel = gmNote.getByRole('listbox', {
       name: 'Text Color: Default options',
     });
-    await expect(colorPanel.getByRole('button')).toHaveCount(12);
-    await expect(colorPanel.getByRole('button', { name: 'Text color: Brown' })).toBeVisible();
+    await expect(colorPanel.getByRole('option')).toHaveCount(12);
+    await expect(colorPanel.getByRole('option', { name: 'Text color: Brown' })).toBeVisible();
     await gmNote.getByRole('button', { name: 'Text Color: Default', exact: true }).click();
     await expect(gmNote.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(
       'contenteditable',
@@ -111,8 +111,8 @@ test.describe('networked Journal permissions', () => {
     await expect(permissions).toBeVisible();
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'Edit' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'Edit' })
       .click();
     // Choosing the level is the save; there is nothing to confirm.
     await permissions.press('Escape');
@@ -159,8 +159,8 @@ test.describe('networked Journal permissions', () => {
       .getByRole('button', { name: `${USERNAME} permission` })
       .click();
     await currentPermissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'No access' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'No access' })
       .click();
 
     // Revoking lands on its own, and takes the open editor away with it.

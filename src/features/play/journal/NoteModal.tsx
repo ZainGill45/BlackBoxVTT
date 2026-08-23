@@ -1,4 +1,4 @@
-import { Check, FileText, Plus, Search, ShieldCheck, Trash2 } from 'lucide-react';
+import { Check, FileText, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -11,6 +11,7 @@ import { Button } from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { IconButton } from '../../../components/ui/IconButton';
+import { InlineInput } from '../../../components/ui/InlineInput';
 import { InlineRename } from '../../../components/ui/InlineRename';
 import { Modal } from '../../../components/ui/Modal';
 import {
@@ -41,6 +42,7 @@ import { MapImageChooserModal } from '../../../components/ui/MapImageChooserModa
 import type { AssetThumbnail } from '../scenes/useAssetThumbnails';
 import { RichTextEditor } from './RichTextEditor';
 import { PermissionsModal } from '../../../components/ui/PermissionsModal';
+import { SearchInput } from '../../../components/ui/SearchInput';
 import {
   journalEntryPermissionSubject,
   journalPagePermissionSubject,
@@ -1244,16 +1246,12 @@ export function NoteModal({
               </Button>
             </div>
             <div className={styles.pageSearch}>
-              <label>
-                <Search aria-hidden size="1rem" />
-                <span className="sr-only">Search pages</span>
-                <input
-                  placeholder="Search pages"
-                  type="search"
-                  value={search}
-                  onChange={(event) => setSearch(event.currentTarget.value)}
-                />
-              </label>
+              <SearchInput
+                label="Search pages"
+                onChange={setSearch}
+                placeholder="Search pages"
+                value={search}
+              />
               {current.capabilities.managePages ? (
                 <IconButton
                   icon={Plus}
@@ -1271,7 +1269,7 @@ export function NoteModal({
                   key={summary.id}
                   onContextMenu={(event) => openPageContext(event, summary)}
                 >
-                  <button
+                  <Button variant="ghost"
                     aria-label={`Open ${summary.title}`}
                     aria-current={summary.id === pageId ? 'page' : undefined}
                     className={styles.pageIcon}
@@ -1279,7 +1277,7 @@ export function NoteModal({
                     type="button"
                   >
                     <FileText aria-hidden size="1.625rem" strokeWidth={1.4} />
-                  </button>
+                  </Button>
                   <InlineRename
                     accessibleLabel={`Name for ${summary.title}`}
                     detail={
@@ -1329,11 +1327,12 @@ export function NoteModal({
 
           <section className={styles.note}>
             <header className={styles.noteHeader}>
-              <input
+              <InlineInput
                 aria-label="Note name"
                 className={styles.noteName}
                 maxLength={128}
                 readOnly={!current.capabilities.edit}
+                surface="borderless"
                 style={journalTitleStyleProperties(
                   current.capabilities.edit ? nameStyle : current.nameStyle,
                 )}

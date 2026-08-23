@@ -105,7 +105,7 @@ function AssetRow({
       data-sync-state={asset.syncState}
       onContextMenu={onContextMenu}
     >
-      <button
+      <Button variant="ghost"
         type="button"
         className={styles.assetIcon}
         aria-label={`Preview ${asset.displayName}`}
@@ -133,7 +133,7 @@ function AssetRow({
         onClick={(event) => onPreview(event.currentTarget)}
       >
         <Icon aria-hidden size="1.625rem" strokeWidth={1.4} />
-      </button>
+      </Button>
       <InlineRename
         accessibleLabel={`Name for ${asset.displayName}`}
         detail={`${asset.format.toUpperCase()} · ${formatBytes(asset.sizeBytes)}`}

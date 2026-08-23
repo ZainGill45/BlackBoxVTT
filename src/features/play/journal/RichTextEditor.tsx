@@ -18,7 +18,11 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import {
+  Dropdown,
+  DropdownOption,
+  type DropdownMode,
+} from '../../../components/ui/Dropdown';
 import type { JournalAssetApi } from '../../../shared/assets';
 import {
   DEFAULT_JOURNAL_LINE_LENGTH,
@@ -68,14 +72,21 @@ interface ToolbarMenuProps {
   children: ReactNode;
   disabled?: boolean;
   label: string;
+  mode?: DropdownMode;
 }
 
-function ToolbarMenu({ children, disabled = false, label }: ToolbarMenuProps) {
+function ToolbarMenu({
+  children,
+  disabled = false,
+  label,
+  mode = 'single',
+}: ToolbarMenuProps) {
   return (
     <Dropdown
       className={styles.menuControl}
       disabled={disabled}
       label={label}
+      mode={mode}
     >
       {children}
     </Dropdown>
@@ -522,7 +533,7 @@ export function RichTextEditor({
             lineLength === option.value,
           ))}
         </ToolbarMenu>
-        <ToolbarMenu disabled={!editable || titleTarget} label="Insert">
+        <ToolbarMenu disabled={!editable || titleTarget} label="Insert" mode="action">
           {menuItem('Horizontal Rule', () => {
             editor.chain().focus().setHorizontalRule().run();
           }, undefined, titleTarget, Minus)}
@@ -549,23 +560,22 @@ export function RichTextEditor({
         >
           <div className={styles.swatchGrid}>
             {TEXT_COLOR_OPTIONS.map((option) => (
-              <button
-                key={option.label}
-                aria-label={`Text color: ${option.label}`}
-                aria-pressed={option.value === null
+              <DropdownOption
+                active={option.value === null
                   ? selectedTextColor === null
                   : option.value.toLowerCase() === selectedTextColor?.toLowerCase()}
                 className={styles.swatchButton}
+                key={option.label}
+                label={`Text color: ${option.label}`}
+                onSelect={() => applyTextColor(option.value)}
                 title={option.label}
-                type="button"
-                onClick={() => applyTextColor(option.value)}
               >
                 <span
                   className={styles.colorSwatch}
                   data-default={option.value === null || undefined}
                   style={option.value ? { backgroundColor: option.value } : undefined}
                 />
-              </button>
+              </DropdownOption>
             ))}
           </div>
         </ToolbarMenu>

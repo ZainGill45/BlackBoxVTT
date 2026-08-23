@@ -1,7 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
-  testDir: './src/test/e2e',
+  testDir: './src/test',
+  testMatch: ['e2e/**/*.spec.ts', 'design/**/*.e2e.spec.ts'],
   // Failure screenshots and traces land beside the specs rather than in a
   // generated folder at the repo root. Dot-prefixed so editors and tools treat
   // it as the build output it is.

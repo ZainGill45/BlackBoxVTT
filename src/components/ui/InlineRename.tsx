@@ -51,6 +51,7 @@ export function InlineRename({
         className={styles.renameInput}
         disabled={disabled}
         maxLength={maxLength}
+        surface="borderless"
         value={draft}
         onBlur={() => void commit()}
         onChange={(event) => setDraft(event.currentTarget.value)}

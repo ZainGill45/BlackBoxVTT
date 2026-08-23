@@ -22,15 +22,12 @@
 }
 
 .tile {
-  display: grid;
   width: 100%;
   gap: var(--space-1);
   padding: var(--space-1);
   color: var(--color-text);
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border);
-  font: inherit;
-  text-align: left;
 }
 
 .tile:hover:not(:disabled) {

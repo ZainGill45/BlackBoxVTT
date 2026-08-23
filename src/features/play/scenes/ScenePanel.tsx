@@ -4,10 +4,8 @@ import {
   Map as MapIcon,
   MonitorPlay,
   Plus,
-  Search,
   Settings2,
   Trash2,
-  X,
 } from 'lucide-react';
 import {
   useEffect,
@@ -26,6 +24,7 @@ import { ErrorModal } from '../../../components/ui/ErrorModal';
 import { IconButton } from '../../../components/ui/IconButton';
 import { InlineRename } from '../../../components/ui/InlineRename';
 import { OrderedCollectionController } from '../../../components/ui/orderedCollection';
+import { SearchInput } from '../../../components/ui/SearchInput';
 import type { AssetApi } from '../../../shared/assets';
 import {
   describeScene,
@@ -120,14 +119,14 @@ function SceneRow({
       onClick={handleRowClick}
       onContextMenu={onContextMenu}
     >
-      <button
+      <Button variant="ghost"
         type="button"
         className={styles.preview}
         aria-label={`View ${scene.name}`}
         onClick={onView}
       >
         <ScenePreview scene={scene} url={previewUrl} />
-      </button>
+      </Button>
       <InlineRename
         accessibleLabel={`Name for ${scene.name}`}
         detail={describeScene(scene)}
@@ -498,30 +497,13 @@ export function ScenePanel({
   return (
     <div className={styles.scenePanel}>
       <div className={styles.toolbar}>
-        <label className={styles.search}>
-          <Search aria-hidden size="1rem" />
-          <span className="sr-only">Search scenes</span>
-          <input
-            type="search"
-            placeholder="Search scenes"
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setQuery('');
-              }
-            }}
-          />
-          {query ? (
-            <button
-              type="button"
-              aria-label="Clear scene search"
-              onClick={() => setQuery('')}
-            >
-              <X aria-hidden size="1rem" />
-            </button>
-          ) : null}
-        </label>
+        <SearchInput
+          clearLabel="Clear scene search"
+          label="Search scenes"
+          onChange={setQuery}
+          placeholder="Search scenes"
+          value={query}
+        />
         {canCreate ? (
           <IconButton
             icon={Plus}

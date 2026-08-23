@@ -6,7 +6,8 @@ import {
 } from 'react';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
-import { FormField, TextInput } from '../../../components/ui/FormField';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
+import { FormField } from '../../../components/ui/FormField';
 import { Modal } from '../../../components/ui/Modal';
 import type { CampaignSystemState, JsonValue } from '../../../shared/gameSystems';
 import {
@@ -555,7 +556,7 @@ export function SpellSheetModal({
         {error ? <div className={styles.error} role="alert">{error}</div> : null}
 
         <FormField htmlFor={`spell-${entry.id}-name`} label="Spell Name" showLabel>
-          <TextInput
+          <DefaultInput
             id={`spell-${entry.id}-name`}
             autoComplete="off"
             maxLength={MAX_JOURNAL_TITLE_INPUT_CODE_UNITS}
@@ -761,7 +762,7 @@ function SpellClassPicker({
   return (
     <Dropdown
       accessibleLabel="Spell classes"
-      closeOnSelect={false}
+      mode="multiple"
       disabled={disabled}
       id={id}
       label={classCountLabel(classes.length)}
@@ -798,7 +799,7 @@ function SpellTextField({
 }) {
   return (
     <FormField htmlFor={id} label={label} showLabel>
-      <TextInput
+      <DefaultInput
         id={id}
         maxLength={MAX_DND5E_SPELL_FIELD_CODE_UNITS}
         readOnly={readOnly}
@@ -829,7 +830,8 @@ function SpellTextarea({
 }) {
   return (
     <FormField htmlFor={id} label={label} showLabel>
-      <textarea
+      <DefaultInput
+        as="textarea"
         className={[styles.textarea, className].filter(Boolean).join(' ')}
         id={id}
         maxLength={MAX_DND5E_SPELL_DESCRIPTION_CODE_UNITS}

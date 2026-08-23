@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes } from 'react';
+import { Button } from '../../../components/ui/Button';
 import styles from './CharacterSheetAddEntryButton.module.css';
 
 interface CharacterSheetAddEntryButtonProps
@@ -12,12 +13,12 @@ export function CharacterSheetAddEntryButton({
   ...props
 }: CharacterSheetAddEntryButtonProps) {
   return (
-    <button
+    <Button variant="ghost"
       className={[styles.button, className].filter(Boolean).join(' ')}
       type="button"
       {...props}
     >
       {label}
-    </button>
+    </Button>
   );
 }

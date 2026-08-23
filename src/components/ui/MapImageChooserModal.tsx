@@ -1,5 +1,6 @@
 import { ImageOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Button } from './Button';
 import { Modal } from './Modal';
 import type { AssetApi, AssetView } from '../../shared/assets';
 import { useAssetPreviewUrl } from './useAssetPreviewUrl';
@@ -62,8 +63,11 @@ function ChoiceTile({
 
   return (
     <li>
-      <button
+      <Button
+        align="left"
+        layout="stack"
         type="button"
+        variant="ghost"
         className={styles.tile}
         data-selected={isSelected}
         disabled={!url}
@@ -87,7 +91,7 @@ function ChoiceTile({
           )}
         </span>
         <span className={styles.tileName}>{asset.displayName}</span>
-      </button>
+      </Button>
     </li>
   );
 }

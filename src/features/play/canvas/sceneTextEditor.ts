@@ -3,6 +3,7 @@ import {
   type SceneLayer,
   type SceneTextStyle,
 } from '../../../shared/scenes';
+import { createDefaultTextareaElement } from '../../../components/ui/DefaultInput';
 
 export interface SceneTextEditorDraft {
   layer: SceneLayer;
@@ -68,9 +69,8 @@ export class SceneTextEditorController {
     this.onClose = onClose;
     this.onCommit = onCommit;
 
-    const textarea = document.createElement('textarea');
+    const textarea = createDefaultTextareaElement({ className: editorClassName });
     this.textarea = textarea;
-    textarea.className = editorClassName;
     textarea.value = initialContent;
     textarea.maxLength = MAX_TEXT_CHARACTERS;
     textarea.rows = 1;

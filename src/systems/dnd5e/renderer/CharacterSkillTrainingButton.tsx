@@ -2,6 +2,7 @@ import {
   nextDnd5eSkillTraining,
   type Dnd5eSkillTraining,
 } from '../characterData';
+import { Button } from '../../../components/ui/Button';
 import styles from './CharacterSheetModal.module.css';
 
 const SKILL_TRAINING_LABELS = {
@@ -25,7 +26,7 @@ export function CharacterSkillTrainingButton({
 }: CharacterSkillTrainingButtonProps) {
   const nextTraining = nextDnd5eSkillTraining(training);
   return (
-    <button
+    <Button variant="ghost"
       aria-label={`${label} training: ${SKILL_TRAINING_LABELS[training]}`}
       className={styles.skillTraining}
       data-training={training}
@@ -52,6 +53,6 @@ export function CharacterSkillTrainingButton({
           r="2"
         />
       </svg>
-    </button>
+    </Button>
   );
 }

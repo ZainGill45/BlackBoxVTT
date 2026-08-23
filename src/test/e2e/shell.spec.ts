@@ -224,9 +224,9 @@ test.describe('local Journal durability', () => {
     await noteModal.getByLabel('Note name').fill('Campaign Chronicle');
     await noteModal.getByLabel('Note name').focus();
     await noteModal.getByRole('button', { name: 'Style: Title' }).click();
-    await noteModal.getByRole('button', { name: 'Italic' }).click();
+    await noteModal.getByRole('option', { name: 'Italic' }).click();
     await noteModal.getByRole('button', { name: 'Font Family: Default' }).click();
-    await noteModal.getByRole('button', { name: 'Lora' }).click();
+    await noteModal.getByRole('option', { name: 'Lora' }).click();
     await expect(noteModal.getByLabel('Note name')).toHaveCSS('font-style', 'italic');
     await expect(noteModal.getByLabel('Note name')).toHaveCSS('font-family', /Lora Variable/);
     await expect(noteModal.getByRole('button', { name: 'Text Color: Default' })).toBeVisible();
@@ -252,7 +252,7 @@ test.describe('local Journal durability', () => {
     await prose.fill('The brass key opens the western vault.');
     await prose.press('Control+A');
     await noteModal.getByRole('button', { name: 'Style: Paragraph' }).click();
-    await noteModal.getByRole('button', { name: 'Italic' }).click();
+    await noteModal.getByRole('option', { name: 'Italic' }).click();
     await expect(prose.locator('em')).toHaveCSS('font-style', 'italic');
     await prose.press('End');
 
@@ -277,7 +277,7 @@ test.describe('local Journal durability', () => {
       .toBeGreaterThan(0);
     const embeddedSource = await embeddedImage.getAttribute('src');
     await noteModal.getByRole('button', { name: 'Insert' }).click();
-    await noteModal.getByRole('button', { name: 'Image' }).click();
+    await noteModal.getByRole('menuitem', { name: 'Image' }).click();
     const imageChooser = window.getByRole('dialog', {
       name: 'Choose a Journal image',
     });
@@ -286,7 +286,7 @@ test.describe('local Journal durability', () => {
     await expect(embeddedImages).toHaveCount(2);
     await prose.press('Control+A');
     await noteModal.getByRole('button', { name: 'Style: Paragraph' }).click();
-    await noteModal.getByRole('button', { name: 'Bold' }).click();
+    await noteModal.getByRole('option', { name: 'Bold' }).click();
     await noteModal.getByLabel('Note name').blur();
     await expect(embeddedImage).toHaveAttribute('src', embeddedSource!);
     await window.mouse.click(10, 10);
@@ -445,7 +445,9 @@ test.describe('local Journal durability', () => {
     await recallName.fill('Recall');
     await recallName.blur();
     await customSkillList.getByRole('button', { name: 'Recall ability' }).click();
-    await customSkillList.getByRole('button', { name: 'WIS — Wisdom' }).click();
+    await customSkillList.getByRole('listbox', { name: 'Recall ability options' })
+      .getByRole('option', { name: 'Wisdom' })
+      .click();
     const recallTraining = customSkillList.getByRole('button', {
       name: 'Recall training: Untrained',
     });
@@ -578,8 +580,8 @@ test.describe('local Journal durability', () => {
     await expect(sheet).toHaveAccessibleName('Rowen character sheet');
     const classDropdown = emptyClassDropdown;
     await classDropdown.click();
-    const classOptions = sheet.getByRole('group', { name: 'Class options' });
-    expect(await classOptions.getByRole('button').allTextContents()).toEqual([
+    const classOptions = sheet.getByRole('listbox', { name: 'Class options' });
+    expect(await classOptions.getByRole('option').allTextContents()).toEqual([
       'Artificer',
       'Barbarian',
       'Bard',
@@ -594,13 +596,13 @@ test.describe('local Journal durability', () => {
       'Warlock',
       'Wizard',
     ]);
-    await classOptions.getByRole('button', { name: 'Fighter' }).click();
+    await classOptions.getByRole('option', { name: 'Fighter' }).click();
     const levelDropdown = sheet.getByRole('button', { exact: true, name: 'Level' });
     await levelDropdown.click();
-    const levelOptions = sheet.getByRole('group', { name: 'Level options' });
-    expect(await levelOptions.getByRole('button').allTextContents())
+    const levelOptions = sheet.getByRole('listbox', { name: 'Level options' });
+    expect(await levelOptions.getByRole('option').allTextContents())
       .toEqual(Array.from({ length: 20 }, (_, index) => String(index + 1)));
-    await levelOptions.getByRole('button', { exact: true, name: '7' }).click();
+    await levelOptions.getByRole('option', { exact: true, name: '7' }).click();
     await expect(sheet.getByLabel('Proficiency Bonus')).toHaveValue('+3');
     const strengthScore = sheet.getByLabel('Strength score');
     await strengthScore.fill('17');
@@ -844,8 +846,8 @@ test.describe('local Journal durability', () => {
     await sheet.getByRole('button', { name: 'Add Feature' }).click();
     await sheet.getByLabel('New Feature name').fill('Rage');
     await sheet.getByRole('button', { name: 'Rage type' }).click();
-    await sheet.getByRole('group', { name: 'Rage type options' })
-      .getByRole('button', { name: 'Feature' })
+    await sheet.getByRole('listbox', { name: 'Rage type options' })
+      .getByRole('option', { name: 'Feature' })
       .click();
     await sheet.getByLabel('Rage source', { exact: true }).fill('Barbarian 1');
     await sheet.getByLabel('Rage source type').fill('Class Feature');

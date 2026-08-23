@@ -1,4 +1,5 @@
-import { FormField, SelectInput } from '../../components/ui/FormField';
+import { Dropdown, DropdownOption } from '../../components/ui/Dropdown';
+import { FormField } from '../../components/ui/FormField';
 import { Modal } from '../../components/ui/Modal';
 import type { PaintSettings } from './paintSettings';
 import { ColorControl, NumberControl } from './ToolSettingsControls';
@@ -132,18 +133,22 @@ export function PaintSettingsModal({
               label="Fill"
               showLabel
             >
-              <SelectInput
+              <Dropdown
+                accessibleLabel="Fill"
                 id="polyline-fill-enabled"
-                value={settings.polyline.fillEnabled ? 'on' : 'off'}
-                onChange={(event) =>
-                  updatePolyline({
-                    fillEnabled: event.currentTarget.value === 'on',
-                  })
-                }
+                label={settings.polyline.fillEnabled ? 'On' : 'Off'}
               >
-                <option value="off">Off</option>
-                <option value="on">On</option>
-              </SelectInput>
+                <DropdownOption
+                  active={!settings.polyline.fillEnabled}
+                  label="Off"
+                  onSelect={() => updatePolyline({ fillEnabled: false })}
+                />
+                <DropdownOption
+                  active={settings.polyline.fillEnabled}
+                  label="On"
+                  onSelect={() => updatePolyline({ fillEnabled: true })}
+                />
+              </Dropdown>
             </FormField>
           </div>
           {settings.polyline.fillEnabled ? (

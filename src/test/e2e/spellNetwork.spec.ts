@@ -46,19 +46,19 @@ test.describe('networked D&D Spell Journal entries', () => {
     await gmSheet.getByLabel('Spell Name').fill('Fire Bloom');
     await gmSheet.getByLabel('Spell Name').blur();
     await gmSheet.getByRole('button', { name: 'Spell classes' }).click();
-    const wizardClass = gmSheet.getByRole('button', { name: 'Wizard' });
+    const wizardClass = gmSheet.getByRole('option', { name: 'Wizard' });
     await wizardClass.click();
-    await expect(wizardClass).toHaveAttribute('aria-pressed', 'true');
+    await expect(wizardClass).toHaveAttribute('aria-selected', 'true');
     await expect(gmSheet).toBeVisible();
     await expect(gm.window.getByRole('dialog')).toHaveCount(1);
     await wizardClass.press('Escape');
     await gmSheet.getByRole('button', { exact: true, name: 'Level' }).click();
-    await gmSheet.getByRole('group', { name: 'Level options' })
-      .getByRole('button', { name: '3rd Level' })
+    await gmSheet.getByRole('listbox', { name: 'Level options' })
+      .getByRole('option', { name: '3rd Level' })
       .click();
     await gmSheet.getByRole('button', { exact: true, name: 'School' }).click();
-    await gmSheet.getByRole('group', { name: 'School options' })
-      .getByRole('button', { name: 'Evocation' })
+    await gmSheet.getByRole('listbox', { name: 'School options' })
+      .getByRole('option', { name: 'Evocation' })
       .click();
     await gmSheet.getByLabel('Spell Description').fill('A bloom of authored flame.');
     await gmSheet.getByLabel('Spell Description').blur();
@@ -102,8 +102,8 @@ test.describe('networked D&D Spell Journal entries', () => {
     const permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'No access' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'No access' })
       .click();
 
     await expect(playerSheet).not.toBeVisible();

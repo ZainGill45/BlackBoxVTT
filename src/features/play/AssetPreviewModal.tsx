@@ -19,9 +19,11 @@ import type {
 // Vite resolves the worker URL at build time; ESLint's Node resolver does not.
 // eslint-disable-next-line import/no-unresolved
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { Button } from '../../components/ui/Button';
 import { CanonicalLoader } from '../../components/ui/CanonicalLoader';
 import { IconButton } from '../../components/ui/IconButton';
 import { Modal } from '../../components/ui/Modal';
+import { RangeInput } from '../../components/ui/RangeInput';
 import type { AssetPreview, AssetView } from '../../shared/assets';
 import styles from './AssetPreviewModal.module.css';
 
@@ -90,7 +92,7 @@ function AudioPreview({ preview }: { preview: AssetPreview }) {
         }
       />
       <div className={styles.audioHeading}>
-        <button
+        <Button variant="ghost"
           type="button"
           className={styles.playButton}
           aria-label={playing ? 'Pause audio' : 'Play audio'}
@@ -106,7 +108,7 @@ function AudioPreview({ preview }: { preview: AssetPreview }) {
               strokeWidth={1.75}
             />
           )}
-        </button>
+        </Button>
         <strong title={preview.displayName}>{preview.displayName}</strong>
       </div>
       <div className={styles.audioTimeline}>
@@ -137,10 +139,9 @@ function AudioPreview({ preview }: { preview: AssetPreview }) {
               />
             ))}
           </div>
-          <input
+          <RangeInput
             aria-label="Audio position"
             className={styles.waveformRange}
-            type="range"
             min={0}
             max={duration || 0}
             step={0.01}
@@ -157,10 +158,9 @@ function AudioPreview({ preview }: { preview: AssetPreview }) {
         </div>
       </div>
       <div className={styles.volumeControls}>
-        <input
+        <RangeInput
           aria-label="Audio volume"
           className={styles.audioRange}
-          type="range"
           min={0}
           max={1}
           step={0.01}

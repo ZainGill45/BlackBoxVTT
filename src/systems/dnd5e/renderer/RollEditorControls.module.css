@@ -15,14 +15,3 @@
   text-transform: capitalize;
   white-space: nowrap;
 }
-
-.editorField > details > summary {
-  height: var(--control-height);
-  min-height: var(--control-height);
-  font-size: var(--font-size-md);
-}
-
-.editorField > details > summary,
-.editorField > details button {
-  text-transform: capitalize;
-}

@@ -40,13 +40,6 @@
   font-size: var(--font-size-sm);
 }
 
-/* The trigger reads as the field itself, so it fills the row rather than
-   hugging the current level's text the way a toolbar dropdown does. */
-.rowDropdown > summary {
-  min-height: var(--control-height);
-  font-size: var(--font-size-sm);
-}
-
 /* Reserving a line for a message the user rarely sees would leave a permanent
    gap under the last player, so the status only takes room when it speaks. */
 .status:empty {

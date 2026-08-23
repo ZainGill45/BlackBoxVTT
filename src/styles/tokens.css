@@ -28,43 +28,123 @@
       min(0.833333vw, 1.481481vh),
       32px);
 
-  --color-canvas: #0d0d0d;
-  --color-grid: rgb(255 255 255 / 7%);
-  --color-surface: rgb(22 22 22 / 97%);
-  --color-surface-raised: #1d1d1d;
-  --color-surface-muted: #121212;
-  --color-border: #3b3b3b;
-  --color-border-strong: #767676;
-  --color-text: #f0f0f0;
-  --color-text-muted: #aaaaaa;
-  --color-text-subtle: #777777;
-  --color-action: #d6d6d6;
-  --color-action-hover: #e7e7e7;
-  --color-action-soft: #303030;
-  --color-action-contrast: #111111;
-  --color-delete: #020202;
-  --color-delete-hover: #0c0c0c;
-  --color-delete-hatch: #242424;
-  --color-delete-border: #333333;
-  --color-delete-text: #d2d2d2;
-  --color-confirm: #ffffff;
-  --color-confirm-hover: #e5e5e5;
-  --color-confirm-text: #111111;
-  --color-focus: #eeeeee;
-  --color-shadow: rgb(0 0 0 / 42%);
-  --color-selection: rgb(255 255 255 / 20%);
-  --color-play-canvas: #0d0d0d;
-  --color-play-grid: rgb(255 255 255 / 7%);
-  --color-overlay-surface: rgb(18 18 18 / 94%);
-  --color-overlay-hover: rgb(29 29 29 / 96%);
-  --color-overlay-active: rgb(37 37 37 / 98%);
-  --color-status-online: oklch(79.2% 0.209 151.711);
-  --color-status-offline: oklch(70.4% 0.191 22.216);
-  --color-roll-general: oklch(76% 0.12 250);
-  --color-roll-attack: oklch(78% 0.14 75);
+  /*
+   * Raw palette values describe the current theme, never how a value is used.
+   * Shared UI modules consume the semantic mappings below so another theme can
+   * replace this palette without changing their implementations.
+   */
+  --palette-black-1000: #020202;
+  --palette-black-950: #080808;
+  --palette-black-900: #0c0c0c;
+  --palette-neutral-950: #0d0d0d;
+  --palette-neutral-925: #111111;
+  --palette-neutral-900: #121212;
+  --palette-neutral-850: #161616;
+  --palette-neutral-800: #1d1d1d;
+  --palette-neutral-750: #242424;
+  --palette-neutral-700: #303030;
+  --palette-neutral-650: #333333;
+  --palette-neutral-600: #3b3b3b;
+  --palette-neutral-500: #767676;
+  --palette-neutral-450: #777777;
+  --palette-neutral-350: #aaaaaa;
+  --palette-neutral-150: #d2d2d2;
+  --palette-neutral-125: #d6d6d6;
+  --palette-neutral-100: #e5e5e5;
+  --palette-neutral-75: #e7e7e7;
+  --palette-neutral-50: #eeeeee;
+  --palette-neutral-25: #f0f0f0;
+  --palette-white: #ffffff;
+  --palette-alpha-grid: rgb(255 255 255 / 7%);
+  --palette-alpha-shadow: rgb(0 0 0 / 42%);
+  --palette-alpha-surface: rgb(22 22 22 / 97%);
+  --palette-alpha-selection: rgb(255 255 255 / 20%);
+  --palette-alpha-black-28: rgb(0 0 0 / 28%);
+  --palette-alpha-black-30: rgb(0 0 0 / 30%);
+  --palette-alpha-black-36: rgb(0 0 0 / 36%);
+  --palette-alpha-black-72: rgb(0 0 0 / 72%);
+  --palette-alpha-black-78: rgb(0 0 0 / 78%);
+  --palette-alpha-white-1: rgb(255 255 255 / 1.5%);
+  --palette-alpha-white-2: rgb(255 255 255 / 2%);
+  --palette-alpha-white-4: rgb(255 255 255 / 4%);
+  --palette-alpha-white-6: rgb(255 255 255 / 6%);
+  --palette-alpha-white-70: rgb(255 255 255 / 70%);
+  --palette-alpha-neutral-850: rgb(24 24 24 / 92%);
+  --palette-alpha-neutral-800: rgb(31 31 31 / 96%);
+  --palette-alpha-overlay: rgb(18 18 18 / 94%);
+  --palette-alpha-overlay-hover: rgb(29 29 29 / 96%);
+  --palette-alpha-overlay-active: rgb(37 37 37 / 98%);
+  --palette-status-positive: oklch(79.2% 0.209 151.711);
+  --palette-status-negative: oklch(70.4% 0.191 22.216);
+  --palette-roll-general: oklch(76% 0.12 250);
+  --palette-roll-attack: oklch(78% 0.14 75);
+  --palette-roll-save: oklch(76% 0.13 300);
+
+  /* Semantic theme contract. */
+  --color-canvas: var(--palette-neutral-950);
+  --color-grid: var(--palette-alpha-grid);
+  --color-surface: var(--palette-alpha-surface);
+  --color-surface-raised: var(--palette-neutral-800);
+  --color-surface-muted: var(--palette-neutral-900);
+  --color-border: var(--palette-neutral-600);
+  --color-border-strong: var(--palette-neutral-500);
+  --color-text: var(--palette-neutral-25);
+  --color-text-muted: var(--palette-neutral-350);
+  --color-text-subtle: var(--palette-neutral-450);
+  --color-action: var(--palette-neutral-125);
+  --color-action-hover: var(--palette-neutral-75);
+  --color-action-soft: var(--palette-neutral-700);
+  --color-action-contrast: var(--palette-neutral-925);
+  --color-delete: var(--palette-black-1000);
+  --color-delete-hover: var(--palette-black-900);
+  --color-delete-hatch: var(--palette-neutral-750);
+  --color-delete-border: var(--palette-neutral-650);
+  --color-delete-text: var(--palette-neutral-150);
+  --color-confirm: var(--palette-white);
+  --color-confirm-hover: var(--palette-neutral-100);
+  --color-confirm-text: var(--palette-neutral-925);
+  --color-focus: var(--palette-neutral-50);
+  --color-shadow: var(--palette-alpha-shadow);
+  --color-selection: var(--palette-alpha-selection);
+  --color-play-canvas: var(--palette-neutral-950);
+  --color-play-grid: var(--palette-alpha-grid);
+  --color-overlay-surface: var(--palette-alpha-overlay);
+  --color-overlay-hover: var(--palette-alpha-overlay-hover);
+  --color-overlay-active: var(--palette-alpha-overlay-active);
+  --color-status-online: var(--palette-status-positive);
+  --color-status-offline: var(--palette-status-negative);
+  --color-roll-general: var(--palette-roll-general);
+  --color-roll-attack: var(--palette-roll-attack);
   --color-roll-damage: var(--color-status-offline);
   --color-roll-healing: var(--color-status-online);
-  --color-roll-save: oklch(76% 0.13 300);
+  --color-roll-save: var(--palette-roll-save);
+
+  /* All default form controls share the quiet field surface demonstrated by
+     the Character sheet selectors. Feature containers may be raised, but the
+     controls inside them do not inherit or recreate that container colour. */
+  --color-control-background: var(--color-surface-muted);
+  --color-control-background-hover: var(--color-control-background);
+  --color-control-background-disabled: var(--color-surface-muted);
+  --color-control-border: var(--color-border);
+  --color-control-border-hover: var(--color-border-strong);
+  --color-control-border-focus: var(--color-border-strong);
+  --color-control-text: var(--color-text);
+  --color-control-placeholder: var(--color-text-subtle);
+  --font-size-control: var(--font-size-xs);
+
+  /* Purpose-specific chrome tokens. Authored canvas colors remain data. */
+  --color-loading-backdrop: var(--palette-black-950);
+  --color-modal-backdrop: var(--palette-alpha-black-72);
+  --color-preview-highlight: var(--palette-alpha-white-4);
+  --color-preview-glow: var(--palette-alpha-white-6);
+  --color-scene-selection: var(--palette-alpha-white-70);
+  --color-scene-selection-strong: var(--palette-white);
+  --color-chat-floating-surface: var(--palette-alpha-neutral-800);
+  --color-chat-message-overlay: var(--palette-alpha-white-2);
+  --color-chat-controls-overlay: var(--palette-alpha-black-28);
+  --color-die-face: var(--palette-alpha-neutral-850);
+  --color-die-edge: var(--palette-alpha-black-78);
+  --color-journal-sheen: var(--palette-alpha-white-1);
 
   --font-sans: "Inter", ui-sans-serif, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -98,7 +178,11 @@
   --border-width: 1px;
   --focus-outline: 1px solid var(--color-focus);
   --shadow-panel: 0 0.5rem 1.5rem var(--color-shadow);
-  --shadow-overlay: 0 0.125rem 0.5rem rgb(0 0 0 / 42%);
+  --shadow-overlay: 0 0.125rem 0.5rem var(--palette-alpha-shadow);
+  --shadow-preview-glow: 0 0 0.75rem var(--color-preview-glow);
+  --shadow-preview-panel: 0 0.5rem 1.25rem var(--palette-alpha-black-30);
+  --shadow-preview-toolbar: 0 0.625rem 1.5rem var(--palette-alpha-black-36);
+  --shadow-preview-button: 0 0.25rem 0.75rem var(--palette-alpha-black-36);
   --duration-fast: 120ms;
   --duration-medium: 180ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);

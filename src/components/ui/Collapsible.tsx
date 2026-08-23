@@ -3,6 +3,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { Button } from './Button';
 import styles from './Collapsible.module.css';
 
 export function CollapsibleStateIcon({ expanded }: { expanded: boolean }) {
@@ -82,9 +83,12 @@ export function Collapsible({
     <div
       className={[styles.collapsible, className].filter(Boolean).join(' ')}
     >
-      <button
+      <Button
+        align="left"
         id={triggerId}
+        layout="spread"
         type="button"
+        variant="ghost"
         className={styles.trigger}
         aria-controls={contentId}
         aria-expanded={isExpanded}
@@ -92,7 +96,7 @@ export function Collapsible({
       >
         <span>{label}</span>
         <CollapsibleStateIcon expanded={isExpanded} />
-      </button>
+      </Button>
       <div
         id={contentId}
         role="region"

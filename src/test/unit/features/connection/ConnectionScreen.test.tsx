@@ -280,7 +280,7 @@ describe('ConnectionScreen', () => {
     await user.click(
       within(trustDialog).getByRole('button', { name: 'Trust' }),
     );
-    expect(await screen.findByLabelText('Username')).toHaveValue(remoteUserId);
+    expect(await screen.findByLabelText('Username')).toHaveTextContent('Alice');
     expect(screen.getByLabelText('IP address or host')).toBeDisabled();
     expect(screen.getByLabelText('Port')).toBeDisabled();
     const passwordInput = screen.getByLabelText('Password');

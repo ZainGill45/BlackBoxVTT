@@ -88,8 +88,8 @@ async function setTokenType(sheet: Locator, type: 'Linked' | 'Template'): Promis
   if (await trigger.textContent() === type) return;
   await trigger.click();
   await sheet
-    .getByRole('group', { name: 'Token Type options' })
-    .getByRole('button', { exact: true, name: type })
+    .getByRole('listbox', { name: 'Token Type options' })
+    .getByRole('option', { exact: true, name: type })
     .click();
   const confirmation = sheet.page().getByRole('dialog', {
     name: 'Change Token Type?',
@@ -236,8 +236,8 @@ async function grantCharacterEdit(window: Page, username: string): Promise<void>
   const permissions = window.getByRole('dialog', { name: 'Edit Permissions' });
   await permissions.getByRole('button', { name: `${username} permission` }).click();
   await permissions
-    .getByRole('group', { name: `${username} permission options` })
-    .getByRole('button', { exact: true, name: 'Edit' })
+    .getByRole('listbox', { name: `${username} permission options` })
+    .getByRole('option', { exact: true, name: 'Edit' })
     .click();
   await permissions.press('Escape');
   await expect(permissions).toBeHidden();

@@ -31,8 +31,8 @@ import {
 import { Button } from '../../../components/ui/Button';
 import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { ContextMenuController } from '../../../components/ui/contextMenu';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
-import { TextInput } from '../../../components/ui/FormField';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs, type TabOption } from '../../../components/ui/Tabs';
@@ -457,9 +457,11 @@ function CharacterField({
 }: CharacterFieldProps) {
   return (
     <label className={[styles.field, className].filter(Boolean).join(' ')}>
-      <input
+      <DefaultInput
+        align="center"
         aria-label={accessibleLabel ?? label}
         autoComplete="off"
+        fillHeight
         maxLength={maxLength}
         placeholder={label}
         readOnly={readOnly}
@@ -489,23 +491,25 @@ function AbilityValueField({
 }: AbilityValueFieldProps) {
   return (
     <div className={styles.abilityValueField}>
-      <button
+      <Button
         aria-busy={rollPending}
         aria-label={rollAccessibleLabel}
         className={styles.abilityRollButton}
         disabled={rollDisabled}
         title={rollDisabled && !rollPending ? 'Chat is unavailable.' : rollAccessibleLabel}
         type="button"
+        variant="text"
         onClick={onRoll}
       >
         {label}
-      </button>
+      </Button>
       <InlineInput
         aria-label={accessibleLabel}
         autoComplete="off"
         className={styles.abilityValueInput}
         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
         readOnly={readOnly}
+        surface="borderless"
         value={value}
         onBlur={onBlur}
         onChange={(event) => onChange(event.currentTarget.value)}
@@ -1958,16 +1962,15 @@ function CharacterSheetEditor({
     return (
       <Dropdown
         accessibleLabel={label}
-        className={[
-          styles.dropdownField,
-          value ? undefined : styles.dropdownPlaceholder,
-        ].filter(Boolean).join(' ')}
+        align="center"
         disabled={!canEdit}
+        height="fill"
         key={path}
         label={value || label}
         panelLabel={`${label} options`}
         showIndicator={false}
         title={title}
+        tone={value ? "default" : "muted"}
       >
         {options.map((option) => {
           const Icon = icons?.[option];
@@ -2004,13 +2007,14 @@ function CharacterSheetEditor({
     const value = readStringField(draft, path);
     return (
       <InlineInput
+        align="center"
         aria-label={accessibleLabel}
         autoComplete="off"
         className={[styles.healthInput, className].filter(Boolean).join(' ')}
         inputMode={inputMode}
         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
         readOnly={!canEdit}
-        size={Math.max(1, value.length)}
+        sizing="content"
         value={value}
         onBlur={() => void save()}
         onChange={(event) => changeField(path, event.currentTarget.value)}
@@ -2033,8 +2037,9 @@ function CharacterSheetEditor({
     return (
       <Dropdown
         accessibleLabel="Spellcasting Ability"
-        className={[styles.dropdownField, styles.spellSummaryDropdown].join(' ')}
+        align="center"
         disabled={!canEdit}
+        height="fill"
         label={selected === null ? 'None' : ABILITY_LABELS[selected]}
         panelLabel="Spellcasting Ability options"
         showIndicator={false}
@@ -2075,6 +2080,7 @@ function CharacterSheetEditor({
     const displayed = numericValue(path, fallback);
     return (
       <InlineInput
+        align="center"
         aria-label={accessibleLabel}
         autoComplete="off"
         className={className}
@@ -2082,7 +2088,7 @@ function CharacterSheetEditor({
         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
         placeholder={total === null ? '—' : undefined}
         readOnly={!canEdit || total === null}
-        size={Math.max(1, displayed.length)}
+        sizing="content"
         value={displayed}
         onBlur={() => {
           if (unclampedTotal === null) {
@@ -2112,13 +2118,14 @@ function CharacterSheetEditor({
     );
     return (
       <InlineInput
+        align="center"
         aria-label={`${SPELL_SLOT_LEVEL_LABELS[slotLevel]} Spell Slots Current`}
         autoComplete="off"
         className={styles.spellSlotInput}
         inputMode="numeric"
         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
         readOnly={!canEdit}
-        size={Math.max(1, displayed.length)}
+        sizing="content"
         value={displayed}
         onBlur={() => commitNonnegativeValue(path)}
         onChange={(event) => changeNumericBuffer(path, event.currentTarget.value)}
@@ -2202,7 +2209,7 @@ function CharacterSheetEditor({
           >
             <main className={styles.sheet} data-active-tab={activeTab}>
               <header className={styles.header}>
-                <button
+                <Button variant="ghost"
                   aria-label="Choose Character Token image"
                   className={styles.tokenPlaceholder}
                   data-has-image={tokenPreviewUrl ? 'true' : undefined}
@@ -2239,7 +2246,7 @@ function CharacterSheetEditor({
                       <span>Character Token</span>
                     </>
                   )}
-                </button>
+                </Button>
                 <div className={styles.identityGrid}>
                   <div className={styles.classRow}>
                     <CharacterField
@@ -2345,7 +2352,7 @@ function CharacterSheetEditor({
                       key={ability}
                     >
                       <h2 className={styles.abilityHeading}>
-                        <button
+                        <Button variant="text"
                           aria-busy={checkPending}
                           aria-label={`Roll ${label} check from ability heading`}
                           className={styles.abilityHeadingButton}
@@ -2357,7 +2364,7 @@ function CharacterSheetEditor({
                           onClick={() => void rollAbility(ability, 'check')}
                         >
                           {label}
-                        </button>
+                        </Button>
                       </h2>
                       <label className={styles.modifierField}>
                         <InlineInput
@@ -2366,6 +2373,7 @@ function CharacterSheetEditor({
                           className={styles.modifierInput}
                           maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                           readOnly={!canEdit}
+                          surface="borderless"
                           value={numericValue(
                             modifierPath,
                             formatDnd5eSignedValue(derived.abilities[ability].modifier),
@@ -2493,7 +2501,8 @@ function CharacterSheetEditor({
                               }}
                             >
                               {rollKind ? (
-                                <button
+                                <Button
+                                  align="left"
                                   aria-busy={rollPending}
                                   aria-label={rollKind === 'concentration'
                                     ? 'Roll Concentration saving throw'
@@ -2504,10 +2513,11 @@ function CharacterSheetEditor({
                                     ? 'Chat is unavailable.'
                                     : `Roll ${stat.label}`}
                                   type="button"
+                                  variant="text"
                                   onClick={() => rollImportantStat(rollKind)}
                                 >
                                   {stat.label}
-                                </button>
+                                </Button>
                               ) : (
                                 <span className={styles.statLabel}>{stat.label}</span>
                               )}
@@ -2518,6 +2528,7 @@ function CharacterSheetEditor({
                                   className={styles.statInput}
                                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                                   readOnly={!canEdit}
+                                  surface="borderless"
                                   value={derivedStat
                                     ? numericValue(path, formatDnd5eSignedValue(total!))
                                     : readStringField(draft, path)}
@@ -2579,7 +2590,8 @@ function CharacterSheetEditor({
                               />
                               <span className={styles.skillLabel}>
                                 <span className={styles.skillAbility}>{skill.abbreviation}</span>
-                                <button
+                                <Button
+                                  align="left"
                                   aria-busy={rollPending}
                                   aria-label={`Roll ${skill.label}`}
                                   className={[
@@ -2591,19 +2603,21 @@ function CharacterSheetEditor({
                                     ? 'Chat is unavailable.'
                                     : `Roll ${skill.label}`}
                                   type="button"
+                                  variant="text"
                                   onClick={() => rollBuiltInSkill(skill.id)}
                                 >
                                   {skill.label}
-                                </button>
+                                </Button>
                               </span>
                               <span className={styles.skillValues}>
                                 <InlineInput
+                                  align="right"
                                   aria-label={`${skill.label} bonus`}
                                   autoComplete="off"
                                   className={styles.skillValueInput}
                                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                                   readOnly={!canEdit}
-                                  size={Math.max(1, displayedBonus.length)}
+                                  sizing="content"
                                   value={displayedBonus}
                                   onBlur={() => commitCalculatedTotal(
                                     bonusPath,
@@ -2620,12 +2634,13 @@ function CharacterSheetEditor({
                                 />
                                 <span aria-hidden>/</span>
                                 <InlineInput
+                                  align="right"
                                   aria-label={`${skill.label} passive score`}
                                   autoComplete="off"
                                   className={styles.skillValueInput}
                                   maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                                   readOnly={!canEdit}
-                                  size={Math.max(1, displayedPassive.length)}
+                                  sizing="content"
                                   value={displayedPassive}
                                   onBlur={() => commitCalculatedTotal(
                                     passivePath,
@@ -2686,7 +2701,7 @@ function CharacterSheetEditor({
                           className={styles.healthField}
                           {...healthShareHandlers('hitDice', 'Hit Dice')}
                         >
-                          <button
+                          <Button
                             aria-busy={pendingRolls.has('health:hit-die')}
                             aria-label="Roll Hit Die"
                             className={styles.healthRollButton}
@@ -2701,10 +2716,11 @@ function CharacterSheetEditor({
                                 ? 'Set the Hit Die to d4, d6, d8, d10, or d12.'
                               : 'Roll one Hit Die'}
                             type="button"
+                            variant="text"
                             onClick={() => void rollHitDie()}
                           >
                             Hit Dice
-                          </button>
+                          </Button>
                           <span className={styles.hitDiceValues}>
                             {healthInput('health.currentHitDice', 'Current hit dice')}
                             <span aria-hidden>/</span>
@@ -2838,7 +2854,7 @@ function CharacterSheetEditor({
                           Default width in grid tiles.
                         </p>
                       </div>
-                      <TextInput
+                      <DefaultInput
                         aria-label="Token Width"
                         autoComplete="off"
                         className={styles.settingsValueInput}
@@ -2862,7 +2878,7 @@ function CharacterSheetEditor({
                           Default height in grid tiles.
                         </p>
                       </div>
-                      <TextInput
+                      <DefaultInput
                         aria-label="Token Height"
                         autoComplete="off"
                         className={styles.settingsValueInput}
@@ -3063,7 +3079,7 @@ function CharacterSheetEditor({
                                         Array.from(
                                           { length: renderedSlotCount },
                                           (_, index) => (
-                                            <button
+                                            <Button variant="ghost"
                                               aria-label={`${SPELL_SLOT_LEVEL_LABELS[slotLevel]} spell slot ${index + 1}: ${index < storedSlot.current ? 'available' : 'expended'}`}
                                               aria-pressed={index < storedSlot.current}
                                               className={styles.spellSlotSegment}

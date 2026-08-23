@@ -39,12 +39,12 @@ test.describe('networked D&D character sheets', () => {
       name: 'New Character character sheet',
     });
     await gmSheet.getByRole('button', { exact: true, name: 'Class' }).click();
-    await gmSheet.getByRole('group', { name: 'Class options' })
-      .getByRole('button', { name: 'Fighter' })
+    await gmSheet.getByRole('listbox', { name: 'Class options' })
+      .getByRole('option', { name: 'Fighter' })
       .click();
     await gmSheet.getByRole('button', { exact: true, name: 'Level' }).click();
-    await gmSheet.getByRole('group', { name: 'Level options' })
-      .getByRole('button', { exact: true, name: '5' })
+    await gmSheet.getByRole('listbox', { name: 'Level options' })
+      .getByRole('option', { exact: true, name: '5' })
       .click();
     await gmSheet.getByLabel('Strength score').fill('12');
     await gmSheet.getByLabel('Strength score').blur();
@@ -54,7 +54,14 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('New Skill name').fill('Tactics');
     await gmSheet.getByLabel('Tactics name').blur();
     await gmSheet.getByRole('button', { name: 'Tactics ability' }).click();
-    await gmSheet.getByRole('button', { name: 'STR — Strength' }).click();
+    await gmSheet.getByRole('listbox', { name: 'Tactics ability options' })
+      .getByRole('option', { name: 'Strength' })
+      .click();
+    const tacticsAbility = gmSheet.getByRole('button', { name: 'Tactics ability' });
+    await expect(tacticsAbility).toHaveText('STR');
+    expect(await tacticsAbility.locator('span').first().evaluate((element) =>
+      element.scrollWidth <= element.clientWidth,
+    )).toBe(true);
     await gmSheet.getByRole('button', { name: 'Tactics training: Untrained' }).click();
     await gmSheet.getByLabel('Tactics bonus').fill('+7');
     await gmSheet.getByLabel('Tactics bonus').blur();
@@ -73,8 +80,8 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('New Feature name').fill('Action Surge');
     await gmSheet.getByLabel('Action Surge name').blur();
     await gmSheet.getByRole('button', { name: 'Action Surge type' }).click();
-    await gmSheet.getByRole('group', { name: 'Action Surge type options' })
-      .getByRole('button', { name: 'Feature' })
+    await gmSheet.getByRole('listbox', { name: 'Action Surge type options' })
+      .getByRole('option', { name: 'Feature' })
       .click();
     const actionSurgeSource = gmSheet.getByLabel('Action Surge source', {
       exact: true,
@@ -119,7 +126,7 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('Copper').blur();
     await gmSheet.getByRole('tab', { name: 'Settings' }).click();
     await gmSheet.getByRole('button', { name: 'Use Variant Encumbrance' }).click();
-    await gmSheet.getByRole('button', { name: 'Enabled' }).click();
+    await gmSheet.getByRole('option', { name: 'Enabled' }).click();
     await gmSheet.getByRole('tab', { name: 'Home' }).click();
     await expect(gmSheet.getByLabel('L Encumbered weight', { exact: true })).toHaveText('60');
     await expect(gmSheet.getByLabel('H Encumbered weight', { exact: true }))
@@ -138,8 +145,8 @@ test.describe('networked D&D character sheets', () => {
     await gmSheet.getByLabel('New Feature name').fill('Darkvision');
     await gmSheet.getByLabel('Darkvision name').blur();
     await gmSheet.getByRole('button', { name: 'Darkvision type' }).click();
-    await gmSheet.getByRole('group', { name: 'Darkvision type options' })
-      .getByRole('button', { name: 'Trait' })
+    await gmSheet.getByRole('listbox', { name: 'Darkvision type options' })
+      .getByRole('option', { name: 'Trait' })
       .click();
     await gmSheet.getByRole('button', { exact: true, name: 'Darkvision' })
       .click({ button: 'right' });
@@ -187,8 +194,8 @@ test.describe('networked D&D character sheets', () => {
     const permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'View' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'View' })
       .click();
     // The choice is the save, so closing is all that is left to do.
     await permissions.press('Escape');
@@ -355,8 +362,8 @@ test.describe('networked D&D character sheets', () => {
     let permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'View' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'View' })
       .click();
     await permissions.press('Escape');
 
@@ -385,8 +392,8 @@ test.describe('networked D&D character sheets', () => {
     permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'No access' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'No access' })
       .click();
 
     await expect.poll(() => detached.isClosed()).toBe(true);
@@ -416,12 +423,12 @@ test.describe('networked D&D character sheets', () => {
     await spellSheet.getByLabel('Spell Name').fill('Network Ward');
     await spellSheet.getByLabel('Spell Name').blur();
     await spellSheet.getByRole('button', { exact: true, name: 'Level' }).click();
-    await spellSheet.getByRole('group', { name: 'Level options' })
-      .getByRole('button', { name: '1st Level' })
+    await spellSheet.getByRole('listbox', { name: 'Level options' })
+      .getByRole('option', { name: '1st Level' })
       .click();
     await spellSheet.getByRole('button', { exact: true, name: 'School' }).click();
-    await spellSheet.getByRole('group', { name: 'School options' })
-      .getByRole('button', { name: 'Abjuration' })
+    await spellSheet.getByRole('listbox', { name: 'School options' })
+      .getByRole('option', { name: 'Abjuration' })
       .click();
     await spellSheet.getByLabel('Casting Time').fill('Action');
     await spellSheet.getByLabel('Casting Time').blur();
@@ -454,12 +461,12 @@ test.describe('networked D&D character sheets', () => {
     await secondSpellSheet.getByLabel('Spell Name').fill('Network Bolt');
     await secondSpellSheet.getByLabel('Spell Name').blur();
     await secondSpellSheet.getByRole('button', { exact: true, name: 'Level' }).click();
-    await secondSpellSheet.getByRole('group', { name: 'Level options' })
-      .getByRole('button', { name: '1st Level' })
+    await secondSpellSheet.getByRole('listbox', { name: 'Level options' })
+      .getByRole('option', { name: '1st Level' })
       .click();
     await secondSpellSheet.getByRole('button', { exact: true, name: 'School' }).click();
-    await secondSpellSheet.getByRole('group', { name: 'School options' })
-      .getByRole('button', { name: 'Evocation' })
+    await secondSpellSheet.getByRole('listbox', { name: 'School options' })
+      .getByRole('option', { name: 'Evocation' })
       .click();
     await secondSpellSheet.getByLabel('Spell Description').fill(
       'A second spell used to verify character spell ordering.',
@@ -473,12 +480,12 @@ test.describe('networked D&D character sheets', () => {
       name: 'New Character character sheet',
     });
     await gmCharacterSheet.getByRole('button', { exact: true, name: 'Class' }).click();
-    await gmCharacterSheet.getByRole('group', { name: 'Class options' })
-      .getByRole('button', { name: 'Wizard' })
+    await gmCharacterSheet.getByRole('listbox', { name: 'Class options' })
+      .getByRole('option', { name: 'Wizard' })
       .click();
     await gmCharacterSheet.getByRole('button', { exact: true, name: 'Level' }).click();
-    await gmCharacterSheet.getByRole('group', { name: 'Level options' })
-      .getByRole('button', { exact: true, name: '3' })
+    await gmCharacterSheet.getByRole('listbox', { name: 'Level options' })
+      .getByRole('option', { exact: true, name: '3' })
       .click();
     await gmCharacterSheet.getByRole('tab', { name: 'Spells' }).click();
     const gmFirstLevelSlots = gmCharacterSheet.getByLabel('1st Level Spell Slots Current');
@@ -509,8 +516,8 @@ test.describe('networked D&D character sheets', () => {
     let permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'View' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'View' })
       .click();
     await permissions.press('Escape');
 
@@ -569,8 +576,8 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerCastMode).toContainText('Cast without slot');
     await playerCastMode.click();
     await expect(playerCharacterSheet
-      .getByRole('group', { name: 'Spell cast mode options' })
-      .getByRole('button', { name: 'Cast at 1st Level' }))
+      .getByRole('listbox', { name: 'Spell cast mode options' })
+      .getByRole('option', { name: 'Cast at 1st Level' }))
       .toBeDisabled();
     await playerCharacterSheet.getByRole('button', { exact: true, name: 'Cast' }).click();
     await playerCharacterSheet.press('Escape');
@@ -716,8 +723,8 @@ test.describe('networked D&D character sheets', () => {
     permissions = gm.window.getByRole('dialog', { name: 'Edit Permissions' });
     await permissions.getByRole('button', { name: `${USERNAME} permission` }).click();
     await permissions
-      .getByRole('group', { name: `${USERNAME} permission options` })
-      .getByRole('button', { exact: true, name: 'No access' })
+      .getByRole('listbox', { name: `${USERNAME} permission options` })
+      .getByRole('option', { exact: true, name: 'No access' })
       .click();
 
     await expect(playerCharacterSheet.getByRole('heading', { name: 'Unavailable' }))

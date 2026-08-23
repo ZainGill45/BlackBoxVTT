@@ -1,0 +1,14 @@
+.range {
+  accent-color: var(--color-action);
+  cursor: pointer;
+}
+
+.range:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.range:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}

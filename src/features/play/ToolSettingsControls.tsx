@@ -1,5 +1,7 @@
 import { useState, type KeyboardEvent } from 'react';
-import { FormField, TextInput } from '../../components/ui/FormField';
+import { DefaultInput } from '../../components/ui/DefaultInput';
+import { ColorInput } from '../../components/ui/ColorInput';
+import { FormField } from '../../components/ui/FormField';
 import styles from './ToolSettingsControls.module.css';
 
 const COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
@@ -48,16 +50,15 @@ export function ColorControl({
           htmlFor={`${id}-picker`}
           style={{ backgroundColor: value }}
         >
-          <input
+          <ColorInput
             id={`${id}-picker`}
-            type="color"
             value={value}
             onChange={(event) => onChange(event.currentTarget.value)}
           />
         </label>
-        <TextInput
+        <DefaultInput
           autoComplete="off"
-          className={styles.hexInput}
+          font="mono"
           id={`${id}-text`}
           maxLength={7}
           spellCheck={false}
@@ -117,8 +118,9 @@ export function NumberControl({
   return (
     <FormField className={styles.field} htmlFor={id} label={label} showLabel>
       <span className={styles.numberShell}>
-        <TextInput
-          className={styles.numberInput}
+        <DefaultInput
+          endAdornmentWidth="wide"
+          hasEndAdornment
           id={id}
           inputMode="numeric"
           max={max}

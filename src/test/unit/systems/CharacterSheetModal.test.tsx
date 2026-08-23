@@ -243,7 +243,7 @@ describe('CharacterSheetModal token settings', () => {
     });
     await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
     await user.click(within(sheet).getByRole('button', { name: 'Token Type' }));
-    await user.click(screen.getByRole('button', { name: 'Template' }));
+    await user.click(screen.getByRole('option', { name: 'Template' }));
 
     expect(await screen.findByRole('dialog', { name: 'Change Token Type?' }))
       .toHaveTextContent('convert 2 existing tokens');

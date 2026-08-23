@@ -30,7 +30,7 @@
   overflow: hidden;
   color: transparent;
   background: transparent;
-  border: 1px dashed rgb(255 255 255 / 70%);
+  border: var(--border-width) dashed var(--color-scene-selection);
   border-radius: 0;
   caret-color: var(--color-focus);
   outline: none;
@@ -42,7 +42,7 @@
 }
 
 .textEditor:focus {
-  border-color: #fff;
+  border-color: var(--color-scene-selection-strong);
 }
 
 .textEditorError {

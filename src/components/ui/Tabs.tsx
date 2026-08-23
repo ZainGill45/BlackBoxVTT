@@ -1,4 +1,5 @@
 import { useRef, type CSSProperties, type KeyboardEvent } from 'react';
+import { Button } from './Button';
 import styles from './Tabs.module.css';
 
 export interface TabOption<T extends string> {
@@ -69,7 +70,7 @@ export function Tabs<T extends string>({
         const isActive = item.id === activeId;
 
         return (
-          <button
+          <Button variant="ghost"
             key={item.id}
             ref={(element) => {
               tabRefs.current[item.id] = element;
@@ -85,7 +86,7 @@ export function Tabs<T extends string>({
             onKeyDown={handleKeyDown}
           >
             <span className={styles.label}>{item.label}</span>
-          </button>
+          </Button>
         );
       })}
     </div>

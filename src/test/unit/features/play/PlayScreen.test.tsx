@@ -225,7 +225,7 @@ describe('PlayScreen', () => {
       within(polylineSettings).getByLabelText('Width'),
     ).toHaveValue(16);
     const fillSelect = within(polylineSettings).getByLabelText('Fill');
-    expect(fillSelect).toHaveValue('off');
+    expect(fillSelect).toHaveTextContent('Off');
     expect(
       within(polylineSettings).queryByLabelText('Fill color'),
     ).not.toBeInTheDocument();
@@ -241,17 +241,20 @@ describe('PlayScreen', () => {
     await user.clear(strokeColor);
     await user.type(strokeColor, '#ababab{Enter}');
 
-    await user.selectOptions(fillSelect, 'on');
+    await user.click(fillSelect);
+    await user.click(within(polylineSettings).getByRole('option', { name: 'On' }));
     expect(textColor('polyline-fill-color-text')).toHaveValue('#ababab');
     const fillColor = textColor('polyline-fill-color-text');
     await user.clear(fillColor);
     await user.type(fillColor, '#cccccc{Enter}');
 
-    await user.selectOptions(fillSelect, 'off');
+    await user.click(fillSelect);
+    await user.click(within(polylineSettings).getByRole('option', { name: 'Off' }));
     expect(
       within(polylineSettings).queryByLabelText('Fill color'),
     ).not.toBeInTheDocument();
-    await user.selectOptions(fillSelect, 'on');
+    await user.click(fillSelect);
+    await user.click(within(polylineSettings).getByRole('option', { name: 'On' }));
     expect(textColor('polyline-fill-color-text')).toHaveValue('#cccccc');
 
     await user.clear(textColor('polyline-color-text'));
@@ -322,8 +325,8 @@ describe('PlayScreen', () => {
     const dialog = screen.getByRole('dialog', { name: 'Text settings' });
     expect(dialog).toHaveFocus();
     expect(within(dialog).getByLabelText('Font family')).not.toHaveFocus();
-    expect(within(dialog).getByLabelText('Font family')).toHaveValue('inter');
-    expect(within(dialog).getByLabelText('Font weight')).toHaveValue('400');
+    expect(within(dialog).getByLabelText('Font family')).toHaveTextContent('Inter');
+    expect(within(dialog).getByLabelText('Font weight')).toHaveTextContent('Regular');
     expect(within(dialog).getByLabelText('Font size')).toHaveValue(64);
     expect(within(dialog).getByLabelText('Stroke width')).toHaveValue(8);
     expect(within(dialog).getByLabelText('Primary color')).toHaveValue(
@@ -333,8 +336,10 @@ describe('PlayScreen', () => {
       '#000000',
     );
 
-    await user.selectOptions(within(dialog).getByLabelText('Font family'), 'lora');
-    await user.selectOptions(within(dialog).getByLabelText('Font weight'), '700');
+    await user.click(within(dialog).getByLabelText('Font family'));
+    await user.click(within(dialog).getByRole('option', { name: 'Lora' }));
+    await user.click(within(dialog).getByLabelText('Font weight'));
+    await user.click(within(dialog).getByRole('option', { name: 'Bold' }));
     const fontSize = within(dialog).getByLabelText('Font size');
     await user.clear(fontSize);
     await user.type(fontSize, '999{Enter}');
@@ -396,26 +401,22 @@ describe('PlayScreen', () => {
         .getAllByRole('heading', { level: 2 })
         .map((heading) => heading.textContent),
     ).toEqual(['Background', 'Stroke', 'Measurement labels']);
-    expect(within(dialog).getByLabelText('Background type')).toHaveValue(
-      'crosshatched',
-    );
+    expect(within(dialog).getByLabelText('Background type'))
+      .toHaveTextContent('Crosshatched');
     expect(within(dialog).getByLabelText('Background opacity')).toHaveValue(30);
     expect(within(dialog).getByLabelText('Stroke width')).toHaveValue(2);
     expect(within(dialog).getByLabelText('Font size')).toHaveValue(16);
-    expect(within(dialog).getByLabelText('Font weight')).toHaveValue('400');
+    expect(within(dialog).getByLabelText('Font weight')).toHaveTextContent('Regular');
 
-    await user.selectOptions(
-      within(dialog).getByLabelText('Background type'),
-      'transparent',
-    );
-    await user.selectOptions(
-      within(dialog).getByLabelText('Stroke type'),
-      'dotted',
-    );
+    await user.click(within(dialog).getByLabelText('Background type'));
+    await user.click(within(dialog).getByRole('option', { name: 'Transparent' }));
+    await user.click(within(dialog).getByLabelText('Stroke type'));
+    await user.click(within(dialog).getByRole('option', { name: 'Dotted' }));
     const strokeWidth = within(dialog).getByLabelText('Stroke width');
     await user.clear(strokeWidth);
     await user.type(strokeWidth, '99{Enter}');
-    await user.selectOptions(within(dialog).getByLabelText('Font family'), 'cinzel');
+    await user.click(within(dialog).getByLabelText('Font family'));
+    await user.click(within(dialog).getByRole('option', { name: 'Cinzel' }));
 
     await waitFor(() => {
       expect(

@@ -1,4 +1,4 @@
-import { Plus, Search, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import type {
   ComponentType,
   MouseEventHandler,
@@ -6,6 +6,7 @@ import type {
 } from 'react';
 import { Collapsible } from '../../components/ui/Collapsible';
 import { IconButton } from '../../components/ui/IconButton';
+import { SearchInput } from '../../components/ui/SearchInput';
 import styles from './SidebarCollectionPanel.module.css';
 
 type SidebarCollectionIcon = ComponentType<{
@@ -48,30 +49,13 @@ export function SidebarCollectionPanel({
   return (
     <div className={styles.panel}>
       <div className={styles.toolbar}>
-        <label className={styles.search}>
-          <Search aria-hidden size="1rem" />
-          <span className="sr-only">{searchLabel}</span>
-          <input
-            type="search"
-            placeholder={searchPlaceholder}
-            value={query}
-            onChange={(event) => onQueryChange(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                onQueryChange('');
-              }
-            }}
-          />
-          {query ? (
-            <button
-              type="button"
-              aria-label={clearLabel}
-              onClick={() => onQueryChange('')}
-            >
-              <X aria-hidden size="1rem" />
-            </button>
-          ) : null}
-        </label>
+        <SearchInput
+          clearLabel={clearLabel}
+          label={searchLabel}
+          onChange={onQueryChange}
+          placeholder={searchPlaceholder}
+          value={query}
+        />
         <IconButton
           aria-haspopup={addHasPopup}
           disabled={addDisabled}

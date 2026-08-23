@@ -173,7 +173,6 @@ export function PermissionsModal<TAccess extends string>({
               <span className={styles.rowLabel}>{user.username}</span>
               <Dropdown
                 accessibleLabel={`${user.username} permission`}
-                className={styles.rowDropdown}
                 disabled={closing}
                 label={label}
                 panelLabel={`${user.username} permission options`}

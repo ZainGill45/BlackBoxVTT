@@ -1,0 +1,22 @@
+.search {
+  position: relative;
+  min-width: 0;
+}
+
+.searchIcon,
+.clear {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  translate: 0 -50%;
+}
+
+.searchIcon {
+  left: var(--space-2);
+  pointer-events: none;
+  color: var(--color-text-muted);
+}
+
+.clear {
+  right: 0;
+}

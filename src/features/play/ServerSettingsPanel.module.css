@@ -142,48 +142,9 @@
 }
 
 .updateRateControl {
-  display: flex;
-  width: 100%;
-  height: var(--control-height);
-  min-width: 0;
-  align-items: center;
-  background: var(--color-surface-muted);
-  border: var(--border-width) solid var(--color-border);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-tight);
-  transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    border-color var(--duration-fast) var(--ease-standard);
-}
-
-.updateRateControl:hover {
-  border-color: var(--color-border-strong);
-}
-
-.updateRateControl:focus-within {
-  border-color: var(--color-focus);
-}
-
-.updateRateInput {
-  appearance: textfield;
+  display: block;
   width: 100%;
   min-width: 0;
-  height: calc(var(--control-height) - 2 * var(--border-width));
-  padding: 0 var(--space-2);
-  caret-color: var(--color-text);
-  color: var(--color-text);
-  background: transparent;
-  border: 0;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  line-height: inherit;
-  outline: none;
-}
-
-.updateRateInput::-webkit-inner-spin-button,
-.updateRateInput::-webkit-outer-spin-button {
-  margin: 0;
-  appearance: none;
 }
 
 .serverIndicator {

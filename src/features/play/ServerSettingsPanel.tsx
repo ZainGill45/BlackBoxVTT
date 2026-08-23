@@ -8,7 +8,8 @@ import {
 } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Collapsible } from '../../components/ui/Collapsible';
-import { FormField, TextInput } from '../../components/ui/FormField';
+import { DefaultInput } from '../../components/ui/DefaultInput';
+import { FormField } from '../../components/ui/FormField';
 import { IconButton } from '../../components/ui/IconButton';
 import {
   MAX_MAX_CHAT_MESSAGE_CHARACTERS,
@@ -140,7 +141,7 @@ function ManagedUserRow({
 
   return (
     <div className={styles.userRow}>
-      <TextInput
+      <DefaultInput
         aria-label={`Username for ${user.username}`}
         autoComplete="off"
         className={styles.userInput}
@@ -151,7 +152,7 @@ function ManagedUserRow({
         onChange={(event) => setUsernameDraft(event.currentTarget.value)}
         onKeyDown={blurOnEnter}
       />
-      <TextInput
+      <DefaultInput
         aria-label={`New password for ${user.username}`}
         autoComplete="new-password"
         className={styles.userInput}
@@ -403,10 +404,9 @@ export function ServerSettingsPanel({
               className={styles.updateRateControl}
               htmlFor="transform-preview-rate"
             >
-              <input
+              <DefaultInput
                 ref={previewRateInputRef}
                 aria-label="Update Rate"
-                className={styles.updateRateInput}
                 id="transform-preview-rate"
                 inputMode="numeric"
                 max={MAX_TRANSFORM_PREVIEW_RATE}
@@ -442,10 +442,9 @@ export function ServerSettingsPanel({
               className={styles.updateRateControl}
               htmlFor="max-chat-message-characters"
             >
-              <input
+              <DefaultInput
                 ref={chatLimitInputRef}
                 aria-label="Maximum chat message characters"
-                className={styles.updateRateInput}
                 id="max-chat-message-characters"
                 inputMode="numeric"
                 max={MAX_MAX_CHAT_MESSAGE_CHARACTERS}
@@ -505,7 +504,7 @@ export function ServerSettingsPanel({
             <ServerStateIcon aria-hidden size="1rem" strokeWidth={1.75} />
           </span>
           <FormField htmlFor="server-port" label="Server port">
-            <TextInput
+            <DefaultInput
               id="server-port"
               inputMode="numeric"
               max={65_535}
@@ -540,7 +539,7 @@ export function ServerSettingsPanel({
 
         {showNewUser ? (
           <form className={styles.draftForm} onSubmit={handleDraftSubmit}>
-            <TextInput
+            <DefaultInput
               ref={newUsernameRef}
               aria-label="New username"
               autoComplete="off"
@@ -549,7 +548,7 @@ export function ServerSettingsPanel({
               value={newUsername}
               onChange={(event) => setNewUsername(event.currentTarget.value)}
             />
-            <TextInput
+            <DefaultInput
               aria-label="New password"
               autoComplete="new-password"
               placeholder="Password"

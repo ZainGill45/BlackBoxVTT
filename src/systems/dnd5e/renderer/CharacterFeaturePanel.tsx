@@ -7,6 +7,7 @@ import {
 import { Collapsible } from '../../../components/ui/Collapsible';
 import { DELETE_CONFIRMATION_TIMEOUT_MS } from '../../../components/ui/deleteConfirmation';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import {
   ContextMenuController,
@@ -342,11 +343,12 @@ export function CharacterFeaturePanel({
                       <InlineInput
                         aria-label={`${label} name`}
                         autoComplete="off"
-                        className={styles.featureInput}
                         data-feature-name
+                        density="compact"
                         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                         placeholder="Name"
                         readOnly={!canEdit}
+                        surface="underline"
                         value={feature.name}
                         onBlur={() => void onSave()}
                         onChange={(event) => updateFeature(feature, {
@@ -360,10 +362,11 @@ export function CharacterFeaturePanel({
                     <div className={styles.featureField}>
                       <Dropdown
                         accessibleLabel={`${label} type`}
-                        className={styles.featureTypeDropdown}
+                        density="compact"
                         disabled={!canEdit}
                         label={FEATURE_TYPE_LABELS[feature.type]}
                         panelLabel={`${label} type options`}
+                        surface="underline"
                       >
                         {DND5E_CHARACTER_FEATURE_TYPES.map((type) => (
                           <DropdownOption
@@ -383,10 +386,11 @@ export function CharacterFeaturePanel({
                       <InlineInput
                         aria-label={`${label} source`}
                         autoComplete="off"
-                        className={styles.featureInput}
+                        density="compact"
                         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                         placeholder="Source"
                         readOnly={!canEdit}
+                        surface="underline"
                         value={feature.source}
                         onBlur={() => void onSave()}
                         onChange={(event) => updateFeature(feature, {
@@ -401,10 +405,11 @@ export function CharacterFeaturePanel({
                       <InlineInput
                         aria-label={`${label} source type`}
                         autoComplete="off"
-                        className={styles.featureInput}
+                        density="compact"
                         maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
                         placeholder="Source type"
                         readOnly={!canEdit}
+                        surface="underline"
                         value={feature.sourceType}
                         onBlur={() => void onSave()}
                         onChange={(event) => updateFeature(feature, {
@@ -416,13 +421,15 @@ export function CharacterFeaturePanel({
                       />
                     </label>
                     <label className={`${styles.featureField} ${styles.featureDescriptionField}`}>
-                      <textarea
+                      <DefaultInput
+                        as="textarea"
                         aria-label={`${label} description`}
                         className={styles.featureDescription}
                         maxLength={MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS}
                         placeholder="Description"
                         readOnly={!canEdit}
                         rows={4}
+                        surface="borderless"
                         value={feature.description}
                         onBlur={() => void onSave()}
                         onChange={(event) => updateFeature(feature, {

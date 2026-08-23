@@ -1,4 +1,4 @@
-import { Plus, Search, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -19,6 +19,7 @@ import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
 import { IconButton } from '../../../components/ui/IconButton';
 import { Modal } from '../../../components/ui/Modal';
 import { OrderedCollectionController } from '../../../components/ui/orderedCollection';
+import { SearchInput } from '../../../components/ui/SearchInput';
 import type { ChatRollDefinition } from '../../../shared/chatRoll';
 import type { SystemJournalEntry, SystemJournalEntrySummary } from '../../../shared/journal';
 import type {
@@ -111,28 +112,13 @@ function SpellSearchField({
   query,
 }: SpellSearchFieldProps) {
   return (
-    <label className={styles.spellSearch}>
-      <Search aria-hidden size="1rem" />
-      <span className="sr-only">{label}</span>
-      <input
-        placeholder={placeholder}
-        type="search"
-        value={query}
-        onChange={(event) => onQueryChange(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onQueryChange('');
-        }}
-      />
-      {query ? (
-        <button
-          aria-label={clearLabel}
-          type="button"
-          onClick={() => onQueryChange('')}
-        >
-          <X aria-hidden size="1rem" />
-        </button>
-      ) : null}
-    </label>
+    <SearchInput
+      clearLabel={clearLabel}
+      label={label}
+      onChange={onQueryChange}
+      placeholder={placeholder}
+      value={query}
+    />
   );
 }
 
@@ -904,10 +890,13 @@ export function CharacterSpellPanel({
                           groupEntryIds,
                         )}
                       >
-                        <button
+                        <Button
+                          align="left"
                           aria-label={`View ${spell.name}`}
                           className={styles.spellSelectButton}
+                          layout="stack"
                           type="button"
+                          variant="ghost"
                           onClick={() => setSelectedId(spell.id)}
                           onKeyDown={(event) => openSpellKeyboardMenu(
                             event,
@@ -919,7 +908,7 @@ export function CharacterSpellPanel({
                         >
                           <strong>{spell.name}</strong>
                           <span>{spellListSubtitle(spell.data)}</span>
-                        </button>
+                        </Button>
                         <Checkbox
                           aria-label={`${spell.name}: ${preparation}`}
                           checked={preparationState === 'prepared'}
@@ -957,10 +946,13 @@ export function CharacterSpellPanel({
                       unavailableEntryIds,
                     )}
                   >
-                    <button
+                    <Button
+                      align="left"
                       aria-label="View unavailable spell"
                       className={styles.spellSelectButton}
+                      layout="stack"
                       type="button"
+                      variant="ghost"
                       onClick={() => setSelectedId(reference.entryId)}
                       onKeyDown={(event) => openSpellKeyboardMenu(
                         event,
@@ -972,7 +964,7 @@ export function CharacterSpellPanel({
                     >
                       <strong>Unavailable spell</strong>
                       <span>Permission removed, deleted, or invalid</span>
-                    </button>
+                    </Button>
                     <Checkbox
                       aria-label={`Unavailable spell: ${PREPARATION_LABELS[reference.preparation]}`}
                       checked={reference.preparation === 'prepared'}

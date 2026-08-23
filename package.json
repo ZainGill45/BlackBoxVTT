@@ -12,6 +12,8 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx . && npm run lint:design",
     "lint:design": "vitest run --config vitest.design.config.mts",
+    "catalog": "vite ui-catalog --open",
+    "catalog:build": "vite build ui-catalog",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

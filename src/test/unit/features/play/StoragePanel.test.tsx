@@ -419,9 +419,9 @@ describe('StoragePanel', () => {
 
     await user.click(within(permissions).getByRole('button', { name: 'Chris permission' }));
     await user.click(
-      within(within(permissions).getByRole('group', {
+      within(within(permissions).getByRole('listbox', {
         name: 'Chris permission options',
-      })).getByRole('button', { name: 'View' }),
+      })).getByRole('option', { name: 'View' }),
     );
 
     await waitFor(() => expect(updatePermissions).toHaveBeenCalledWith({

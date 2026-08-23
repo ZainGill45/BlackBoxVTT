@@ -42,7 +42,7 @@ test.describe('permissions dropdown', () => {
     const last = PLAYERS[PLAYERS.length - 1];
     const trigger = permissions.getByRole('button', { name: `${last} permission` });
     await trigger.click();
-    const panel = permissions.getByRole('group', { name: `${last} permission options` });
+    const panel = permissions.getByRole('listbox', { name: `${last} permission options` });
     await expect(panel).toBeVisible();
 
     // Floating over the editor rather than inside it leaves its height alone.

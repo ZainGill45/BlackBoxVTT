@@ -61,7 +61,7 @@
 
 .swatchButton:hover,
 .swatchButton:focus-visible,
-.swatchButton[aria-pressed='true'] {
+.swatchButton[aria-selected='true'] {
   background: var(--color-overlay-hover);
   border-color: var(--color-border-strong);
 }

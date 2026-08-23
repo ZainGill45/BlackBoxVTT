@@ -1,10 +1,8 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { Button } from '../../../components/ui/Button';
-import {
-  FormField,
-  SelectInput,
-  TextInput,
-} from '../../../components/ui/FormField';
+import { DefaultInput } from '../../../components/ui/DefaultInput';
+import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import { FormField } from '../../../components/ui/FormField';
 import { Modal } from '../../../components/ui/Modal';
 import type { AssetApi, AssetView } from '../../../shared/assets';
 import {
@@ -95,7 +93,7 @@ function NumberField({
       showLabel
     >
       <span className={styles.numberShell}>
-        <TextInput
+        <DefaultInput
           id={id}
           inputMode="decimal"
           max={max}
@@ -138,7 +136,7 @@ function TextField({
       label={label}
       showLabel
     >
-      <TextInput
+      <DefaultInput
         id={id}
         maxLength={maxLength}
         value={draft}
@@ -188,9 +186,10 @@ function GridColorField({
           // Scene data, not part of the app's grayscale surface.
           style={{ backgroundColor: value }}
         />
-        <TextInput
+        <DefaultInput
           aria-label="Grid color hex code"
           className={styles.colorInput}
+          font="mono"
           id="scene-grid-color"
           maxLength={7}
           spellCheck={false}
@@ -203,7 +202,7 @@ function GridColorField({
         />
         <div className={styles.swatches}>
           {GRID_COLOR_PRESETS.map((preset) => (
-            <button
+            <Button variant="ghost"
               key={preset}
               type="button"
               aria-label={`Use grid color ${preset}`}
@@ -366,20 +365,24 @@ export function SceneSettingsModal({
             label="Grid"
             showLabel
           >
-            <SelectInput
+            <Dropdown
+              accessibleLabel="Grid"
               id="scene-grid-type"
-              value={scene.grid.type}
-              onChange={(event) =>
-                commit({
-                  grid: {
-                    type: event.currentTarget.value as SceneGridType,
-                  },
-                })
-              }
+              label={scene.grid.type === 'square' ? 'Square Grid' : 'Gridless'}
             >
-              <option value="gridless">Gridless</option>
-              <option value="square">Square Grid</option>
-            </SelectInput>
+              {([
+                ['gridless', 'Gridless'],
+                ['square', 'Square Grid'],
+              ] as const satisfies readonly (readonly [SceneGridType, string])[])
+                .map(([type, label]) => (
+                  <DropdownOption
+                    active={scene.grid.type === type}
+                    key={type}
+                    label={label}
+                    onSelect={() => commit({ grid: { type } })}
+                  />
+                ))}
+            </Dropdown>
           </FormField>
 
           {scene.grid.type === 'square' ? (

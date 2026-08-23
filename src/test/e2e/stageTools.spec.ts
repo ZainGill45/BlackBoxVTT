@@ -118,7 +118,8 @@ test.describe('stage camera and tools', () => {
       name: 'Scene settings for New Scene',
     });
     await expect(settings).toBeVisible();
-    await settings.getByLabel('Grid', { exact: true }).selectOption('gridless');
+    await settings.getByLabel('Grid', { exact: true }).click();
+    await settings.getByRole('option', { exact: true, name: 'Gridless' }).click();
     await closeSceneSettings(gm.window, settings);
     await expect
       .poll(async () => (await readScene(gm.window, CAMPAIGN)).grid.type)
@@ -130,7 +131,8 @@ test.describe('stage camera and tools', () => {
       name: 'Scene settings for New Scene',
     });
     await expect(settings).toBeVisible();
-    await settings.getByLabel('Grid', { exact: true }).selectOption('square');
+    await settings.getByLabel('Grid', { exact: true }).click();
+    await settings.getByRole('option', { exact: true, name: 'Square Grid' }).click();
     await closeSceneSettings(gm.window, settings);
     await expect
       .poll(async () => (await readScene(gm.window, CAMPAIGN)).grid.type)
@@ -231,8 +233,10 @@ test.describe('stage camera and tools', () => {
     await rail.getByRole('button', { name: 'Text settings' }).click();
     const settings = gm.window.getByRole('dialog', { name: 'Text settings' });
     await expect(settings).toBeVisible();
-    await settings.getByLabel('Font family').selectOption('roboto-mono');
-    await settings.getByLabel('Font weight').selectOption('700');
+    await settings.getByLabel('Font family', { exact: true }).click();
+    await settings.getByRole('option', { exact: true, name: 'Roboto Mono' }).click();
+    await settings.getByLabel('Font weight', { exact: true }).click();
+    await settings.getByRole('option', { exact: true, name: 'Bold' }).click();
     await settings.getByLabel('Font size').fill('48');
     await settings.getByLabel('Font size').press('Enter');
     await settings.getByLabel('Primary color', { exact: true }).fill('#e02b2b');

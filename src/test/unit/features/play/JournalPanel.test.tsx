@@ -378,11 +378,11 @@ describe('JournalPanel', () => {
     expect(within(sheet).getByRole('textbox', { name: 'Creature' })).toBeVisible();
 
     await user.click(within(sheet).getByRole('button', { name: 'Class' }));
-    const classOptions = within(sheet).getByRole('group', { name: 'Class options' });
-    const classOptionButtons = within(classOptions).getAllByRole('button');
+    const classOptions = within(sheet).getByRole('listbox', { name: 'Class options' });
+    const classOptionButtons = within(classOptions).getAllByRole('option');
     expect(classOptionButtons.map(({ textContent }) => textContent))
       .toEqual([...DND5E_5_5E_CLASSES]);
-    await user.click(within(classOptions).getByRole('button', { name: 'Fighter' }));
+    await user.click(within(classOptions).getByRole('option', { name: 'Fighter' }));
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
       campaignId,
       entryId: character.id,
@@ -391,11 +391,11 @@ describe('JournalPanel', () => {
     })));
 
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
-    const levelOptions = within(sheet).getByRole('group', { name: 'Level options' });
-    const levelOptionButtons = within(levelOptions).getAllByRole('button');
+    const levelOptions = within(sheet).getByRole('listbox', { name: 'Level options' });
+    const levelOptionButtons = within(levelOptions).getAllByRole('option');
     expect(levelOptionButtons.map(({ textContent }) => textContent))
       .toEqual(DND5E_CHARACTER_LEVELS);
-    await user.click(within(levelOptions).getByRole('button', { name: '7' }));
+    await user.click(within(levelOptions).getByRole('option', { name: '7' }));
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
       campaignId,
       entryId: character.id,
@@ -514,9 +514,9 @@ describe('JournalPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
     const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
     await user.click(within(sheet).getByRole('button', { name: 'Class' }));
-    await user.click(within(sheet).getByRole('button', { name: 'Fighter' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Fighter' }));
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
-    await user.click(within(sheet).getByRole('button', { name: '5' }));
+    await user.click(within(sheet).getByRole('option', { name: '5' }));
 
     const strengthScore = within(sheet).getByRole('textbox', { name: 'Strength score' });
     const strengthModifier = within(sheet).getByRole('textbox', { name: 'Strength modifier' });
@@ -587,7 +587,7 @@ describe('JournalPanel', () => {
       expect(athleticsPassive).toHaveValue('16');
     });
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
-    await user.click(within(sheet).getByRole('button', { name: '9' }));
+    await user.click(within(sheet).getByRole('option', { name: '9' }));
     await waitFor(() => {
       expect(proficiency).toHaveValue('+5');
       expect(strengthSave).toHaveValue('+7');
@@ -721,7 +721,7 @@ describe('JournalPanel', () => {
     await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
     expect(within(sheet).getByText('No spell slots available')).toBeInTheDocument();
     await user.click(within(sheet).getByRole('button', { name: 'Class' }));
-    await user.click(within(sheet).getByRole('button', { name: 'Wizard' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Wizard' }));
     await waitFor(() => expect(server.data).toMatchObject({
       identity: { className: 'Wizard' },
       spellcasting: { ability: 'intelligence' },
@@ -731,7 +731,7 @@ describe('JournalPanel', () => {
       spellcasting: { ability: 'intelligence' },
     });
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
-    await user.click(within(sheet).getByRole('button', { name: '5' }));
+    await user.click(within(sheet).getByRole('option', { name: '5' }));
     await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
 
     const abilityButton = within(sheet).getByRole('button', {
@@ -739,16 +739,16 @@ describe('JournalPanel', () => {
     });
     expect(abilityButton).toHaveTextContent('Intelligence');
     await user.click(abilityButton);
-    const abilityOptions = within(sheet).getByRole('group', {
+    const abilityOptions = within(sheet).getByRole('listbox', {
       name: 'Spellcasting Ability options',
     });
-    expect(within(abilityOptions).getAllByRole('button').map(({ textContent }) => textContent))
+    expect(within(abilityOptions).getAllByRole('option').map(({ textContent }) => textContent))
       .toEqual(['None', 'Strength', 'Dexterity', 'Constitution', 'Intelligence', 'Wisdom', 'Charisma']);
-    await user.click(within(abilityOptions).getByRole('button', { name: 'Charisma' }));
+    await user.click(within(abilityOptions).getByRole('option', { name: 'Charisma' }));
     await waitFor(() => expect(server.data.spellcasting.ability).toBe('charisma'));
 
     await user.click(within(sheet).getByRole('button', { name: 'Class' }));
-    await user.click(within(sheet).getByRole('button', { name: 'Cleric' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Cleric' }));
     await waitFor(() => expect(server.data).toMatchObject({
       identity: { className: 'Cleric' },
       spellcasting: { ability: 'wisdom' },
@@ -811,12 +811,12 @@ describe('JournalPanel', () => {
     }));
 
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
-    await user.click(within(sheet).getByRole('button', { name: '1' }));
+    await user.click(within(sheet).getByRole('option', { name: '1' }));
     expect(within(spellSlotTracker).queryByRole('textbox', {
       name: '3rd Level Spell Slots Current',
     })).not.toBeInTheDocument();
     await user.click(within(sheet).getByRole('button', { name: 'Level' }));
-    await user.click(within(sheet).getByRole('button', { name: '5' }));
+    await user.click(within(sheet).getByRole('option', { name: '5' }));
     thirdSlotCurrent = within(spellSlotTracker).getByRole('textbox', {
       name: '3rd Level Spell Slots Current',
     });
@@ -939,7 +939,10 @@ describe('JournalPanel', () => {
     await user.type(firstName, 'Recall');
     await user.tab();
     await user.click(within(sheet).getByRole('button', { name: 'Recall ability' }));
-    await user.click(within(sheet).getByRole('button', { name: 'WIS — Wisdom' }));
+    const recallAbilityOptions = within(sheet)
+      .getByRole('listbox', { name: 'Recall ability options' });
+    await user.click(within(recallAbilityOptions)
+      .getByRole('option', { name: 'Wisdom' }));
     await user.click(within(sheet).getByRole('button', {
       name: 'Recall training: Untrained',
     }));
@@ -1195,7 +1198,7 @@ describe('JournalPanel', () => {
     await user.type(firstName, 'Second Wind');
     await user.tab();
     await user.click(within(sheet).getByRole('button', { name: 'Second Wind type' }));
-    await user.click(within(sheet).getByRole('button', { name: 'Trait' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Trait' }));
     const source = within(sheet).getByRole('textbox', { name: 'Second Wind source' });
     await user.type(source, 'Class');
     await user.tab();
@@ -1220,7 +1223,7 @@ describe('JournalPanel', () => {
     }));
 
     await user.click(within(sheet).getByRole('button', { name: 'Second Wind type' }));
-    await user.click(within(sheet).getByRole('button', { name: 'Unknown' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Unknown' }));
     await waitFor(() => expect(server.data.features[0]?.type).toBe('unknown'));
 
     await user.click(within(sheet).getByRole('button', { name: 'Add Feature' }));
@@ -1425,7 +1428,7 @@ describe('JournalPanel', () => {
     await user.click(within(containerRow).getByRole('button', {
       name: 'Backpack contents weight',
     }));
-    await user.click(within(sheet).getByRole('button', { name: 'Weightless' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Weightless' }));
     await waitFor(() => expect(server.data.inventory.entries[0]).toMatchObject({
       contentsWeight: 'weightless',
     }));
@@ -1470,10 +1473,10 @@ describe('JournalPanel', () => {
     });
     await user.click(variant);
     await user.click(within(
-      within(sheet).getByRole('group', {
+      within(sheet).getByRole('listbox', {
         name: 'Use Variant Encumbrance options',
       }),
-    ).getByRole('button', { name: 'Enabled' }));
+    ).getByRole('option', { name: 'Enabled' }));
     await waitFor(() => expect(server.data.inventory.variantEncumbrance).toBe(true));
     await user.click(within(sheet).getByRole('tab', { name: 'Home' }));
     expect(within(sheet).getByLabelText('L Encumbered weight')).toHaveTextContent('50');
@@ -1840,7 +1843,7 @@ describe('JournalPanel', () => {
     await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
     const sheet = screen.getByRole('dialog', { name: 'New Character character sheet' });
     await user.click(within(sheet).getByRole('button', { name: 'Class' }));
-    await user.click(within(sheet).getByRole('button', { name: 'Fighter' }));
+    await user.click(within(sheet).getByRole('option', { name: 'Fighter' }));
 
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledTimes(2));
     expect(updateEntryData).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -2616,8 +2619,8 @@ describe('JournalPanel', () => {
 
     await user.click(within(permissions).getByRole('button', { name: 'Chris permission' }));
     await user.click(
-      within(within(permissions).getByRole('group', { name: 'Chris permission options' }))
-        .getByRole('button', { name: 'Edit' }),
+      within(within(permissions).getByRole('listbox', { name: 'Chris permission options' }))
+        .getByRole('option', { name: 'Edit' }),
     );
 
     /* Choosing the level is the save: the write lands on its own once the
@@ -3134,7 +3137,7 @@ describe('JournalPanel', () => {
       await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
     );
     await user.click(screen.getByRole('button', { name: 'Insert' }));
-    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Image' }));
     const chooser = await screen.findByRole('dialog', {
       name: 'Choose a Journal image',
     });
@@ -3180,9 +3183,9 @@ describe('JournalPanel', () => {
     const noteName = screen.getByRole('textbox', { name: 'Note name' });
     await user.click(noteName);
     await user.click(screen.getByRole('button', { name: 'Style: Title' }));
-    await user.click(screen.getByRole('button', { name: 'Italic' }));
+    await user.click(screen.getByRole('option', { name: 'Italic' }));
     await user.click(screen.getByRole('button', { name: 'Font Family: Default' }));
-    await user.click(screen.getByRole('button', { name: 'Lora' }));
+    await user.click(screen.getByRole('option', { name: 'Lora' }));
 
     expect(noteName).toHaveStyle({ fontFamily: '"Lora Variable"', fontStyle: 'italic' });
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument();
@@ -3224,14 +3227,14 @@ describe('JournalPanel', () => {
     expect(permissions).toHaveTextContent('Tomb of Babylon');
 
     await user.click(within(permissions).getByRole('button', { name: 'All players permission' }));
-    const options = within(permissions).getByRole('group', {
+    const options = within(permissions).getByRole('listbox', {
       name: 'All players permission options',
     });
     /* Only a page can defer to something else, and it says what deferring
        currently resolves to rather than making the reader go and look. */
-    expect(within(options).getByRole('button', { name: /^Inherit note default/ }))
+    expect(within(options).getByRole('option', { name: /^Inherit note default/ }))
       .toHaveTextContent('Inherit note default (No access)');
-    await user.click(within(options).getByRole('button', { name: 'View' }));
+    await user.click(within(options).getByRole('option', { name: 'View' }));
 
     await waitFor(() => expect(updatePagePermissions).toHaveBeenCalledWith({
       campaignId,
@@ -3295,9 +3298,9 @@ describe('JournalPanel', () => {
     const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
     await user.click(within(permissions).getByRole('button', { name: 'All players permission' }));
     await user.click(
-      within(within(permissions).getByRole('group', {
+      within(within(permissions).getByRole('listbox', {
         name: 'All players permission options',
-      })).getByRole('button', { name: 'View' }),
+      })).getByRole('option', { name: 'View' }),
     );
 
     /* The conflict is absorbed: the same choice is replayed against the
@@ -3343,9 +3346,9 @@ describe('JournalPanel', () => {
     const permissions = screen.getByRole('dialog', { name: 'Edit Permissions' });
     await user.click(within(permissions).getByRole('button', { name: 'All players permission' }));
     await user.click(
-      within(within(permissions).getByRole('group', {
+      within(within(permissions).getByRole('listbox', {
         name: 'All players permission options',
-      })).getByRole('button', { name: 'View' }),
+      })).getByRole('option', { name: 'View' }),
     );
 
     expect(await within(permissions).findByRole('alert', undefined, { timeout: 3_000 }))

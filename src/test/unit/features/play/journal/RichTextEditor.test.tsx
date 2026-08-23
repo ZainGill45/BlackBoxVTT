@@ -119,26 +119,26 @@ describe('RichTextEditor typography', () => {
 
     await user.click(screen.getByRole('button', { name: 'Insert' }));
     for (const label of ['Horizontal Rule', 'Table', 'Image']) {
-      expect(screen.getByRole('button', { name: label })).toBeVisible();
+      expect(screen.getByRole('menuitem', { name: label })).toBeVisible();
     }
 
     const editor = screen.getByRole('textbox', { name: 'Page content' });
     editor.focus();
     await user.keyboard('{Control>}a{/Control}');
     await user.click(screen.getByRole('button', { name: 'Text Color: Default' }));
-    const colorOptions = screen.getByRole('group', {
+    const colorOptions = screen.getByRole('listbox', {
       name: 'Text Color: Default options',
     });
-    expect(within(colorOptions).getAllByRole('button')).toHaveLength(12);
-    expect(within(colorOptions).getByRole('button', { name: 'Text color: Brown' }))
+    expect(within(colorOptions).getAllByRole('option')).toHaveLength(12);
+    expect(within(colorOptions).getByRole('option', { name: 'Text color: Brown' }))
       .toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Text color: Red' }));
+    await user.click(screen.getByRole('option', { name: 'Text color: Red' }));
     expect(editor.querySelector('span')).toHaveStyle({ color: '#d76f6f' });
 
     editor.focus();
     await user.keyboard('{Control>}a{/Control}');
     await user.click(screen.getByRole('button', { name: 'Style: Paragraph' }));
-    await user.click(screen.getByRole('button', { name: 'Code' }));
+    await user.click(screen.getByRole('option', { name: 'Code' }));
 
     await waitFor(() => {
       expect(editor.querySelector('pre')).not.toBeNull();
@@ -175,9 +175,9 @@ describe('RichTextEditor typography', () => {
     editor.focus();
     await user.keyboard('{Control>}a{/Control}');
     await user.click(screen.getByRole('button', { name: 'Font Size: Default' }));
-    await user.click(screen.getByRole('button', { name: '24px' }));
+    await user.click(screen.getByRole('option', { name: '24px' }));
     await user.click(screen.getByRole('button', { name: 'Line Length: Wide' }));
-    await user.click(screen.getByRole('button', { name: 'Comfortable' }));
+    await user.click(screen.getByRole('option', { name: 'Comfortable' }));
 
     await waitFor(() => expect(onChange).toHaveBeenCalled());
     const emittedContent = onChange.mock.calls.at(-1)?.[0];

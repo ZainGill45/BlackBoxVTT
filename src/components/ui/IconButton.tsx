@@ -3,6 +3,7 @@ import {
   type ButtonHTMLAttributes,
   type ComponentType,
 } from 'react';
+import { Button } from './Button';
 import styles from './IconButton.module.css';
 
 interface IconButtonProps
@@ -14,6 +15,7 @@ interface IconButtonProps
     strokeWidth?: number | string;
   }>;
   label: string;
+  variant?: 'default' | 'embedded';
 }
 
 export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
@@ -25,21 +27,23 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(
       label,
       title = label,
       type = 'button',
+      variant = 'default',
       ...props
     },
     ref,
   ) => (
-    <button
+    <Button
       ref={ref}
       type={type}
       aria-label={label}
+      aria-pressed={active || undefined}
       className={[styles.button, className].filter(Boolean).join(' ')}
-      data-active={active}
       title={title}
+      variant={variant === 'embedded' ? 'embedded' : 'icon'}
       {...props}
     >
       <Icon aria-hidden size="1.125rem" strokeWidth={1.5} />
-    </button>
+    </Button>
   ),
 );
 
