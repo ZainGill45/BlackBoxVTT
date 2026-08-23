@@ -406,6 +406,7 @@ const forwardingOperations: readonly {
       manager.deleteTarget({
         campaignId,
         cleanupAssetIds: [assetId],
+        deleteTemplateTokens: false,
         expectedRevision: 4,
         target: { entryId, kind: 'entry' },
       }),

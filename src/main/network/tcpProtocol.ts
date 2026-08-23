@@ -417,16 +417,19 @@ export const protocolPayloadSchemas = {
   }).strict(),
   'client.journal_delete_note': z.object({
     cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS),
+    deleteTemplateTokens: z.boolean(),
     expectedRevision: z.number().int().nonnegative(),
     target: z.object({ entryId: z.string().uuid(), kind: z.literal('note') }).strict(),
   }).strict(),
   'client.journal_delete_entry': z.object({
     cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS),
+    deleteTemplateTokens: z.boolean(),
     expectedRevision: z.number().int().nonnegative(),
     target: z.object({ entryId: z.string().uuid(), kind: z.literal('entry') }).strict(),
   }).strict(),
   'client.journal_delete_page': z.object({
     cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS),
+    deleteTemplateTokens: z.boolean(),
     expectedRevision: z.number().int().nonnegative(),
     target: z.object({ entryId: z.string().uuid(), kind: z.literal('page'), pageId: z.string().uuid() }).strict(),
   }).strict(),
@@ -718,11 +721,16 @@ export const protocolPayloadSchemas = {
       id: z.string().uuid(),
       reason: z.string().min(1).max(1024).optional(),
     }).strict()).max(2048),
+    linkedTokenCount: z.number().int().nonnegative().max(MAX_SCENE_OBJECTS * 1024),
+    templateTokenCount: z.number().int().nonnegative().max(MAX_SCENE_OBJECTS * 1024),
     target: journalDeleteTargetSchema,
   }).strict(),
   'server.journal_delete_result': z.object({ cleanupFailures: z.array(z.string().uuid()).max(2048) }).strict(),
   'server.journal_asset_dependents': z.object({
-    dependents: z.array(z.object({ entryId: z.string().uuid(), pageId: z.string().uuid(), title: z.string().min(1).max(1024) }).strict()).max(2048),
+    dependents: z.array(z.union([
+      z.object({ entryId: z.string().uuid(), pageId: z.string().uuid(), title: z.string().min(1).max(1024) }).strict(),
+      z.object({ entryId: z.string().uuid(), kind: z.literal('entry'), pageId: z.string().uuid(), title: z.string().min(1).max(1024) }).strict(),
+    ])).max(2048),
   }).strict(),
   'server.journal_error': journalErrorSchema,
   'server.journal_entry': journalEntrySchema,

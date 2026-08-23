@@ -280,6 +280,9 @@ app.whenReady().then(() => {
     type: 'content' | 'deleted' | 'permissions' | 'structure';
   }) => {
     void networkManager?.notifyJournalChanged(event);
+    if (event.type === 'content' || event.type === 'deleted') {
+      void sceneManager?.notifyChanged(event.campaignId);
+    }
   });
   networkManager.on('journal-changed', (event) =>
     journalManager?.notifyRemoteChanged(event),
@@ -373,7 +376,13 @@ app.whenReady().then(() => {
   registerAssetIpcHandlers(
     ipcMain,
     assetManager,
-    () => mainWindow?.webContents ?? null,
+    (sender) =>
+      sender === mainWindow?.webContents ||
+      Boolean(journalWindowManager?.isAllowedSender(sender)),
+    () => [
+      ...(mainWindow?.webContents ? [mainWindow.webContents] : []),
+      ...(journalWindowManager?.getWebContents() ?? []),
+    ],
   );
   registerSceneIpcHandlers(
     ipcMain,

@@ -8,6 +8,8 @@ import { JournalRepository } from './journalRepository';
 import { ServerConfigRepository } from './network/serverConfigRepository';
 import { SceneRepository } from './sceneRepository';
 import { CampaignDatabase } from './storage/campaignDatabase';
+import { MutationQueue } from './storage/mutationQueue';
+import { TokenRepository } from './tokenRepository';
 
 export interface LocalCampaignWorkspace {
   readonly assetRepository: AssetRepository;
@@ -102,8 +104,12 @@ export class CampaignWorkspaceRegistry {
       touchCampaign,
       trashItem: this.trashItem,
     });
+    const authoredMutations = new MutationQueue();
+    const tokenRepository = new TokenRepository({ database });
     const sceneRepository = new SceneRepository({
       database,
+      mutations: authoredMutations,
+      tokens: tokenRepository,
       touchCampaign,
       warn: this.warn,
     });
@@ -125,8 +131,10 @@ export class CampaignWorkspaceRegistry {
       journalRepository: new JournalRepository({
         assets: assetRepository,
         database,
+        mutations: authoredMutations,
         scenes: sceneRepository,
         system: container.manifest.system,
+        tokens: tokenRepository,
         touchCampaign,
       }),
       manifest: container.manifest,

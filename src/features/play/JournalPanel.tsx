@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent,
   type MouseEvent,
 } from 'react';
 import { Button } from '../../components/ui/Button';
@@ -24,6 +25,7 @@ import {
   type JournalContentSnapshot,
   type JournalDeletePreview,
   type JournalEntry,
+  JOURNAL_ENTRY_DRAG_TYPE,
   type JournalEntrySummary,
   MAX_JOURNAL_TITLE_INPUT_CODE_UNITS,
   type NoteEntry,
@@ -86,9 +88,11 @@ interface JournalEntryRowProps {
   entry: JournalEntrySummary;
   onContextMenu: (event: MouseEvent) => void;
   onDelete: () => void;
+  onDragStart?: (event: DragEvent<HTMLLIElement>) => void;
   onOpen: () => void;
   onRename: (name: string) => Promise<boolean>;
   reordering: boolean;
+  tokenSource: boolean;
 }
 
 function JournalEntryRow({
@@ -97,9 +101,11 @@ function JournalEntryRow({
   entry,
   onContextMenu,
   onDelete,
+  onDragStart,
   onOpen,
   onRename,
   reordering,
+  tokenSource,
 }: JournalEntryRowProps) {
   return (
     <li
@@ -107,7 +113,9 @@ function JournalEntryRow({
       data-journal-group-id={entry.groupId}
       data-journal-order-id={entry.id}
       data-reordering={reordering}
+      draggable={tokenSource}
       onContextMenu={onContextMenu}
+      onDragStart={onDragStart}
     >
       <button
         aria-label={`Open ${entry.name}`}
@@ -261,6 +269,7 @@ function ConnectedJournalPanel({
     preview: JournalDeletePreview;
   } | null>(null);
   const [cleanupIds, setCleanupIds] = useState<string[]>([]);
+  const [deleteTemplateTokens, setDeleteTemplateTokens] = useState(false);
   const [reorderState, setReorderState] = useState<ReorderState | null>(null);
   const menu = useRef<ContextMenuController | null>(null);
   const rowsRefs = useRef(new Map<string, HTMLUListElement>());
@@ -465,6 +474,7 @@ function ConnectedJournalPanel({
     const result = await journalApi.deleteTarget({
       campaignId,
       cleanupAssetIds: selectedCleanupIds,
+      deleteTemplateTokens,
       expectedRevision: entry.revision,
       target: preview.target,
     });
@@ -473,6 +483,7 @@ function ConnectedJournalPanel({
       return;
     }
     setDeleteRequest(null);
+    setDeleteTemplateTokens(false);
     setSelectedNote((current) => current?.note.id === entry.id ? null : current);
     setSelectedSystemEntry((current) => current?.id === entry.id ? null : current);
     await refresh();
@@ -490,11 +501,16 @@ function ConnectedJournalPanel({
       setError(result.error.message);
       return;
     }
-    if (result.value.assets.length === 0) {
+    if (
+      result.value.assets.length === 0 &&
+      result.value.linkedTokenCount === 0 &&
+      result.value.templateTokenCount === 0
+    ) {
       await deletePreparedEntry(entry, result.value, []);
       return;
     }
     setCleanupIds([]);
+    setDeleteTemplateTokens(false);
     setDeleteRequest({ entry, preview: result.value });
   };
 
@@ -749,11 +765,26 @@ function ConnectedJournalPanel({
                       entry={entry}
                       key={`${entry.id}:${entry.revision}`}
                       reordering={reorderState?.activeId === entry.id}
+                      tokenSource={Boolean(
+                        entry.kind === 'system' &&
+                        entry.capabilities.edit &&
+                        typeById.get(entry.typeId)?.token
+                      )}
                       onContextMenu={(event) => openContext(event, entry)}
                       onDelete={() => {
                         if (requestDeleteConfirmation(entry.id)) {
                           void requestEntryDelete(entry);
                         }
+                      }}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'copy';
+                        event.dataTransfer.setData(
+                          JOURNAL_ENTRY_DRAG_TYPE,
+                          JSON.stringify({
+                            entryId: entry.id,
+                            typeId: entry.typeId,
+                          }),
+                        );
                       }}
                       onOpen={() => {
                         if (reorderState) return;
@@ -792,6 +823,7 @@ function ConnectedJournalPanel({
 
       {selectedSystemEntry ? (
         <SystemJournalEntryModal
+          assetApi={assetApi}
           campaignId={campaignId}
           entry={selectedSystemEntry}
           journalApi={journalApi}
@@ -812,14 +844,51 @@ function ConnectedJournalPanel({
       <ConfirmModal
         confirmLabel={cleanupIds.length ? 'Delete and clean up' : 'Delete'}
         isOpen={deleteRequest !== null}
-        message={`“${deleteRequest?.entry.name ?? 'This entry'}” contains embedded Storage images. Select any images that should also be moved to trash. Unselected images stay in Storage.`}
-        title="Delete entry with embedded images?"
-        onCancel={() => setDeleteRequest(null)}
+        message={deleteRequest
+          ? [
+              `“${deleteRequest.entry.name}” will be deleted.`,
+              deleteRequest.preview.linkedTokenCount > 0
+                ? `${deleteRequest.preview.linkedTokenCount} linked ${
+                    deleteRequest.preview.linkedTokenCount === 1
+                      ? 'token'
+                      : 'tokens'
+                  } will also be removed from campaign scenes.`
+                : '',
+              deleteRequest.preview.templateTokenCount > 0
+                ? `${deleteRequest.preview.templateTokenCount} Template ${
+                    deleteRequest.preview.templateTokenCount === 1
+                      ? 'token has'
+                      : 'tokens have'
+                  } independent data and can remain after the source is deleted.`
+                : '',
+              deleteRequest.preview.assets.length > 0
+                ? 'Select any listed images that should also be moved to trash. Unselected images stay in Storage.'
+                : '',
+            ].filter(Boolean).join(' ')
+          : ''}
+        title="Delete entry and dependencies?"
+        onCancel={() => {
+          setDeleteRequest(null);
+          setDeleteTemplateTokens(false);
+        }}
         onConfirm={() => {
           if (deleteRequest) void deletePreparedEntry(deleteRequest.entry, deleteRequest.preview, cleanupIds);
         }}
       >
         <div className={styles.cleanupList}>
+          {deleteRequest && deleteRequest.preview.templateTokenCount > 0 ? (
+            <Checkbox
+              checked={deleteTemplateTokens}
+              onChange={(event) =>
+                setDeleteTemplateTokens(event.currentTarget.checked)}
+            >
+              <span>
+                Also delete {deleteRequest.preview.templateTokenCount} Template {
+                  deleteRequest.preview.templateTokenCount === 1 ? 'token' : 'tokens'
+                } from scenes
+              </span>
+            </Checkbox>
+          ) : null}
           {deleteRequest?.preview.assets.map((asset) => (
             <Checkbox
               checked={cleanupIds.includes(asset.id)}

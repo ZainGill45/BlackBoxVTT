@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AssetApi } from '../../shared/assets';
-import type { SceneImage, SceneRecord } from '../../shared/scenes';
+import {
+  DEFAULT_TOKEN_ASSET_ID,
+  type SceneImage,
+  type SceneRecord,
+} from '../../shared/scenes';
 
 const SCENE_PREVIEW_INACTIVITY_MS = 30_000;
 
@@ -77,7 +81,7 @@ export function useSceneImageResources(
             layer.map((image) => image.assetId),
           ),
         ])
-        .filter((id): id is string => !!id);
+        .filter((id): id is string => !!id && id !== DEFAULT_TOKEN_ASSET_ID);
     },
     [sceneOrScenes],
   );

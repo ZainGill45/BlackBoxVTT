@@ -95,6 +95,15 @@ function renderPanel({
       changeListener = listener;
       return () => undefined;
     }),
+    prepareDelete: vi.fn(async (input) => ({
+      ok: true as const,
+      value: {
+        assets: [],
+        linkedTokenCount: 0,
+        target: input.target,
+        templateTokenCount: 0,
+      },
+    })),
     renameEntry: vi.fn(),
     updateEntryData: vi.fn(),
   };

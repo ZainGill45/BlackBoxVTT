@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  createEvent,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -17,7 +24,18 @@ import {
   CANVAS_IMAGE_DRAG_TYPE,
   type AssetApi,
 } from '../../../../shared/assets';
-import { createEmptyImageLayers } from '../../../../shared/scenes';
+import {
+  JOURNAL_ENTRY_DRAG_TYPE,
+  type JournalApi,
+} from '../../../../shared/journal';
+import {
+  DEFAULT_TOKEN_ASSET_ID,
+  createEmptyImageLayers,
+} from '../../../../shared/scenes';
+import {
+  DND5E_CHARACTER_ENTRY_TYPE_ID,
+} from '../../../../systems/dnd5e/definition';
+import { createDefaultDnd5eCharacterData } from '../../../../systems/dnd5e/characterData';
 import { createFakeSceneRenderer } from '../../../support/sceneRenderer';
 
 const session: PlaySession = {
@@ -340,6 +358,84 @@ describe('MapStage', () => {
       state.images.token[0].id,
     ]);
     expect(assetApi.releasePreview).toHaveBeenCalled();
+  });
+
+  it('drops an editable Character as a linked token and honors GM Alt placement', async () => {
+    const { createRenderer, renderer } = fakeRenderer();
+    renderer.clientToScene = vi.fn(() => ({ x: 123, y: 234 }));
+    const scene = makeScene({ images: createEmptyImageLayers() });
+    const characterId = '77777777-7777-4777-8777-777777777777';
+    const onCommitObjects = vi.fn(async (_scene, state) => ({
+      ...scene,
+      ...state,
+      revision: 1,
+    }));
+    const character = {
+      capabilities: {
+        delete: true,
+        edit: true,
+        managePages: false,
+        managePermissions: true,
+        reorder: true,
+        view: true,
+      },
+      data: createDefaultDnd5eCharacterData(),
+      detail: null,
+      groupId: 'dnd5e.characters',
+      id: characterId,
+      kind: 'system' as const,
+      name: 'Aria Stone',
+      permissionRevision: 0,
+      permissions: { allPlayers: 'none' as const, overrides: [] },
+      position: 0,
+      revision: 0,
+      typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+    };
+    const journalApi = {
+      ...window.blackBox.journal,
+      getEntry: vi.fn(async () => ({ ok: true as const, value: character })),
+    } as JournalApi;
+    render(
+      <MapStage
+        createRenderer={createRenderer}
+        journalApi={journalApi}
+        onCommitObjects={onCommitObjects}
+        scene={scene}
+        session={session}
+      />,
+    );
+    await waitFor(() => expect(renderer.mount).toHaveBeenCalled());
+
+    const stage = screen.getByRole('region', { name: /map play area/i });
+    const drop = createEvent.drop(stage, {
+      clientX: 300,
+      clientY: 200,
+      dataTransfer: {
+        getData: (type: string) => type === JOURNAL_ENTRY_DRAG_TYPE
+          ? JSON.stringify({
+              entryId: characterId,
+              typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+            })
+          : '',
+      },
+    });
+    Object.defineProperty(drop, 'altKey', { value: true });
+    Object.defineProperty(drop, 'getModifierState', {
+      value: (key: string) => key === 'Alt',
+    });
+    fireEvent(stage, drop);
+
+    await waitFor(() => expect(onCommitObjects).toHaveBeenCalledOnce());
+    const state = onCommitObjects.mock.calls[0][1];
+    expect(state.images.gm).toMatchObject([{
+      assetId: DEFAULT_TOKEN_ASSET_ID,
+      size: { height: 1, kind: 'default', width: 1 },
+      source: { entryId: characterId, kind: 'linked' },
+    }]);
+    expect(state.images.token).toEqual([]);
+    expect(renderer.selectImages).toHaveBeenCalledWith([
+      state.images.gm[0].id,
+    ]);
   });
 
   it('enables pings only for Select and optimistically sends and displays them', async () => {

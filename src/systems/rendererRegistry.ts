@@ -3,11 +3,13 @@ import { createElement } from 'react';
 import type { CampaignSystemState } from '../shared/gameSystems';
 import type { JournalApi, SystemJournalEntry } from '../shared/journal';
 import type {
+  CharacterSheetAssetApi,
   CharacterSheetJournalApi,
   CharacterSheetNetworkApi,
   JournalWindowGeometry,
 } from '../shared/journalWindows';
 import type { NetworkApi } from '../shared/network';
+import type { AssetApi } from '../shared/assets';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
   DND5E_SPELL_ENTRY_TYPE_ID,
@@ -20,6 +22,7 @@ import {
 import { SpellSheetModal } from './dnd5e/renderer/SpellSheetModal';
 
 export interface SystemJournalEntryRendererProps {
+  assetApi?: AssetApi;
   campaignId: string;
   entry: SystemJournalEntry;
   journalApi: JournalApi;
@@ -67,6 +70,7 @@ export function SystemJournalEntryModal(props: SystemJournalEntryRendererProps) 
 }
 
 export interface DetachedSystemJournalEntryRendererProps {
+  assetApi?: CharacterSheetAssetApi;
   campaignId: string;
   closeRequestId: number;
   entry: SystemJournalEntry;

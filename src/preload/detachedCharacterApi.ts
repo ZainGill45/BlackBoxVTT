@@ -1,5 +1,6 @@
 import type { IpcRenderer, IpcRendererEvent } from 'electron';
 import { journalIpcChannels } from '../shared/journal';
+import { assetIpcChannels } from '../shared/assets';
 import {
   journalWindowIpcChannels,
   type DetachedCharacterApi,
@@ -10,6 +11,18 @@ export function createDetachedCharacterApi(
   ipc: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener' | 'send'>,
 ): DetachedCharacterApi {
   return {
+    assets: {
+      getPreview: (input) => ipc.invoke(assetIpcChannels.getPreview, input),
+      list: (input) => ipc.invoke(assetIpcChannels.list, input),
+      onChanged: (listener) => {
+        const handler = (_event: IpcRendererEvent, value: unknown) =>
+          listener(value as Parameters<typeof listener>[0]);
+        ipc.on(assetIpcChannels.changed, handler);
+        return () => ipc.removeListener(assetIpcChannels.changed, handler);
+      },
+      releasePreview: (input) =>
+        ipc.invoke(assetIpcChannels.releasePreview, input) as Promise<void>,
+    },
     host: {
       bootstrap: () =>
         ipc.invoke(journalWindowIpcChannels.bootstrapCharacter) as ReturnType<
@@ -35,6 +48,8 @@ export function createDetachedCharacterApi(
         ipc.on(journalIpcChannels.changed, handler);
         return () => ipc.removeListener(journalIpcChannels.changed, handler);
       },
+      prepareDelete: (input) =>
+        ipc.invoke(journalIpcChannels.prepareDelete, input),
       renameEntry: (input) =>
         ipc.invoke(journalIpcChannels.renameEntry, input),
       updateEntryData: (input) =>

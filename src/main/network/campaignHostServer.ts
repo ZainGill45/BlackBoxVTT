@@ -328,6 +328,11 @@ export class CampaignHostServer {
       async (event) => {
         this.onJournalChanged(event);
         await this.broadcastJournalChanged(event);
+        if (event.type === 'content' || event.type === 'deleted') {
+          this.onSceneChanged();
+          await this.broadcastActiveScene();
+          await this.broadcastSceneLibraries();
+        }
       },
     );
   }

@@ -27,6 +27,7 @@ import {
   type DeleteJournalTargetInput,
   type JournalEntry,
   type JournalAccessLevel,
+  type JournalAssetDependent,
   type JournalDeleteAsset,
   type JournalDeletePreview,
   type JournalDeleteResult,
@@ -54,6 +55,13 @@ import type {
   PermissionConfiguration,
   PermissionSubject,
 } from '../shared/permissions';
+import {
+  isSceneToken,
+  type SceneRecord,
+} from '../shared/scenes';
+import { sceneRecordSchema } from '../shared/sceneSchema';
+import type { JournalEntryDefaultToken } from '../systems/types';
+import { TokenRepository } from './tokenRepository';
 
 export type JournalActor =
   | { kind: 'gm' }
@@ -63,9 +71,11 @@ interface JournalRepositoryOptions {
   assets: AssetRepository;
   createId?: () => string;
   database: CampaignDatabase;
+  mutations?: MutationQueue;
   now?: () => Date;
   scenes: SceneRepository;
   system?: CampaignSystemState;
+  tokens?: TokenRepository;
   touchCampaign: () => Promise<void>;
 }
 
@@ -153,27 +163,32 @@ export class JournalRepository {
   private readonly createId: () => string;
   private readonly database: CampaignDatabase;
   private readonly leases = new Map<string, ActiveLease>();
-  private readonly mutations = new MutationQueue();
+  private readonly mutations: MutationQueue;
   private readonly now: () => Date;
   private readonly scenes: SceneRepository;
   private readonly system: CampaignSystemState;
   private readonly touchCampaign: () => Promise<void>;
+  private readonly tokens: TokenRepository;
 
   constructor({
     assets,
     createId = randomUUID,
     database,
+    mutations = new MutationQueue(),
     now = () => new Date(),
     scenes,
     system,
+    tokens = new TokenRepository({ database, now }),
     touchCampaign,
   }: JournalRepositoryOptions) {
     this.assets = assets;
     this.createId = createId;
     this.database = database;
+    this.mutations = mutations;
     this.now = now;
     this.scenes = scenes;
     this.system = structuredClone(system ?? database.readSystem());
+    this.tokens = tokens;
     this.touchCampaign = touchCampaign;
   }
 
@@ -436,6 +451,41 @@ export class JournalRepository {
             entryId: input.entryId,
           });
         }
+        const previousData = this.entryData(entry);
+        const previousToken = definition.token
+          ? definition.token.readDefaultToken(previousData)
+          : null;
+        const nextToken = definition.token
+          ? definition.token.readDefaultToken(input.data)
+          : null;
+        const tokenChanged = !!previousToken && !!nextToken &&
+          JSON.stringify(previousToken) !== JSON.stringify(nextToken);
+        const tokenTypeChanged = !!previousToken && !!nextToken &&
+          previousToken.type !== nextToken.type;
+        if (tokenTypeChanged && actor.kind !== 'gm') {
+          return failure(
+            'permission_denied',
+            'Only the Game Master can change Token Type.',
+            { entryId: input.entryId },
+          );
+        }
+        if (nextToken && !this.validTokenImage(nextToken.imageAssetId)) {
+          return failure(
+            'invalid_input',
+            'The selected Character Token image no longer exists.',
+            { entryId: input.entryId },
+          );
+        }
+        if (
+          tokenChanged &&
+          await this.scenes.hasLockedLinkedTokens(input.entryId)
+        ) {
+          return failure(
+            'conflict',
+            'A Character token is currently being edited. Try again when that edit is finished.',
+            { entryId: input.entryId },
+          );
+        }
         const dataJson = JSON.stringify(input.data);
         const timestamp = this.now().toISOString();
         this.transaction(() => {
@@ -450,6 +500,24 @@ export class JournalRepository {
             actorKey(actor),
             input.entryId,
           );
+          if (tokenChanged && previousToken && nextToken) {
+            if (tokenTypeChanged) {
+              this.tokens.convertDescendants({
+                data: structuredClone(input.data),
+                entryId: input.entryId,
+                name: entry.name,
+                token: nextToken,
+                typeId: entry.type_id,
+              }, timestamp);
+            } else {
+              this.synchronizeLinkedTokens(
+                input.entryId,
+                previousToken,
+                nextToken,
+                timestamp,
+              );
+            }
+          }
           this.bumpManifest();
         });
         await this.touchCampaign();
@@ -934,7 +1002,18 @@ export class JournalRepository {
       if (!authorization.ok) return authorization;
       const assetIds = this.targetAssetIds(target);
       const assets = await this.describeDeleteAssets(actor, target, assetIds);
-      return { ok: true, value: { assets, target } };
+      const tokenCounts = target.kind === 'entry'
+        ? this.tokens.countDescendants(target.entryId)
+        : { linked: 0, template: 0 };
+      return {
+        ok: true,
+        value: {
+          assets,
+          linkedTokenCount: tokenCounts.linked,
+          target,
+          templateTokenCount: tokenCounts.template,
+        },
+      };
     } catch {
       return failure('storage_error', 'The delete dependencies could not be checked.');
     }
@@ -961,6 +1040,16 @@ export class JournalRepository {
         }
         const entryId = input.target.entryId;
         const pageId = input.target.kind === 'page' ? input.target.pageId : null;
+        if (
+          input.target.kind === 'entry' &&
+          await this.scenes.hasLockedLinkedTokens(input.target.entryId)
+        ) {
+          return failure(
+            'conflict',
+            'A Character token is currently being edited. Try again when that edit is finished.',
+            { entryId: input.target.entryId },
+          );
+        }
         const deletingPageIds = pageId
           ? [pageId]
           : this.pages(entryId).map(({ id }) => id);
@@ -970,6 +1059,13 @@ export class JournalRepository {
             this.normalizePagePositions(entryId);
             this.bumpEntry(entryId, actorKey(actor), this.now().toISOString());
           } else {
+            if (input.target.kind === 'entry') {
+              this.removeLinkedTokens(
+                entryId,
+                this.now().toISOString(),
+                input.deleteTemplateTokens,
+              );
+            }
             this.database.connection.prepare('DELETE FROM journal_entries WHERE id = ?').run(entryId);
             this.normalizeEntryPositions();
           }
@@ -999,7 +1095,7 @@ export class JournalRepository {
   async findAssetDependents(
     assetId: string,
     actor?: JournalActor,
-  ): Promise<Array<{ entryId: string; pageId: string; title: string }>> {
+  ): Promise<JournalAssetDependent[]> {
     const rows = this.database.connection.prepare(
       `SELECT pages.entry_id, pages.id AS page_id, pages.title
        FROM journal_page_assets AS references_
@@ -1011,26 +1107,52 @@ export class JournalRepository {
       page_id: string;
       title: string;
     }>;
-    if (!actor) {
-      return rows.map(({ entry_id, page_id, title }) => ({
+    const pageDependents = !actor
+      ? rows.map(({ entry_id, page_id, title }) => ({
         entryId: entry_id,
         pageId: page_id,
         title,
-      }));
-    }
-    const visibleByEntry = new Map<string, Set<string>>();
-    return rows.flatMap(({ entry_id, page_id, title }) => {
-      let visible = visibleByEntry.get(entry_id);
-      if (!visible) {
-        const entry = this.entry(entry_id);
-        const projected = entry ? this.projectEntry(actor, entry) : null;
-        visible = new Set(projected?.kind === 'note' ? projected.pages.map(({ id }) => id) : []);
-        visibleByEntry.set(entry_id, visible);
+      }))
+      : (() => {
+          const visibleByEntry = new Map<string, Set<string>>();
+          return rows.flatMap(({ entry_id, page_id, title }) => {
+            let visible = visibleByEntry.get(entry_id);
+            if (!visible) {
+              const entry = this.entry(entry_id);
+              const projected = entry ? this.projectEntry(actor, entry) : null;
+              visible = new Set(
+                projected?.kind === 'note'
+                  ? projected.pages.map(({ id }) => id)
+                  : [],
+              );
+              visibleByEntry.set(entry_id, visible);
+            }
+            return visible.has(page_id)
+              ? [{ entryId: entry_id, pageId: page_id, title }]
+              : [];
+          });
+        })();
+    const entryDependents = this.entries().flatMap((entry) => {
+      const definition = getJournalEntryTypeDefinition(
+        this.system,
+        entry.type_id,
+      );
+      if (!definition?.token) return [];
+      const data = this.entryData(entry);
+      if (
+        definition.token.readDefaultToken(data).imageAssetId !== assetId ||
+        (actor && !this.projectEntry(actor, entry)?.capabilities.view)
+      ) {
+        return [];
       }
-      return visible.has(page_id)
-        ? [{ entryId: entry_id, pageId: page_id, title }]
-        : [];
+      return [{
+        entryId: entry.id,
+        kind: 'entry' as const,
+        pageId: entry.id,
+        title: `${entry.name} (default Character Token)`,
+      }];
     });
+    return [...pageDependents, ...entryDependents];
   }
 
   detachAsset(assetId: string, actor: JournalActor = { kind: 'gm' }): Promise<JournalResult<null>> {
@@ -1043,15 +1165,30 @@ export class JournalRepository {
           }
         }
         const dependents = await this.findAssetDependents(assetId);
-        if (dependents.some(({ pageId }) => this.activeLease(pageId))) {
+        const pageDependents = dependents.filter(({ kind }) => !kind);
+        if (pageDependents.some(({ pageId }) => this.activeLease(pageId))) {
           return failure('locked', 'An edited Journal page still uses this asset.');
         }
-        if (dependents.length === 0) return { ok: true, value: null };
+        const tokenReferences = this.entries().flatMap((entry) => {
+          const definition = getJournalEntryTypeDefinition(
+            this.system,
+            entry.type_id,
+          );
+          if (!definition?.token) return [];
+          const data = this.entryData(entry);
+          const token = definition.token.readDefaultToken(data);
+          return token.imageAssetId === assetId
+            ? [{ data, definition, entry, token }]
+            : [];
+        });
+        if (dependents.length === 0 && tokenReferences.length === 0) {
+          return { ok: true, value: null };
+        }
         const timestamp = this.now().toISOString();
         const key = actorKey(actor);
         this.transaction(() => {
           const touchedEntries = new Set<string>();
-          for (const dependent of dependents) {
+          for (const dependent of pageDependents) {
             const page = this.page(dependent.pageId)!;
             const content = removeJournalAsset(this.content(page), assetId);
             this.database.connection.prepare(
@@ -1066,6 +1203,33 @@ export class JournalRepository {
             touchedEntries.add(page.entry_id);
           }
           for (const entryId of touchedEntries) this.bumpEntry(entryId, key, timestamp);
+          for (const reference of tokenReferences) {
+            const nextToken = {
+              ...reference.token,
+              imageAssetId: null,
+            };
+            const nextData = reference.definition.token!.writeDefaultToken(
+              reference.data,
+              nextToken,
+            );
+            this.database.connection.prepare(
+              `UPDATE journal_entries
+               SET data_json = ?, revision = revision + 1,
+                   updated_at = ?, updated_by = ?
+               WHERE id = ?`,
+            ).run(
+              JSON.stringify(nextData),
+              timestamp,
+              key,
+              reference.entry.id,
+            );
+            this.synchronizeLinkedTokens(
+              reference.entry.id,
+              reference.token,
+              nextToken,
+              timestamp,
+            );
+          }
           this.bumpManifest();
         });
         await this.touchCampaign();
@@ -1277,6 +1441,58 @@ export class JournalRepository {
     );
     if (data === null) throw new Error('Journal entry data is invalid.');
     return data;
+  }
+
+  private validTokenImage(assetId: string | null): boolean {
+    if (assetId === null) return true;
+    const row = this.database.connection.prepare(
+      'SELECT record_json FROM assets WHERE id = ?',
+    ).get(assetId) as { record_json?: unknown } | undefined;
+    if (typeof row?.record_json !== 'string') return false;
+    try {
+      const record = JSON.parse(row.record_json) as { kind?: unknown };
+      return record.kind === 'image';
+    } catch {
+      return false;
+    }
+  }
+
+  private sceneRows(): Array<{ id: string; scene: SceneRecord }> {
+    return (this.database.connection.prepare(
+      'SELECT id, record_json FROM scenes ORDER BY position',
+    ).all() as unknown as Array<{ id: string; record_json: string }>).map(
+      ({ id, record_json }) => ({
+        id,
+        scene: sceneRecordSchema.parse(JSON.parse(record_json)),
+      }),
+    );
+  }
+
+  private synchronizeLinkedTokens(
+    entryId: string,
+    previous: JournalEntryDefaultToken,
+    next: JournalEntryDefaultToken,
+    timestamp: string,
+  ): number {
+    return this.tokens.synchronizeLinkedTokens(
+      entryId,
+      previous,
+      next,
+      timestamp,
+    );
+  }
+
+  private removeLinkedTokens(
+    entryId: string,
+    timestamp: string,
+    deleteTemplates = false,
+  ): number {
+    const removed = this.tokens.removeDescendants(
+      entryId,
+      deleteTemplates,
+      timestamp,
+    );
+    return removed.linked + removed.template;
   }
 
   private entryGroupId(row: EntryRow): string {
@@ -1583,7 +1799,23 @@ export class JournalRepository {
            WHERE page_id = ?
            ORDER BY asset_id`,
         ).all(target.pageId);
-    return (rows as Array<{ asset_id: string }>).map(({ asset_id }) => asset_id);
+    const assetIds = new Set(
+      (rows as Array<{ asset_id: string }>).map(({ asset_id }) => asset_id),
+    );
+    if (target.kind === 'entry') {
+      const entry = this.entry(target.entryId);
+      const definition = entry
+        ? getJournalEntryTypeDefinition(this.system, entry.type_id)
+        : null;
+      if (entry && definition?.token) {
+        const data = this.entryData(entry);
+        if (definition.validateData(data)) {
+          const tokenAssetId = definition.token.readDefaultToken(data).imageAssetId;
+          if (tokenAssetId) assetIds.add(tokenAssetId);
+        }
+      }
+    }
+    return [...assetIds].sort();
   }
 
   private async describeDeleteAssets(
@@ -1602,13 +1834,22 @@ export class JournalRepository {
       const asset = manifest.assets.find(({ id }) => id === assetId);
       if (!asset) continue;
       const journalShared = (await this.findAssetDependents(assetId)).some(
-        ({ pageId }) => !deletingPages.has(pageId),
+        (dependent) => dependent.kind === 'entry'
+          ? !(target.kind === 'entry' && dependent.entryId === target.entryId)
+          : !deletingPages.has(dependent.pageId),
       );
-      const sceneResult = await this.scenes.findDependents(assetId);
-      if (!sceneResult.ok) {
-        throw new Error('Scene dependencies could not be checked.');
-      }
-      const sceneShared = sceneResult.value.length > 0;
+      const sceneShared = this.sceneRows().some(({ scene }) =>
+        scene.mapImage?.assetId === assetId ||
+        Object.values(scene.images).flat().some((image) =>
+          image.assetId === assetId &&
+          !(
+            target.kind === 'entry' &&
+            isSceneToken(image) &&
+            image.source.kind === 'linked' &&
+            image.source.entryId === target.entryId
+          ),
+        ),
+      );
       const owns = actor.kind === 'gm' || asset.createdBy === actor.userId;
       const cleanupAllowed = !journalShared && !sceneShared && owns;
       results.push({

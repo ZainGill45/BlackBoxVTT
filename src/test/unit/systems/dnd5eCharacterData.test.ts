@@ -75,6 +75,24 @@ function inventoryContainer(
 }
 
 describe('D&D Character data', () => {
+  it('defaults Characters to Linked tokens and validates the exact Token Type', () => {
+    const linked = createDefaultDnd5eCharacterData();
+    expect(linked.defaultToken.type).toBe('linked');
+    expect(isDnd5eCharacterData(linked)).toBe(true);
+
+    const template = structuredClone(linked);
+    template.defaultToken.type = 'template';
+    expect(isDnd5eCharacterData(template)).toBe(true);
+
+    expect(isDnd5eCharacterData({
+      ...linked,
+      defaultToken: { ...linked.defaultToken, type: 'standalone' },
+    })).toBe(false);
+    const missingType = structuredClone(linked);
+    Reflect.deleteProperty(missingType.defaultToken, 'type');
+    expect(isDnd5eCharacterData(missingType)).toBe(false);
+  });
+
   it('offers only executable authored roll-step purposes', () => {
     expect(DND5E_ACTION_STEP_PURPOSES).toEqual([
       'attack',

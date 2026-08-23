@@ -5,6 +5,7 @@ import type {
 } from './journal';
 import type { NetworkApi } from './network';
 import type { Result } from './result';
+import type { AssetApi } from './assets';
 
 export const journalWindowIpcChannels = {
   bootstrapCharacter: 'journal-window:bootstrap-character',
@@ -56,7 +57,17 @@ export interface DetachedCharacterContext {
 
 export type CharacterSheetJournalApi = Pick<
   JournalApi,
-  'getEntry' | 'list' | 'onChanged' | 'renameEntry' | 'updateEntryData'
+  | 'getEntry'
+  | 'list'
+  | 'onChanged'
+  | 'prepareDelete'
+  | 'renameEntry'
+  | 'updateEntryData'
+>;
+
+export type CharacterSheetAssetApi = Pick<
+  AssetApi,
+  'getPreview' | 'list' | 'onChanged' | 'releasePreview'
 >;
 
 export type CharacterSheetNetworkApi = Pick<
@@ -83,6 +94,7 @@ export interface DetachedCharacterHostApi {
 }
 
 export interface DetachedCharacterApi {
+  assets: CharacterSheetAssetApi;
   host: DetachedCharacterHostApi;
   journal: CharacterSheetJournalApi;
   network: CharacterSheetNetworkApi;

@@ -8,6 +8,8 @@ import {
   createEmptySceneManifest,
   createEmptyShapeLayers,
   createEmptyTextLayers,
+  DEFAULT_TOKEN_ASSET_ID,
+  isSceneToken,
   SCENE_OBJECT_LOCK_TIMEOUT_MS,
   sceneObjectStateOf,
   MAX_SCENE_EDIT_HISTORY,
@@ -36,6 +38,7 @@ import {
   type SceneResult,
   type SceneShape,
   type SceneText,
+  type SceneToken,
 } from '../shared/scenes';
 import type {
   SceneAccessLevel,
@@ -55,6 +58,11 @@ import {
 } from '../shared/sceneFogGeometry';
 import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
+import {
+  TokenRepository,
+  type TokenSnapshotHistoryChange,
+  type TokenSnapshotChanges,
+} from './tokenRepository';
 
 const MAX_SCENES = 1024;
 /**
@@ -69,6 +77,8 @@ interface SceneRepositoryOptions {
   createId?: () => string;
   database: CampaignDatabase;
   now?: () => Date;
+  mutations?: MutationQueue;
+  tokens?: TokenRepository;
   touchCampaign?: () => Promise<void>;
   warn?: (message: string, error?: unknown) => void;
 }
@@ -157,6 +167,7 @@ interface SceneHistoryCommand {
     target: SceneFog;
   };
   sceneId: string;
+  tokenSnapshots?: TokenSnapshotHistoryChange[];
 }
 
 interface CompletedSceneOperation {
@@ -517,6 +528,7 @@ function arrangementProblem(
   arrangement: SceneArrangement,
   actor: SceneEditActor,
   submitted: SceneObjectState,
+  canEditToken: (source: SceneToken['source']) => boolean,
 ): { code: SceneErrorCode; message: string } | null {
   const targets = new Set(arrangement.targets);
   if (targets.size === 0 ||
@@ -543,19 +555,32 @@ function arrangementProblem(
     };
   }
   if (actor.kind === 'player') {
-    if (arrangement.kind === 'move-layer') {
-      return {
-        code: 'permission_denied',
-        message: 'Only the game master can move objects between layers.',
-      };
-    }
     if (
-      sourceLayer !== 'token' ||
-      locations.some((location) => location!.ownerId !== actor.userId)
+      arrangement.kind === 'move-layer' &&
+      arrangement.targetLayer === 'gm'
     ) {
       return {
         code: 'permission_denied',
-        message: 'Players can reorder only their own token-layer objects.',
+        message: 'Players cannot move objects to the Game Master layer.',
+      };
+    }
+    const canArrange = arrangement.targets.every((id) => {
+      const content = objectContent(current, id);
+      if (content?.kind === 'image') {
+        const image = content.value as SceneImage;
+        return isSceneToken(image) &&
+          canEditToken(image.source);
+      }
+      return arrangement.kind === 'reorder' &&
+        objectLocation(current, id)?.ownerId === actor.userId;
+    });
+    if (
+      sourceLayer === 'gm' ||
+      !canArrange
+    ) {
+      return {
+        code: 'permission_denied',
+        message: 'Players can arrange only their own objects and linked tokens.',
       };
     }
     for (const id of arrangement.targets) {
@@ -660,25 +685,109 @@ function applyArrangement(
 export class SceneRepository {
   private readonly database: CampaignDatabase;
   private readonly createId: () => string;
-  private readonly mutations = new MutationQueue();
+  private readonly mutations: MutationQueue;
   private readonly now: () => Date;
   private readonly objectLocks = new Map<string, SceneObjectLock>();
   private readonly redoStacks = new Map<string, SceneHistoryCommand[]>();
   private readonly touchCampaign?: () => Promise<void>;
+  private readonly tokens: TokenRepository;
   private readonly undoStacks = new Map<string, SceneHistoryCommand[]>();
   private readonly warn: (message: string, error?: unknown) => void;
+
+  private prepareToken(
+    candidate: SceneToken,
+    existing: SceneToken | undefined,
+    actor: SceneEditActor,
+    gridSize: number,
+    sceneId: string,
+  ): SceneResult<{ changes: TokenSnapshotChanges; token: SceneToken }> {
+    const reference = this.tokens.prepareReference(
+      actor,
+      sceneId,
+      candidate,
+      existing,
+    );
+    if (!reference.ok) return reference;
+    const { definition } = reference.value;
+    const normalized = normalizeImageTransform(candidate);
+    const requestsCanonicalSize =
+      normalized.width === definition.size.width * gridSize &&
+      normalized.height === definition.size.height * gridSize;
+    const resized = !!existing &&
+      (normalized.width !== existing.width || normalized.height !== existing.height);
+    const preservesTemplateSize =
+      reference.value.source.kind === 'template' &&
+      (Boolean(existing) || reference.value.placement === 'duplicate-template');
+    const size = preservesTemplateSize
+      ? resized &&
+          (candidate.size.kind !== 'default' ||
+            candidate.size.width !== normalized.width / gridSize ||
+            candidate.size.height !== normalized.height / gridSize)
+        ? {
+            height: normalized.height / gridSize,
+            kind: 'override' as const,
+            width: normalized.width / gridSize,
+          }
+        : candidate.size
+      : requestsCanonicalSize
+      ? { ...definition.size, kind: 'default' as const }
+      : resized
+      ? {
+          height: normalized.height / gridSize,
+          kind: 'override' as const,
+          width: normalized.width / gridSize,
+        }
+      : existing?.size ?? candidate.size;
+    const canonicalSize = size.kind === 'default' && !preservesTemplateSize
+      ? { ...size, ...definition.size }
+      : size;
+    return {
+      ok: true,
+      value: {
+        changes: reference.value.snapshotChanges,
+        token: {
+          ...normalized,
+          assetId: definition.imageAssetId ?? DEFAULT_TOKEN_ASSET_ID,
+          size: canonicalSize,
+          ...(canonicalSize.kind === 'default' && !preservesTemplateSize
+            ? {
+                height: definition.size.height * gridSize,
+                width: definition.size.width * gridSize,
+              }
+            : {}),
+          source: reference.value.source,
+        },
+      },
+    };
+  }
+
+  async hasLockedLinkedTokens(entryId: string): Promise<boolean> {
+    this.expireLocks();
+    const manifest = await this.readManifest();
+    return manifest.scenes.some((scene) =>
+      Object.values(scene.images).flat().some((image) =>
+        isSceneToken(image) &&
+        image.source.entryId === entryId &&
+        this.objectLocks.has(`${scene.id}:${image.id}`),
+      ),
+    );
+  }
 
   constructor({
     createId = randomUUID,
     database,
     now = () => new Date(),
+    mutations = new MutationQueue(),
+    tokens = new TokenRepository({ database }),
     touchCampaign,
     warn = console.warn,
   }: SceneRepositoryOptions) {
     this.database = database;
     this.createId = createId;
     this.now = now;
+    this.mutations = mutations;
     this.touchCampaign = touchCampaign;
+    this.tokens = tokens;
     this.warn = warn;
   }
 
@@ -948,12 +1057,20 @@ export class SceneRepository {
       ) {
         const requestedIds = new Set(
           [
+            ...Object.values(state.images).flat().filter(isSceneToken),
             ...Object.values(state.drawings).flat(),
             ...Object.values(state.texts).flat(),
             ...Object.values(state.shapes).flat(),
           ].map((object) => object.id),
         );
-        const deletesExisting = [
+        const deletesExistingToken = Object.values(current.images)
+          .flat()
+          .some((image) =>
+            isSceneToken(image) &&
+            this.tokens.canManipulate(actor, image.source) &&
+            !requestedIds.has(image.id),
+          );
+        const deletesExistingOwnedObject = [
           ...current.drawings.token,
           ...current.texts.token,
           ...current.shapes.token,
@@ -963,7 +1080,7 @@ export class SceneRepository {
               object.ownerId === actor.userId &&
               !requestedIds.has(object.id),
           );
-        if (deletesExisting) {
+        if (deletesExistingToken || deletesExistingOwnedObject) {
           return failure(
             'conflict',
             'The scene changed before the deletion could be applied.',
@@ -975,7 +1092,7 @@ export class SceneRepository {
       if (!prepared.ok) {
         return prepared;
       }
-      const normalizedState = prepared.value;
+      const normalizedState = prepared.value.state;
       const before = sceneObjectStateOf(current);
       reconcileObjectOrder(before, normalizedState);
       if (arrangement) {
@@ -985,6 +1102,7 @@ export class SceneRepository {
           arrangement,
           actor,
           state,
+          (source) => this.tokens.canManipulate(actor, source),
         );
         if (problem) {
           return failure(problem.code, problem.message, sceneId);
@@ -1039,6 +1157,9 @@ export class SceneRepository {
       this.recordHistory(actor, {
         changes,
         sceneId,
+        tokenSnapshots: this.tokens.captureHistory(
+          prepared.value.tokenChanges,
+        ),
       });
       this.releaseOperationLocks(actor, operationId);
       return {
@@ -1050,6 +1171,7 @@ export class SceneRepository {
           ),
         },
         result: { ok: true, value: next },
+        tokenChanges: prepared.value.tokenChanges,
       };
     });
   }
@@ -1080,16 +1202,21 @@ export class SceneRepository {
         uniqueTargets.some((id) => {
           const snapshot = stateTargets.get(id);
           return (
-            (snapshot?.kind !== 'drawing' &&
-              snapshot?.kind !== 'shape' &&
-              snapshot?.kind !== 'text') ||
-            snapshot.value.ownerId !== actor.userId
+            !snapshot ||
+            (snapshot.kind === 'image'
+              ? !isSceneToken(snapshot.value) ||
+                !this.tokens.canManipulate(actor, snapshot.value.source)
+              : snapshot.kind === 'drawing' ||
+                  snapshot.kind === 'shape' ||
+                  snapshot.kind === 'text'
+                ? snapshot.value.ownerId !== actor.userId
+                : true)
           );
         })
       ) {
         return failure(
           'permission_denied',
-          'Players can transform only their own drawings, shapes, and text.',
+          'Players can transform only their own objects and linked tokens.',
           sceneId,
         );
       }
@@ -1180,10 +1307,11 @@ export class SceneRepository {
 
       // Assigned field by field so an explicit `undefined` on the patch cannot
       // erase a value the caller never meant to touch.
+      const grid = { ...current.grid, ...stripUndefined(patch.grid) };
       const next: SceneRecord = {
         ...current,
         distance: patch.distance ?? current.distance,
-        grid: { ...current.grid, ...stripUndefined(patch.grid) },
+        grid,
         height: patch.height ?? current.height,
         mapImage:
           patch.mapImage === undefined
@@ -1197,6 +1325,20 @@ export class SceneRepository {
         unit: patch.unit ?? current.unit,
         updatedAt: this.now().toISOString(),
         width: patch.width ?? current.width,
+        images: Object.fromEntries(
+          SCENE_LAYERS.map((layer) => [
+            layer,
+            current.images[layer].map((image) =>
+              isSceneToken(image)
+                ? {
+                    ...image,
+                    height: image.size.height * grid.size,
+                    width: image.size.width * grid.size,
+                  }
+                : image,
+            ),
+          ]),
+        ) as SceneRecord['images'],
       };
       const parsed = sceneRecordSchema.safeParse(next);
       if (!parsed.success) {
@@ -1323,22 +1465,43 @@ export class SceneRepository {
               ? {
                   ...scene,
                   images: {
-                    gm: scene.images.gm.filter((image) => image.assetId !== assetId),
-                    map: scene.images.map.filter((image) => image.assetId !== assetId),
-                    token: scene.images.token.filter((image) => image.assetId !== assetId),
+                    gm: scene.images.gm.flatMap((image) =>
+                      image.assetId !== assetId
+                        ? [image]
+                        : isSceneToken(image)
+                          ? [{ ...image, assetId: DEFAULT_TOKEN_ASSET_ID }]
+                          : [],
+                    ),
+                    map: scene.images.map.flatMap((image) =>
+                      image.assetId !== assetId
+                        ? [image]
+                        : isSceneToken(image)
+                          ? [{ ...image, assetId: DEFAULT_TOKEN_ASSET_ID }]
+                          : [],
+                    ),
+                    token: scene.images.token.flatMap((image) =>
+                      image.assetId !== assetId
+                        ? [image]
+                        : isSceneToken(image)
+                          ? [{ ...image, assetId: DEFAULT_TOKEN_ASSET_ID }]
+                          : [],
+                    ),
                   },
                   mapImage:
                     scene.mapImage?.assetId === assetId ? null : scene.mapImage,
                   objectOrder: {
                     gm: scene.objectOrder.gm.filter((id) =>
                       !scene.images.gm.some((image) =>
-                        image.id === id && image.assetId === assetId)),
+                        image.id === id && image.assetId === assetId &&
+                        !isSceneToken(image))),
                     map: scene.objectOrder.map.filter((id) =>
                       !scene.images.map.some((image) =>
-                        image.id === id && image.assetId === assetId)),
+                        image.id === id && image.assetId === assetId &&
+                        !isSceneToken(image))),
                     token: scene.objectOrder.token.filter((id) =>
                       !scene.images.token.some((image) =>
-                        image.id === id && image.assetId === assetId)),
+                        image.id === id && image.assetId === assetId &&
+                        !isSceneToken(image))),
                   },
                   revision: scene.revision + 1,
                   updatedAt: timestamp,
@@ -1347,6 +1510,7 @@ export class SceneRepository {
           ),
         },
         result: { ok: true, value: null },
+        tokenChanges: this.tokens.detachAssetChanges(assetId, timestamp),
       };
     });
   }
@@ -1369,7 +1533,10 @@ export class SceneRepository {
     current: SceneRecord,
     requested: SceneObjectState,
     actor: SceneEditActor,
-  ): SceneResult<SceneObjectState> {
+  ): SceneResult<{
+    state: SceneObjectState;
+    tokenChanges: TokenSnapshotChanges;
+  }> {
     const currentState = sceneObjectStateOf(current);
     const currentDrawings = new Map(
       Object.values(current.drawings)
@@ -1386,6 +1553,7 @@ export class SceneRepository {
         .flat()
         .map((shape) => [shape.id, shape]),
     );
+    const preparedSnapshotChanges: TokenSnapshotChanges[] = [];
     for (const candidate of Object.values(requested.shapes).flat()) {
       const existing = currentShapes.get(candidate.id);
       if (existing && existing.kind !== candidate.kind) {
@@ -1398,6 +1566,7 @@ export class SceneRepository {
     }
     if (actor.kind === 'gm') {
       const drawings = createEmptyDrawingLayers();
+      const images = createEmptyImageLayers();
       const texts = createEmptyTextLayers();
       const shapes = createEmptyShapeLayers();
       for (const layer of SCENE_LAYERS) {
@@ -1448,22 +1617,57 @@ export class SceneRepository {
               : 0,
           };
         });
+        for (const candidate of requested.images[layer]) {
+          const currentImage = Object.values(current.images)
+            .flat()
+            .find((image) => image.id === candidate.id);
+          if (currentImage && isSceneToken(currentImage) !== isSceneToken(candidate)) {
+            return failure(
+              'invalid_input',
+              'An existing image cannot be converted into or out of a linked token.',
+              current.id,
+            );
+          }
+          if (!isSceneToken(candidate)) {
+            images[layer].push(normalizeImageTransform(candidate));
+            continue;
+          }
+          const prepared = this.prepareToken(
+            candidate,
+            currentImage && isSceneToken(currentImage) ? currentImage : undefined,
+            actor,
+            current.grid.size,
+            current.id,
+          );
+          if (!prepared.ok) {
+            return failure(
+              prepared.error.code,
+              prepared.error.message,
+              current.id,
+            );
+          }
+          preparedSnapshotChanges.push(prepared.value.changes);
+          images[layer].push(prepared.value.token);
+        }
       }
       return {
         ok: true,
         value: {
-          drawings,
-          images: {
-            gm: requested.images.gm.map(normalizeImageTransform),
-            map: requested.images.map.map(normalizeImageTransform),
-            token: requested.images.token.map(normalizeImageTransform),
+          state: {
+            drawings,
+            images,
+            mapImage: requested.mapImage
+              ? normalizeImageTransform(requested.mapImage)
+              : null,
+            objectOrder: structuredClone(requested.objectOrder),
+            shapes,
+            texts,
           },
-          mapImage: requested.mapImage
-            ? normalizeImageTransform(requested.mapImage)
-            : null,
-          objectOrder: structuredClone(requested.objectOrder),
-          shapes,
-          texts,
+          tokenChanges: this.tokens.changesForState(
+            Object.values(current.images).flat().filter(isSceneToken),
+            Object.values(images).flat().filter(isSceneToken),
+            preparedSnapshotChanges,
+          ),
         },
       };
     }
@@ -1480,6 +1684,10 @@ export class SceneRepository {
       string,
       { layer: SceneLayer; shape: SceneShape }
     >();
+    const requestedTokens = new Map<
+      string,
+      { layer: SceneLayer; token: SceneToken }
+    >();
     for (const layer of SCENE_LAYERS) {
       for (const drawing of requested.drawings[layer]) {
         requestedDrawings.set(drawing.id, { drawing, layer });
@@ -1490,11 +1698,75 @@ export class SceneRepository {
       for (const shape of requested.shapes[layer]) {
         requestedShapes.set(shape.id, { layer, shape });
       }
+      for (const image of requested.images[layer]) {
+        if (isSceneToken(image)) {
+          requestedTokens.set(image.id, { layer, token: image });
+        }
+      }
     }
     const merged = structuredClone(currentState);
     const preparedDrawings = new Map<string, SceneDrawing>();
     const preparedTexts = new Map<string, SceneText>();
     const preparedShapes = new Map<string, SceneShape>();
+    const currentImages = new Map(
+      Object.values(current.images).flat().map((image) => [image.id, image]),
+    );
+    const preparedTokens = new Map<
+      string,
+      { layer: SceneLayer; token: SceneToken }
+    >();
+    for (const [id, candidate] of requestedTokens) {
+      if (candidate.layer === 'gm') {
+        return failure(
+          'permission_denied',
+          'Players cannot manipulate objects on the Game Master layer.',
+          current.id,
+        );
+      }
+      const currentImage = currentImages.get(id);
+      if (currentImage && !isSceneToken(currentImage)) {
+        return failure(
+          'invalid_input',
+          'An existing image cannot be converted into a linked token.',
+          current.id,
+        );
+      }
+      if (
+        currentImage &&
+        isSceneToken(currentImage) &&
+        !this.tokens.canManipulate(actor, currentImage.source)
+      ) {
+        const currentLayer = SCENE_LAYERS.find((layer) =>
+          current.images[layer].some((image) => image.id === id),
+        );
+        if (
+          currentLayer === candidate.layer &&
+          JSON.stringify(currentImage) === JSON.stringify(candidate.token)
+        ) {
+          continue;
+        }
+        return failure(
+          'permission_denied',
+          'You cannot manipulate a token linked to this Journal entry.',
+          current.id,
+        );
+      }
+      const prepared = this.prepareToken(
+        candidate.token,
+        currentImage && isSceneToken(currentImage) ? currentImage : undefined,
+        actor,
+        current.grid.size,
+        current.id,
+      );
+      if (!prepared.ok) {
+        return failure(prepared.error.code, prepared.error.message, current.id);
+      }
+      preparedSnapshotChanges.push(prepared.value.changes);
+      preparedTokens.set(id, {
+        layer: candidate.layer,
+        token: prepared.value.token,
+      });
+    }
     for (const [id, candidate] of requestedDrawings) {
       const existing = currentDrawings.get(id);
       if (existing && existing.ownerId !== actor.userId) {
@@ -1674,7 +1946,31 @@ export class SceneRepository {
         currentTokenShapeIds.has(id) ? [] : [shape],
       ),
     ];
-    return { ok: true, value: merged };
+    merged.images = createEmptyImageLayers();
+    merged.images.gm = current.images.gm.map((image) => structuredClone(image));
+    for (const layer of ['map', 'token'] as const) {
+      merged.images[layer] = current.images[layer].flatMap((image) => {
+        if (!isSceneToken(image)) return [structuredClone(image)];
+        if (!this.tokens.canManipulate(actor, image.source)) {
+          return [structuredClone(image)];
+        }
+        return [];
+      });
+    }
+    for (const { layer, token } of preparedTokens.values()) {
+      merged.images[layer].push(token);
+    }
+    return {
+      ok: true,
+      value: {
+        state: merged,
+        tokenChanges: this.tokens.changesForState(
+          Object.values(current.images).flat().filter(isSceneToken),
+          Object.values(merged.images).flat().filter(isSceneToken),
+          preparedSnapshotChanges,
+        ),
+      },
+    };
   }
 
   private historyKey(actor: SceneEditActor, sceneId: string): string {
@@ -1716,7 +2012,9 @@ export class SceneRepository {
           ) &&
           (!command.fog ||
             JSON.stringify(command.fog.expected) ===
-              JSON.stringify(current.fog))
+              JSON.stringify(current.fog)) &&
+          (!command.tokenSnapshots ||
+            this.tokens.historyMatches(command.tokenSnapshots))
         ) {
           break;
         }
@@ -1808,6 +2106,17 @@ export class SceneRepository {
             }
           : {}),
         sceneId,
+        ...(command.tokenSnapshots
+          ? {
+              tokenSnapshots: command.tokenSnapshots.map(
+                ({ expected, id, target }) => ({
+                  expected: target ? structuredClone(target) : null,
+                  id,
+                  target: expected ? structuredClone(expected) : null,
+                }),
+              ),
+            }
+          : {}),
       };
       const destinationStack = destination.get(key) ?? [];
       destinationStack.push(inverse);
@@ -1823,6 +2132,9 @@ export class SceneRepository {
           ),
         },
         result: { ok: true, value: next },
+        ...(command.tokenSnapshots
+          ? { tokenChanges: this.tokens.applyHistory(command.tokenSnapshots) }
+          : {}),
       };
     });
   }
@@ -2027,6 +2339,7 @@ export class SceneRepository {
           completedOperation?: CompletedSceneOperation;
           manifest: SceneManifest;
           result: SceneResult<T>;
+          tokenChanges?: TokenSnapshotChanges;
         }
     >,
   ): Promise<SceneResult<T>> {
@@ -2043,6 +2356,7 @@ export class SceneRepository {
             revision: manifest.revision + 1,
           },
           outcome.completedOperation,
+          outcome.tokenChanges,
         );
       } catch (error) {
         this.warn('Failed to write the scene manifest.', error);
@@ -2067,6 +2381,7 @@ export class SceneRepository {
   private async writeManifest(
     manifest: SceneManifest,
     completedOperation?: CompletedSceneOperation,
+    tokenChanges?: TokenSnapshotChanges,
   ): Promise<void> {
     const parsed = sceneManifestSchema.parse(manifest);
     const database = this.database.connection;
@@ -2098,6 +2413,7 @@ export class SceneRepository {
       parsed.scenes.forEach((scene, position) => {
         insert.run(scene.id, position, JSON.stringify(scene));
       });
+      if (tokenChanges) this.tokens.commitChanges(tokenChanges);
       database
         .prepare(
           `UPDATE scene_manifest

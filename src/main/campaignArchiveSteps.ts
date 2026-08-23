@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { addEmptyDnd5eCharacterInventories } from './campaignArchiveCharacterInventory';
+import { createTokenSnapshotSchema } from './storage/tokenSnapshotSchema';
 
 /**
  * Fix-ups that more than one archive format happens to need.
@@ -28,6 +29,7 @@ export function runDirectArchiveConversion<T>(
     connection.exec('BEGIN IMMEDIATE');
     transactionOpen = true;
     const result = convert();
+    createTokenSnapshotSchema(connection);
     if (connection.prepare('PRAGMA foreign_key_check').get()) {
       throw new Error('Archive conversion produced invalid foreign keys.');
     }

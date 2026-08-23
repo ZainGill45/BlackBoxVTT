@@ -37,7 +37,7 @@ import {
   DELETE_CONFIRMATION_TIMEOUT_MS,
   useDeleteConfirmation,
 } from '../../connection/useDeleteConfirmation';
-import { MapImageChooserModal } from '../scenes/MapImageChooserModal';
+import { MapImageChooserModal } from '../../../components/ui/MapImageChooserModal';
 import type { AssetThumbnail } from '../scenes/useAssetThumbnails';
 import { RichTextEditor } from './RichTextEditor';
 import { PermissionsModal } from '../../../components/ui/PermissionsModal';
@@ -865,6 +865,7 @@ export function NoteModal({
     const result = await journalApi.deleteTarget({
       campaignId,
       cleanupAssetIds: selectedCleanupIds,
+      deleteTemplateTokens: false,
       expectedRevision: revision,
       target: preview.target,
     });

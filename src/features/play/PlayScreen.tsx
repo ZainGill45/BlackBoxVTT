@@ -72,6 +72,7 @@ import type {
   SidebarTabId,
 } from './types';
 import { usePreparedAssetApi } from './usePreparedAssetApi';
+import { getJournalEntryTypeDefinition } from '../../systems/catalog';
 import styles from './PlayScreen.module.css';
 
 function getSessionTitle(session: PlayScreenProps['session']) {
@@ -169,6 +170,20 @@ export function PlayScreen({
     session.campaignId,
     session.role === 'gm' ? 'gm' : 'player',
     preload?.journal ?? undefined,
+  );
+  const editableTokenEntryIds = useMemo(
+    () => new Set(
+      (journalStore.manifest?.entries ?? [])
+        .filter((entry) =>
+          entry.kind === 'system' &&
+          entry.capabilities.edit &&
+          Boolean(
+            getJournalEntryTypeDefinition(session.system, entry.typeId)?.token,
+          ),
+        )
+        .map(({ id }) => id),
+    ),
+    [journalStore.manifest, session.system],
   );
   const sceneImageIds = useMemo(
     () =>
@@ -343,8 +358,11 @@ export function PlayScreen({
         activeLayer={activeLayer}
         activeTool={activeTool}
         assetApi={preparedAssetApi}
+        journalApi={journalApi}
+        journalWindowApi={journalWindowApi}
         availableScenes={scenes.scenes}
         createRenderer={preload?.createRenderer ?? undefined}
+        editableTokenEntryIds={editableTokenEntryIds}
         networkApi={networkApi}
         networkUpdateRate={serverSettings.transformPreviewRate}
         onPrepared={onPrepared}

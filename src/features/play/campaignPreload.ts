@@ -5,7 +5,11 @@ import type {
   JournalContentSnapshot,
 } from '../../shared/journal';
 import type { NetworkApi } from '../../shared/network';
-import type { SceneApi, SceneManifest } from '../../shared/scenes';
+import {
+  DEFAULT_TOKEN_ASSET_ID,
+  type SceneApi,
+  type SceneManifest,
+} from '../../shared/scenes';
 import type {
   ScenePreparationProgress,
   SceneRendererHandle,
@@ -499,7 +503,7 @@ function uniqueSceneImageIds(scenes: SceneManifest | null): string[] {
       (scenes?.scenes ?? []).flatMap((scene) => [
         ...(scene.mapImage ? [scene.mapImage.assetId] : []),
         ...Object.values(scene.images).flat().map((image) => image.assetId),
-      ]),
+      ]).filter((assetId) => assetId !== DEFAULT_TOKEN_ASSET_ID),
     ),
   ];
 }

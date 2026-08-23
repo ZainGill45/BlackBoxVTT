@@ -57,7 +57,8 @@ function invalid<T>(): AssetResult<T> {
 export function registerAssetIpcHandlers(
   ipc: IpcMain,
   manager: AssetManager,
-  getAllowedWebContents: () => WebContents | null,
+  isAllowedSender: (sender: WebContents) => boolean,
+  getAllowedWebContents: () => WebContents[],
 ) {
   const requestChannels = [
     assetIpcChannels.getPreview,
@@ -76,7 +77,7 @@ export function registerAssetIpcHandlers(
   ];
   requestChannels.forEach((channel) => ipc.removeHandler(channel));
   const isAllowed = (event: IpcMainInvokeEvent) =>
-    event.sender === getAllowedWebContents();
+    isAllowedSender(event.sender);
   const handle = (
     channel: string,
     listener: (input: unknown) => unknown,
@@ -150,9 +151,10 @@ export function registerAssetIpcHandlers(
   });
 
   const send = (channel: string, value: unknown) => {
-    const webContents = getAllowedWebContents();
-    if (webContents && !webContents.isDestroyed()) {
-      webContents.send(channel, value);
+    for (const webContents of getAllowedWebContents()) {
+      if (!webContents.isDestroyed()) {
+        webContents.send(channel, value);
+      }
     }
   };
   const onChanged = (event: unknown) => send(assetIpcChannels.changed, event);

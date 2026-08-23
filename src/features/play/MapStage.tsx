@@ -1,11 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
+import { ErrorModal } from '../../components/ui/ErrorModal';
+import {
+  JOURNAL_ENTRY_DRAG_TYPE,
+  type JournalApi,
+  type SystemJournalEntry,
+} from '../../shared/journal';
+import type { JournalWindowApi } from '../../shared/journalWindows';
 import {
   DEFAULT_TRANSFORM_PREVIEW_RATE,
   type NetworkApi,
 } from '../../shared/network';
 import {
   sceneObjectStateOf,
+  DEFAULT_TOKEN_ASSET_ID,
   MAX_SCENE_IMAGES,
   type SceneApi,
   type SceneImageLayer,
@@ -13,7 +21,10 @@ import {
   type SceneArrangement,
   type SceneFogMutation,
   type SceneRecord,
+  type SceneToken,
 } from '../../shared/scenes';
+import { getJournalEntryTypeDefinition } from '../../systems/catalog';
+import { SystemJournalEntryModal } from '../../systems/rendererRegistry';
 import type {
   ScenePreparationProgress,
   SceneRendererHandle,
@@ -57,7 +68,10 @@ interface MapStageProps {
   assetApi: AssetApi;
   /** Injected so tests can drive the stage without a WebGL context. */
   createRenderer?: () => SceneRendererHandle;
+  editableTokenEntryIds?: ReadonlySet<string>;
   networkApi: NetworkApi;
+  journalApi?: JournalApi;
+  journalWindowApi?: Pick<JournalWindowApi, 'focusCharacter'>;
   networkUpdateRate?: number;
   onPrepared?: () => void;
   onPreparationProgress?: (progress: ScenePreparationProgress) => void;
@@ -121,7 +135,10 @@ export function MapStage({
   activeLayer = 'token',
   activeTool = 'select',
   createRenderer,
+  editableTokenEntryIds,
   networkApi,
+  journalApi,
+  journalWindowApi,
   networkUpdateRate = DEFAULT_TRANSFORM_PREVIEW_RATE,
   onPrepared,
   onPreparationProgress,
@@ -151,6 +168,9 @@ export function MapStage({
   const progressCallbackRef = useRef(onPreparationProgress);
   const seenPingIds = useRef(new Set<string>());
   const [renderer, setRenderer] = useState<SceneRendererHandle | null>(null);
+  const [tokenMessage, setTokenMessage] = useState<string | null>(null);
+  const [openedEntry, setOpenedEntry] =
+    useState<SystemJournalEntry | null>(null);
   const sessionUserId =
     session.role === 'player' ? session.userId : null;
   const preparableScenes = useMemo<readonly SceneRecord[]>(
@@ -171,6 +191,147 @@ export function MapStage({
     [imageUrls, preparedImageUrls],
   );
   const resolvedImageUrlsRef = useRef(resolvedImageUrls);
+
+  const loadEditableTokenEntry = useCallback(async (entryId: string) => {
+    if (!journalApi) return null;
+    const result = await journalApi.getEntry({
+      campaignId: session.campaignId,
+      entryId,
+    });
+    if (
+      !result.ok ||
+      result.value.kind !== 'system' ||
+      !result.value.capabilities.edit
+    ) {
+      return null;
+    }
+    const definition = getJournalEntryTypeDefinition(
+      session.system,
+      result.value.typeId,
+    );
+    return definition?.token && definition.validateData(result.value.data)
+      ? { definition, entry: result.value }
+      : null;
+  }, [journalApi, session.campaignId, session.system]);
+
+  const openLinkedToken = useCallback((token: SceneToken) => {
+    void (async () => {
+      if (journalWindowApi) {
+        const focused = await journalWindowApi.focusCharacter({
+          campaignId: session.campaignId,
+          entryId: token.source.entryId,
+        });
+        if (focused.ok && focused.value) return;
+      }
+      const loaded = await loadEditableTokenEntry(token.source.entryId);
+      if (!loaded) {
+        setTokenMessage(token.source.kind === 'template'
+          ? 'The source Character no longer exists or cannot be opened. This Template token keeps its independent data.'
+          : 'The linked Character Sheet could not be opened.');
+        return;
+      }
+      setOpenedEntry(loaded.entry);
+    })();
+  }, [journalWindowApi, loadEditableTokenEntry, session.campaignId]);
+
+  const applyLinkedTokenDefaultSize = useCallback((token: SceneToken) => {
+    void (async () => {
+      const current = sceneRef.current;
+      const loaded = await loadEditableTokenEntry(token.source.entryId);
+      if (!current || !loaded || !onCommitObjects) {
+        setTokenMessage('The Character Token size could not be changed.');
+        return;
+      }
+      const defaultToken = loaded.definition.token!.readDefaultToken(
+        loaded.entry.data,
+      );
+      const state = sceneObjectStateOf(current);
+      const currentToken = Object.values(state.images)
+        .flat()
+        .find((image) => image.id === token.id);
+      if (!currentToken || !('source' in currentToken)) {
+        setTokenMessage('The Character Token no longer exists.');
+        return;
+      }
+      currentToken.height = defaultToken.size.height * current.grid.size;
+      currentToken.width = defaultToken.size.width * current.grid.size;
+      currentToken.size = { ...defaultToken.size, kind: 'default' };
+      const saved = await onCommitObjects(
+        current,
+        state,
+        crypto.randomUUID(),
+      );
+      if (!saved) {
+        setTokenMessage('The Character Token size could not be changed.');
+      }
+    })();
+  }, [loadEditableTokenEntry, onCommitObjects]);
+
+  const saveLinkedTokenDefaultSize = useCallback((token: SceneToken) => {
+    void (async () => {
+      const current = sceneRef.current;
+      const loaded = await loadEditableTokenEntry(token.source.entryId);
+      if (!current || !loaded || !journalApi) {
+        setTokenMessage('The default Character Token size could not be saved.');
+        return;
+      }
+      const currentToken = Object.values(current.images)
+        .flat()
+        .find((image) => image.id === token.id);
+      if (!currentToken || !('source' in currentToken)) {
+        setTokenMessage('The Character Token no longer exists.');
+        return;
+      }
+      const previous = loaded.definition.token!.readDefaultToken(
+        loaded.entry.data,
+      );
+      const data = loaded.definition.token!.writeDefaultToken(
+        loaded.entry.data,
+        {
+          ...previous,
+          size: {
+            height: currentToken.height / current.grid.size,
+            width: currentToken.width / current.grid.size,
+          },
+        },
+      );
+      const result = await journalApi.updateEntryData({
+        campaignId: session.campaignId,
+        data,
+        entryId: loaded.entry.id,
+        expectedRevision: loaded.entry.revision,
+      });
+      if (!result.ok || result.value.kind !== 'system') {
+        setTokenMessage('The default Character Token size could not be saved.');
+        return;
+      }
+      setOpenedEntry((entry) => entry?.id === result.value.id
+        ? result.value as SystemJournalEntry
+        : entry);
+      if (session.role === 'gm') {
+        const scenes = current && !availableScenesRef.current.some(
+          ({ id }) => id === current.id,
+        )
+          ? [...availableScenesRef.current, current]
+          : availableScenesRef.current;
+        const count = scenes.reduce(
+          (total, candidate) => total + Object.values(candidate.images)
+            .flat()
+            .filter((image) =>
+              'source' in image &&
+              image.source.kind === 'linked' &&
+              image.source.entryId === token.source.entryId,
+            ).length,
+          0,
+        );
+        setTokenMessage(
+          `Saved the default size and updated ${count} linked ${count === 1 ? 'token' : 'tokens'}.`,
+        );
+      } else {
+        setTokenMessage('Saved the default Character Token size.');
+      }
+    })();
+  }, [journalApi, loadEditableTokenEntry, session.campaignId, session.role]);
 
   useEffect(() => {
     sceneRef.current = scene;
@@ -329,6 +490,7 @@ export function MapStage({
       activeLayer,
       actorId: sessionUserId,
       canEditImages: session.role === 'gm',
+      editableTokenEntryIds,
       editable: activeTool === 'select',
       fogEnabled: session.role === 'gm' && activeTool === 'fog',
       fogMode,
@@ -350,6 +512,7 @@ export function MapStage({
       textStyle: textSettings,
       pingEnabled: activeTool === 'select',
       onActiveLayerChange,
+      onApplyLinkedTokenDefaultSize: applyLinkedTokenDefaultSize,
       onCommit: async (state, operationId, arrangement) => {
         const current = sceneRef.current;
         const saved = current
@@ -415,6 +578,7 @@ export function MapStage({
           campaignId: session.campaignId,
         });
       },
+      onOpenLinkedToken: openLinkedToken,
       onShapePreview: (preview) => {
         void networkApi.sendShapePreview({
           ...preview,
@@ -440,10 +604,13 @@ export function MapStage({
           sceneId,
         });
       },
+      onSaveLinkedTokenDefaultSize: saveLinkedTokenDefaultSize,
     });
   }, [
     activeLayer,
     activeTool,
+    applyLinkedTokenDefaultSize,
+    editableTokenEntryIds,
     fogMode,
     fogSettings,
     fogSubtool,
@@ -455,9 +622,11 @@ export function MapStage({
     onUndo,
     networkApi,
     networkUpdateRate,
+    openLinkedToken,
     paintSettings,
     paintSubtool,
     renderer,
+    saveLinkedTokenDefaultSize,
     scene,
     sceneApi,
     shapeSettings,
@@ -469,11 +638,17 @@ export function MapStage({
   ]);
 
   return (
+    <>
     <section
       ref={elementRef}
       className={styles.stage}
       aria-label={`Map play area for ${getSessionLabel(session)}`}
       onDragOver={(event) => {
+        if (event.dataTransfer.types.includes(JOURNAL_ENTRY_DRAG_TYPE)) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+          return;
+        }
         if (
           session.role === 'gm' &&
           event.dataTransfer.types.includes(CANVAS_IMAGE_DRAG_TYPE)
@@ -483,6 +658,93 @@ export function MapStage({
         }
       }}
       onDrop={(event) => {
+        const journalPayload = event.dataTransfer.getData(
+          JOURNAL_ENTRY_DRAG_TYPE,
+        );
+        if (journalPayload) {
+          event.preventDefault();
+          if (!scene || !journalApi || !onCommitObjects) {
+            setTokenMessage('The Character Token could not be placed here.');
+            return;
+          }
+          const clientX = event.clientX;
+          const clientY = event.clientY;
+          const placeOnGmLayer = session.role === 'gm' &&
+            (event.altKey || event.getModifierState('Alt'));
+          void (async () => {
+            try {
+              const payload = JSON.parse(journalPayload) as {
+                entryId?: unknown;
+                typeId?: unknown;
+              };
+              if (
+                typeof payload.entryId !== 'string' ||
+                typeof payload.typeId !== 'string'
+              ) throw new Error('Invalid Journal drag data.');
+              const result = await journalApi.getEntry({
+                campaignId: session.campaignId,
+                entryId: payload.entryId,
+              });
+              if (
+                !result.ok ||
+                result.value.kind !== 'system' ||
+                !result.value.capabilities.edit
+              ) throw new Error('The Character cannot be edited.');
+              const definition = getJournalEntryTypeDefinition(
+                session.system,
+                result.value.typeId,
+              );
+              if (
+                !definition?.token ||
+                !definition.validateData(result.value.data)
+              ) throw new Error('This Journal entry does not define tokens.');
+              const defaultToken = definition.token.readDefaultToken(
+                result.value.data,
+              );
+              const state = sceneObjectStateOf(scene);
+              if (
+                Object.values(state.images).flat().length >= MAX_SCENE_IMAGES
+              ) throw new Error('The scene image limit has been reached.');
+              const point = renderer?.clientToScene(clientX, clientY) ?? {
+                x: scene.width / 2,
+                y: scene.height / 2,
+              };
+              let token = {
+                assetId:
+                  defaultToken.imageAssetId ?? DEFAULT_TOKEN_ASSET_ID,
+                height: defaultToken.size.height * scene.grid.size,
+                id: crypto.randomUUID(),
+                rotation: 0,
+                size: { ...defaultToken.size, kind: 'default' as const },
+                source: {
+                  entryId: result.value.id,
+                  kind: 'linked' as const,
+                },
+                width: defaultToken.size.width * scene.grid.size,
+                x: point.x,
+                y: point.y,
+              };
+              if (scene.grid.type === 'square') {
+                token = snapMove(token, scene.grid);
+              }
+              const layer = placeOnGmLayer ? 'gm' : 'token';
+              state.images[layer].push(token);
+              state.objectOrder[layer].push(token.id);
+              const saved = await onCommitObjects(
+                scene,
+                state,
+                crypto.randomUUID(),
+              );
+              if (!saved) {
+                throw new Error('The token placement was rejected.');
+              }
+              renderer?.selectImages([token.id]);
+            } catch {
+              setTokenMessage('The Character Token could not be placed.');
+            }
+          })();
+          return;
+        }
         if (
           session.role !== 'gm' ||
           !scene ||
@@ -570,5 +832,24 @@ export function MapStage({
           : 'No scene is being displayed.'}
       </p>
     </section>
+    {openedEntry && journalApi ? (
+      <SystemJournalEntryModal
+        assetApi={assetApi}
+        campaignId={session.campaignId}
+        entry={openedEntry}
+        journalApi={journalApi}
+        networkApi={networkApi}
+        onDismiss={() => setOpenedEntry(null)}
+        onUpdated={(entry) => setOpenedEntry(entry)}
+        system={session.system}
+      />
+    ) : null}
+    <ErrorModal
+      isOpen={tokenMessage !== null}
+      message={tokenMessage ?? ''}
+      onDismiss={() => setTokenMessage(null)}
+      title="Character Token"
+    />
+    </>
   );
 }

@@ -18,7 +18,7 @@ import {
 import {
   MapImageChooserModal,
   type MapImageSelection,
-} from './MapImageChooserModal';
+} from '../../../components/ui/MapImageChooserModal';
 import type { AssetThumbnail } from './useAssetThumbnails';
 import styles from './SceneSettingsModal.module.css';
 

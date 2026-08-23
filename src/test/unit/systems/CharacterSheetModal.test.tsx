@@ -118,8 +118,8 @@ function successfulMessage(): ChatMessage {
   };
 }
 
-function renderCharacterSheet() {
-  let server = characterEntry();
+function renderCharacterSheet(initial = characterEntry()) {
+  let server = initial;
   const journalApi: CharacterSheetJournalApi = {
     getEntry: vi.fn(async () => ({ ok: true as const, value: server })),
     list: vi.fn(async () => ({
@@ -127,6 +127,15 @@ function renderCharacterSheet() {
       value: { entries: [server], revision: server.revision },
     })),
     onChanged: vi.fn(() => () => undefined),
+    prepareDelete: vi.fn(async (input) => ({
+      ok: true as const,
+      value: {
+        assets: [],
+        linkedTokenCount: 0,
+        target: input.target,
+        templateTokenCount: 0,
+      },
+    })),
     renameEntry: vi.fn(async (input) => {
       server = { ...server, name: input.name, revision: server.revision + 1 };
       return { ok: true as const, value: server };
@@ -163,6 +172,7 @@ function renderCharacterSheet() {
     />,
   );
   return {
+    journalApi,
     sendChatMessage,
     sendChatRoll,
     sheet: screen.getByRole('document', { name: 'Aria Stone character sheet' }),
@@ -185,6 +195,78 @@ describe('CharacterSheetModal layout', () => {
     expect(main).toHaveAttribute('data-active-tab', 'spells');
     expect(within(sheet).getByRole('region', { name: 'Character spell list' }))
       .toBeInTheDocument();
+  });
+});
+
+describe('CharacterSheetModal token settings', () => {
+  it('shows the three useful token settings in order and commits size as one pair', async () => {
+    const user = userEvent.setup();
+    const { journalApi, sheet } = renderCharacterSheet();
+    await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
+
+    const tokenType = within(sheet).getByRole('button', { name: 'Token Type' });
+    const width = within(sheet).getByRole('textbox', { name: 'Token Width' });
+    const height = within(sheet).getByRole('textbox', { name: 'Token Height' });
+    expect(tokenType.compareDocumentPosition(width) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(width.compareDocumentPosition(height) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(width).toHaveAttribute('inputmode', 'decimal');
+    expect(height).toHaveAttribute('inputmode', 'decimal');
+    expect(width).not.toHaveAttribute('type', 'number');
+    expect(height).not.toHaveAttribute('type', 'number');
+
+    await user.clear(width);
+    await user.type(width, '1.5');
+    await user.clear(height);
+    await user.type(height, '2');
+    await user.tab();
+
+    await waitFor(() => expect(journalApi.updateEntryData).toHaveBeenCalled());
+    const saved = vi.mocked(journalApi.updateEntryData).mock.calls.at(-1)?.[0];
+    expect(saved?.data).toMatchObject({
+      defaultToken: { size: { height: 2, width: 1.5 } },
+    });
+  });
+
+  it('confirms consequential Token Type changes', async () => {
+    const user = userEvent.setup();
+    const { journalApi, sheet } = renderCharacterSheet();
+    vi.mocked(journalApi.prepareDelete).mockResolvedValue({
+      ok: true,
+      value: {
+        assets: [],
+        linkedTokenCount: 2,
+        target: { entryId: characterEntry().id, kind: 'entry' },
+        templateTokenCount: 0,
+      },
+    });
+    await user.click(within(sheet).getByRole('tab', { name: 'Settings' }));
+    await user.click(within(sheet).getByRole('button', { name: 'Token Type' }));
+    await user.click(screen.getByRole('button', { name: 'Template' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Change Token Type?' }))
+      .toHaveTextContent('convert 2 existing tokens');
+    expect(journalApi.updateEntryData).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Change Token Type' }));
+    await waitFor(() => expect(journalApi.updateEntryData).toHaveBeenCalled());
+    expect(vi.mocked(journalApi.updateEntryData).mock.calls.at(-1)?.[0].data)
+      .toMatchObject({ defaultToken: { type: 'template' } });
+  });
+
+  it('shows Token Type read-only to a player with Character edit access', async () => {
+    const user = userEvent.setup();
+    const playerEntry = characterEntry();
+    playerEntry.capabilities = {
+      ...playerEntry.capabilities,
+      delete: false,
+      managePermissions: false,
+      reorder: false,
+    };
+    const playerSheet = renderCharacterSheet(playerEntry).sheet;
+    await user.click(within(playerSheet).getByRole('tab', { name: 'Settings' }));
+    expect(within(playerSheet).getByRole('button', { name: 'Token Type' }))
+      .toHaveAttribute('aria-disabled', 'true');
   });
 });
 
@@ -514,6 +596,15 @@ describe('CharacterSheetModal chat actions', () => {
         value: { entries: [server, spell], revision: 1 },
       })),
       onChanged: vi.fn(() => () => undefined),
+      prepareDelete: vi.fn(async (input) => ({
+        ok: true as const,
+        value: {
+          assets: [],
+          linkedTokenCount: 0,
+          target: input.target,
+          templateTokenCount: 0,
+        },
+      })),
       renameEntry: vi.fn(),
       updateEntryData,
     };

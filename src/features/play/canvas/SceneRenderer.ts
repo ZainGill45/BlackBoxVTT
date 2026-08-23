@@ -27,6 +27,7 @@ import {
   applySceneTransformPreview,
   CANONICAL_MAP_ID,
   createEmptyImageLayers,
+  isSceneToken,
   sceneObjectStateOf,
   MAX_SCENE_IMAGES,
   MAX_SCENE_SHAPES,
@@ -46,6 +47,7 @@ import {
   type SceneShapeStyle,
   type SceneText,
   type SceneTextStyle,
+  type SceneToken,
   type SceneTransformPreviewCancel,
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
@@ -99,6 +101,7 @@ import {
   activeSceneTargets,
   canCreateSceneImages,
   canEditDrawing,
+  canEditSceneImage,
   canEditShape,
   canEditText,
   deleteSelectedObjects,
@@ -260,6 +263,7 @@ export interface SceneRendererInteraction {
   activeLayer: SceneImageLayer;
   actorId?: string | null;
   canEditImages?: boolean;
+  editableTokenEntryIds?: ReadonlySet<string>;
   editable: boolean;
   measureEnabled?: boolean;
   paintEnabled?: boolean;
@@ -279,6 +283,7 @@ export interface SceneRendererInteraction {
   textStyle?: SceneTextStyle;
   pingEnabled?: boolean;
   onActiveLayerChange?: (layer: SceneImageLayer) => void;
+  onApplyLinkedTokenDefaultSize?: (token: SceneToken) => void;
   onCommit?: (
     state: SceneObjectState,
     operationId: string,
@@ -301,7 +306,9 @@ export interface SceneRendererInteraction {
     input: Omit<SceneTransformPreviewDelta, 'campaignId'>,
   ) => void;
   onPing?: (ping: RendererMapPing) => void;
+  onOpenLinkedToken?: (token: SceneToken) => void;
   onRedo?: () => Promise<SceneRecord | null>;
+  onSaveLinkedTokenDefaultSize?: (token: SceneToken) => void;
   onUndo?: () => Promise<SceneRecord | null>;
 }
 
@@ -1373,6 +1380,16 @@ export class SceneRenderer implements SceneRendererHandle {
       options.networkUpdateRate !== this.interaction.networkUpdateRate;
     const editingDisabled =
       this.interaction.editable && !options.editable;
+    const accessRevoked = Boolean(
+      this.scene &&
+        this.selected.size > 0 &&
+        selectedSceneTargets(
+          this.scene,
+          this.selected,
+          options,
+          (id) => this.textRenderer.bounds(id),
+        ).length < this.selected.size,
+    );
     const paintChanged =
       this.interaction.paintEnabled !== options.paintEnabled ||
       this.interaction.paintKind !== options.paintKind;
@@ -1395,7 +1412,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (paintChanged || layerChanged) {
       this.cancelPaintGesture();
     }
-    if (editingDisabled || layerChanged) {
+    if (editingDisabled || layerChanged || accessRevoked) {
       this.cancelEditGesture();
       void this.finishNudge(true);
     }
@@ -1409,6 +1426,17 @@ export class SceneRenderer implements SceneRendererHandle {
       void this.finishTextEditor(true);
     }
     this.interaction = options;
+    if (accessRevoked && this.scene) {
+      this.selected = new Set(
+        selectedSceneTargets(
+          this.scene,
+          this.selected,
+          options,
+          (id) => this.textRenderer.bounds(id),
+        ).map(({ id }) => id),
+      );
+      this.groupSelectionRotation = 0;
+    }
     if (networkUpdateRateChanged) {
       this.drawingPreviewRateLimiter.rateChanged();
     }
@@ -2499,7 +2527,7 @@ export class SceneRenderer implements SceneRendererHandle {
       this.scene.images,
     ) as SceneImage[][]) {
       const image = layer.find((candidate) => candidate.id === id);
-      if (image) {
+      if (image && canEditSceneImage(image, this.interaction)) {
         return image;
       }
     }
@@ -3187,6 +3215,16 @@ export class SceneRenderer implements SceneRendererHandle {
     this.contextMenu.close();
   }
 
+  private selectedLinkedToken(): SceneToken | null {
+    if (!this.scene || this.selected.size !== 1) return null;
+    const selectedId = this.selected.values().next().value as string | undefined;
+    if (!selectedId) return null;
+    const image = Object.values(this.scene.images)
+      .flat()
+      .find(({ id }) => id === selectedId);
+    return image && isSceneToken(image) ? image : null;
+  }
+
   private openContextMenu(
     clientX: number,
     clientY: number,
@@ -3237,6 +3275,41 @@ export class SceneRenderer implements SceneRendererHandle {
       );
     }
     if (canEditImage) {
+      const linkedToken = this.selectedLinkedToken();
+      if (linkedToken) {
+        const sourceAvailable = Boolean(
+          this.interaction.editableTokenEntryIds?.has(
+            linkedToken.source.entryId,
+          ),
+        );
+        const alreadyUsesLinkedDefault =
+          linkedToken.source.kind === 'linked' &&
+          linkedToken.size.kind === 'default';
+        entries.push(
+          {
+            kind: 'action',
+            label: linkedToken.source.kind === 'template'
+              ? 'Open Source Character'
+              : 'Open Character Sheet',
+            onSelect: () => this.interaction.onOpenLinkedToken?.(linkedToken),
+          },
+          {
+            disabled: !sourceAvailable || alreadyUsesLinkedDefault,
+            kind: 'action',
+            label: 'Apply Default Size',
+            onSelect: () =>
+              this.interaction.onApplyLinkedTokenDefaultSize?.(linkedToken),
+          },
+          {
+            disabled: !sourceAvailable || alreadyUsesLinkedDefault,
+            kind: 'action',
+            label: 'Save as Default Size',
+            onSelect: () =>
+              this.interaction.onSaveLinkedTokenDefaultSize?.(linkedToken),
+          },
+          { kind: 'divider' },
+        );
+      }
       entries.push(
         {
           disabled: !this.canDuplicateSelection(),
@@ -3253,7 +3326,7 @@ export class SceneRenderer implements SceneRendererHandle {
           disabled:
             includesCanonical ||
             layer === this.interaction.activeLayer ||
-            (this.interaction.actorId != null && layer !== 'token'),
+            (this.interaction.actorId != null && layer === 'gm'),
           kind: 'action',
           label: `Move to ${layer === 'gm' ? 'GM' : `${layer[0].toUpperCase()}${layer.slice(1)}`} layer`,
           onSelect: () => void this.moveSelectionToLayer(layer),
@@ -4939,7 +5012,26 @@ export class SceneRenderer implements SceneRendererHandle {
     ) {
       return;
     }
-    const text = this.editableTextAt(this.localPoint(event));
+    const localPoint = this.localPoint(event);
+    const hit = this.hitAt(localPoint);
+    if (hit && this.scene) {
+      const image = Object.values(this.scene.images)
+        .flat()
+        .find(({ id }) => id === hit);
+      if (
+        image &&
+        isSceneToken(image) &&
+        canEditSceneImage(image, this.interaction)
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.cancelEditGesture();
+        this.closeContextMenu();
+        this.interaction.onOpenLinkedToken?.(image);
+        return;
+      }
+    }
+    const text = this.editableTextAt(localPoint);
     if (!text) {
       return;
     }
@@ -4977,6 +5069,20 @@ export class SceneRenderer implements SceneRendererHandle {
       event.preventDefault();
       this.cancelFogGesture();
       return;
+    }
+    if (
+      event.key === 'Enter' &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.shiftKey
+    ) {
+      const token = this.selectedLinkedToken();
+      if (token) {
+        event.preventDefault();
+        this.interaction.onOpenLinkedToken?.(token);
+        return;
+      }
     }
     const plan = planKeyDown({
       committing: this.committing,

@@ -1,6 +1,30 @@
 import type { CampaignSystemState, JsonValue } from '../shared/gameSystems';
 import type { JournalAccessLevel } from '../shared/journal';
 
+export type JournalEntryDefaultToken = {
+  imageAssetId: string | null;
+  size: {
+    height: number;
+    width: number;
+  };
+  type: 'linked' | 'template';
+};
+
+/**
+ * Optional system-owned bridge between a rules record and core scene tokens.
+ * Core can preserve a source reference and synchronize its visual projection
+ * without learning what a Character (or any other system record) is.
+ */
+export interface JournalEntryTokenDefinition<
+  TData extends JsonValue = JsonValue,
+> {
+  readDefaultToken(data: TData): JournalEntryDefaultToken;
+  writeDefaultToken(
+    data: TData,
+    token: JournalEntryDefaultToken,
+  ): TData;
+}
+
 export interface JournalEntryTypeDefinition<
   TSettings extends JsonValue = JsonValue,
   TData extends JsonValue = JsonValue,
@@ -14,6 +38,7 @@ export interface JournalEntryTypeDefinition<
   groupOrder: number;
   id: string;
   label: string;
+  token?: JournalEntryTokenDefinition<TData>;
   validateData(value: JsonValue): value is TData;
 }
 

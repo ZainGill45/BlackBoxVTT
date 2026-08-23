@@ -23,6 +23,8 @@ import { convertDnd5eCharacterDataFromArchiveFormat8 } from './campaignArchiveCh
 import { addDefaultDnd5eSkillOffsetsToValue } from './campaignArchiveCharacterSkills';
 import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFormat5';
 import { convertDnd5eSpellFlatScalingFromFormat14 } from './campaignArchiveSpellFlatScaling';
+import { isDnd5eCharacterDataBeforeDefaultToken } from './campaignArchiveCharacterDefaultToken';
+import { isDnd5eCharacterDataBeforeTokenType } from './campaignArchiveCharacterTokenType';
 
 /**
  * Reading a campaign database that this release cannot open.
@@ -37,7 +39,7 @@ import { convertDnd5eSpellFlatScalingFromFormat14 } from './campaignArchiveSpell
  */
 
 export type HistoricalCampaignFormatVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
 
 export type CampaignSalvageConversion =
   | 1
@@ -54,6 +56,8 @@ export type CampaignSalvageConversion =
   | 12
   | 13
   | 14
+  | 15
+  | 16
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -89,8 +93,8 @@ const INTERMEDIATE_PERMISSION_SCHEMA_FINGERPRINT =
 const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
   'f1e073d9f3f5aadf2a640ff56f1cef247d9c13d31601c6c4200e76162b45637f';
 
-/** Canonical database schema shared by formats 7 through the current format. */
-const FORMAT_7_TO_CURRENT_SCHEMA_FINGERPRINT =
+/** Canonical database schema shared by formats 7 through 16. */
+const FORMAT_7_TO_16_SCHEMA_FINGERPRINT =
   '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
 
 function schemaFingerprint(connection: DatabaseSync): string {
@@ -152,6 +156,7 @@ function looksCurrent(schema: TableColumns): boolean {
     (schema.assets?.includes('default_access') ?? false) &&
     (schema.journal_entries?.includes('permission_revision') ?? false) &&
     Object.hasOwn(schema, 'scene_permissions') &&
+    Object.hasOwn(schema, 'scene_token_snapshots') &&
     (schema.scenes?.includes('default_access') ?? false)
   );
 }
@@ -355,7 +360,7 @@ function detectFormat14SpellFlatScaling(
     } catch {
       return null;
     }
-    if (!isDnd5eCharacterData(parsed as JsonValue)) return null;
+    if (!isDnd5eCharacterDataBeforeDefaultToken(parsed)) return null;
   }
 
   const spellRows = connection.prepare(
@@ -376,6 +381,83 @@ function detectFormat14SpellFlatScaling(
     convertedCount += converted.convertedCount;
   }
   return convertedCount > 0 ? { ok: true, version: 14 } : null;
+}
+
+function detectFormat15DefaultTokens(
+  connection: DatabaseSync,
+): CampaignFormatDetection | null {
+  const characterRows = connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_CHARACTER_ENTRY_TYPE_ID) as unknown as Array<{
+    data_json: string;
+  }>;
+  if (characterRows.length === 0) return null;
+  const charactersMatch = characterRows.every((row) => {
+    try {
+      return isDnd5eCharacterDataBeforeDefaultToken(JSON.parse(row.data_json));
+    } catch {
+      return false;
+    }
+  });
+  if (!charactersMatch) return null;
+
+  // Format 15 differs from the current shape only at the Character token
+  // field. Its other system records must therefore match their exact current
+  // schema; otherwise a malformed older record could be mistaken for format
+  // 15 and bypass its own direct converter.
+  const spellRows = connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_SPELL_ENTRY_TYPE_ID) as unknown as Array<{
+    data_json: string;
+  }>;
+  const spellsMatch = spellRows.every((row) => {
+    try {
+      return isDnd5eSpellData(JSON.parse(row.data_json));
+    } catch {
+      return false;
+    }
+  });
+  return spellsMatch ? { ok: true, version: 15 } : null;
+}
+
+function detectFormat16TokenType(
+  connection: DatabaseSync,
+): CampaignFormatDetection | null {
+  const characterRows = connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_CHARACTER_ENTRY_TYPE_ID) as unknown as Array<{
+    data_json: string;
+  }>;
+  if (characterRows.length === 0) return null;
+  const charactersMatch = characterRows.every((row) => {
+    try {
+      return isDnd5eCharacterDataBeforeTokenType(JSON.parse(row.data_json));
+    } catch {
+      return false;
+    }
+  });
+  if (!charactersMatch) return null;
+  const spellRows = connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ?
+     ORDER BY position`,
+  ).all(DND5E_SPELL_ENTRY_TYPE_ID) as unknown as Array<{
+    data_json: string;
+  }>;
+  const spellsMatch = spellRows.every((row) => {
+    try {
+      return isDnd5eSpellData(JSON.parse(row.data_json));
+    } catch {
+      return false;
+    }
+  });
+  return spellsMatch ? { ok: true, version: 16 } : null;
 }
 
 function detectFormat13ActionEffects(
@@ -456,11 +538,15 @@ export function detectCampaignFormatVersion(
   if (fingerprint === FORMAT_4_TO_6_SCHEMA_FINGERPRINT) {
     return detectFormat4To13CharacterEra(connection);
   }
-  if (fingerprint === FORMAT_7_TO_CURRENT_SCHEMA_FINGERPRINT) {
+  if (fingerprint === FORMAT_7_TO_16_SCHEMA_FINGERPRINT) {
+    const format16 = detectFormat16TokenType(connection);
+    if (format16) return format16;
     const format14 = detectFormat14SpellFlatScaling(connection);
     if (format14) return format14;
     const format13 = detectFormat13ActionEffects(connection);
-    return format13 ?? detectFormat4To13CharacterEra(connection, true);
+    if (format13) return format13;
+    const format15 = detectFormat15DefaultTokens(connection);
+    return format15 ?? detectFormat4To13CharacterEra(connection, true);
   }
   const schema = readTableColumns(connection);
   return {

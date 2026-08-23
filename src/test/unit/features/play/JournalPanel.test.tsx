@@ -424,6 +424,63 @@ describe('JournalPanel', () => {
     expect(within(sheet).getByRole('button', { name: 'Level' })).toHaveTextContent('7');
   }, 20_000);
 
+  it('chooses and removes the Character default token image through canonical controls', async () => {
+    const user = userEvent.setup();
+    const image = makeImageAsset();
+    let server = structuredClone(character);
+    const updateEntryData = vi.fn(async (
+      input: Parameters<JournalApi['updateEntryData']>[0],
+    ): Promise<JournalResult<typeof server>> => {
+      server = {
+        ...server,
+        data: input.data as Dnd5eCharacterData,
+        revision: server.revision + 1,
+      };
+      return { ok: true, value: server };
+    });
+    render(
+      <JournalPanelHarness
+        assetApi={createFakeAssetApi([image])}
+        campaignId={campaignId}
+        journalApi={journalApi({
+          getEntry: async () => ({ ok: true, value: server }),
+          list: async () => ({
+            ok: true,
+            value: { entries: [server], revision: 0 },
+          }),
+          updateEntryData,
+        })}
+        role="gm"
+      />,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Characters' }));
+    await user.click(await screen.findByRole('button', { name: 'Open New Character' }));
+    const sheet = screen.getByRole('dialog', {
+      name: 'New Character character sheet',
+    });
+    const tokenButton = within(sheet).getByRole('button', {
+      name: 'Choose Character Token image',
+    });
+    expect(within(tokenButton).getByText('Character Token')).toBeInTheDocument();
+    await user.click(tokenButton);
+    const chooser = screen.getByRole('dialog', {
+      name: 'Choose Character Token image',
+    });
+    await user.click(
+      await within(chooser).findByRole('button', { name: image.displayName }),
+    );
+    await waitFor(() => expect(server.data.defaultToken.imageAssetId).toBe(image.id));
+    expect(within(tokenButton).queryByText('Character Token')).not.toBeInTheDocument();
+
+    fireEvent.contextMenu(tokenButton);
+    await user.click(screen.getByRole('menuitem', {
+      name: 'Remove Character Token Image',
+    }));
+    await waitFor(() => expect(server.data.defaultToken.imageAssetId).toBeNull());
+    expect(within(tokenButton).getByText('Character Token')).toBeInTheDocument();
+  });
+
   it('edits calculated totals as durable offsets and propagates their effective values', async () => {
     const user = userEvent.setup();
     let server = structuredClone(character);
@@ -2832,7 +2889,12 @@ describe('JournalPanel', () => {
       input: Parameters<JournalApi['prepareDelete']>[0],
     ): ReturnType<JournalApi['prepareDelete']> => ({
       ok: true,
-      value: { assets: [], target: input.target },
+      value: {
+        assets: [],
+        linkedTokenCount: 0,
+        target: input.target,
+        templateTokenCount: 0,
+      },
     }));
     const deleteTarget = vi.fn(async (
       input: Parameters<JournalApi['deleteTarget']>[0],
@@ -2896,6 +2958,7 @@ describe('JournalPanel', () => {
     await waitFor(() => expect(deleteTarget).toHaveBeenCalledWith({
       campaignId,
       cleanupAssetIds: [],
+      deleteTemplateTokens: false,
       expectedRevision: secondPage.revision,
       target: {
         entryId: note.id,
@@ -3298,6 +3361,8 @@ describe('JournalPanel', () => {
       ok: true as const,
       value: {
         assets: [],
+        linkedTokenCount: 0,
+        templateTokenCount: 0,
         target: { entryId: note.id, kind: 'note' as const },
       },
     }));
@@ -3350,6 +3415,7 @@ describe('JournalPanel', () => {
     await waitFor(() => expect(deleteTarget).toHaveBeenCalledWith({
       campaignId,
       cleanupAssetIds: [],
+      deleteTemplateTokens: false,
       expectedRevision: note.revision,
       target: { entryId: note.id, kind: 'note' },
     }));
@@ -3362,6 +3428,8 @@ describe('JournalPanel', () => {
       ok: true as const,
       value: {
         assets: [],
+        linkedTokenCount: 0,
+        templateTokenCount: 0,
         target: { entryId: note.id, kind: 'note' as const },
       },
     }));
@@ -3395,6 +3463,7 @@ describe('JournalPanel', () => {
       expect(deleteTarget).toHaveBeenCalledWith({
         campaignId,
         cleanupAssetIds: [],
+        deleteTemplateTokens: false,
         expectedRevision: note.revision,
         target: { entryId: note.id, kind: 'note' },
       }),
@@ -3408,6 +3477,8 @@ describe('JournalPanel', () => {
       ok: true as const,
       value: {
         assets: [],
+        linkedTokenCount: 0,
+        templateTokenCount: 0,
         target: { entryId: note.id, kind: 'note' as const },
       },
     }));
@@ -3448,6 +3519,7 @@ describe('JournalPanel', () => {
       expect(deleteTarget).toHaveBeenCalledWith({
         campaignId,
         cleanupAssetIds: [],
+        deleteTemplateTokens: false,
         expectedRevision: note.revision,
         target: { entryId: note.id, kind: 'note' },
       }),
@@ -3466,6 +3538,8 @@ describe('JournalPanel', () => {
             id: '55555555-5555-4555-8555-555555555555',
           },
         ],
+        linkedTokenCount: 0,
+        templateTokenCount: 0,
         target: { entryId: note.id, kind: 'note' as const },
       },
     }));
@@ -3510,6 +3584,7 @@ describe('JournalPanel', () => {
       expect(deleteTarget).toHaveBeenCalledWith({
         campaignId,
         cleanupAssetIds: ['55555555-5555-4555-8555-555555555555'],
+        deleteTemplateTokens: false,
         expectedRevision: note.revision,
         target: { entryId: note.id, kind: 'note' },
       }),

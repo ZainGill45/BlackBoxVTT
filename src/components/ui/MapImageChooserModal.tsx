@@ -1,10 +1,20 @@
 import { ImageOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Modal } from '../../../components/ui/Modal';
-import type { AssetApi, AssetView } from '../../../shared/assets';
-import { useAssetPreviewUrl } from '../useAssetPreviewUrl';
-import type { AssetThumbnail } from './useAssetThumbnails';
+import { Modal } from './Modal';
+import type { AssetApi, AssetView } from '../../shared/assets';
+import { useAssetPreviewUrl } from './useAssetPreviewUrl';
 import styles from './MapImageChooserModal.module.css';
+
+export interface AssetImageThumbnail {
+  sourceHeight: number;
+  sourceWidth: number;
+  url: string;
+}
+
+type ImageChooserAssetApi = Pick<
+  AssetApi,
+  'getPreview' | 'list' | 'onChanged' | 'releasePreview'
+>;
 
 export interface MapImageSelection {
   assetId: string;
@@ -14,13 +24,13 @@ export interface MapImageSelection {
 
 interface MapImageChooserModalProps {
   accessibleLabel?: string;
-  assetApi?: AssetApi;
+  assetApi?: ImageChooserAssetApi;
   campaignId: string;
   isOpen: boolean;
   onDismiss: () => void;
   onSelect: (selection: MapImageSelection) => void;
   selectedAssetId: string | null;
-  thumbnails: ReadonlyMap<string, AssetThumbnail>;
+  thumbnails: ReadonlyMap<string, AssetImageThumbnail>;
 }
 
 function ChoiceTile({
@@ -32,11 +42,11 @@ function ChoiceTile({
   thumbnail,
 }: {
   asset: AssetView;
-  assetApi?: AssetApi;
+  assetApi?: ImageChooserAssetApi;
   campaignId: string;
   isSelected: boolean;
   onSelect: (selection: MapImageSelection) => void;
-  thumbnail: AssetThumbnail | undefined;
+  thumbnail: AssetImageThumbnail | undefined;
 }) {
   // Already-warmed images cost nothing; anything else falls back to the asset
   // itself so the chooser still works for images no scene uses yet.

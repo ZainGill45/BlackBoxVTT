@@ -30,6 +30,9 @@ import {
   isJournalTitleStyle,
   isRichTextDocument,
 } from '../../shared/journal';
+import { createTokenSnapshotSchema } from './tokenSnapshotSchema';
+import { isSceneToken } from '../../shared/scenes';
+import { sceneRecordSchema } from '../../shared/sceneSchema';
 
 export const CAMPAIGN_DATABASE_FILENAME = 'campaign.sqlite';
 
@@ -402,6 +405,7 @@ export class CampaignDatabase {
           UNIQUE (actor_key, operation_id)
         ) STRICT;
       `);
+      createTokenSnapshotSchema(this.connection);
       this.connection
         .prepare(
           `INSERT INTO campaign_metadata (
@@ -560,6 +564,17 @@ export class CampaignDatabase {
         'permission_revision',
       ],
       scene_permissions: ['scene_id', 'user_id', 'access'],
+      scene_token_snapshots: [
+        'id',
+        'scene_id',
+        'root_entry_id',
+        'type_id',
+        'name',
+        'data_json',
+        'revision',
+        'created_at',
+        'updated_at',
+      ],
       asset_manifest: ['singleton', 'revision'],
       assets: [
         'id',
@@ -680,6 +695,37 @@ export class CampaignDatabase {
         throw new Error(`Campaign database table ${table} is malformed.`);
       }
     }
+    const snapshotSql = normalizedTableSql('scene_token_snapshots');
+    const snapshotForeignKeys = this.connection
+      .prepare(`PRAGMA foreign_key_list('scene_token_snapshots')`)
+      .all() as Array<{
+      from?: unknown;
+      on_delete?: unknown;
+      table?: unknown;
+      to?: unknown;
+    }>;
+    const snapshotIndex = (name: string) => this.connection
+      .prepare(`PRAGMA index_info('${name}')`)
+      .all() as Array<{ name?: unknown }>;
+    const rootIndex = snapshotIndex('scene_token_snapshots_root');
+    const sceneIndex = snapshotIndex('scene_token_snapshots_scene');
+    if (
+      !snapshotSql.endsWith('strict') ||
+      snapshotForeignKeys.length !== 1 ||
+      !snapshotForeignKeys.some((entry) =>
+        entry.from === 'scene_id' &&
+        entry.table === 'scenes' &&
+        entry.to === 'id' &&
+        entry.on_delete === 'CASCADE') ||
+      rootIndex.length !== 2 ||
+      rootIndex[0]?.name !== 'root_entry_id' ||
+      rootIndex[1]?.name !== 'id' ||
+      sceneIndex.length !== 2 ||
+      sceneIndex[0]?.name !== 'scene_id' ||
+      sceneIndex[1]?.name !== 'id'
+    ) {
+      throw new Error('Campaign database table scene_token_snapshots is malformed.');
+    }
     const indexes = this.connection
       .prepare(
         `SELECT name
@@ -731,6 +777,7 @@ export class CampaignDatabase {
     const foreignKeyFailure = this.connection.prepare('PRAGMA foreign_key_check').get();
     if (foreignKeyFailure) throw new Error('Campaign database foreign keys are invalid.');
     this.validateJournalState();
+    this.validateTokenSnapshots();
   }
 
   private validateJournalState(): void {
@@ -797,6 +844,75 @@ export class CampaignDatabase {
           indexedAssetIds.length !== contentAssetIds.length ||
           indexedAssetIds.some((assetId, index) => assetId !== contentAssetIds[index])
         ) throw new Error('Campaign Journal page asset references are invalid.');
+      }
+    }
+  }
+
+  private validateTokenSnapshots(): void {
+    const system = this.readSystem();
+    const references = new Map<string, { entryId: string; sceneId: string }>();
+    const scenes = this.connection.prepare(
+      'SELECT id, record_json FROM scenes ORDER BY position',
+    ).all() as unknown as Array<{ id: string; record_json: string }>;
+    for (const row of scenes) {
+      const scene = sceneRecordSchema.parse(JSON.parse(row.record_json));
+      for (const image of Object.values(scene.images).flat()) {
+        if (!isSceneToken(image) || image.source.kind !== 'template') continue;
+        if (references.has(image.source.instanceId)) {
+          throw new Error('Campaign Template tokens repeat an instance reference.');
+        }
+        references.set(image.source.instanceId, {
+          entryId: image.source.entryId,
+          sceneId: scene.id,
+        });
+      }
+    }
+    const rows = this.connection.prepare(
+      `SELECT id, scene_id, root_entry_id, type_id, name, data_json,
+              revision, created_at, updated_at
+       FROM scene_token_snapshots
+       ORDER BY id`,
+    ).all() as unknown as Array<Record<string, unknown>>;
+    if (rows.length !== references.size) {
+      throw new Error('Campaign Template token snapshots do not match scene references.');
+    }
+    for (const row of rows) {
+      let data: unknown;
+      try {
+        data = JSON.parse(String(row.data_json));
+      } catch {
+        throw new Error('Campaign Template token snapshot data is invalid.');
+      }
+      const reference = typeof row.id === 'string'
+        ? references.get(row.id)
+        : undefined;
+      const definition = typeof row.type_id === 'string'
+        ? getJournalEntryTypeDefinition(system, row.type_id)
+        : null;
+      if (
+        typeof row.id !== 'string' ||
+        !UUID_PATTERN.test(row.id) ||
+        typeof row.scene_id !== 'string' ||
+        !UUID_PATTERN.test(row.scene_id) ||
+        typeof row.root_entry_id !== 'string' ||
+        !UUID_PATTERN.test(row.root_entry_id) ||
+        !reference ||
+        reference.sceneId !== row.scene_id ||
+        reference.entryId !== row.root_entry_id ||
+        !definition?.token ||
+        !definition.validateData(data as never) ||
+        typeof row.name !== 'string' ||
+        row.name.normalize('NFKC').trim() !== row.name ||
+        countGraphemes(row.name) < 1 ||
+        countGraphemes(row.name) > MAX_JOURNAL_TITLE_GRAPHEMES ||
+        !Number.isInteger(row.revision) ||
+        Number(row.revision) < 0 ||
+        typeof row.created_at !== 'string' ||
+        !validTimestamp(row.created_at) ||
+        typeof row.updated_at !== 'string' ||
+        !validTimestamp(row.updated_at)
+      ) {
+        throw new Error('Campaign Template token snapshot is malformed.');
       }
     }
   }

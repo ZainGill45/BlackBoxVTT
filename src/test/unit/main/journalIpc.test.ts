@@ -53,7 +53,12 @@ describe('registerJournalIpcHandlers', () => {
 
   it('keeps note and page deletion on their matching explicit channels', async () => {
     const { invoke, manager } = setup();
-    const common = { campaignId, cleanupAssetIds: [], expectedRevision: 0 };
+    const common = {
+      campaignId,
+      cleanupAssetIds: [],
+      deleteTemplateTokens: false,
+      expectedRevision: 0,
+    };
 
     expect(await invoke(journalIpcChannels.deletePage, {
       ...common,

@@ -3,6 +3,7 @@ import type {
   SceneDrawingLayers,
   SceneFog,
   SceneGrid,
+  SceneImage,
   SceneImageLayers,
   SceneObjectState,
   SceneObjectOrderLayers,
@@ -10,6 +11,7 @@ import type {
   SceneRecord,
   SceneShapeLayers,
   SceneTextLayers,
+  SceneToken,
 } from './sceneSchema';
 import type {
   PresentSceneInput,
@@ -53,6 +55,8 @@ export type {
   SceneObjectState,
   SceneObjectOrderLayers,
   SceneImageTransform,
+  SceneToken,
+  SceneTokenSize,
   SceneManifest,
   SceneMapImage,
   SceneObjectTransform,
@@ -149,6 +153,10 @@ export interface SceneApi {
 
 export function createEmptyImageLayers(): SceneImageLayers {
   return { gm: [], map: [], token: [] };
+}
+
+export function isSceneToken(image: SceneImage): image is SceneToken {
+  return 'source' in image;
 }
 
 export function createEmptyDrawingLayers(): SceneDrawingLayers {

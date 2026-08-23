@@ -13,6 +13,8 @@ export const MAX_DND5E_CHARACTER_INVENTORY_ENTRIES = 256;
 export const MAX_DND5E_CHARACTER_INVENTORY_DEPTH = 8;
 export const MAX_DND5E_CHARACTER_RESOURCES = 128;
 export const MAX_DND5E_CHARACTER_SPELLS = MAX_JOURNAL_ENTRIES;
+export const MIN_DND5E_TOKEN_SIZE = 0.1;
+export const MAX_DND5E_TOKEN_SIZE = 100;
 
 export const DND5E_ABILITIES = [
   'strength',
@@ -525,6 +527,14 @@ export type Dnd5eCharacterData = {
     weight: string;
   };
   customSkills: Dnd5eCharacterCustomSkill[];
+  defaultToken: {
+    imageAssetId: string | null;
+    size: {
+      height: number;
+      width: number;
+    };
+    type: 'linked' | 'template';
+  };
   health: {
     currentHitDice: string;
     currentHitPoints: string;
@@ -938,6 +948,11 @@ export function createDefaultDnd5eCharacterData(): Dnd5eCharacterData {
       weight: '',
     },
     customSkills: [],
+    defaultToken: {
+      imageAssetId: null,
+      size: { height: 1, width: 1 },
+      type: 'linked',
+    },
     health: defaultHealth(),
     identity: {
       ancestry: '',
@@ -1304,6 +1319,7 @@ export function isDnd5eCharacterData(
     'abilities',
     'appearance',
     'customSkills',
+    'defaultToken',
     'features',
     'health',
     'identity',
@@ -1317,6 +1333,7 @@ export function isDnd5eCharacterData(
   }
   const abilities = value.abilities;
   const identity = value.identity;
+  const defaultToken = value.defaultToken;
   if (
     !isRecord(abilities) ||
     !hasExactKeys(abilities, DND5E_ABILITIES) ||
@@ -1329,6 +1346,22 @@ export function isDnd5eCharacterData(
         isSafeInteger(candidate.savingThrowOffset);
     }) ||
     !hasExactStringFields(value.appearance, APPEARANCE_KEYS) ||
+    !isRecord(defaultToken) ||
+    !hasExactKeys(defaultToken, ['imageAssetId', 'size', 'type']) ||
+    !(defaultToken.imageAssetId === null ||
+      (typeof defaultToken.imageAssetId === 'string' &&
+        UUID_PATTERN.test(defaultToken.imageAssetId))) ||
+    !isRecord(defaultToken.size) ||
+    !hasExactKeys(defaultToken.size, ['height', 'width']) ||
+    typeof defaultToken.size.height !== 'number' ||
+    !Number.isFinite(defaultToken.size.height) ||
+    defaultToken.size.height < MIN_DND5E_TOKEN_SIZE ||
+    defaultToken.size.height > MAX_DND5E_TOKEN_SIZE ||
+    typeof defaultToken.size.width !== 'number' ||
+    !Number.isFinite(defaultToken.size.width) ||
+    defaultToken.size.width < MIN_DND5E_TOKEN_SIZE ||
+    defaultToken.size.width > MAX_DND5E_TOKEN_SIZE ||
+    (defaultToken.type !== 'linked' && defaultToken.type !== 'template') ||
     !hasExactHealthFields(value.health) ||
     !isRecord(identity) ||
     !hasExactKeys(identity, IDENTITY_KEYS) ||

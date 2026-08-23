@@ -5,6 +5,7 @@ import {
 } from './campaignArchiveDnd5eActionEffects';
 import { markFixedDnd5eSpellFlatScaling } from './campaignArchiveSpellFlatScaling';
 import { runDirectArchiveConversion } from './campaignArchiveSteps';
+import { addDefaultDnd5eCharacterTokens } from './campaignArchiveCharacterDefaultToken';
 
 /** Directly removes format-13 authored Effect steps from today's shape. */
 export function convertCampaignArchiveFormat13(
@@ -13,7 +14,8 @@ export function convertCampaignArchiveFormat13(
   return runDirectArchiveConversion(connection, () => {
     const warnings = removeDnd5eActionEffects(connection, 13);
     const flatWarnings = markFixedDnd5eSpellFlatScaling(connection, 13);
+    const tokenWarnings = addDefaultDnd5eCharacterTokens(connection, 13);
     assertCurrentDnd5eActionData(connection, 13);
-    return [...warnings, ...flatWarnings];
+    return [...warnings, ...flatWarnings, ...tokenWarnings];
   });
 }

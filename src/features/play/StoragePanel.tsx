@@ -749,7 +749,7 @@ export function StoragePanel({
       <ConfirmModal
         confirmLabel="Delete anyway"
         isOpen={dependencyPrompt !== null}
-        message={`${dependencyPrompt?.asset.displayName ?? 'This image'} is used by ${dependencyPrompt?.scenes.length ?? 0} scene(s) and ${dependencyPrompt?.journal.length ?? 0} Journal page(s). Deleting it removes every placement too.`}
+        message={`${dependencyPrompt?.asset.displayName ?? 'This image'} is used by ${dependencyPrompt?.scenes.length ?? 0} scene(s) and ${dependencyPrompt?.journal.length ?? 0} Journal reference(s). Deleting it removes every placement and clears every default token image.`}
         title="Delete an image that campaign content uses?"
         onCancel={() => setDependencyPrompt(null)}
         onConfirm={() => {
@@ -763,8 +763,10 @@ export function StoragePanel({
           {dependencyPrompt?.scenes.map((scene) => (
             <li key={scene.id}>{scene.name}</li>
           ))}
-          {dependencyPrompt?.journal.map((page) => (
-            <li key={page.pageId}>{page.title} (Journal)</li>
+          {dependencyPrompt?.journal.map((dependent) => (
+            <li key={`${dependent.kind ?? 'page'}:${dependent.pageId}`}>
+              {dependent.title} (Journal)
+            </li>
           ))}
         </ul>
       </ConfirmModal>

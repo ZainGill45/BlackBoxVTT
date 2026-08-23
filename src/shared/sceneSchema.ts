@@ -5,6 +5,8 @@ import {
   MAX_SCENE_DRAWINGS,
   MAX_SCENE_DRAWING_POINTS,
   MAX_SCENE_IMAGES,
+  MAX_SCENE_TOKEN_SIZE,
+  MIN_SCENE_TOKEN_SIZE,
   MAX_SCENE_OBJECTS,
   MAX_SCENE_TEXT_CHARACTERS,
   MAX_SCENE_TEXT_RASTER_PIXELS,
@@ -60,9 +62,47 @@ export const sceneMapImageSchema = sceneImageTransformSchema.extend({
   assetId: z.string().uuid(),
 });
 
-export const sceneImageSchema = sceneMapImageSchema.extend({
+const scenePlacedImageSchema = sceneMapImageSchema.extend({
   id: z.string().uuid(),
-});
+}).strict();
+
+export const sceneTokenSourceSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      entryId: z.string().uuid(),
+      kind: z.literal('linked'),
+    })
+    .strict(),
+  z
+    .object({
+      entryId: z.string().uuid(),
+      instanceId: z.string().uuid(),
+      kind: z.literal('template'),
+    })
+    .strict(),
+]);
+
+export const sceneTokenSizeSchema = z
+  .object({
+    height: z.number().finite().min(MIN_SCENE_TOKEN_SIZE).max(MAX_SCENE_TOKEN_SIZE),
+    kind: z.enum(['default', 'override']),
+    width: z.number().finite().min(MIN_SCENE_TOKEN_SIZE).max(MAX_SCENE_TOKEN_SIZE),
+  })
+  .strict();
+
+export const sceneTokenSchema = sceneImageTransformSchema
+  .extend({
+    assetId: z.string().uuid(),
+    id: z.string().uuid(),
+    size: sceneTokenSizeSchema,
+    source: sceneTokenSourceSchema,
+  })
+  .strict();
+
+export const sceneImageSchema = z.union([
+  scenePlacedImageSchema,
+  sceneTokenSchema,
+]);
 
 export const sceneImageLayersSchema = z
   .object({
@@ -577,6 +617,8 @@ export type SceneGridType = SceneGrid['type'];
 export type SceneImageTransform = z.infer<typeof sceneImageTransformSchema>;
 export type SceneMapImage = z.infer<typeof sceneMapImageSchema>;
 export type SceneImage = z.infer<typeof sceneImageSchema>;
+export type SceneToken = z.infer<typeof sceneTokenSchema>;
+export type SceneTokenSize = z.infer<typeof sceneTokenSizeSchema>;
 export type SceneImageLayers = z.infer<typeof sceneImageLayersSchema>;
 export type SceneImageLayer = SceneLayer;
 export type SceneDrawingPoint = z.infer<typeof sceneDrawingPointSchema>;

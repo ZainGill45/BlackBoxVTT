@@ -103,26 +103,36 @@ describe('scene selection model', () => {
   it('filters active and selected targets through actor capabilities', () => {
     const owned = drawing('player-a');
     const foreign = { ...drawing('player-b'), id: 'foreign' };
+    const characterId = '88888888-8888-4888-8888-888888888888';
+    const linkedToken = {
+      ...image,
+      assetId: '00000000-0000-4000-8000-000000000001',
+      id: '99999999-9999-4999-8999-999999999999',
+      size: { height: 1, kind: 'default' as const, width: 1 },
+      source: { entryId: characterId, kind: 'linked' as const },
+    };
     const scene = makeScene({
       drawings: { gm: [], map: [], token: [owned, foreign] },
-      images: { gm: [], map: [], token: [image] },
+      images: { gm: [], map: [], token: [image, linkedToken] },
     });
     const policy = {
       activeLayer: 'token' as const,
       actorId: 'player-a',
       canEditImages: false,
+      editableTokenEntryIds: new Set([characterId]),
     };
 
     expect(activeSceneTargets(scene, policy).map(({ id }) => id)).toEqual([
+      linkedToken.id,
       owned.id,
     ]);
     expect(
       selectedSceneTargets(
         scene,
-        new Set([image.id, owned.id, foreign.id]),
+        new Set([image.id, linkedToken.id, owned.id, foreign.id]),
         policy,
       ).map(({ id }) => id),
-    ).toEqual([owned.id]);
+    ).toEqual([linkedToken.id, owned.id]);
   });
 
   it('writes image and drawing transforms through one state accessor', () => {

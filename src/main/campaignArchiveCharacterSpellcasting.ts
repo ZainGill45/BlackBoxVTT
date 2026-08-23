@@ -6,6 +6,7 @@ import {
   type Dnd5eCharacterData,
 } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
+import { defaultTokenImportReport } from './campaignArchiveCharacterDefaultToken';
 
 interface CharacterRow {
   data_json: string;
@@ -32,6 +33,11 @@ export function addDefaultDnd5eSpellcastingToValue(
     : '';
   const converted = {
     ...value,
+    defaultToken: {
+      imageAssetId: null,
+      size: { height: 1, width: 1 },
+      type: 'linked',
+    },
     spellcasting: createDefaultDnd5eCharacterSpellcasting(className),
   };
   return isDnd5eCharacterData(converted as JsonValue)
@@ -48,6 +54,7 @@ export function spellcastingDefaultsImportReport(
     `Added default Spellcasting values to ${characterCount} D&D ${
       characterCount === 1 ? 'character' : 'characters'
     } imported from archive format ${formatVersion}.`,
+    ...defaultTokenImportReport(characterCount, formatVersion),
   ];
 }
 

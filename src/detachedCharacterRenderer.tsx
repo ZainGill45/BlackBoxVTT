@@ -39,6 +39,7 @@ function DetachedCharacterApp({
 
   return (
     <DetachedSystemJournalEntry
+      assetApi={api.assets}
       campaignId={context.campaignId}
       closeRequestId={closeRequestId}
       entry={entry}

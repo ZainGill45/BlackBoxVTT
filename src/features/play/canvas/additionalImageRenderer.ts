@@ -2,6 +2,8 @@ import { Container, Graphics, Sprite } from 'pixi.js';
 import {
   createEmptyImageLayers,
   createEmptyObjectOrderLayers,
+  DEFAULT_TOKEN_ASSET_ID,
+  isSceneToken,
   SCENE_LAYERS,
   type SceneImage,
   type SceneMapImage,
@@ -56,6 +58,31 @@ export function drawImagePlaceholder(
     .moveTo(left + placement.width, top)
     .lineTo(left, top + placement.height)
     .stroke({ color, width: 1 });
+  graphic.position.set(placement.x, placement.y);
+  graphic.angle = placement.rotation;
+}
+
+function drawDefaultToken(
+  graphic: Graphics,
+  placement: SceneMapImage,
+  color: number,
+): void {
+  const radius = Math.min(placement.width, placement.height) / 2;
+  graphic
+    .clear()
+    .circle(0, 0, radius)
+    .fill({ color: 0x24242a, alpha: 0.96 })
+    .stroke({ color, width: Math.max(1, radius * 0.04) })
+    .circle(0, -radius * 0.25, radius * 0.23)
+    .fill({ color, alpha: 0.82 })
+    .roundRect(
+      -radius * 0.48,
+      radius * 0.08,
+      radius * 0.96,
+      radius * 0.55,
+      radius * 0.22,
+    )
+    .fill({ color, alpha: 0.82 });
   graphic.position.set(placement.x, placement.y);
   graphic.angle = placement.rotation;
 }
@@ -162,13 +189,24 @@ export class AdditionalImageRenderer {
             image.id,
             imageIndex,
           );
-          sprite.width = image.width;
-          sprite.height = image.height;
-          sprite.position.set(image.x, image.y);
-          sprite.angle = image.rotation;
           if (texture) {
             sprite.texture = texture;
           }
+          if (isSceneToken(image)) {
+            const naturalWidth = Math.max(1, sprite.texture.width);
+            const naturalHeight = Math.max(1, sprite.texture.height);
+            const scale = Math.min(
+              image.width / naturalWidth,
+              image.height / naturalHeight,
+            );
+            sprite.width = naturalWidth * scale;
+            sprite.height = naturalHeight * scale;
+          } else {
+            sprite.width = image.width;
+            sprite.height = image.height;
+          }
+          sprite.position.set(image.x, image.y);
+          sprite.angle = image.rotation;
           this.removePlaceholder(image.id);
         } else {
           if (sprite) {
@@ -193,12 +231,19 @@ export class AdditionalImageRenderer {
             image.id,
             imageIndex,
           );
-          drawImagePlaceholder(
-            placeholder,
-            image,
-            true,
-            this.placeholderColor(),
-          );
+          if (
+            isSceneToken(image) &&
+            image.assetId === DEFAULT_TOKEN_ASSET_ID
+          ) {
+            drawDefaultToken(placeholder, image, this.placeholderColor());
+          } else {
+            drawImagePlaceholder(
+              placeholder,
+              image,
+              true,
+              this.placeholderColor(),
+            );
+          }
         }
         if (
           url &&

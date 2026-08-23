@@ -5,8 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssetRepository } from '../../../main/assetRepository';
 import { JournalRepository } from '../../../main/journalRepository';
 import type { SceneRepository } from '../../../main/sceneRepository';
+import { SceneRepository as RealSceneRepository } from '../../../main/sceneRepository';
 import { CampaignDatabase } from '../../../main/storage/campaignDatabase';
+import { MutationQueue } from '../../../main/storage/mutationQueue';
+import { TokenRepository } from '../../../main/tokenRepository';
 import { emptyRichTextDocument } from '../../../shared/journal';
+import {
+  DEFAULT_TOKEN_ASSET_ID,
+  isSceneToken,
+  sceneObjectStateOf,
+} from '../../../shared/scenes';
 import { TEST_CAMPAIGN_SYSTEM } from '../../support/gameSystems';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
@@ -67,6 +75,441 @@ afterEach(async () => {
 });
 
 describe('JournalRepository', () => {
+  it('places Template tokens as independent validated Character snapshots', async () => {
+    const mutations = new MutationQueue();
+    const tokens = new TokenRepository({ database });
+    const scenes = new RealSceneRepository({
+      database,
+      mutations,
+      tokens,
+      touchCampaign: vi.fn(async () => undefined),
+      warn: vi.fn(),
+    });
+    const journal = new JournalRepository({
+      assets: {
+        readManifest: vi.fn(async () => ({ assets: [], revision: 0 })),
+        trashAsset: vi.fn(),
+      } as unknown as AssetRepository,
+      database,
+      mutations,
+      scenes,
+      tokens,
+      touchCampaign: vi.fn(async () => undefined),
+    });
+    const created = await journal.createEntry(
+      { kind: 'gm' },
+      DND5E_CHARACTER_ENTRY_TYPE_ID,
+    );
+    if (!created.ok || created.value.kind !== 'system') {
+      throw new Error('Character setup failed.');
+    }
+    const templateData = createDefaultDnd5eCharacterData();
+    templateData.defaultToken.type = 'template';
+    templateData.health.currentHitPoints = '18';
+    const configured = await journal.updateEntryData({ kind: 'gm' }, {
+      data: templateData,
+      entryId: created.value.id,
+      expectedRevision: created.value.revision,
+    });
+    if (!configured.ok || configured.value.kind !== 'system') {
+      throw new Error('Character configuration failed.');
+    }
+    const granted = await journal.updateEntryPermissions({ kind: 'gm' }, {
+      entryId: configured.value.id,
+      expectedPermissionRevision: configured.value.permissionRevision,
+      permissions: {
+        allPlayers: 'none',
+        overrides: [{ access: 'edit', userId: playerId }],
+      },
+    });
+    if (!granted.ok || granted.value.kind !== 'system') {
+      throw new Error('Permission setup failed.');
+    }
+    const createdScene = await scenes.create();
+    if (!createdScene.ok) throw new Error('Scene setup failed.');
+    const state = sceneObjectStateOf(createdScene.value);
+    const tokenId = '66666666-6666-4666-8666-666666666666';
+    state.images.token.push({
+      assetId: DEFAULT_TOKEN_ASSET_ID,
+      height: createdScene.value.grid.size,
+      id: tokenId,
+      rotation: 0,
+      size: { height: 1, kind: 'default', width: 1 },
+      source: { entryId: granted.value.id, kind: 'linked' },
+      width: createdScene.value.grid.size,
+      x: 100,
+      y: 100,
+    });
+    state.objectOrder.token.push(tokenId);
+    const placed = await scenes.setObjects(
+      createdScene.value.id,
+      state,
+      createdScene.value.revision,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      player,
+    );
+    expect(placed).toMatchObject({
+      ok: true,
+      value: {
+        images: {
+          token: [{
+            source: {
+              entryId: granted.value.id,
+              kind: 'template',
+              instanceId: expect.any(String),
+            },
+          }],
+        },
+      },
+    });
+    if (!placed.ok) throw new Error('Template placement failed.');
+    const placedToken = placed.value.images.token[0]!;
+    if (!isSceneToken(placedToken)) throw new Error('Template token missing.');
+    const source = placedToken.source;
+    if (source.kind !== 'template') throw new Error('Template source missing.');
+    expect(tokens.getTemplateSnapshot(player, source.instanceId)).toMatchObject({
+      data: { health: { currentHitPoints: '18' } },
+      name: 'New Character',
+      rootEntryId: granted.value.id,
+      typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+    });
+
+    const duplicatedState = sceneObjectStateOf(placed.value);
+    const duplicateId = '55555555-5555-4555-8555-555555555555';
+    duplicatedState.images.token.push({
+      ...structuredClone(placedToken),
+      id: duplicateId,
+      x: placedToken.x + 100,
+    });
+    duplicatedState.objectOrder.token.push(duplicateId);
+    const duplicated = await scenes.setObjects(
+      placed.value.id,
+      duplicatedState,
+      placed.value.revision,
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      player,
+    );
+    expect(duplicated).toMatchObject({ ok: true });
+    if (!duplicated.ok) throw new Error('Template duplication failed.');
+    const duplicate = duplicated.value.images.token.find(
+      (image) => image.id === duplicateId,
+    );
+    if (!duplicate || !isSceneToken(duplicate) || duplicate.source.kind !== 'template') {
+      throw new Error('Duplicated Template token missing.');
+    }
+    expect(duplicate.source.instanceId).not.toBe(source.instanceId);
+    expect(tokens.getTemplateSnapshot(player, duplicate.source.instanceId)).toMatchObject({
+      data: { health: { currentHitPoints: '18' } },
+      rootEntryId: granted.value.id,
+    });
+
+    const deletedState = sceneObjectStateOf(duplicated.value);
+    deletedState.images.token = deletedState.images.token.filter(
+      (image) => image.id !== duplicateId,
+    );
+    deletedState.objectOrder.token = deletedState.objectOrder.token.filter(
+      (id) => id !== duplicateId,
+    );
+    const deleted = await scenes.setObjects(
+      duplicated.value.id,
+      deletedState,
+      duplicated.value.revision,
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+      player,
+    );
+    expect(deleted).toMatchObject({ ok: true });
+    expect(tokens.getTemplateSnapshot({ kind: 'gm' }, duplicate.source.instanceId)).toBeNull();
+    const restored = await scenes.undo(duplicated.value.id, player);
+    expect(restored).toMatchObject({ ok: true, value: { images: { token: expect.any(Array) } } });
+    expect(tokens.getTemplateSnapshot(player, duplicate.source.instanceId)).toMatchObject({
+      data: { health: { currentHitPoints: '18' } },
+    });
+    await expect(scenes.redo(duplicated.value.id, player)).resolves.toMatchObject({ ok: true });
+    expect(tokens.getTemplateSnapshot({ kind: 'gm' }, duplicate.source.instanceId)).toBeNull();
+
+    const changedRoot = structuredClone(templateData);
+    changedRoot.health.currentHitPoints = '7';
+    const changed = await journal.updateEntryData({ kind: 'gm' }, {
+      data: changedRoot,
+      entryId: granted.value.id,
+      expectedRevision: granted.value.revision,
+    });
+    expect(changed).toMatchObject({ ok: true });
+    if (!changed.ok || changed.value.kind !== 'system') {
+      throw new Error('Root Character update failed.');
+    }
+    expect(tokens.getTemplateSnapshot(player, source.instanceId)).toMatchObject({
+      data: { health: { currentHitPoints: '18' } },
+    });
+
+    const playerConversion = structuredClone(changedRoot);
+    playerConversion.defaultToken.type = 'linked';
+    await expect(journal.updateEntryData(player, {
+      data: playerConversion,
+      entryId: granted.value.id,
+      expectedRevision: changed.value.revision,
+    })).resolves.toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+
+    const convertedLinked = await journal.updateEntryData({ kind: 'gm' }, {
+      data: playerConversion,
+      entryId: granted.value.id,
+      expectedRevision: changed.value.revision,
+    });
+    expect(convertedLinked).toMatchObject({ ok: true });
+    if (!convertedLinked.ok || convertedLinked.value.kind !== 'system') {
+      throw new Error('Template-to-Linked conversion failed.');
+    }
+    const linkedScene = (await scenes.readManifest()).scenes[0]!;
+    expect(linkedScene.images.token).toMatchObject([{
+      id: tokenId,
+      size: { kind: 'override' },
+      source: { entryId: granted.value.id, kind: 'linked' },
+    }]);
+    expect(tokens.getTemplateSnapshot({ kind: 'gm' }, source.instanceId)).toBeNull();
+
+    const convertedTemplateData = structuredClone(playerConversion);
+    convertedTemplateData.defaultToken.type = 'template';
+    const convertedTemplate = await journal.updateEntryData({ kind: 'gm' }, {
+      data: convertedTemplateData,
+      entryId: granted.value.id,
+      expectedRevision: convertedLinked.value.revision,
+    });
+    expect(convertedTemplate).toMatchObject({ ok: true });
+    if (!convertedTemplate.ok || convertedTemplate.value.kind !== 'system') {
+      throw new Error('Linked-to-Template conversion failed.');
+    }
+    const templateScene = (await scenes.readManifest()).scenes[0]!;
+    expect(templateScene.images.token).toMatchObject([{
+      id: tokenId,
+      source: {
+        entryId: granted.value.id,
+        instanceId: expect.any(String),
+        kind: 'template',
+      },
+    }]);
+    const orphanSource = templateScene.images.token[0];
+    if (
+      !orphanSource ||
+      !isSceneToken(orphanSource) ||
+      orphanSource.source.kind !== 'template'
+    ) {
+      throw new Error('Converted Template source missing.');
+    }
+    await expect(journal.prepareDelete(
+      { kind: 'gm' },
+      { entryId: granted.value.id, kind: 'entry' },
+    )).resolves.toMatchObject({
+      ok: true,
+      value: { linkedTokenCount: 0, templateTokenCount: 1 },
+    });
+    await expect(journal.deleteTarget({ kind: 'gm' }, {
+      cleanupAssetIds: [],
+      deleteTemplateTokens: false,
+      expectedRevision: convertedTemplate.value.revision,
+      target: { entryId: granted.value.id, kind: 'entry' },
+    })).resolves.toMatchObject({ ok: true });
+    expect((await scenes.readManifest()).scenes[0]!.images.token).toMatchObject([{
+      id: tokenId,
+      source: orphanSource.source,
+    }]);
+    expect(tokens.getTemplateSnapshot({ kind: 'gm' }, orphanSource.source.instanceId)).toMatchObject({
+      data: { health: { currentHitPoints: '7' } },
+      rootEntryId: granted.value.id,
+    });
+    expect(tokens.getTemplateSnapshot(player, orphanSource.source.instanceId)).toBeNull();
+    await expect(journal.getEntry({ kind: 'gm' }, granted.value.id)).resolves.toMatchObject({
+      error: { code: 'not_found' },
+      ok: false,
+    });
+    const orphanScene = (await scenes.readManifest()).scenes[0]!;
+    const orphanState = sceneObjectStateOf(orphanScene);
+    const orphanCopyId = '44444444-4444-4444-8444-444444444444';
+    orphanState.images.token.push({
+      ...structuredClone(orphanSource),
+      id: orphanCopyId,
+      x: orphanSource.x + 100,
+    });
+    orphanState.objectOrder.token.push(orphanCopyId);
+    const copiedOrphan = await scenes.setObjects(
+      orphanScene.id,
+      orphanState,
+      orphanScene.revision,
+      '33333333-3333-4333-8333-333333333333',
+      { kind: 'gm' },
+    );
+    expect(copiedOrphan).toMatchObject({ ok: true });
+    if (!copiedOrphan.ok) throw new Error('Orphan duplication failed.');
+    const orphanCopy = copiedOrphan.value.images.token.find(
+      (image) => image.id === orphanCopyId,
+    );
+    expect(orphanCopy && isSceneToken(orphanCopy) ? orphanCopy.source : null)
+      .toMatchObject({
+        entryId: granted.value.id,
+        instanceId: expect.not.stringMatching(orphanSource.source.instanceId),
+        kind: 'template',
+      });
+
+    const forbiddenMove = sceneObjectStateOf(copiedOrphan.value);
+    forbiddenMove.images.token[0]!.x += 10;
+    await expect(scenes.setObjects(
+      copiedOrphan.value.id,
+      forbiddenMove,
+      copiedOrphan.value.revision,
+      '22222222-2222-4222-8222-222222222222',
+      player,
+    )).resolves.toMatchObject({
+      error: { code: 'permission_denied' },
+      ok: false,
+    });
+    database.close();
+    database = CampaignDatabase.open(directory);
+    const reopenedTokens = new TokenRepository({ database });
+    expect(reopenedTokens.getTemplateSnapshot(
+      { kind: 'gm' },
+      orphanSource.source.instanceId,
+    )).toMatchObject({
+      data: { health: { currentHitPoints: '7' } },
+      rootEntryId: granted.value.id,
+    });
+  });
+
+  it('persists linked tokens and atomically projects Character defaults across scenes', async () => {
+    const mutations = new MutationQueue();
+    const scenes = new RealSceneRepository({
+      database,
+      mutations,
+      touchCampaign: vi.fn(async () => undefined),
+      warn: vi.fn(),
+    });
+    const journal = new JournalRepository({
+      assets: {
+        readManifest: vi.fn(async () => ({ assets: [], revision: 0 })),
+        trashAsset: vi.fn(),
+      } as unknown as AssetRepository,
+      database,
+      mutations,
+      scenes,
+      touchCampaign: vi.fn(async () => undefined),
+    });
+    const createdCharacter = await journal.createEntry(
+      { kind: 'gm' },
+      DND5E_CHARACTER_ENTRY_TYPE_ID,
+    );
+    if (!createdCharacter.ok || createdCharacter.value.kind !== 'system') {
+      throw new Error('Character setup failed.');
+    }
+    const granted = await journal.updateEntryPermissions({ kind: 'gm' }, {
+      entryId: createdCharacter.value.id,
+      expectedPermissionRevision: createdCharacter.value.permissionRevision,
+      permissions: {
+        allPlayers: 'none',
+        overrides: [{ access: 'edit', userId: playerId }],
+      },
+    });
+    if (!granted.ok || granted.value.kind !== 'system') {
+      throw new Error('Permission setup failed.');
+    }
+    const createdScene = await scenes.create();
+    if (!createdScene.ok) throw new Error('Scene setup failed.');
+    const placedState = sceneObjectStateOf(createdScene.value);
+    const tokenId = '77777777-7777-4777-8777-777777777777';
+    placedState.images.token.push({
+      assetId: DEFAULT_TOKEN_ASSET_ID,
+      height: createdScene.value.grid.size,
+      id: tokenId,
+      rotation: 0,
+      size: { height: 1, kind: 'default', width: 1 },
+      source: { entryId: granted.value.id, kind: 'linked' },
+      width: createdScene.value.grid.size,
+      x: 100,
+      y: 100,
+    });
+    placedState.objectOrder.token.push(tokenId);
+    const placed = await scenes.setObjects(
+      createdScene.value.id,
+      placedState,
+      createdScene.value.revision,
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      player,
+    );
+    expect(placed).toMatchObject({ ok: true });
+    if (!placed.ok) throw new Error('Token placement failed.');
+
+    const resizedState = sceneObjectStateOf(placed.value);
+    resizedState.images.token[0]!.height *= 2;
+    resizedState.images.token[0]!.width *= 2;
+    const resized = await scenes.setObjects(
+      placed.value.id,
+      resizedState,
+      placed.value.revision,
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      player,
+    );
+    expect(resized).toMatchObject({
+      ok: true,
+      value: {
+        images: {
+          token: [{ size: { height: 2, kind: 'override', width: 2 } }],
+        },
+      },
+    });
+
+    const characterData = createDefaultDnd5eCharacterData();
+    characterData.defaultToken.size = { height: 3, width: 2 };
+    const savedDefault = await journal.updateEntryData({ kind: 'gm' }, {
+      data: characterData,
+      entryId: granted.value.id,
+      expectedRevision: granted.value.revision,
+    });
+    expect(savedDefault).toMatchObject({ ok: true });
+    const synchronized = (await scenes.readManifest()).scenes[0]!;
+    expect(synchronized.images.token).toMatchObject([{
+      assetId: DEFAULT_TOKEN_ASSET_ID,
+      height: synchronized.grid.size * 3,
+      size: { height: 3, kind: 'default', width: 2 },
+      source: { entryId: granted.value.id, kind: 'linked' },
+      width: synchronized.grid.size * 2,
+    }]);
+
+    const staleDeletion = sceneObjectStateOf(synchronized);
+    staleDeletion.images.token = [];
+    staleDeletion.objectOrder.token = [];
+    await expect(scenes.update(
+      synchronized.id,
+      { name: 'Changed elsewhere' },
+      synchronized.revision,
+    )).resolves.toMatchObject({ ok: true });
+    await expect(scenes.setObjects(
+      synchronized.id,
+      staleDeletion,
+      synchronized.revision,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      player,
+    )).resolves.toMatchObject({
+      error: { code: 'conflict' },
+      ok: false,
+    });
+
+    await expect(journal.prepareDelete(
+      { kind: 'gm' },
+      { entryId: granted.value.id, kind: 'entry' },
+    )).resolves.toMatchObject({
+      ok: true,
+      value: { linkedTokenCount: 1 },
+    });
+    if (!savedDefault.ok) throw new Error('Default update failed.');
+    await expect(journal.deleteTarget({ kind: 'gm' }, {
+      cleanupAssetIds: [],
+      deleteTemplateTokens: false,
+      expectedRevision: savedDefault.value.revision,
+      target: { entryId: granted.value.id, kind: 'entry' },
+    })).resolves.toMatchObject({ ok: true });
+    expect((await scenes.readManifest()).scenes[0]!.images.token).toEqual([]);
+  });
+
   it('creates a private note with one blank page and persists it', async () => {
     const journal = repository();
     const created = await journal.createNote({ kind: 'gm' });

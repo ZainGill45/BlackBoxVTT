@@ -6,6 +6,8 @@ import type {
 } from './permissions';
 
 export const JOURNAL_ENTRY_TYPE_NOTE = 'core.note' as const;
+export const JOURNAL_ENTRY_DRAG_TYPE =
+  'application/x-blackboxvtt-journal-entry';
 export const JOURNAL_EDIT_LEASE_MS = 30_000;
 export const JOURNAL_EDIT_LEASE_REFRESH_MS = 10_000;
 export const JOURNAL_AUTOSAVE_DELAY_MS = 750;
@@ -209,6 +211,7 @@ export interface JournalPage extends JournalPageSummary {
 
 export interface JournalAssetDependent {
   entryId: string;
+  kind?: 'entry';
   pageId: string;
   title: string;
 }
@@ -345,11 +348,14 @@ export interface JournalDeleteAsset {
 
 export interface JournalDeletePreview {
   assets: JournalDeleteAsset[];
+  linkedTokenCount: number;
+  templateTokenCount: number;
   target: JournalDeleteTarget;
 }
 
 export interface DeleteJournalTargetInput extends JournalCampaignInput {
   cleanupAssetIds: string[];
+  deleteTemplateTokens: boolean;
   expectedRevision: number;
   target: JournalDeleteTarget;
 }

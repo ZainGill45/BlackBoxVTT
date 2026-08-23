@@ -16,6 +16,7 @@ import {
   isDnd5eSpellData,
   type Dnd5eSpellData,
 } from '../systems/dnd5e/spellData';
+import { addDefaultDnd5eTokenToValue } from './campaignArchiveCharacterDefaultToken';
 
 type EffectStepArchiveFormat = 7 | 8 | 9 | 10 | 11 | 12 | 13;
 
@@ -137,9 +138,12 @@ export function convertDnd5eCharacterActionEffectsFromFormat13(
   value: unknown,
 ): { data: Dnd5eCharacterData; removedCount: number } | null {
   const stripped = stripDnd5eCharacterActionEffects(value);
-  if (!stripped || !isDnd5eCharacterData(stripped.value as JsonValue)) return null;
+  const converted = stripped
+    ? addDefaultDnd5eTokenToValue(stripped.value)
+    : null;
+  if (!stripped || !converted) return null;
   return {
-    data: stripped.value as Dnd5eCharacterData,
+    data: converted,
     removedCount: stripped.removedCount,
   };
 }

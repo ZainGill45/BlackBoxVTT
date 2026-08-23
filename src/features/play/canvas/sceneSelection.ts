@@ -1,5 +1,6 @@
 import {
   CANONICAL_MAP_ID,
+  isSceneToken,
   type SceneDrawing,
   type SceneImage,
   type SceneObjectState,
@@ -34,6 +35,7 @@ export interface SceneSelectionPolicy {
   activeLayer: keyof SceneRecord['images'];
   actorId?: string | null;
   canEditImages?: boolean;
+  editableTokenEntryIds?: ReadonlySet<string>;
 }
 
 export interface SelectionFrame {
@@ -135,15 +137,26 @@ export function canEditShape(
   return actorId == null || shape.ownerId === actorId;
 }
 
+export function canEditSceneImage(
+  image: SceneImage,
+  policy: Pick<
+    SceneSelectionPolicy,
+    'canEditImages' | 'editableTokenEntryIds'
+  >,
+): boolean {
+  return policy.canEditImages !== false ||
+    (isSceneToken(image) &&
+      Boolean(policy.editableTokenEntryIds?.has(image.source.entryId)));
+}
+
 export function activeSceneTargets(
   scene: SceneRecord,
   policy: SceneSelectionPolicy,
   textBounds: SceneTextBoundsLookup = () => null,
 ): EditTarget[] {
-  const result: EditTarget[] =
-    policy.canEditImages === false
-      ? []
-      : scene.images[policy.activeLayer].map((image) => ({
+  const result: EditTarget[] = scene.images[policy.activeLayer]
+    .filter((image) => canEditSceneImage(image, policy))
+    .map((image) => ({
           id: image.id,
           image,
         }));
@@ -195,7 +208,10 @@ export function activeSceneTargets(
 export function selectedSceneTargets(
   scene: SceneRecord,
   selected: ReadonlySet<string>,
-  policy: Pick<SceneSelectionPolicy, 'actorId' | 'canEditImages'>,
+  policy: Pick<
+    SceneSelectionPolicy,
+    'actorId' | 'canEditImages' | 'editableTokenEntryIds'
+  >,
   textBounds: SceneTextBoundsLookup = () => null,
 ): EditTarget[] {
   const lookup = new Map<string, EditTarget>();
@@ -205,9 +221,9 @@ export function selectedSceneTargets(
       image: scene.mapImage,
     });
   }
-  if (policy.canEditImages !== false) {
-    for (const layer of Object.values(scene.images) as SceneImage[][]) {
-      for (const image of layer) {
+  for (const layer of Object.values(scene.images) as SceneImage[][]) {
+    for (const image of layer) {
+      if (canEditSceneImage(image, policy)) {
         lookup.set(image.id, { id: image.id, image });
       }
     }

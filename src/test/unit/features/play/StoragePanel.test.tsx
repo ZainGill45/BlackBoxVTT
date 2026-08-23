@@ -276,7 +276,12 @@ describe('StoragePanel', () => {
     const prompt = await screen.findByRole('dialog', {
       name: 'Delete an image that campaign content uses?',
     });
-    expect(prompt).toHaveTextContent('Map.png is used by 2 scene(s) and 0 Journal page(s).');
+    expect(prompt).toHaveTextContent(
+      'Map.png is used by 2 scene(s) and 0 Journal reference(s).',
+    );
+    expect(prompt).toHaveTextContent(
+      'Deleting it removes every placement and clears every default token image.',
+    );
     expect(within(prompt).getByText('Iron Keep')).toBeInTheDocument();
     expect(within(prompt).getByText('Sunken Vault')).toBeInTheDocument();
     expect(trash).not.toHaveBeenCalled();

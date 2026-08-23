@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDetachedCharacterApi } from '../../../preload/detachedCharacterApi';
+import { assetIpcChannels } from '../../../shared/assets';
 import { journalIpcChannels } from '../../../shared/journal';
 import { journalWindowIpcChannels } from '../../../shared/journalWindows';
 import { networkIpcChannels } from '../../../shared/network';
@@ -17,6 +18,14 @@ describe('createDetachedCharacterApi', () => {
     };
     const api = createDetachedCharacterApi(ipc as never);
 
+    await api.assets.getPreview({
+      assetId: 'asset',
+      campaignId: 'campaign',
+    });
+    await api.assets.list({ campaignId: 'campaign' });
+    await api.assets.releasePreview({
+      token: 'preview',
+    });
     await api.host.bootstrap();
     await api.journal.getEntry({ campaignId: 'campaign', entryId: 'entry' });
     await api.journal.list({ campaignId: 'campaign' });
@@ -52,17 +61,27 @@ describe('createDetachedCharacterApi', () => {
     api.host.setTitle('Aria');
     api.host.close();
 
-    expect(Object.keys(api)).toEqual(['host', 'journal', 'network']);
+    expect(Object.keys(api)).toEqual(['assets', 'host', 'journal', 'network']);
+    expect(Object.keys(api.assets)).toEqual([
+      'getPreview',
+      'list',
+      'onChanged',
+      'releasePreview',
+    ]);
     expect(Object.keys(api.journal)).toEqual([
       'getEntry',
       'list',
       'onChanged',
+      'prepareDelete',
       'renameEntry',
       'updateEntryData',
     ]);
     expect(
       (ipc.invoke.mock.calls as unknown[][]).map(([channel]) => channel),
     ).toEqual([
+      assetIpcChannels.getPreview,
+      assetIpcChannels.list,
+      assetIpcChannels.releasePreview,
       journalWindowIpcChannels.bootstrapCharacter,
       journalIpcChannels.getEntry,
       journalIpcChannels.list,
@@ -80,7 +99,7 @@ describe('createDetachedCharacterApi', () => {
     ]);
   });
 
-  it('subscribes and removes the two allowed event listeners', () => {
+  it('subscribes and removes the allowed event listeners', () => {
     const ipc = {
       invoke: vi.fn(),
       on: vi.fn(),
@@ -88,16 +107,19 @@ describe('createDetachedCharacterApi', () => {
       send: vi.fn(),
     };
     const api = createDetachedCharacterApi(ipc as never);
+    const removeAssetsChanged = api.assets.onChanged(vi.fn());
     const removeClose = api.host.onCloseRequested(vi.fn());
     const removeChanged = api.journal.onChanged(vi.fn());
 
+    removeAssetsChanged();
     removeClose();
     removeChanged();
 
     expect(ipc.on.mock.calls.map(([channel]) => channel)).toEqual([
+      assetIpcChannels.changed,
       journalWindowIpcChannels.closeRequested,
       journalIpcChannels.changed,
     ]);
-    expect(ipc.removeListener).toHaveBeenCalledTimes(2);
+    expect(ipc.removeListener).toHaveBeenCalledTimes(3);
   });
 });

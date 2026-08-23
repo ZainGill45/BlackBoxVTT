@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { AssetApi } from '../../shared/assets';
 
+type AssetPreviewApi = Pick<
+  AssetApi,
+  'getPreview' | 'onChanged' | 'releasePreview'
+>;
+
 interface Grant {
   assetId: string | null;
   url: string | null;
@@ -13,7 +18,7 @@ interface Grant {
  * the asset manifest changes.
  */
 export function useAssetPreviewUrl(
-  assetApi: AssetApi | undefined,
+  assetApi: AssetPreviewApi | undefined,
   campaignId: string,
   assetId: string | null,
 ): string | null {

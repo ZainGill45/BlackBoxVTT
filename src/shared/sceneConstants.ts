@@ -1,5 +1,10 @@
 export const CANONICAL_MAP_ID = 'canonical-map';
+/** Reserved visual identity resolved from the app bundle, never Storage. */
+export const DEFAULT_TOKEN_ASSET_ID =
+  '00000000-0000-4000-8000-000000000001';
 export const MAX_SCENE_IMAGES = 2_048;
+export const MIN_SCENE_TOKEN_SIZE = 0.1;
+export const MAX_SCENE_TOKEN_SIZE = 100;
 export const MAX_SCENE_DRAWINGS = 1_024;
 export const MAX_SCENE_TEXTS = 1_024;
 export const MAX_SCENE_SHAPES = 1_024;

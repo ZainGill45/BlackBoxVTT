@@ -3,6 +3,7 @@ import type { GameSystemDefinition } from '../types';
 import {
   createDefaultDnd5eCharacterData,
   isDnd5eCharacterData,
+  type Dnd5eCharacterData,
   type Dnd5eRulesVersion,
 } from './characterData';
 import {
@@ -53,6 +54,14 @@ export const dnd5eSystem = {
       groupOrder: 0,
       id: DND5E_CHARACTER_ENTRY_TYPE_ID,
       label: 'Character',
+      token: {
+        readDefaultToken: (data: Dnd5eCharacterData) =>
+          structuredClone(data.defaultToken),
+        writeDefaultToken: (data: Dnd5eCharacterData, token) => ({
+          ...structuredClone(data),
+          defaultToken: structuredClone(token),
+        }),
+      },
       validateData: isDnd5eCharacterData,
     },
     {

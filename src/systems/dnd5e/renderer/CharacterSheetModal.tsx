@@ -29,8 +29,10 @@ import {
   type ReactNode,
 } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { ConfirmModal } from '../../../components/ui/ConfirmModal';
 import { ContextMenuController } from '../../../components/ui/contextMenu';
 import { Dropdown, DropdownOption } from '../../../components/ui/Dropdown';
+import { TextInput } from '../../../components/ui/FormField';
 import { InlineInput } from '../../../components/ui/InlineInput';
 import { Modal } from '../../../components/ui/Modal';
 import { Tabs, type TabOption } from '../../../components/ui/Tabs';
@@ -48,10 +50,13 @@ import {
   type SystemJournalEntry,
 } from '../../../shared/journal';
 import type {
+  CharacterSheetAssetApi,
   CharacterSheetJournalApi,
   CharacterSheetNetworkApi,
   JournalWindowGeometry,
 } from '../../../shared/journalWindows';
+import { useAssetPreviewUrl } from '../../../components/ui/useAssetPreviewUrl';
+import { MapImageChooserModal } from '../../../components/ui/MapImageChooserModal';
 import {
   createDnd5eAbilityRollDefinition,
   createDnd5eHitDieRollDefinition,
@@ -79,7 +84,9 @@ import {
   formatDnd5eSignedValue,
   hasUsableDnd5eSpellSlot,
   isDnd5eCharacterData,
+  MAX_DND5E_TOKEN_SIZE,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
+  MIN_DND5E_TOKEN_SIZE,
   parseDnd5eSafeInteger,
   parseDnd5eNonnegativeSafeInteger,
   type Dnd5eAbilityId,
@@ -112,6 +119,7 @@ import styles from './CharacterSheetModal.module.css';
 type CharacterSheetTab = 'home' | 'settings' | 'spells';
 
 export interface CharacterSheetProps {
+  assetApi?: CharacterSheetAssetApi;
   campaignId: string;
   entry: SystemJournalEntry;
   journalApi: CharacterSheetJournalApi;
@@ -591,6 +599,7 @@ export function CharacterSheetDetached({
 }
 
 function CharacterSheetEditor({
+  assetApi,
   campaignId,
   closeRequestId,
   entry,
@@ -612,6 +621,12 @@ function CharacterSheetEditor({
   const [name, setName] = useState(entry.name);
   const [error, setError] = useState<string | null>(null);
   const [closeFailed, setCloseFailed] = useState(false);
+  const [tokenChooserOpen, setTokenChooserOpen] = useState(false);
+  const [pendingTokenType, setPendingTokenType] = useState<{
+    linkedTokenCount: number;
+    templateTokenCount: number;
+    type: Dnd5eCharacterData['defaultToken']['type'];
+  } | null>(null);
   const [numericBuffers, setNumericBuffers] = useState<Readonly<Record<string, string>>>({});
   const [pendingRolls, setPendingRolls] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -638,10 +653,15 @@ function CharacterSheetEditor({
   const pendingRollsRef = useRef(new Set<string>());
   const pendingShareMessagesRef = useRef(new Set<CharacterShareKey>());
   const shareMenuRef = useRef<ContextMenuController | null>(null);
+  const tokenMenuRef = useRef<ContextMenuController | null>(null);
 
   useEffect(() => {
     shareMenuRef.current = new ContextMenuController();
-    return () => shareMenuRef.current?.close();
+    tokenMenuRef.current = new ContextMenuController();
+    return () => {
+      shareMenuRef.current?.close();
+      tokenMenuRef.current?.close();
+    };
   }, []);
 
   const tabs = useMemo<readonly TabOption<CharacterSheetTab>[]>(() => [
@@ -666,6 +686,12 @@ function CharacterSheetEditor({
   const hitDieCanRoll = createDnd5eHitDieRollDefinition(draft.health.hitDie) !== null;
   const validData = isCharacterEntry(current);
   const canEdit = validData && current.capabilities.edit;
+  const canChangeTokenType = validData && current.capabilities.managePermissions;
+  const tokenPreviewUrl = useAssetPreviewUrl(
+    assetApi,
+    campaignId,
+    draft.defaultToken.imageAssetId,
+  );
 
   const hasDirtyDraft = useCallback(() => (
     dirtyFieldsRef.current.size > 0 ||
@@ -1144,6 +1170,105 @@ function CharacterSheetEditor({
 
   const changeField = (path: string, value: CharacterFieldValue) => {
     changeFields(new Map([[path, value]]));
+  };
+
+  const commitTokenImage = (assetId: string | null) => {
+    changeField('defaultToken.imageAssetId', assetId);
+    setTokenChooserOpen(false);
+    void save();
+  };
+
+  const commitTokenType = (
+    type: Dnd5eCharacterData['defaultToken']['type'],
+  ) => {
+    setPendingTokenType(null);
+    changeField('defaultToken.type', type);
+    void save();
+  };
+
+  const requestTokenType = async (
+    type: Dnd5eCharacterData['defaultToken']['type'],
+  ) => {
+    if (!canChangeTokenType || type === draftRef.current.defaultToken.type) return;
+    if (!await save()) return;
+    const preview = await journalApi.prepareDelete({
+      campaignId,
+      target: { entryId: currentRef.current.id, kind: 'entry' },
+    });
+    if (!preview.ok) {
+      setError(preview.error.message);
+      return;
+    }
+    if (
+      preview.value.linkedTokenCount === 0 &&
+      preview.value.templateTokenCount === 0
+    ) {
+      commitTokenType(type);
+      return;
+    }
+    setPendingTokenType({
+      linkedTokenCount: preview.value.linkedTokenCount,
+      templateTokenCount: preview.value.templateTokenCount,
+      type,
+    });
+  };
+
+  const commitTokenSize = () => {
+    const widthPath = 'defaultToken.size.width';
+    const heightPath = 'defaultToken.size.height';
+    const widthInput = numericValue(
+      widthPath,
+      String(draftRef.current.defaultToken.size.width),
+    );
+    const heightInput = numericValue(
+      heightPath,
+      String(draftRef.current.defaultToken.size.height),
+    );
+    const width = Number(widthInput);
+    const height = Number(heightInput);
+    clearNumericBuffer(widthPath);
+    clearNumericBuffer(heightPath);
+    if (
+      widthInput.trim() === '' ||
+      heightInput.trim() === '' ||
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width < MIN_DND5E_TOKEN_SIZE ||
+      width > MAX_DND5E_TOKEN_SIZE ||
+      height < MIN_DND5E_TOKEN_SIZE ||
+      height > MAX_DND5E_TOKEN_SIZE
+    ) {
+      setError(
+        `Token Width and Token Height must each be between ${MIN_DND5E_TOKEN_SIZE} and ${MAX_DND5E_TOKEN_SIZE} grid tiles.`,
+      );
+      return;
+    }
+    changeFields(new Map([
+      [widthPath, width],
+      [heightPath, height],
+    ]));
+    void save();
+  };
+
+  const openTokenMenu = (
+    position: { clientX: number; clientY: number },
+    returnFocus: () => void,
+    mount?: HTMLElement,
+  ) => {
+    tokenMenuRef.current?.open(
+      position.clientX,
+      position.clientY,
+      'Character Token actions',
+      [{
+        danger: true,
+        disabled: !canEdit || draft.defaultToken.imageAssetId === null,
+        kind: 'action',
+        label: 'Remove Character Token Image',
+        onSelect: () => commitTokenImage(null),
+      }],
+      returnFocus,
+      mount,
+    );
   };
 
   const changeResource = (mutation: Dnd5eCharacterResourceMutation): boolean => {
@@ -2077,10 +2202,44 @@ function CharacterSheetEditor({
           >
             <main className={styles.sheet} data-active-tab={activeTab}>
               <header className={styles.header}>
-                <section className={styles.tokenPlaceholder} aria-label="Character token">
-                  <CircleUserRound aria-hidden size="3rem" strokeWidth={1.2} />
-                  <span>Character Token</span>
-                </section>
+                <button
+                  aria-label="Choose Character Token image"
+                  className={styles.tokenPlaceholder}
+                  data-has-image={tokenPreviewUrl ? 'true' : undefined}
+                  disabled={!canEdit}
+                  type="button"
+                  onClick={() => setTokenChooserOpen(true)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    openTokenMenu(
+                      event,
+                      () => event.currentTarget.focus(),
+                      event.currentTarget.closest('dialog') ?? undefined,
+                    );
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key !== 'ContextMenu' &&
+                      !(event.shiftKey && event.key === 'F10')
+                    ) return;
+                    event.preventDefault();
+                    const bounds = event.currentTarget.getBoundingClientRect();
+                    openTokenMenu(
+                      { clientX: bounds.left + 16, clientY: bounds.bottom },
+                      () => event.currentTarget.focus(),
+                      event.currentTarget.closest('dialog') ?? undefined,
+                    );
+                  }}
+                >
+                  {tokenPreviewUrl ? (
+                    <img alt="" src={tokenPreviewUrl} />
+                  ) : (
+                    <>
+                      <CircleUserRound aria-hidden size="3rem" strokeWidth={1.2} />
+                      <span>Character Token</span>
+                    </>
+                  )}
+                </button>
                 <div className={styles.identityGrid}>
                   <div className={styles.classRow}>
                     <CharacterField
@@ -2626,6 +2785,103 @@ function CharacterSheetEditor({
                 >
                   <div className={styles.settingsRow}>
                     <div className={styles.settingsCopy}>
+                      <span className={styles.settingsLabel}>Token Type</span>
+                      <p className={styles.settingsDescription}>
+                        Linked tokens share this Character everywhere. Template
+                        tokens copy it when placed and then keep independent data.
+                      </p>
+                    </div>
+                    <Dropdown
+                      accessibleLabel="Token Type"
+                      className={styles.settingsDropdown}
+                      disabled={!canChangeTokenType}
+                      label={draft.defaultToken.type === 'linked'
+                        ? 'Linked'
+                        : 'Template'}
+                      panelLabel="Token Type options"
+                      title={canChangeTokenType
+                        ? 'Token Type'
+                        : 'Only the Game Master can change Token Type.'}
+                    >
+                      <DropdownOption
+                        active={draft.defaultToken.type === 'linked'}
+                        label="Linked"
+                        onSelect={() => void requestTokenType('linked')}
+                      />
+                      <DropdownOption
+                        active={draft.defaultToken.type === 'template'}
+                        label="Template"
+                        onSelect={() => void requestTokenType('template')}
+                      />
+                    </Dropdown>
+                  </div>
+                  <div
+                    className={styles.settingsSizeGroup}
+                    onBlur={(event) => {
+                      if (
+                        !(event.relatedTarget instanceof HTMLElement) ||
+                        !event.currentTarget.contains(event.relatedTarget)
+                      ) {
+                        commitTokenSize();
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return;
+                      event.preventDefault();
+                      commitTokenSize();
+                    }}
+                  >
+                    <div className={styles.settingsRow}>
+                      <div className={styles.settingsCopy}>
+                        <span className={styles.settingsLabel}>Token Width</span>
+                        <p className={styles.settingsDescription}>
+                          Default width in grid tiles.
+                        </p>
+                      </div>
+                      <TextInput
+                        aria-label="Token Width"
+                        autoComplete="off"
+                        className={styles.settingsValueInput}
+                        inputMode="decimal"
+                        maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                        readOnly={!canEdit}
+                        value={numericValue(
+                          'defaultToken.size.width',
+                          String(draft.defaultToken.size.width),
+                        )}
+                        onChange={(event) => changeNumericBuffer(
+                          'defaultToken.size.width',
+                          event.currentTarget.value,
+                        )}
+                      />
+                    </div>
+                    <div className={styles.settingsRow}>
+                      <div className={styles.settingsCopy}>
+                        <span className={styles.settingsLabel}>Token Height</span>
+                        <p className={styles.settingsDescription}>
+                          Default height in grid tiles.
+                        </p>
+                      </div>
+                      <TextInput
+                        aria-label="Token Height"
+                        autoComplete="off"
+                        className={styles.settingsValueInput}
+                        inputMode="decimal"
+                        maxLength={MAX_DND5E_CHARACTER_FIELD_CODE_UNITS}
+                        readOnly={!canEdit}
+                        value={numericValue(
+                          'defaultToken.size.height',
+                          String(draft.defaultToken.size.height),
+                        )}
+                        onChange={(event) => changeNumericBuffer(
+                          'defaultToken.size.height',
+                          event.currentTarget.value,
+                        )}
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.settingsRow}>
+                    <div className={styles.settingsCopy}>
                       <span className={styles.settingsLabel}>
                         Use Variant Encumbrance
                       </span>
@@ -2867,6 +3123,38 @@ function CharacterSheetEditor({
           </div>
         </div>
       </CharacterSheetPresentation>
+      <ConfirmModal
+        confirmLabel="Change Token Type"
+        isOpen={pendingTokenType !== null}
+        message={pendingTokenType
+          ? `Changing Token Type to ${
+              pendingTokenType.type === 'linked' ? 'Linked' : 'Template'
+            } will convert ${
+              pendingTokenType.linkedTokenCount +
+              pendingTokenType.templateTokenCount
+            } existing ${
+              pendingTokenType.linkedTokenCount +
+              pendingTokenType.templateTokenCount === 1
+                ? 'token'
+                : 'tokens'
+            } across campaign scenes.`
+          : ''}
+        title="Change Token Type?"
+        onCancel={() => setPendingTokenType(null)}
+        onConfirm={() => {
+          if (pendingTokenType) commitTokenType(pendingTokenType.type);
+        }}
+      />
+      <MapImageChooserModal
+        accessibleLabel="Choose Character Token image"
+        assetApi={assetApi}
+        campaignId={campaignId}
+        isOpen={tokenChooserOpen}
+        onDismiss={() => setTokenChooserOpen(false)}
+        onSelect={({ assetId }) => commitTokenImage(assetId)}
+        selectedAssetId={draft.defaultToken.imageAssetId}
+        thumbnails={new Map()}
+      />
 
       <Modal
         accessibleLabel="Character sheet error"

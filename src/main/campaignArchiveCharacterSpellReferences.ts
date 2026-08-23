@@ -5,6 +5,7 @@ import {
   type Dnd5eCharacterData,
 } from '../systems/dnd5e/characterData';
 import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
+import { defaultTokenImportReport } from './campaignArchiveCharacterDefaultToken';
 
 interface CharacterRow {
   data_json: string;
@@ -40,6 +41,11 @@ export function addEmptyDnd5eCharacterSpellReferencesToValue(
   );
   const converted = {
     ...value,
+    defaultToken: {
+      imageAssetId: null,
+      size: { height: 1, width: 1 },
+      type: 'linked',
+    },
     spellcasting: {
       ...remainingSpellcasting,
       spells: [],
@@ -61,6 +67,7 @@ export function spellReferencesImportReport(
     } D&D ${characterCount === 1 ? 'character' : 'characters'} imported ` +
       `from archive format ${formatVersion}; a count cannot identify specific ` +
       'Spell entries.',
+    ...defaultTokenImportReport(characterCount, formatVersion),
   ];
 }
 

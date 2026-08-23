@@ -259,7 +259,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 15 });
+    ))).toMatchObject({ formatVersion: 17 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -397,7 +397,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 16;
+    manifest.formatVersion = 18;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -456,6 +456,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 1.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 1.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 1.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 1.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -518,6 +519,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 3.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 3.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 3.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 3.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -611,6 +613,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 2.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 2.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 2.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 2.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -658,6 +661,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 4.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 4.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 4.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 4.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -699,6 +703,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 5.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 5.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 5.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 5.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -745,6 +750,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 6.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 6.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 6.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 6.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -780,6 +786,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 7.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 7.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 7.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 7.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -816,6 +823,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 8.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 8.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 8.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 8.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -851,6 +859,7 @@ describe('CampaignArchiveService', () => {
           warnings: [
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 9.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 9.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 9.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -883,6 +892,7 @@ describe('CampaignArchiveService', () => {
           sourceRelease: '1.0.0-format-10-fixture',
           warnings: [
             'Added default Spellcasting values to 1 D&D character imported from archive format 10.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 10.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -918,6 +928,7 @@ describe('CampaignArchiveService', () => {
           sourceRelease: '1.0.0-format-11-fixture',
           warnings: [
             'Replaced manual Prepared Spells counts with empty spell lists for 1 D&D character imported from archive format 11; a count cannot identify specific Spell entries.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 11.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -955,6 +966,7 @@ describe('CampaignArchiveService', () => {
           sourceRelease: '1.0.0-format-12-fixture',
           warnings: [
             'Replaced manual Prepared Spells counts with empty spell lists for 1 D&D character imported from archive format 12; a count cannot identify specific Spell entries.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 12.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -992,6 +1004,7 @@ describe('CampaignArchiveService', () => {
           warnings: [
             'Removed 1 authored Effect step from D&D Character Actions imported from archive format 13.',
             'Removed 1 authored Effect step from D&D Spell Roll Actions imported from archive format 13.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 13.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -1030,6 +1043,7 @@ describe('CampaignArchiveService', () => {
           sourceRelease: '1.0.0-dev',
           warnings: [
             'Marked 1 D&D Spell Flat Value term as fixed when importing archive format 14.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 14.',
             'Server identity was not imported; a new TLS identity will be generated.',
           ],
         },
@@ -1049,6 +1063,76 @@ describe('CampaignArchiveService', () => {
         tiers: [],
         value: 3,
       });
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly adds default tokens to the untouched format-15 fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-spell-flat-format-15.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-dev',
+          warnings: [
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 15.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const character = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect((JSON.parse(character.data_json) as Dnd5eCharacterData)
+        .defaultToken).toEqual({
+          imageAssetId: null,
+          size: { height: 1, width: 1 },
+          type: 'linked',
+        });
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly defaults Token Type in the untouched format-16 fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-default-token-format-16.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-dev',
+          warnings: [
+            'Set 1 D&D character to use Linked tokens when importing archive format 16.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const character = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect((JSON.parse(character.data_json) as Dnd5eCharacterData)
+        .defaultToken.type).toBe('linked');
     } finally {
       importedDatabase.close();
     }
@@ -1258,6 +1342,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 3.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 3.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 3.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 3.',
             salvagedIdentityWarning,
           ],
         },
@@ -1311,6 +1396,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 5.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 5.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 5.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 5.',
             salvagedIdentityWarning,
           ],
         },
@@ -1354,6 +1440,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 6.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 6.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 6.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 6.',
             salvagedIdentityWarning,
           ],
         },
@@ -1387,6 +1474,7 @@ describe('CampaignArchiveService', () => {
           detectedFormat: 12,
           warnings: [
             'Replaced manual Prepared Spells counts with empty spell lists for 1 D&D character imported from archive format 12; a count cannot identify specific Spell entries.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 12.',
             salvagedIdentityWarning,
           ],
         },
@@ -1411,6 +1499,7 @@ describe('CampaignArchiveService', () => {
           warnings: [
             'Removed 1 authored Effect step from D&D Character Actions imported from archive format 13.',
             'Removed 1 authored Effect step from D&D Spell Roll Actions imported from archive format 13.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 13.',
             salvagedIdentityWarning,
           ],
         },
@@ -1451,6 +1540,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 4.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 4.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 4.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 4.',
             salvagedIdentityWarning,
           ],
         },
@@ -1515,6 +1605,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 3.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 3.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 3.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 3.',
             salvagedIdentityWarning,
             'The unreadable campaign could not be moved to the trash; ' +
               'delete it from the campaign list.',
@@ -1552,6 +1643,7 @@ describe('CampaignArchiveService', () => {
             'Removed Death Save counters from 1 D&D character imported from archive format 1.',
             'Added an empty Custom Skills collection to 1 D&D character imported from archive format 1.',
             'Added default Spellcasting values to 1 D&D character imported from archive format 1.',
+            'Added a 1-by-1 default token using built-in artwork to 1 D&D character imported from archive format 1.',
             salvagedIdentityWarning,
           ],
         },

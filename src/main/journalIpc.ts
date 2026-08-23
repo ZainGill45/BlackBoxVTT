@@ -201,17 +201,17 @@ export function registerJournalIpcHandlers(
     return parsed.success ? manager.prepareDelete(parsed.data) : invalid();
   });
   handle(journalIpcChannels.deleteNote, (input) => {
-    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deleteNoteTarget }).safeParse(input);
+    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), deleteTemplateTokens: z.boolean(), expectedRevision: revision, target: deleteNoteTarget }).safeParse(input);
     return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
   });
   handle(journalIpcChannels.deleteEntry, (input) => {
-    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deleteEntryTarget }).safeParse(input);
+    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), deleteTemplateTokens: z.boolean(), expectedRevision: revision, target: deleteEntryTarget }).safeParse(input);
     return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
   });
   // Page and note deletion share the same explicit manager operation, but retain
   // separate IPC channels so neither becomes an open-ended command dispatcher.
   handle(journalIpcChannels.deletePage, (input) => {
-    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), expectedRevision: revision, target: deletePageTarget }).safeParse(input);
+    const parsed = campaign.extend({ cleanupAssetIds: z.array(z.string().uuid()).max(MAX_JOURNAL_CLEANUP_ASSETS), deleteTemplateTokens: z.boolean(), expectedRevision: revision, target: deletePageTarget }).safeParse(input);
     return parsed.success ? manager.deleteTarget(parsed.data) : invalid();
   });
   const onChanged = (event: unknown) => {

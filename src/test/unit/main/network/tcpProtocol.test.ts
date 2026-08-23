@@ -304,6 +304,7 @@ describe('Journal protocol messages', () => {
   it('does not let the explicit page-delete operation target a parent note', () => {
     expect(() => parsePayload('client.journal_delete_page', {
       cleanupAssetIds: [],
+      deleteTemplateTokens: false,
       expectedRevision: 0,
       target: {
         entryId: '11111111-1111-4111-8111-111111111111',
