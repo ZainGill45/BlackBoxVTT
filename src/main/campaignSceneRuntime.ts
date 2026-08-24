@@ -1,12 +1,15 @@
 import {
   createEmptySceneManifest,
   type PresentSceneInput,
+  type AdjustSceneTokenHealthInput,
   type SceneAssetInput,
   type ReorderScenesInput,
   type SceneHistoryInput,
   type SceneManifest,
   type SceneRecord,
   type SceneResult,
+  type SceneTokenHealthInput,
+  type SceneTokenHealthPresentation,
   type SceneTransformPreviewCancel,
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
@@ -20,11 +23,18 @@ import {
 import type { UpdateScenePermissionsInput } from '../shared/sceneContracts';
 import type { PermissionSubject } from '../shared/permissions';
 import type { LocalCampaignWorkspace } from './campaignWorkspace';
+import type { SceneRepositoryMutation } from './sceneRepository';
 
 export interface JoinedSceneTransport {
+  adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneResult<SceneRecord>>;
   cancelTransform(input: SceneTransformPreviewCancel): Promise<void>;
   getActiveScene(): SceneRecord | null;
   listScenes(): Promise<SceneResult<SceneManifest>>;
+  listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>>;
   trashScene(input: {
     expectedRevision: number;
     sceneId: string;
@@ -42,15 +52,22 @@ export interface JoinedSceneTransport {
 }
 
 export interface SceneRuntimeMutation<T> {
+  authoredDataChangedEntryIds?: string[];
   changed: SceneManifest | null;
   result: SceneResult<T>;
 }
 
 export interface CampaignSceneRuntime {
+  adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>>;
   create(): Promise<SceneRuntimeMutation<SceneRecord>>;
   detachAsset(input: SceneAssetInput): Promise<SceneRuntimeMutation<null>>;
   findDependents(input: SceneAssetInput): Promise<SceneResult<SceneRecord[]>>;
   list(): Promise<SceneResult<SceneManifest>>;
+  listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>>;
   listUsers(): Promise<SceneResult<PermissionSubject[]>>;
   updatePermissions(
     input: UpdateScenePermissionsInput,
@@ -92,6 +109,12 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
 
   create(): Promise<SceneRuntimeMutation<SceneRecord>> {
     return this.readOnlyMutation();
+  }
+
+  async adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>> {
+    return { changed: null, result: await this.transport.adjustTokenHealth(input) };
   }
 
   detachAsset(): Promise<SceneRuntimeMutation<null>> {
@@ -137,6 +160,12 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
           }
         : manifest,
     };
+  }
+
+  listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
+    return this.transport.listTokenHealth(input);
   }
 
   present(): Promise<SceneRuntimeMutation<SceneManifest>> {
@@ -242,6 +271,20 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
     return this.mutate(() => this.workspace.sceneRepository.create());
   }
 
+  adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>> {
+    return this.mutateWithEffects(() =>
+      this.workspace.sceneRepository.adjustTokenHealthWithEffects(
+        input.sceneId,
+        input.tokenId,
+        input.command,
+        input.operationId,
+        { kind: 'gm' },
+      ),
+    );
+  }
+
   detachAsset(input: SceneAssetInput): Promise<SceneRuntimeMutation<null>> {
     return this.mutate(() =>
       this.workspace.sceneRepository.detachAsset(input.assetId),
@@ -254,6 +297,14 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
 
   list(): Promise<SceneResult<SceneManifest>> {
     return this.workspace.sceneRepository.list();
+  }
+
+  listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
+    return Promise.resolve(
+      this.workspace.sceneRepository.listTokenHealth(input.sceneId, { kind: 'gm' }),
+    );
   }
 
   async listUsers(): Promise<SceneResult<PermissionSubject[]>> {
@@ -314,8 +365,11 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
   redo(
     input: SceneHistoryInput,
   ): Promise<SceneRuntimeMutation<SceneRecord>> {
-    return this.mutate(() =>
-      this.workspace.sceneRepository.redo(input.sceneId, { kind: 'gm' }),
+    return this.mutateWithEffects(() =>
+      this.workspace.sceneRepository.redoWithEffects(
+        input.sceneId,
+        { kind: 'gm' },
+      ),
     );
   }
 
@@ -371,8 +425,11 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
   undo(
     input: SceneHistoryInput,
   ): Promise<SceneRuntimeMutation<SceneRecord>> {
-    return this.mutate(() =>
-      this.workspace.sceneRepository.undo(input.sceneId, { kind: 'gm' }),
+    return this.mutateWithEffects(() =>
+      this.workspace.sceneRepository.undoWithEffects(
+        input.sceneId,
+        { kind: 'gm' },
+      ),
     );
   }
 
@@ -395,6 +452,19 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
         ? await this.workspace.sceneRepository.readManifest()
         : null,
       result,
+    };
+  }
+
+  private async mutateWithEffects<T>(
+    operation: () => Promise<SceneRepositoryMutation<T>>,
+  ): Promise<SceneRuntimeMutation<T>> {
+    const outcome = await operation();
+    return {
+      authoredDataChangedEntryIds: outcome.authoredDataChangedEntryIds,
+      changed: outcome.result.ok
+        ? await this.workspace.sceneRepository.readManifest()
+        : null,
+      result: outcome.result,
     };
   }
 }

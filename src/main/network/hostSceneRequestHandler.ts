@@ -19,10 +19,12 @@ import {
 
 type PlayerSceneService = Pick<
   CampaignSceneService,
-  | 'applyPlayerHistory'
+  | 'applyPlayerHistoryWithEffects'
   | 'beginPlayerTransform'
   | 'cancelTransform'
+  | 'adjustPlayerTokenHealthWithEffects'
   | 'listForPlayer'
+  | 'listTokenHealthForPlayer'
   | 'setPlayerObjects'
   | 'trashForPlayer'
   | 'updateForPlayer'
@@ -46,7 +48,9 @@ interface HostSceneRequestHandlerOptions {
     source: HostClient,
   ) => Promise<void>;
   campaignId: string;
-  onSceneMutation: () => Promise<void>;
+  onSceneMutation: (
+    authoredDataChangedEntryIds?: readonly string[],
+  ) => Promise<void>;
   scenes: PlayerSceneService;
 }
 
@@ -71,6 +75,46 @@ export class HostSceneRequestHandler {
         await this.options.scenes.listForPlayer(client.user.id),
         envelope.requestId,
       );
+      return true;
+    }
+    if (envelope.type === 'client.scene_health_list') {
+      const input = parsePayload('client.scene_health_list', envelope.payload);
+      const result = await this.options.scenes.listTokenHealthForPlayer(
+        input.sceneId,
+        client.user.id,
+      );
+      if (!result.ok) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.scene_error',
+          result.error,
+          envelope.requestId,
+        );
+        return true;
+      }
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.scene_health',
+        result.value,
+        envelope.requestId,
+      );
+      return true;
+    }
+    if (envelope.type === 'client.scene_health_adjust') {
+      const input = parsePayload('client.scene_health_adjust', envelope.payload);
+      const outcome = await this.options.scenes.adjustPlayerTokenHealthWithEffects(
+        input.sceneId,
+        input.tokenId,
+        input.command,
+        input.operationId,
+        client.user.id,
+      );
+      this.sendResult(client, outcome.result, envelope.requestId);
+      if (outcome.result.ok) {
+        await this.options.onSceneMutation(
+          outcome.authoredDataChangedEntryIds,
+        );
+      }
       return true;
     }
     if (envelope.type === 'client.scene_update') {
@@ -169,14 +213,16 @@ export class HostSceneRequestHandler {
         envelope.type === 'client.scene_undo'
           ? parsePayload('client.scene_undo', envelope.payload)
           : parsePayload('client.scene_redo', envelope.payload);
-      const result = await this.options.scenes.applyPlayerHistory(
+      const outcome = await this.options.scenes.applyPlayerHistoryWithEffects(
         envelope.type === 'client.scene_undo' ? 'undo' : 'redo',
         input.sceneId,
         client.user.id,
       );
-      this.sendResult(client, result, envelope.requestId);
-      if (result.ok) {
-        await this.options.onSceneMutation();
+      this.sendResult(client, outcome.result, envelope.requestId);
+      if (outcome.result.ok) {
+        await this.options.onSceneMutation(
+          outcome.authoredDataChangedEntryIds,
+        );
       }
       return true;
     }

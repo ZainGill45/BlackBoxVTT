@@ -11,7 +11,8 @@ describe('createApplicationApi', () => {
     api.quit();
     await expect(api.openExternal('https://example.com')).resolves.toBe(true);
 
-    expect(Object.keys(api)).toEqual(['openExternal', 'quit', 'ready']);
+    expect(Object.keys(api))
+      .toEqual(['altHeld', 'openExternal', 'quit', 'ready']);
     expect(send).toHaveBeenCalledWith(applicationIpcChannels.quit);
     expect(invoke).toHaveBeenCalledWith(
       applicationIpcChannels.openExternal,

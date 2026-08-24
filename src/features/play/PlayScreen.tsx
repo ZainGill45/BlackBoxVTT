@@ -646,12 +646,14 @@ export function PlayScreen({
               ) : showJournal ? (
                 <JournalPanel
                   journalStore={journalStore}
+                  altHeld={() => applicationApi.altHeld()}
                   assetApi={preparedAssetApi}
                   campaignId={session.campaignId}
                   journalApi={journalApi}
                   journalContent={preparedJournalContent}
                   journalWindowApi={journalWindowApi}
                   networkApi={networkApi}
+                  onOpenLink={(url) => void applicationApi.openExternal(url)}
                   role={session.role}
                   system={session.system}
                 />

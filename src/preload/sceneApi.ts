@@ -22,6 +22,10 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
   };
 
   return {
+    adjustTokenHealth: (input) =>
+      ipc.invoke(sceneIpcChannels.adjustTokenHealth, input) as ReturnType<
+        SceneApi['adjustTokenHealth']
+      >,
     create: (input) =>
       ipc.invoke(sceneIpcChannels.create, input) as ReturnType<
         SceneApi['create']
@@ -44,6 +48,10 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
       >,
     list: (input) =>
       ipc.invoke(sceneIpcChannels.list, input) as ReturnType<SceneApi['list']>,
+    listTokenHealth: (input) =>
+      ipc.invoke(sceneIpcChannels.listTokenHealth, input) as ReturnType<
+        SceneApi['listTokenHealth']
+      >,
     onChanged: (listener) => subscribe(sceneIpcChannels.changed, listener),
     present: (input) =>
       ipc.invoke(sceneIpcChannels.present, input) as ReturnType<

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type {
   PresentSceneInput,
+  AdjustSceneTokenHealthInput,
   ReorderScenesInput,
   SceneAssetInput,
   SceneChangedEvent,
@@ -8,6 +9,8 @@ import type {
   SceneManifest,
   SceneRecord,
   SceneResult,
+  SceneTokenHealthInput,
+  SceneTokenHealthPresentation,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
@@ -51,6 +54,21 @@ export class SceneManager extends EventEmitter {
   async list(campaignId: string): Promise<SceneResult<SceneManifest>> {
     const scenes = await this.scenes(campaignId);
     return scenes ? scenes.list() : unavailable();
+  }
+
+  async listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
+    const scenes = await this.scenes(input.campaignId);
+    return scenes ? scenes.listTokenHealth(input) : unavailable();
+  }
+
+  adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.mutate(input.campaignId, (scenes) =>
+      scenes.adjustTokenHealth(input),
+    );
   }
 
   create(campaignId: string): Promise<SceneResult<SceneRecord>> {
@@ -169,6 +187,13 @@ export class SceneManager extends EventEmitter {
     const outcome = await operation(scenes);
     if (outcome.changed) {
       this.emitChanged(campaignId, outcome.changed);
+    }
+    for (const entryId of outcome.authoredDataChangedEntryIds ?? []) {
+      this.emit('health-changed', {
+        campaignId,
+        entryId,
+        type: 'content',
+      });
     }
     return outcome.result;
   }

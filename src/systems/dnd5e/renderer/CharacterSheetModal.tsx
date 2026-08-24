@@ -84,6 +84,7 @@ import {
   formatDnd5eSignedValue,
   hasUsableDnd5eSpellSlot,
   isDnd5eCharacterData,
+  isDnd5eCharacterDataSaveCandidate,
   MAX_DND5E_TOKEN_SIZE,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
   MIN_DND5E_TOKEN_SIZE,
@@ -392,6 +393,18 @@ function mergeCharacterDraft(
     missingResourceIds: resources.missingIds,
     missingSpellIds: spells.missingIds,
   };
+}
+
+function restorePersistedHealthIfInvalid(
+  candidate: Dnd5eCharacterData,
+  persisted: Dnd5eCharacterData,
+): Dnd5eCharacterData | null {
+  if (isDnd5eCharacterDataSaveCandidate(candidate)) return null;
+  const restored = {
+    ...structuredClone(candidate),
+    health: structuredClone(persisted.health),
+  };
+  return isDnd5eCharacterDataSaveCandidate(restored) ? restored : null;
 }
 
 function actionMutationTarget(
@@ -991,6 +1004,37 @@ function CharacterSheetEditor({
           featureMutations,
           spellMutations,
         );
+        const restoredHealth = restorePersistedHealthIfInvalid(
+          merged.data,
+          next.data,
+        );
+        if (restoredHealth) {
+          merged = { ...merged, data: restoredHealth };
+          for (const path of [
+            'health.currentHitPoints',
+            'health.maximumHitPoints',
+          ]) {
+            dirtyFields.delete(path);
+            dirtyFieldsRef.current.delete(path);
+          }
+          draftRef.current = {
+            ...draftRef.current,
+            health: structuredClone(next.data.health),
+          };
+          setDraft(draftRef.current);
+          if (
+            JSON.stringify(restoredHealth) === JSON.stringify(next.data) &&
+            actionMutations.length === 0 &&
+            customSkillMutations.length === 0 &&
+            inventoryMutations.length === 0 &&
+            resourceMutations.length === 0 &&
+            featureMutations.length === 0 &&
+            spellMutations.length === 0 &&
+            !nameChanged
+          ) {
+            return true;
+          }
+        }
         if (
           merged.invalidInventory ||
           merged.missingActionIds.length > 0 ||
@@ -999,7 +1043,7 @@ function CharacterSheetEditor({
           merged.missingResourceIds.length > 0 ||
           merged.missingFeatureIds.length > 0 ||
           merged.missingSpellIds.length > 0 ||
-          !isDnd5eCharacterData(merged.data)
+          !isDnd5eCharacterDataSaveCandidate(merged.data)
         ) {
           setError(merged.invalidInventory
             ? 'The Inventory data is invalid.'
@@ -1047,6 +1091,25 @@ function CharacterSheetEditor({
             featureMutations,
             spellMutations,
           );
+          const restoredHealth = restorePersistedHealthIfInvalid(
+            merged.data,
+            refreshedCharacter.data,
+          );
+          if (restoredHealth) {
+            merged = { ...merged, data: restoredHealth };
+            for (const path of [
+              'health.currentHitPoints',
+              'health.maximumHitPoints',
+            ]) {
+              dirtyFields.delete(path);
+              dirtyFieldsRef.current.delete(path);
+            }
+            draftRef.current = {
+              ...draftRef.current,
+              health: structuredClone(refreshedCharacter.data.health),
+            };
+            setDraft(draftRef.current);
+          }
           if (
             merged.invalidInventory ||
             merged.missingActionIds.length > 0 ||
@@ -1055,7 +1118,7 @@ function CharacterSheetEditor({
             merged.missingResourceIds.length > 0 ||
             merged.missingFeatureIds.length > 0 ||
             merged.missingSpellIds.length > 0 ||
-            !isDnd5eCharacterData(merged.data)
+            !isDnd5eCharacterDataSaveCandidate(merged.data)
           ) {
             setError(merged.invalidInventory
               ? 'The Inventory data is invalid.'
@@ -2687,7 +2750,14 @@ function CharacterSheetEditor({
                           <span className={styles.healthPair}>
                             {healthInput('health.currentHitPoints', 'Current hit points')}
                             <span aria-hidden>/</span>
-                            {healthInput('health.maximumHitPoints', 'Maximum hit points')}
+                            {healthInput(
+                              'health.maximumHitPoints',
+                              'Maximum hit points',
+                              undefined,
+                              draft.defaultToken.type === 'template'
+                                ? 'text'
+                                : 'numeric',
+                            )}
                           </span>
                         </div>
                         <div

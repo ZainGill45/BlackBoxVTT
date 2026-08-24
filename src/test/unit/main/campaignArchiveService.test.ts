@@ -259,7 +259,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 17 });
+    ))).toMatchObject({ formatVersion: 18 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -397,7 +397,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 18;
+    manifest.formatVersion = 19;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -1133,6 +1133,39 @@ describe('CampaignArchiveService', () => {
       ).get() as { data_json: string };
       expect((JSON.parse(character.data_json) as Dnd5eCharacterData)
         .defaultToken.type).toBe('linked');
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly normalizes unsupported HP text in the untouched format-17 fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-health-format-17.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-17-fixture',
+          warnings: [
+            'Replaced unsupported hit-point text in 1 D&D character and 0 Template token snapshots imported from archive format 17.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect((JSON.parse(row.data_json) as Dnd5eCharacterData).health)
+        .toMatchObject({ currentHitPoints: '1', maximumHitPoints: '1' });
     } finally {
       importedDatabase.close();
     }

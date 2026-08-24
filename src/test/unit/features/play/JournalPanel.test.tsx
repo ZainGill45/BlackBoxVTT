@@ -2703,6 +2703,78 @@ describe('JournalPanel', () => {
     expect(screen.queryByRole('button', { name: 'Close note' })).not.toBeInTheDocument();
   });
 
+  it('follows a note link through the panel using the reported Alt state', async () => {
+    const user = userEvent.setup();
+    const onOpenLink = vi.fn();
+    const linkedPage: JournalPage = {
+      ...page,
+      content: {
+        doc: {
+          content: [
+            {
+              content: [
+                {
+                  marks: [
+                    { attrs: { href: 'https://example.com/' }, type: 'link' },
+                  ],
+                  text: 'Example',
+                  type: 'text',
+                },
+              ],
+              type: 'paragraph',
+            },
+          ],
+          type: 'doc',
+        },
+      },
+    };
+    const api = journalApi({
+      acquireLease: async () => ({
+        ok: true,
+        value: {
+          expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          holderName: 'Game Master',
+          leaseId: '44444444-4444-4444-8444-444444444444',
+          page: linkedPage,
+        },
+      }),
+      getPage: async () => ({ ok: true, value: linkedPage }),
+    });
+
+    render(
+      <JournalPanelHarness
+        altHeld={() => true}
+        assetApi={createFakeAssetApi()}
+        campaignId={campaignId}
+        journalApi={api}
+        onOpenLink={onOpenLink}
+        role="gm"
+      />,
+    );
+    await expandNotes(user);
+    await user.click(
+      await screen.findByRole('button', { name: 'Open Gathered Magic Items' }),
+    );
+
+    const anchor = await waitFor(() => {
+      const found = screen
+        .getByRole('textbox', { name: 'Page content' })
+        .querySelector('a');
+      expect(found).not.toBeNull();
+      return found as HTMLElement;
+    });
+    (document as Document & { elementFromPoint: unknown }).elementFromPoint =
+      () => anchor;
+
+    /*
+     * No altKey on the event: Windows can spend Alt on the native menu, so the
+     * main process reporting it is the only signal the click ever carries.
+     */
+    fireEvent.mouseDown(anchor, { button: 0 });
+
+    expect(onOpenLink).toHaveBeenCalledWith('https://example.com/');
+  });
+
   it('keeps its active page lease when a background content snapshot arrives', async () => {
     const user = userEvent.setup();
     const acquireLease = vi.fn(async () => ({

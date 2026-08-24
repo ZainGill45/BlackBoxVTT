@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
 import { ErrorModal } from '../../components/ui/ErrorModal';
+import { InlineInput } from '../../components/ui/InlineInput';
 import {
   JOURNAL_ENTRY_DRAG_TYPE,
   type JournalApi,
@@ -29,6 +37,7 @@ import type {
   ScenePreparationProgress,
   SceneRendererHandle,
 } from './canvas/SceneRenderer';
+import type { TokenHealthHit } from './canvas/tokenHealthRenderer';
 import type { PlaySession, PlayToolId } from './types';
 import type { TextSettings } from './textSettings';
 import type { ShapeSettings, ShapeSubtool } from './shapeSettings';
@@ -46,6 +55,13 @@ import { snapMove } from './canvas/imageGeometry';
 import { useSceneImageResources } from './useSceneImageUrls';
 import styles from './PlayScreen.module.css';
 
+/*
+ * Text is sized straight off the bar it sits in, with no legibility floor: a
+ * field that stopped shrinking with its bar would start overhanging it, which is
+ * the overlay look this editor exists to avoid. Zooming in is how you get a
+ * bigger field.
+ */
+const HEALTH_EDITOR_FONT_RATIO = 0.55;
 const EMPTY_IMAGE_URLS: Record<string, string> = {};
 const EMPTY_SCENES: readonly SceneRecord[] = [];
 
@@ -163,12 +179,21 @@ export function MapStage({
 }: MapStageProps) {
   const elementRef = useRef<HTMLElement | null>(null);
   const sceneRef = useRef(scene);
+  const displayedSceneIdRef = useRef(scene?.id ?? null);
   const availableScenesRef = useRef(availableScenes);
   const preparedCallbackRef = useRef(onPrepared);
   const progressCallbackRef = useRef(onPreparationProgress);
   const seenPingIds = useRef(new Set<string>());
   const [renderer, setRenderer] = useState<SceneRendererHandle | null>(null);
   const [tokenMessage, setTokenMessage] = useState<string | null>(null);
+  const [healthEditor, setHealthEditor] = useState<
+    (TokenHealthHit & { sceneId: string }) | null
+  >(null);
+  const closeHealthEditor = useCallback(() => {
+    setHealthEditor(null);
+    renderer?.setTokenHealthEditing(null);
+  }, [renderer]);
+  const [healthCommand, setHealthCommand] = useState('');
   const [openedEntry, setOpenedEntry] =
     useState<SystemJournalEntry | null>(null);
   const sessionUserId =
@@ -333,8 +358,9 @@ export function MapStage({
     })();
   }, [journalApi, loadEditableTokenEntry, session.campaignId, session.role]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     sceneRef.current = scene;
+    displayedSceneIdRef.current = scene?.id ?? null;
   }, [scene]);
 
   useEffect(() => {
@@ -418,6 +444,59 @@ export function MapStage({
   useEffect(() => {
     renderer?.setScene(scene, resolvedImageUrls);
   }, [renderer, resolvedImageUrls, scene]);
+
+  useEffect(() => {
+    let active = true;
+    if (!renderer || !scene) {
+      renderer?.setTokenHealth([]);
+      return () => {
+        active = false;
+      };
+    }
+    void sceneApi.listTokenHealth({
+      campaignId: session.campaignId,
+      sceneId: scene.id,
+    }).then((result) => {
+      if (active && result.ok) renderer.setTokenHealth(result.value);
+    });
+    return () => {
+      active = false;
+    };
+  }, [renderer, scene, sceneApi, session.campaignId]);
+
+  const applyHealthCommand = useCallback(
+    async (tokenId: string, command: string) => {
+      const current = sceneRef.current;
+      if (!current || !renderer) return;
+      const result = await sceneApi.adjustTokenHealth({
+        campaignId: session.campaignId,
+        command,
+        operationId: crypto.randomUUID(),
+        sceneId: current.id,
+        tokenId,
+      });
+      if (displayedSceneIdRef.current !== current.id) return;
+      if (!result.ok) {
+        setTokenMessage(
+          'That health command was not accepted. Use Current+5, Current=12, ' +
+          'or Maximum-2.5.',
+        );
+        return;
+      }
+      sceneRef.current = result.value;
+      const health = await sceneApi.listTokenHealth({
+        campaignId: session.campaignId,
+        sceneId: current.id,
+      });
+      if (
+        displayedSceneIdRef.current === current.id &&
+        health.ok
+      ) {
+        renderer.setTokenHealth(health.value);
+      }
+    },
+    [renderer, sceneApi, session.campaignId],
+  );
 
   useEffect(() => {
     if (!renderer) return;
@@ -579,6 +658,21 @@ export function MapStage({
         });
       },
       onOpenLinkedToken: openLinkedToken,
+      onAdjustTokenHealth: (hit) => {
+        const current = sceneRef.current;
+        if (!current) return;
+        setHealthCommand('Current');
+        setHealthEditor({ ...hit, sceneId: current.id });
+        renderer.setTokenHealthEditing(hit.tokenId);
+      },
+      onTokenHealthEditorRect: (rect) => {
+        // The bar is the editor's frame, so losing the bar closes the editor.
+        setHealthEditor((current) =>
+          current && rect && rect.tokenId === current.tokenId
+            ? { ...current, ...rect }
+            : null,
+        );
+      },
       onShapePreview: (preview) => {
         void networkApi.sendShapePreview({
           ...preview,
@@ -639,217 +733,263 @@ export function MapStage({
 
   return (
     <>
-    <section
-      ref={elementRef}
-      className={styles.stage}
-      aria-label={`Map play area for ${getSessionLabel(session)}`}
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes(JOURNAL_ENTRY_DRAG_TYPE)) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'copy';
-          return;
-        }
-        if (
-          session.role === 'gm' &&
-          event.dataTransfer.types.includes(CANVAS_IMAGE_DRAG_TYPE)
-        ) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'copy';
-        }
-      }}
-      onDrop={(event) => {
-        const journalPayload = event.dataTransfer.getData(
-          JOURNAL_ENTRY_DRAG_TYPE,
-        );
-        if (journalPayload) {
-          event.preventDefault();
-          if (!scene || !journalApi || !onCommitObjects) {
-            setTokenMessage('The Character Token could not be placed here.');
+      <section
+        ref={elementRef}
+        className={styles.stage}
+        aria-label={`Map play area for ${getSessionLabel(session)}`}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes(JOURNAL_ENTRY_DRAG_TYPE)) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
             return;
           }
+          if (
+            session.role === 'gm' &&
+            event.dataTransfer.types.includes(CANVAS_IMAGE_DRAG_TYPE)
+          ) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }
+        }}
+        onDrop={(event) => {
+          const journalPayload = event.dataTransfer.getData(
+            JOURNAL_ENTRY_DRAG_TYPE,
+          );
+          if (journalPayload) {
+            event.preventDefault();
+            if (!scene || !journalApi || !onCommitObjects) {
+              setTokenMessage('The Character Token could not be placed here.');
+              return;
+            }
+            const clientX = event.clientX;
+            const clientY = event.clientY;
+            const placeOnGmLayer = session.role === 'gm' &&
+              (event.altKey || event.getModifierState('Alt'));
+            void (async () => {
+              try {
+                const payload = JSON.parse(journalPayload) as {
+                  entryId?: unknown;
+                  typeId?: unknown;
+                };
+                if (
+                  typeof payload.entryId !== 'string' ||
+                  typeof payload.typeId !== 'string'
+                ) throw new Error('Invalid Journal drag data.');
+                const result = await journalApi.getEntry({
+                  campaignId: session.campaignId,
+                  entryId: payload.entryId,
+                });
+                if (
+                  !result.ok ||
+                  result.value.kind !== 'system' ||
+                  !result.value.capabilities.edit
+                ) throw new Error('The Character cannot be edited.');
+                const definition = getJournalEntryTypeDefinition(
+                  session.system,
+                  result.value.typeId,
+                );
+                if (
+                  !definition?.token ||
+                  !definition.validateData(result.value.data)
+                ) throw new Error('This Journal entry does not define tokens.');
+                const defaultToken = definition.token.readDefaultToken(
+                  result.value.data,
+                );
+                const state = sceneObjectStateOf(scene);
+                if (
+                  Object.values(state.images).flat().length >= MAX_SCENE_IMAGES
+                ) throw new Error('The scene image limit has been reached.');
+                const point = renderer?.clientToScene(clientX, clientY) ?? {
+                  x: scene.width / 2,
+                  y: scene.height / 2,
+                };
+                let token = {
+                  assetId:
+                    defaultToken.imageAssetId ?? DEFAULT_TOKEN_ASSET_ID,
+                  height: defaultToken.size.height * scene.grid.size,
+                  id: crypto.randomUUID(),
+                  rotation: 0,
+                  size: { ...defaultToken.size, kind: 'default' as const },
+                  source: {
+                    entryId: result.value.id,
+                    kind: 'linked' as const,
+                  },
+                  width: defaultToken.size.width * scene.grid.size,
+                  x: point.x,
+                  y: point.y,
+                };
+                if (scene.grid.type === 'square') {
+                  token = snapMove(token, scene.grid);
+                }
+                const layer = placeOnGmLayer ? 'gm' : 'token';
+                state.images[layer].push(token);
+                state.objectOrder[layer].push(token.id);
+                const saved = await onCommitObjects(
+                  scene,
+                  state,
+                  crypto.randomUUID(),
+                );
+                if (!saved) {
+                  throw new Error('The token placement was rejected.');
+                }
+                renderer?.selectImages([token.id]);
+              } catch {
+                setTokenMessage('The Character Token could not be placed.');
+              }
+            })();
+            return;
+          }
+          if (
+            session.role !== 'gm' ||
+            !scene ||
+            !assetApi ||
+            !onCommitImages
+          ) {
+            return;
+          }
+          const assetId = event.dataTransfer.getData(CANVAS_IMAGE_DRAG_TYPE);
+          if (!assetId) {
+            return;
+          }
+          event.preventDefault();
           const clientX = event.clientX;
           const clientY = event.clientY;
-          const placeOnGmLayer = session.role === 'gm' &&
-            (event.altKey || event.getModifierState('Alt'));
           void (async () => {
+            let temporaryToken: string | null = null;
             try {
-              const payload = JSON.parse(journalPayload) as {
-                entryId?: unknown;
-                typeId?: unknown;
-              };
-              if (
-                typeof payload.entryId !== 'string' ||
-                typeof payload.typeId !== 'string'
-              ) throw new Error('Invalid Journal drag data.');
-              const result = await journalApi.getEntry({
-                campaignId: session.campaignId,
-                entryId: payload.entryId,
-              });
-              if (
-                !result.ok ||
-                result.value.kind !== 'system' ||
-                !result.value.capabilities.edit
-              ) throw new Error('The Character cannot be edited.');
-              const definition = getJournalEntryTypeDefinition(
-                session.system,
-                result.value.typeId,
+              let url = imageUrls[assetId];
+              if (!url) {
+                const preview = await assetApi.getPreview({
+                  assetId,
+                  campaignId: session.campaignId,
+                });
+                if (!preview.ok) {
+                  return;
+                }
+                temporaryToken = preview.value.token;
+                url = preview.value.url;
+              }
+              const response = await fetch(url);
+              if (!response.ok) {
+                return;
+              }
+              const blob = await response.blob();
+              const bitmap = await createImageBitmap(blob);
+              const scale = Math.min(
+                1,
+                scene.width / Math.max(1, bitmap.width),
+                scene.height / Math.max(1, bitmap.height),
               );
-              if (
-                !definition?.token ||
-                !definition.validateData(result.value.data)
-              ) throw new Error('This Journal entry does not define tokens.');
-              const defaultToken = definition.token.readDefaultToken(
-                result.value.data,
-              );
-              const state = sceneObjectStateOf(scene);
-              if (
-                Object.values(state.images).flat().length >= MAX_SCENE_IMAGES
-              ) throw new Error('The scene image limit has been reached.');
               const point = renderer?.clientToScene(clientX, clientY) ?? {
                 x: scene.width / 2,
                 y: scene.height / 2,
               };
-              let token = {
-                assetId:
-                  defaultToken.imageAssetId ?? DEFAULT_TOKEN_ASSET_ID,
-                height: defaultToken.size.height * scene.grid.size,
+              const state = sceneObjectStateOf(scene);
+              if (
+                Object.values(state.images).flat().length >= MAX_SCENE_IMAGES
+              ) {
+                bitmap.close();
+                return;
+              }
+              let image = {
+                assetId,
+                height: bitmap.height * scale,
                 id: crypto.randomUUID(),
                 rotation: 0,
-                size: { ...defaultToken.size, kind: 'default' as const },
-                source: {
-                  entryId: result.value.id,
-                  kind: 'linked' as const,
-                },
-                width: defaultToken.size.width * scene.grid.size,
+                width: bitmap.width * scale,
                 x: point.x,
                 y: point.y,
               };
               if (scene.grid.type === 'square') {
-                token = snapMove(token, scene.grid);
+                image = snapMove(image, scene.grid);
               }
-              const layer = placeOnGmLayer ? 'gm' : 'token';
-              state.images[layer].push(token);
-              state.objectOrder[layer].push(token.id);
-              const saved = await onCommitObjects(
-                scene,
-                state,
-                crypto.randomUUID(),
-              );
-              if (!saved) {
-                throw new Error('The token placement was rejected.');
+              state.images[activeLayer].push(image);
+              state.objectOrder[activeLayer].push(image.id);
+              bitmap.close();
+              const saved = await onCommitImages(scene, state);
+              if (saved) {
+                renderer?.selectImages([image.id]);
               }
-              renderer?.selectImages([token.id]);
             } catch {
-              setTokenMessage('The Character Token could not be placed.');
+              // The asset can become unavailable while a drag is in flight.
+            } finally {
+              if (temporaryToken) {
+                void assetApi.releasePreview({ token: temporaryToken });
+              }
             }
           })();
-          return;
-        }
-        if (
-          session.role !== 'gm' ||
-          !scene ||
-          !assetApi ||
-          !onCommitImages
-        ) {
-          return;
-        }
-        const assetId = event.dataTransfer.getData(CANVAS_IMAGE_DRAG_TYPE);
-        if (!assetId) {
-          return;
-        }
-        event.preventDefault();
-        const clientX = event.clientX;
-        const clientY = event.clientY;
-        void (async () => {
-          let temporaryToken: string | null = null;
-          try {
-            let url = imageUrls[assetId];
-            if (!url) {
-              const preview = await assetApi.getPreview({
-                assetId,
-                campaignId: session.campaignId,
-              });
-              if (!preview.ok) {
-                return;
-              }
-              temporaryToken = preview.value.token;
-              url = preview.value.url;
-            }
-            const response = await fetch(url);
-            if (!response.ok) {
-              return;
-            }
-            const blob = await response.blob();
-            const bitmap = await createImageBitmap(blob);
-            const scale = Math.min(
-              1,
-              scene.width / Math.max(1, bitmap.width),
-              scene.height / Math.max(1, bitmap.height),
-            );
-            const point = renderer?.clientToScene(clientX, clientY) ?? {
-              x: scene.width / 2,
-              y: scene.height / 2,
-            };
-            const state = sceneObjectStateOf(scene);
-            if (
-              Object.values(state.images).flat().length >= MAX_SCENE_IMAGES
-            ) {
-              bitmap.close();
-              return;
-            }
-            let image = {
-              assetId,
-              height: bitmap.height * scale,
-              id: crypto.randomUUID(),
-              rotation: 0,
-              width: bitmap.width * scale,
-              x: point.x,
-              y: point.y,
-            };
-            if (scene.grid.type === 'square') {
-              image = snapMove(image, scene.grid);
-            }
-            state.images[activeLayer].push(image);
-            state.objectOrder[activeLayer].push(image.id);
-            bitmap.close();
-            const saved = await onCommitImages(scene, state);
-            if (saved) {
-              renderer?.selectImages([image.id]);
-            }
-          } catch {
-            // The asset can become unavailable while a drag is in flight.
-          } finally {
-            if (temporaryToken) {
-              void assetApi.releasePreview({ token: temporaryToken });
-            }
-          }
-        })();
-      }}
-    >
-      <p className="sr-only">
-        {scene
-          ? `Viewing the scene ${scene.name}.`
-          : 'No scene is being displayed.'}
-      </p>
-    </section>
-    {openedEntry && journalApi ? (
-      <SystemJournalEntryModal
-        assetApi={assetApi}
-        campaignId={session.campaignId}
-        entry={openedEntry}
-        journalApi={journalApi}
-        networkApi={networkApi}
-        onDismiss={() => setOpenedEntry(null)}
-        onUpdated={(entry) => setOpenedEntry(entry)}
-        system={session.system}
+        }}
+      >
+        <p className="sr-only">
+          {scene
+            ? `Viewing the scene ${scene.name}.`
+            : 'No scene is being displayed.'}
+        </p>
+        {healthEditor && healthEditor.sceneId === scene?.id ? (
+          <div
+            className={styles.healthEditor}
+            style={{
+              /*
+               * The bar draws its own dark fill and white outline in the scene, so
+               * the field is transparent chrome laid over exactly that rect and
+               * sized from it. Nothing here may exceed the bar.
+               */
+              fontSize: healthEditor.height * HEALTH_EDITOR_FONT_RATIO,
+              height: healthEditor.height,
+              left: healthEditor.x,
+              top: healthEditor.y,
+              width: healthEditor.width,
+            }}
+          >
+            <InlineInput
+              align="left"
+              aria-label="Adjust token health"
+              autoFocus
+              height="fill"
+              onBlur={closeHealthEditor}
+              onChange={(event) => setHealthCommand(event.target.value)}
+              onFocus={(event) => {
+                const { value } = event.currentTarget;
+                event.currentTarget.setSelectionRange(value.length, value.length);
+              }}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  closeHealthEditor();
+                  return;
+                }
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                const command = healthCommand.trim();
+                const { tokenId } = healthEditor;
+                closeHealthEditor();
+                if (command) void applyHealthCommand(tokenId, command);
+              }}
+              surface="borderless"
+              value={healthCommand}
+            />
+          </div>
+        ) : null}
+      </section>
+      {openedEntry && journalApi ? (
+        <SystemJournalEntryModal
+          assetApi={assetApi}
+          campaignId={session.campaignId}
+          entry={openedEntry}
+          journalApi={journalApi}
+          networkApi={networkApi}
+          onDismiss={() => setOpenedEntry(null)}
+          onUpdated={(entry) => setOpenedEntry(entry)}
+          system={session.system}
+        />
+      ) : null}
+      <ErrorModal
+        isOpen={tokenMessage !== null}
+        message={tokenMessage ?? ''}
+        onDismiss={() => setTokenMessage(null)}
+        title="Character Token"
       />
-    ) : null}
-    <ErrorModal
-      isOpen={tokenMessage !== null}
-      message={tokenMessage ?? ''}
-      onDismiss={() => setTokenMessage(null)}
-      title="Character Token"
-    />
     </>
   );
 }

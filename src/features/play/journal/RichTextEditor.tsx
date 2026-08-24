@@ -1,4 +1,10 @@
-import { Node, mergeAttributes, type JSONContent, type NodeViewProps } from '@tiptap/core';
+import {
+  Node,
+  mergeAttributes,
+  type Editor,
+  type JSONContent,
+  type NodeViewProps,
+} from '@tiptap/core';
 import { FileHandler } from '@tiptap/extension-file-handler';
 import { Highlight } from '@tiptap/extension-highlight';
 import { TableKit } from '@tiptap/extension-table';
@@ -23,6 +29,8 @@ import {
   DropdownOption,
   type DropdownMode,
 } from '../../../components/ui/Dropdown';
+import { Button } from '../../../components/ui/Button';
+import { InlineInput } from '../../../components/ui/InlineInput';
 import type { JournalAssetApi } from '../../../shared/assets';
 import {
   DEFAULT_JOURNAL_LINE_LENGTH,
@@ -40,18 +48,26 @@ import styles from './RichTextEditor.module.css';
 
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
 
+/*
+ * Fifteen entries so the palette fills the dropdown as three even rows of five
+ * with no ragged tail. Ordered neutral, then warm, then cool, so a row reads as
+ * a group; inserting a colour means keeping that sweep intact.
+ */
 const TEXT_COLOR_OPTIONS = [
   { label: 'Default', value: null },
   { label: 'White', value: '#f0f0f0' },
   { label: 'Gray', value: '#b8b8b8' },
+  { label: 'Slate', value: '#8f9ab0' },
   { label: 'Red', value: '#d76f6f' },
   { label: 'Orange', value: '#d9965b' },
   { label: 'Brown', value: '#a8795d' },
   { label: 'Yellow', value: '#d6c865' },
   { label: 'Green', value: '#6fbd73' },
+  { label: 'Teal', value: '#5fbba4' },
   { label: 'Cyan', value: '#67b7c7' },
   { label: 'Blue', value: '#6f91d7' },
   { label: 'Purple', value: '#9a7bd1' },
+  { label: 'Magenta', value: '#c079c7' },
   { label: 'Pink', value: '#d77fa5' },
 ] as const;
 
@@ -223,7 +239,59 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+/** The only protocols a Journal link may target, in markup and on click. */
+const LINK_PROTOCOL_PATTERN = /^(https?:|mailto:)/iu;
+const BARE_HOST_PATTERN = /^(www\.|[\w-]+(?:\.[\w-]+)+)/iu;
+
+function normalizeJournalHref(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed === '') return '';
+  if (LINK_PROTOCOL_PATTERN.test(trimmed)) return trimmed;
+  if (BARE_HOST_PATTERN.test(trimmed)) {
+    const href = `https://${trimmed}`;
+    return LINK_PROTOCOL_PATTERN.test(href) ? href : null;
+  }
+  return null;
+}
+
+function linkHrefFromEvent(event: Event): string | null {
+  const node = event.target;
+  const element = node instanceof Element
+    ? node
+    : node instanceof Text
+      ? node.parentElement
+      : null;
+  const href = element?.closest('a')?.getAttribute('href');
+  return href && LINK_PROTOCOL_PATTERN.test(href) ? href : null;
+}
+
+function linkHrefAtPointer(editor: Editor, event: MouseEvent): string | null {
+  const fromDom = linkHrefFromEvent(event);
+  if (fromDom) return fromDom;
+  try {
+    const position = editor.view.posAtCoords({
+      left: event.clientX,
+      top: event.clientY,
+    });
+    if (!position) return null;
+    const href = editor.state.doc.resolve(position.pos).marks().find(
+      (mark) => mark.type.name === 'link',
+    )?.attrs.href;
+    return typeof href === 'string' && LINK_PROTOCOL_PATTERN.test(href)
+      ? href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 interface RichTextEditorProps {
+  /**
+   * True while Alt is held. Electron spends Alt on the native menu on Windows,
+   * so the modifier can be missing from the click that follows and the main
+   * process has to report it instead.
+   */
+  altHeld?: () => boolean;
   assetApi: JournalAssetApi;
   campaignId: string;
   content: RichTextDocument;
@@ -233,6 +301,7 @@ interface RichTextEditorProps {
   onBlur?: () => void;
   onChange?: (content: RichTextDocument) => void;
   onChooseImage?: (insert: (assetId: string) => void) => void;
+  onOpenLink?: (url: string) => void;
   titleFormatting?: {
     onChange: (style: JournalTitleStyle) => void;
     style: JournalTitleStyle;
@@ -240,6 +309,7 @@ interface RichTextEditorProps {
 }
 
 export function RichTextEditor({
+  altHeld,
   assetApi,
   campaignId,
   content,
@@ -249,25 +319,37 @@ export function RichTextEditor({
   onBlur,
   onChange,
   onChooseImage,
+  onOpenLink,
   titleFormatting = null,
 }: RichTextEditorProps) {
   const onBlurRef = useRef(onBlur);
+  const onOpenLinkRef = useRef(onOpenLink);
   const onChangeRef = useRef(onChange);
+  const reportedAltHeldRef = useRef(altHeld);
+  const altHeldRef = useRef(false);
+  const editorRootRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef(content);
   const [lineLength, setLineLength] = useState<JournalLineLength>(
     content.lineLength ?? DEFAULT_JOURNAL_LINE_LENGTH,
   );
   const lineLengthRef = useRef(lineLength);
+  const [linkDraft, setLinkDraft] = useState<{
+    from: number;
+    href: string;
+    to: number;
+  } | null>(null);
   const previewCache = useMemo(
     () => new JournalImagePreviewCache(assetApi, campaignId),
     [assetApi, campaignId],
   );
   useEffect(() => {
     onBlurRef.current = onBlur;
+    onOpenLinkRef.current = onOpenLink;
     onChangeRef.current = onChange;
+    reportedAltHeldRef.current = altHeld;
     contentRef.current = content;
     lineLengthRef.current = lineLength;
-  }, [content, lineLength, onBlur, onChange]);
+  }, [altHeld, content, lineLength, onBlur, onChange, onOpenLink]);
   useEffect(() => () => previewCache.dispose(), [previewCache]);
   const insertImportedFiles = async (editor: ReturnType<typeof useEditor>, files: File[]) => {
     if (!editor) return;
@@ -295,7 +377,13 @@ export function RichTextEditor({
       },
     },
     extensions: [
-      StarterKit.configure({ link: { openOnClick: !editable, protocols: ['http', 'https', 'mailto'] } }),
+      StarterKit.configure({
+        link: {
+          HTMLAttributes: { rel: 'noopener noreferrer nofollow', target: null },
+          openOnClick: false,
+          protocols: ['http', 'https', 'mailto'],
+        },
+      }),
       TextStyle,
       Color,
       FontFamily,
@@ -329,6 +417,99 @@ export function RichTextEditor({
       editor.commands.setContent(contentRef.current.doc as JSONContent, { emitUpdate: false });
     }
   }, [documentKey, editor]);
+
+  useEffect(() => {
+    if (!editor) return undefined;
+    let lastFollowAt = 0;
+    let lastFollowHref = '';
+    const applyAltHeld = (down: boolean) => {
+      if (altHeldRef.current === down) return;
+      altHeldRef.current = down;
+      const root = editorRootRef.current;
+      if (!root) return;
+      if (down) root.dataset.altHeld = 'true';
+      else delete root.dataset.altHeld;
+    };
+    /*
+     * AltGr is reported as Ctrl+Alt on Windows and types characters, so a
+     * right-hand Alt combined with Ctrl is never a request to follow a link.
+     */
+    const altFromEvent = (event: KeyboardEvent | MouseEvent) =>
+      event.getModifierState('Alt') && !event.getModifierState('Control');
+    /*
+     * The event's own modifier state is the live answer; the reported flag only
+     * covers the Windows case where the menu swallows the key event before the
+     * renderer sees it. Notably absent is altHeldRef, so that a pointer moving
+     * with Alt up always clears a keyup this window missed.
+     */
+    const altIsDown = (event: KeyboardEvent | MouseEvent) =>
+      altFromEvent(event) || Boolean(reportedAltHeldRef.current?.());
+    const setAlt = (event: KeyboardEvent) => {
+      if (event.key === 'Alt' || event.code === 'AltLeft' || event.code === 'AltRight') {
+        applyAltHeld(event.type === 'keydown' && !event.getModifierState('Control'));
+        return;
+      }
+      applyAltHeld(altIsDown(event));
+    };
+    const clearAlt = () => {
+      applyAltHeld(false);
+    };
+    const intercept = (event: MouseEvent) => {
+      if (event.button || editor.isDestroyed) return;
+      const node = event.target;
+      const element = node instanceof Element
+        ? node
+        : node instanceof Text
+          ? node.parentElement
+          : null;
+      if (!element || !editor.view.dom.contains(element)) return;
+      /*
+       * Ownership of the click is decided before anything is cancelled: while
+       * editing, an unmodified click still belongs to ProseMirror so the caret
+       * can land inside the link text.
+       */
+      if (editor.isEditable && !(altIsDown(event) || altHeldRef.current)) return;
+      const href = linkHrefAtPointer(editor, event);
+      if (!href) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (event.type !== 'pointerdown' && event.type !== 'mousedown') return;
+      const now = Date.now();
+      if (href === lastFollowHref && now - lastFollowAt < 400) return;
+      lastFollowHref = href;
+      lastFollowAt = now;
+      onOpenLinkRef.current?.(href);
+    };
+    const mouseEvents = ['pointerdown', 'mousedown', 'click'] as const;
+    const syncAltFromPointer = (event: MouseEvent) => {
+      applyAltHeld(altIsDown(event));
+    };
+    window.addEventListener('keydown', setAlt, true);
+    window.addEventListener('keyup', setAlt, true);
+    window.addEventListener('mousemove', syncAltFromPointer, true);
+    window.addEventListener('blur', clearAlt);
+    for (const type of mouseEvents) {
+      window.addEventListener(type, intercept, true);
+    }
+    return () => {
+      window.removeEventListener('keydown', setAlt, true);
+      window.removeEventListener('keyup', setAlt, true);
+      window.removeEventListener('mousemove', syncAltFromPointer, true);
+      window.removeEventListener('blur', clearAlt);
+      for (const type of mouseEvents) {
+        window.removeEventListener(type, intercept, true);
+      }
+    };
+  }, [editor]);
+
+  const linkBarOpen = linkDraft !== null;
+  useEffect(() => {
+    if (!linkBarOpen) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('journal-link-url')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [linkBarOpen]);
 
   if (!editor) return <div className={styles.editor}>Loading editor…</div>;
   const titleStyle = titleFormatting?.style;
@@ -409,8 +590,38 @@ export function RichTextEditor({
       editor.chain().focus().unsetColor().run();
     }
   };
+  const linkCandidate = linkDraft?.href.trim() ?? '';
+  const normalizedHref = normalizeJournalHref(linkCandidate);
+  const linkValid = normalizedHref !== null;
+  const applyLink = () => {
+    if (!linkDraft || normalizedHref === null) return;
+    editor.chain().focus().setTextSelection({
+      from: linkDraft.from,
+      to: linkDraft.to,
+    }).run();
+    if (normalizedHref === '') {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    } else if (linkDraft.from === linkDraft.to) {
+      editor.chain().focus().insertContent({
+        marks: [{ attrs: { href: normalizedHref }, type: 'link' }],
+        text: normalizedHref,
+        type: 'text',
+      }).run();
+    } else {
+      editor.chain().focus().extendMarkRange('link').setLink({
+        href: normalizedHref,
+      }).run();
+    }
+    setLinkDraft(null);
+  };
   return (
-    <div className={styles.editor} data-editable={editable} data-toolbar="true">
+    <div
+      ref={editorRootRef}
+      className={styles.editor}
+      data-editable={editable}
+      data-link-bar={linkDraft ? 'true' : undefined}
+      data-toolbar="true"
+    >
       <div className={styles.toolbar} aria-label="Rich text formatting toolbar" role="toolbar">
         <ToolbarMenu
           disabled={!editable && !titleTarget}
@@ -454,10 +665,11 @@ export function RichTextEditor({
             editor.chain().focus().toggleBlockquote().run();
           }, editor.isActive('blockquote'), titleTarget)}
           {menuItem('Link', () => {
-            const href = window.prompt('Link URL (http, https, or mailto)');
-            if (href && /^(https?:|mailto:)/iu.test(href)) {
-              editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
-            }
+            setLinkDraft({
+              from: editor.state.selection.from,
+              href: String(editor.getAttributes('link').href ?? ''),
+              to: editor.state.selection.to,
+            });
           }, editor.isActive('link'), titleTarget)}
           {menuItem('Code', () => {
             editor.chain().focus().toggleCodeBlock().run();
@@ -560,26 +772,71 @@ export function RichTextEditor({
         >
           <div className={styles.swatchGrid}>
             {TEXT_COLOR_OPTIONS.map((option) => (
-              <DropdownOption
-                active={option.value === null
+              <Button
+                aria-label={`Text color: ${option.label}`}
+                aria-selected={option.value === null
                   ? selectedTextColor === null
                   : option.value.toLowerCase() === selectedTextColor?.toLowerCase()}
                 className={styles.swatchButton}
+                data-dropdown-option
                 key={option.label}
-                label={`Text color: ${option.label}`}
-                onSelect={() => applyTextColor(option.value)}
+                role="option"
+                tabIndex={-1}
                 title={option.label}
+                variant="ghost"
+                onClick={() => applyTextColor(option.value)}
               >
                 <span
                   className={styles.colorSwatch}
+                  data-color-swatch=""
                   data-default={option.value === null || undefined}
                   style={option.value ? { backgroundColor: option.value } : undefined}
                 />
-              </DropdownOption>
+                <span className="sr-only">{option.label}</span>
+              </Button>
             ))}
           </div>
         </ToolbarMenu>
       </div>
+      {linkDraft !== null ? (
+        <div className={styles.linkBar}>
+          <InlineInput
+            aria-label="Link URL"
+            className={styles.linkInput}
+            id="journal-link-url"
+            onChange={(event) => setLinkDraft((current) =>
+              current
+                ? { ...current, href: event.target.value }
+                : current
+            )}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                setLinkDraft(null);
+                return;
+              }
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              applyLink();
+            }}
+            placeholder="https://example.com"
+            surface="underline"
+            value={linkDraft.href}
+          />
+          <span className={styles.linkHint}>http, https, or mailto</span>
+          <Button
+            disabled={!linkValid}
+            onClick={applyLink}
+            size="compact"
+            variant="secondary"
+          >
+            {linkCandidate === '' ? 'Remove' : 'Apply'}
+          </Button>
+          <Button onClick={() => setLinkDraft(null)} size="compact" variant="text">
+            Cancel
+          </Button>
+        </div>
+      ) : null}
       <div className={styles.document}>
         <EditorContent
           className={styles.content}

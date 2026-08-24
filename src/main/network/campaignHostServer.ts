@@ -316,7 +316,12 @@ export class CampaignHostServer {
       broadcastTransformStarted: (input, source) =>
         this.broadcastTransformStarted(input, source),
       campaignId: this.campaignId,
-      onSceneMutation: async () => {
+      onSceneMutation: async (authoredDataChangedEntryIds = []) => {
+        for (const entryId of authoredDataChangedEntryIds) {
+          const event = { entryId, type: 'content' as const };
+          this.onJournalChanged(event);
+          await this.broadcastJournalChanged(event);
+        }
         this.onSceneChanged();
         await this.broadcastActiveScene();
         await this.broadcastSceneLibraries();

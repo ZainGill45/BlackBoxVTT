@@ -22,10 +22,12 @@ function setup() {
   } as unknown as IpcMain;
   const listeners = new Map<string, (event: unknown) => void>();
   const manager = {
+    adjustTokenHealth: vi.fn(async () => ({ ok: true, value: null })),
     create: vi.fn(async () => ({ ok: true, value: null })),
     detachAsset: vi.fn(async () => ({ ok: true, value: null })),
     findDependents: vi.fn(async () => ({ ok: true, value: [] })),
     list: vi.fn(async () => ({ ok: true, value: null })),
+    listTokenHealth: vi.fn(async () => ({ ok: true, value: [] })),
     off: vi.fn((event: string) => listeners.delete(event)),
     on: vi.fn((event: string, listener: (value: unknown) => void) => {
       listeners.set(event, listener);
@@ -52,6 +54,14 @@ describe('registerSceneIpcHandlers', () => {
     const { handlers, invoke, manager, unregister } = setup();
 
     await invoke(sceneIpcChannels.list, { campaignId });
+    await invoke(sceneIpcChannels.listTokenHealth, { campaignId, sceneId });
+    await invoke(sceneIpcChannels.adjustTokenHealth, {
+      campaignId,
+      command: 'Current-2.5',
+      operationId: '22222222-2222-4222-8222-222222222222',
+      sceneId,
+      tokenId: 'token-1',
+    });
     await invoke(sceneIpcChannels.update, {
       campaignId,
       expectedRevision: 2,
@@ -68,6 +78,14 @@ describe('registerSceneIpcHandlers', () => {
     });
 
     expect(manager.list).toHaveBeenCalledWith(campaignId);
+    expect(manager.listTokenHealth).toHaveBeenCalledWith({ campaignId, sceneId });
+    expect(manager.adjustTokenHealth).toHaveBeenCalledWith({
+      campaignId,
+      command: 'Current-2.5',
+      operationId: '22222222-2222-4222-8222-222222222222',
+      sceneId,
+      tokenId: 'token-1',
+    });
     expect(manager.update).toHaveBeenCalledWith({
       campaignId,
       expectedRevision: 2,
@@ -116,14 +134,23 @@ describe('registerSceneIpcHandlers', () => {
       operationId: '22222222-2222-4222-8222-222222222222',
       sceneId,
     });
+    const badHealth = await invoke(sceneIpcChannels.adjustTokenHealth, {
+      campaignId,
+      command: '',
+      operationId: 'not-an-operation-id',
+      sceneId,
+      tokenId: 'token-1',
+    });
 
     expect(badCampaign).toMatchObject({ error: { code: 'invalid_input' } });
     expect(badPatch).toMatchObject({ error: { code: 'invalid_input' } });
     expect(unknownField).toMatchObject({ error: { code: 'invalid_input' } });
     expect(badFog).toMatchObject({ error: { code: 'invalid_input' } });
+    expect(badHealth).toMatchObject({ error: { code: 'invalid_input' } });
     expect(manager.list).not.toHaveBeenCalled();
     expect(manager.update).not.toHaveBeenCalled();
     expect(manager.setFog).not.toHaveBeenCalled();
+    expect(manager.adjustTokenHealth).not.toHaveBeenCalled();
   });
 
   it('refuses requests from a web contents it does not own', async () => {

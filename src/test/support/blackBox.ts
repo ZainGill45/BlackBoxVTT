@@ -79,6 +79,9 @@ async function journalUnavailable<T>(): Promise<JournalResult<T>> {
 }
 
 const applicationApi: ApplicationApi = {
+  altHeld() {
+    return false;
+  },
   async openExternal() {
     return false;
   },
@@ -283,6 +286,9 @@ const networkApi: NetworkApi = {
 };
 
 const sceneApi: SceneApi = {
+  async adjustTokenHealth() {
+    return sceneUnavailable();
+  },
   async create() {
     return sceneUnavailable();
   },
@@ -300,6 +306,9 @@ const sceneApi: SceneApi = {
   },
   async list() {
     return { ok: true, value: createEmptySceneManifest() };
+  },
+  async listTokenHealth() {
+    return { ok: true, value: [] };
   },
   onChanged() {
     return () => undefined;

@@ -93,12 +93,14 @@ describe('CampaignRuntimeRegistry', () => {
       kind: 'joined' as const,
       system: TEST_CAMPAIGN_SYSTEM,
       scenes: {
+        adjustTokenHealth: vi.fn(),
         cancelTransform: vi.fn(async () => undefined),
         getActiveScene: vi.fn(() => null),
         listScenes: vi.fn(async () => ({
           ok: true as const,
           value: createEmptySceneManifest(),
         })),
+        listTokenHealth: vi.fn(async () => ({ ok: true as const, value: [] })),
         trashScene: vi.fn(),
         updateScene: vi.fn(),
         redo: vi.fn(),

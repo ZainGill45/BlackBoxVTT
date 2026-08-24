@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DiceRoll } from '@dice-roller/rpg-dice-roller';
 import type { JsonValue } from '../shared/gameSystems';
 import type { JournalAccessLevel } from '../shared/journal';
 import {
@@ -9,16 +10,21 @@ import {
   type SceneRecord,
   type SceneResult,
   type SceneToken,
+  type SceneTokenHealthPresentation,
 } from '../shared/scenes';
 import { sceneRecordSchema } from '../shared/sceneSchema';
 import { getJournalEntryTypeDefinition } from '../systems/catalog';
-import type { JournalEntryDefaultToken } from '../systems/types';
+import type {
+  JournalEntryDefaultToken,
+  JournalEntryTokenHealthValue,
+} from '../systems/types';
 import type { CampaignDatabase } from './storage/campaignDatabase';
 
 interface TokenRepositoryOptions {
   createId?: () => string;
   database: CampaignDatabase;
   now?: () => Date;
+  roll?: (notation: string) => number;
 }
 
 interface RootEntry {
@@ -72,6 +78,12 @@ export interface TokenSnapshotHistoryChange {
   target: TemplateTokenSnapshot | null;
 }
 
+export interface TokenHealthHistoryChange {
+  expected: JournalEntryTokenHealthValue;
+  source: SceneToken['source'];
+  target: JournalEntryTokenHealthValue;
+}
+
 export interface PreparedTokenReference {
   definition: JournalEntryDefaultToken;
   placement: 'duplicate-template' | 'existing' | 'new';
@@ -99,15 +111,18 @@ export class TokenRepository {
   private readonly createId: () => string;
   private readonly database: CampaignDatabase;
   private readonly now: () => Date;
+  private readonly roll: (notation: string) => number;
 
   constructor({
     createId = randomUUID,
     database,
     now = () => new Date(),
+    roll = (notation) => new DiceRoll(notation).total,
   }: TokenRepositoryOptions) {
     this.createId = createId;
     this.database = database;
     this.now = now;
+    this.roll = roll;
   }
 
   canManipulate(actor: SceneEditActor, source: SceneToken['source']): boolean {
@@ -118,6 +133,140 @@ export class TokenRepository {
     if (!snapshot || snapshot.rootEntryId !== source.entryId) return false;
     if (actor.kind === 'gm') return true;
     return Boolean(this.readRoot(actor, snapshot.rootEntryId, 'edit'));
+  }
+
+  prepareRootDataForSave(typeId: string, data: JsonValue): JsonValue | null {
+    const definition = getJournalEntryTypeDefinition(
+      this.database.readSystem(),
+      typeId,
+    );
+    if (!definition) return null;
+    if (definition.prepareDataForSave) {
+      return definition.prepareDataForSave(data, this.roll);
+    }
+    return definition.validateData(data) ? structuredClone(data) : null;
+  }
+
+  listHealth(
+    actor: SceneEditActor,
+    sceneId: string,
+  ): SceneResult<SceneTokenHealthPresentation[]> {
+    const scene = this.sceneRows().find(({ id }) => id === sceneId)?.scene;
+    if (!scene) return failure('invalid_input', 'The scene does not exist.');
+    const presentations: SceneTokenHealthPresentation[] = [];
+    for (const token of Object.values(scene.images).flat().filter(isSceneToken)) {
+      const resolved = this.resolveHealthSource(token.source);
+      if (!resolved) continue;
+      const health = resolved.definition.token?.health?.read(resolved.data);
+      if (!health) continue;
+      const canView = actor.kind === 'gm' || this.hasRootAccess(
+        actor,
+        resolved.rootEntryId,
+        'view',
+      );
+      const ratio = health.maximumHundredths > 0
+        ? Math.max(0, Math.min(1,
+            health.currentHundredths / health.maximumHundredths,
+          ))
+        : 0;
+      presentations.push({
+        ...(canView
+          ? {
+              currentHundredths: health.currentHundredths,
+              maximumHundredths: health.maximumHundredths,
+            }
+          : {}),
+        down: health.maximumHundredths > 0 && health.currentHundredths <= 0,
+        editable: this.canManipulate(actor, token.source),
+        ratio,
+        tokenId: token.id,
+      });
+    }
+    return { ok: true, value: presentations };
+  }
+
+  prepareHealthAdjustment(
+    actor: SceneEditActor,
+    scene: SceneRecord,
+    tokenId: string,
+    command: string,
+  ): SceneResult<TokenHealthHistoryChange> {
+    const token = Object.values(scene.images).flat()
+      .find((image): image is SceneToken =>
+        isSceneToken(image) && image.id === tokenId,
+      );
+    if (!token) return failure('invalid_input', 'The token does not exist.');
+    if (!this.canManipulate(actor, token.source)) {
+      return failure('permission_denied', 'You cannot edit this token health.');
+    }
+    const resolved = this.resolveHealthSource(token.source);
+    const healthDefinition = resolved?.definition.token?.health;
+    if (!resolved || !healthDefinition) {
+      return failure('invalid_input', 'This token does not support health.');
+    }
+    const expected = healthDefinition.read(resolved.data);
+    const nextData = healthDefinition.applyCommand(resolved.data, command);
+    const target = nextData ? healthDefinition.read(nextData) : null;
+    if (
+      !expected ||
+      !target ||
+      !resolved.definition.validateData(nextData)
+    ) {
+      return failure('invalid_input', 'The health adjustment is invalid.');
+    }
+    return {
+      ok: true,
+      value: {
+        expected: structuredClone(expected),
+        source: structuredClone(token.source),
+        target: structuredClone(target),
+      },
+    };
+  }
+
+  healthHistoryMatches(changes: TokenHealthHistoryChange[]): boolean {
+    return changes.every(({ expected, source }) => {
+      const resolved = this.resolveHealthSource(source);
+      const health = resolved?.definition.token?.health?.read(resolved.data);
+      return JSON.stringify(health) === JSON.stringify(expected);
+    });
+  }
+
+  commitHealthChanges(
+    changes: TokenHealthHistoryChange[],
+    timestamp: string,
+  ): void {
+    for (const change of changes) {
+      const resolved = this.resolveHealthSource(change.source);
+      const healthDefinition = resolved?.definition.token?.health;
+      const current = resolved && healthDefinition
+        ? healthDefinition.read(resolved.data)
+        : null;
+      if (
+        !resolved ||
+        !healthDefinition ||
+        JSON.stringify(current) !== JSON.stringify(change.expected)
+      ) {
+        throw new Error('Token health changed before it could be saved.');
+      }
+      const data = healthDefinition.write(resolved.data, change.target);
+      if (!data || !resolved.definition.validateData(data)) {
+        throw new Error('The system rejected the token health state.');
+      }
+      if (change.source.kind === 'linked') {
+        this.database.connection.prepare(
+          `UPDATE journal_entries
+           SET data_json = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ?`,
+        ).run(JSON.stringify(data), timestamp, change.source.entryId);
+      } else {
+        this.database.connection.prepare(
+          `UPDATE scene_token_snapshots
+           SET data_json = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ?`,
+        ).run(JSON.stringify(data), timestamp, change.source.instanceId);
+      }
+    }
   }
 
   getTemplateSnapshot(
@@ -241,8 +390,21 @@ export class TokenRepository {
           },
         };
       }
+      const definition = getJournalEntryTypeDefinition(
+        this.database.readSystem(),
+        root.typeId,
+      );
+      const data = definition?.token?.health
+        ? definition.token.health.materialize(root.data, this.roll)
+        : root.data;
+      if (!data) {
+        return failure(
+          'invalid_input',
+          'The Character health formula could not be rolled.',
+        );
+      }
       snapshotSource = {
-        data: root.data,
+        data,
         name: root.name,
         rootEntryId: root.id,
         typeId: root.typeId,
@@ -403,8 +565,27 @@ export class TokenRepository {
     return changedTokens;
   }
 
-  convertDescendants(root: TokenRootSnapshot, timestamp: string): number {
+  convertDescendants(
+    root: TokenRootSnapshot,
+    previousData: JsonValue,
+    timestamp: string,
+  ): number {
     const snapshotChanges: TokenSnapshotChanges = emptyChanges();
+    let linkedSnapshotData = root.data;
+    if (root.token.type === 'template') {
+      const definition = getJournalEntryTypeDefinition(
+        this.database.readSystem(),
+        root.typeId,
+      );
+      const healthDefinition = definition?.token?.health;
+      const previousHealth = healthDefinition?.read(previousData);
+      if (healthDefinition && !healthDefinition.read(root.data) && previousHealth) {
+        const preserved = healthDefinition.write(root.data, previousHealth);
+        if (preserved && definition.validateData(preserved)) {
+          linkedSnapshotData = preserved;
+        }
+      }
+    }
     let converted = 0;
     const changedScenes = this.rewriteScenes(timestamp, ({ id, scene, images }) => {
       let changed = false;
@@ -417,7 +598,7 @@ export class TokenRepository {
             const snapshotId = this.createId();
             snapshotChanges.upserts.push({
               createdAt: timestamp,
-              data: structuredClone(root.data),
+              data: structuredClone(linkedSnapshotData),
               id: snapshotId,
               name: root.name,
               revision: 0,
@@ -564,31 +745,48 @@ export class TokenRepository {
     entryId: string,
     required: 'edit' | 'view',
   ): RootEntry | null {
+    if (
+      actor.kind === 'player' &&
+      !this.hasRootAccess(actor, entryId, required)
+    ) {
+      return null;
+    }
+    return this.readRootUnchecked(entryId);
+  }
+
+  private hasRootAccess(
+    actor: Extract<SceneEditActor, { kind: 'player' }>,
+    entryId: string,
+    required: 'edit' | 'view',
+  ): boolean {
     const row = this.database.connection.prepare(
-      `SELECT id, type_id, name, data_json, default_access
+      `SELECT default_access
+       FROM journal_entries
+       WHERE id = ?`,
+    ).get(entryId) as {
+      default_access: JournalAccessLevel;
+    } | undefined;
+    if (!row) return false;
+    const override = this.database.connection.prepare(
+      `SELECT access FROM journal_entry_permissions
+       WHERE entry_id = ? AND user_id = ?`,
+    ).get(entryId, actor.userId) as { access: JournalAccessLevel } | undefined;
+    const access = override?.access ?? row.default_access;
+    return required === 'edit' ? access === 'edit' : access !== 'none';
+  }
+
+  private readRootUnchecked(entryId: string): RootEntry | null {
+    const row = this.database.connection.prepare(
+      `SELECT id, type_id, name, data_json
        FROM journal_entries
        WHERE id = ?`,
     ).get(entryId) as {
       data_json: string;
-      default_access: JournalAccessLevel;
       id: string;
       name: string;
       type_id: string;
     } | undefined;
     if (!row) return null;
-    if (actor.kind === 'player') {
-      const override = this.database.connection.prepare(
-        `SELECT access FROM journal_entry_permissions
-         WHERE entry_id = ? AND user_id = ?`,
-      ).get(entryId, actor.userId) as { access: JournalAccessLevel } | undefined;
-      const access = override?.access ?? row.default_access;
-      if (
-        (required === 'edit' && access !== 'edit') ||
-        (required === 'view' && access === 'none')
-      ) {
-        return null;
-      }
-    }
     const definition = getJournalEntryTypeDefinition(
       this.database.readSystem(),
       row.type_id,
@@ -607,6 +805,29 @@ export class TokenRepository {
       name: row.name,
       token: definition.token.readDefaultToken(data as JsonValue),
       typeId: row.type_id,
+    };
+  }
+
+  private resolveHealthSource(source: SceneToken['source']): {
+    data: JsonValue;
+    definition: NonNullable<ReturnType<typeof getJournalEntryTypeDefinition>>;
+    rootEntryId: string;
+  } | null {
+    const record = source.kind === 'linked'
+      ? this.readRootUnchecked(source.entryId)
+      : this.readSnapshot(source.instanceId);
+    if (!record) return null;
+    const definition = getJournalEntryTypeDefinition(
+      this.database.readSystem(),
+      record.typeId,
+    );
+    if (!definition?.token?.health || !definition.validateData(record.data)) {
+      return null;
+    }
+    return {
+      data: structuredClone(record.data),
+      definition,
+      rootEntryId: source.entryId,
     };
   }
 

@@ -86,6 +86,13 @@ describe('external link validation', () => {
     expect(openExternal).toHaveBeenCalledWith('https://example.com/path');
   });
 
+  it('opens a mailto URL through the shell', async () => {
+    await expect(
+      handleOpenExternal()(null, { url: 'mailto:gm@example.com' }),
+    ).resolves.toBe(true);
+    expect(openExternal).toHaveBeenCalledWith('mailto:gm@example.com');
+  });
+
   it('refuses a javascript: URL', async () => {
     await expect(
       handleOpenExternal()(null, { url: 'javascript:alert(1)' }),

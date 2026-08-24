@@ -10,6 +10,24 @@ export type JournalEntryDefaultToken = {
   type: 'linked' | 'template';
 };
 
+export interface JournalEntryTokenHealthValue {
+  currentHundredths: number;
+  maximumHundredths: number;
+}
+
+/** System-owned health behavior used by the otherwise rules-neutral token core. */
+export interface JournalEntryTokenHealthDefinition<
+  TData extends JsonValue = JsonValue,
+> {
+  applyCommand(data: TData, command: string): TData | null;
+  materialize(
+    data: TData,
+    roll: (notation: string) => number,
+  ): TData | null;
+  read(data: TData): JournalEntryTokenHealthValue | null;
+  write(data: TData, value: JournalEntryTokenHealthValue): TData | null;
+}
+
 /**
  * Optional system-owned bridge between a rules record and core scene tokens.
  * Core can preserve a source reference and synchronize its visual projection
@@ -18,6 +36,7 @@ export type JournalEntryDefaultToken = {
 export interface JournalEntryTokenDefinition<
   TData extends JsonValue = JsonValue,
 > {
+  health?: JournalEntryTokenHealthDefinition<TData>;
   readDefaultToken(data: TData): JournalEntryDefaultToken;
   writeDefaultToken(
     data: TData,
@@ -38,6 +57,10 @@ export interface JournalEntryTypeDefinition<
   groupOrder: number;
   id: string;
   label: string;
+  prepareDataForSave?(
+    value: JsonValue,
+    roll: (notation: string) => number,
+  ): TData | null;
   token?: JournalEntryTokenDefinition<TData>;
   validateData(value: JsonValue): value is TData;
 }

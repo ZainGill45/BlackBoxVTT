@@ -27,7 +27,10 @@ import {
   sceneRecordSchema,
   sceneShapePreviewSchema,
 } from '../../shared/sceneSchema';
-import { sceneArrangementSchema } from '../../shared/sceneContracts';
+import {
+  sceneArrangementSchema,
+  sceneTokenHealthPresentationSchema,
+} from '../../shared/sceneContracts';
 import {
   chatRollCardSchema,
   chatRollDefinitionSchema,
@@ -611,6 +614,17 @@ export const protocolPayloadSchemas = {
     })
     .strict(),
   'client.scene_drawing_preview': drawingPreviewSchema,
+  'client.scene_health_adjust': z
+    .object({
+      command: z.string().min(1).max(128),
+      operationId: z.string().uuid(),
+      sceneId: z.string().uuid(),
+      tokenId: z.string().min(1).max(128),
+    })
+    .strict(),
+  'client.scene_health_list': z
+    .object({ sceneId: z.string().uuid() })
+    .strict(),
   'client.scene_shape_preview': shapePreviewSchema,
   'client.scene_objects_set': z
     .object({
@@ -822,6 +836,9 @@ export const protocolPayloadSchemas = {
     .object({ scene: sceneRecordSchema })
     .strict(),
   'server.scene_manifest': sceneManifestSchema,
+  'server.scene_health': z
+    .array(sceneTokenHealthPresentationSchema)
+    .max(MAX_SCENE_OBJECTS),
   'server.scenes_changed': sceneManifestSchema,
   'server.scene_presented': z
     .object({ scene: sceneRecordSchema.nullable() })

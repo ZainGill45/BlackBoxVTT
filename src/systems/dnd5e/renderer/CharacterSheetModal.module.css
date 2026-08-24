@@ -1298,6 +1298,10 @@
   white-space: nowrap;
 }
 
+.healthHeading {
+  text-align: center;
+}
+
 .healthPair,
 .hitDiceValues {
   display: inline-flex;

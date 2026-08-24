@@ -59,6 +59,7 @@ import type { JournalStore } from './journal/useJournal';
 import styles from './JournalPanel.module.css';
 
 interface JournalPanelProps {
+  altHeld?: () => boolean;
   assetApi?: AssetApi;
   campaignId?: string;
   journalApi?: JournalApi;
@@ -70,6 +71,7 @@ interface JournalPanelProps {
   journalStore?: JournalStore;
   journalWindowApi?: JournalWindowApi;
   networkApi?: NetworkApi;
+  onOpenLink?: (url: string) => void;
   role?: 'gm' | 'player';
   system?: CampaignSystemState;
 }
@@ -159,6 +161,7 @@ function JournalEntryRow({
 }
 
 export function JournalPanel({
+  altHeld,
   assetApi,
   campaignId = '',
   journalApi,
@@ -166,6 +169,7 @@ export function JournalPanel({
   journalStore,
   journalWindowApi,
   networkApi,
+  onOpenLink,
   role = 'gm',
   system,
 }: JournalPanelProps = {}) {
@@ -174,6 +178,7 @@ export function JournalPanel({
   }
   return (
     <ConnectedJournalPanel
+      altHeld={altHeld}
       assetApi={assetApi}
       campaignId={campaignId}
       journalApi={journalApi}
@@ -181,6 +186,7 @@ export function JournalPanel({
       journalStore={journalStore}
       journalWindowApi={journalWindowApi}
       networkApi={networkApi}
+      onOpenLink={onOpenLink}
       role={role}
       system={system ?? createDefaultCampaignSystemState()!}
     />
@@ -206,6 +212,7 @@ function JournalEmptyShell() {
 }
 
 function ConnectedJournalPanel({
+  altHeld,
   assetApi,
   campaignId,
   journalApi,
@@ -213,10 +220,19 @@ function ConnectedJournalPanel({
   journalStore,
   journalWindowApi,
   networkApi,
+  onOpenLink,
   role,
   system,
-}: Required<Omit<JournalPanelProps, 'journalWindowApi' | 'networkApi'>> &
-  Pick<JournalPanelProps, 'journalWindowApi' | 'networkApi'>) {
+}: Required<
+  Omit<
+    JournalPanelProps,
+    'altHeld' | 'journalWindowApi' | 'networkApi' | 'onOpenLink'
+  >
+> &
+  Pick<
+    JournalPanelProps,
+    'altHeld' | 'journalWindowApi' | 'networkApi' | 'onOpenLink'
+  >) {
   const entryTypes = useMemo(
     () => listJournalEntryTypeDefinitions(system),
     [system],
@@ -809,12 +825,14 @@ function ConnectedJournalPanel({
 
       {selectedNote ? (
         <NoteModal
+          altHeld={altHeld}
           assetApi={assetApi}
           campaignId={campaignId}
           initialPageId={selectedNote.pageId}
           journalApi={journalApi}
           note={selectedNote.note}
           onClose={() => setSelectedNote(null)}
+          onOpenLink={onOpenLink}
           onUpdated={acceptUpdatedNote}
           preparedPages={preparedPages}
           users={users}

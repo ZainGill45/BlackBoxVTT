@@ -25,6 +25,7 @@ import { convertDnd5eCharacterDataFromArchiveFormat5 } from './campaignArchiveFo
 import { convertDnd5eSpellFlatScalingFromFormat14 } from './campaignArchiveSpellFlatScaling';
 import { isDnd5eCharacterDataBeforeDefaultToken } from './campaignArchiveCharacterDefaultToken';
 import { isDnd5eCharacterDataBeforeTokenType } from './campaignArchiveCharacterTokenType';
+import { isDnd5eCharacterDataFromArchiveFormat17 } from './campaignArchiveFormat17';
 
 /**
  * Reading a campaign database that this release cannot open.
@@ -39,7 +40,7 @@ import { isDnd5eCharacterDataBeforeTokenType } from './campaignArchiveCharacterT
  */
 
 export type HistoricalCampaignFormatVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
 
 export type CampaignSalvageConversion =
   | 1
@@ -58,6 +59,7 @@ export type CampaignSalvageConversion =
   | 14
   | 15
   | 16
+  | 17
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -96,6 +98,10 @@ const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
 /** Canonical database schema shared by formats 7 through 16. */
 const FORMAT_7_TO_16_SCHEMA_FINGERPRINT =
   '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
+
+/** Canonical database schema shared by formats 17 and 18; HP JSON parts them. */
+const FORMAT_17_SCHEMA_FINGERPRINT =
+  '9aa1613743de31593ab11a6a1b5ceec6a4f8a6759059e19a00549a9b788cf761';
 
 function schemaFingerprint(connection: DatabaseSync): string {
   const rows = connection
@@ -460,6 +466,49 @@ function detectFormat16TokenType(
   return spellsMatch ? { ok: true, version: 16 } : null;
 }
 
+function detectFormat17Health(
+  connection: DatabaseSync,
+): CampaignFormatDetection | null {
+  const rows = [
+    ...connection.prepare(
+      `SELECT data_json FROM journal_entries
+       WHERE type_id = ? ORDER BY position`,
+    ).all(DND5E_CHARACTER_ENTRY_TYPE_ID),
+    ...connection.prepare(
+      `SELECT data_json FROM scene_token_snapshots
+       WHERE type_id = ? ORDER BY id`,
+    ).all(DND5E_CHARACTER_ENTRY_TYPE_ID),
+  ] as unknown as Array<{ data_json: string }>;
+  if (rows.length === 0) return null;
+  let hasSupersededHealth = false;
+  for (const row of rows) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.data_json);
+    } catch {
+      return null;
+    }
+    if (!isDnd5eCharacterDataFromArchiveFormat17(parsed)) return null;
+    if (!isDnd5eCharacterData(parsed as JsonValue)) {
+      hasSupersededHealth = true;
+    }
+  }
+  const spellsMatch = (connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ? ORDER BY position`,
+  ).all(DND5E_SPELL_ENTRY_TYPE_ID) as unknown as Array<{ data_json: string }>)
+    .every((row) => {
+      try {
+        return isDnd5eSpellData(JSON.parse(row.data_json));
+      } catch {
+        return false;
+      }
+    });
+  return hasSupersededHealth && spellsMatch
+    ? { ok: true, version: 17 }
+    : null;
+}
+
 function detectFormat13ActionEffects(
   connection: DatabaseSync,
 ): CampaignFormatDetection | null {
@@ -547,6 +596,13 @@ export function detectCampaignFormatVersion(
     if (format13) return format13;
     const format15 = detectFormat15DefaultTokens(connection);
     return format15 ?? detectFormat4To13CharacterEra(connection, true);
+  }
+  if (fingerprint === FORMAT_17_SCHEMA_FINGERPRINT) {
+    return detectFormat17Health(connection) ?? {
+      ok: false,
+      reason: 'This campaign\u2019s structure is already current, so an outdated ' +
+        'format is not what makes it unreadable.',
+    };
   }
   const schema = readTableColumns(connection);
   return {

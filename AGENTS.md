@@ -89,9 +89,13 @@ make those relationships clear in the code instead.
 
 ## Trust boundaries
 
-- Renderer IPC and remote network input are separate trust boundaries. Validate
-  data at each boundary and derive the actor from the authenticated sender or
-  connection; never accept an actor identity supplied by a renderer or peer.
+- Treat renderer IPC and remote network bytes as untrusted for application
+  safety and campaign integrity. Validate message shapes and bounds, derive
+  authenticated identities, preserve canonical data, and never expose
+  local-only capabilities remotely. Deliberate metagaming or valid gameplay
+  mutations made through a modified authenticated client are out of scope;
+  player secrecy and gameplay restrictions are enforced by the official UI,
+  not as an anti-cheat guarantee.
 - Keep network protocols explicitly versioned. Do not replace explicit IPC or
   TCP operations with a generic dispatcher that could expose a local-only
   capability remotely.

@@ -19,6 +19,9 @@ import type {
   SceneCampaignInput,
   SceneChangedEvent,
   SceneHistoryInput,
+  SceneTokenHealthInput,
+  AdjustSceneTokenHealthInput,
+  SceneTokenHealthPresentation,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
@@ -89,10 +92,12 @@ import {
 
 export const sceneIpcChannels = {
   changed: 'scenes:changed',
+  adjustTokenHealth: 'scenes:adjust-token-health',
   create: 'scenes:create',
   detachAsset: 'scenes:detach-asset',
   findDependents: 'scenes:find-dependents',
   list: 'scenes:list',
+  listTokenHealth: 'scenes:list-token-health',
   listUsers: 'scenes:list-users',
   present: 'scenes:present',
   previewCancel: 'scenes:preview-cancel',
@@ -126,10 +131,16 @@ export interface SceneError {
 export type SceneResult<T> = Result<T, SceneError>;
 
 export interface SceneApi {
+  adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneResult<SceneRecord>>;
   create(input: SceneCampaignInput): Promise<SceneResult<SceneRecord>>;
   detachAsset(input: SceneAssetInput): Promise<SceneResult<null>>;
   findDependents(input: SceneAssetInput): Promise<SceneResult<SceneRecord[]>>;
   list(input: SceneCampaignInput): Promise<SceneResult<SceneManifest>>;
+  listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>>;
   listUsers(input: SceneCampaignInput): Promise<SceneResult<PermissionSubject[]>>;
   onChanged(listener: (event: SceneChangedEvent) => void): () => void;
   present(input: PresentSceneInput): Promise<SceneResult<SceneManifest>>;

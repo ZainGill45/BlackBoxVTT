@@ -10,6 +10,7 @@ let nextContentsId = 1;
 class FakeWebContents extends EventEmitter {
   readonly id = nextContentsId++;
   readonly send = vi.fn();
+  readonly setWindowOpenHandler = vi.fn();
 
   isDestroyed() {
     return false;

@@ -44,12 +44,14 @@ import {
 } from '../../shared/network';
 import type {
   SceneError,
+  AdjustSceneTokenHealthInput,
   SceneHistoryInput,
   SceneManifest,
   SceneObjectState,
   ScenePatch,
   SceneRecord,
   SceneResult,
+  SceneTokenHealthPresentation,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
@@ -934,6 +936,43 @@ export class CampaignClient {
     return this.sceneMutation('client.scene_objects_set', input);
   }
 
+  async listSceneTokenHealth(input: {
+    sceneId: string;
+  }): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return this.sceneFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.scene_health_list',
+        input,
+        ['server.scene_health', 'server.scene_error'],
+      );
+      if (envelope.type === 'server.scene_error') {
+        return {
+          error: parsePayload('server.scene_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload('server.scene_health', envelope.payload),
+      };
+    } catch {
+      return this.sceneFailure('unavailable', 'Token health could not be read.');
+    }
+  }
+
+  adjustSceneTokenHealth(
+    input: Omit<AdjustSceneTokenHealthInput, 'campaignId'>,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.sceneMutation('client.scene_health_adjust', input);
+  }
+
   async undoSceneEdit(
     input: Omit<SceneHistoryInput, 'campaignId'>,
   ): Promise<SceneResult<SceneRecord>> {
@@ -1266,6 +1305,7 @@ export class CampaignClient {
   private async sceneMutation(
     type:
       | 'client.scene_objects_set'
+      | 'client.scene_health_adjust'
       | 'client.scene_redo'
       | 'client.scene_undo'
       | 'client.scene_update',

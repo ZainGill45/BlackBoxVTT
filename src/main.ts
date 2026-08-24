@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   powerMonitor,
   protocol,
   safeStorage,
@@ -10,9 +11,14 @@ import {
   type OpenDialogOptions,
   type SaveDialogOptions,
 } from 'electron';
+import { applicationIpcChannels } from './shared/application';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { registerApplicationIpcHandlers } from './main/applicationIpc';
+import {
+  denyInAppNavigation,
+  denyInAppWindowOpen,
+} from './main/externalNavigation';
 import { registerAssetIpcHandlers } from './main/assetIpc';
 import { AssetManager } from './main/assetManager';
 import { AssetPreviewRegistry } from './main/assetPreviewRegistry';
@@ -130,6 +136,42 @@ const createWindow = () => {
   // A renderer that cannot load will never report ready, and a permanently
   // invisible window would leave no way to see the failure. Aborted navigations
   // (-3) and subframes are not real failures.
+  denyInAppWindowOpen(
+    mainWindow.webContents,
+    (url) => shell.openExternal(url),
+  );
+  denyInAppNavigation(
+    mainWindow.webContents,
+    (url) => shell.openExternal(url),
+    (url) => url === mainWindow.webContents.getURL(),
+  );
+  /*
+   * Windows spends Alt on the native menu, so Alt+click never arrives as a
+   * modified click in the Journal. No menu, and the main process tells the
+   * renderer when Alt is held.
+   */
+  Menu.setApplicationMenu(null);
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.webContents.setIgnoreMenuShortcuts(true);
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (
+      input.key !== 'Alt' &&
+      input.code !== 'AltLeft' &&
+      input.code !== 'AltRight'
+    ) {
+      return;
+    }
+    mainWindow.webContents.send(
+      applicationIpcChannels.altHeld,
+      input.type === 'keyDown' && !input.control,
+    );
+  });
+  // Alt+Tab releases Alt somewhere else, so the key-up never lands here. A
+  // blurred window has no held modifiers as far as the Journal is concerned.
+  mainWindow.on('blur', () => {
+    if (mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(applicationIpcChannels.altHeld, false);
+  });
   mainWindow.webContents.on(
     'did-fail-load',
     (_event, errorCode, _description, _url, isMainFrame) => {
@@ -363,6 +405,9 @@ app.whenReady().then(() => {
   mainWindow.on('closed', () => {
     mainWindow = null;
     void journalWindowManager?.closeAll();
+  });
+  sceneManager.on('health-changed', (event) => {
+    journalManager?.notifyAuthoredDataChanged(event);
   });
   revealTimer = setTimeout(revealMainWindow, REVEAL_TIMEOUT_MS);
   registerNetworkIpcHandlers(

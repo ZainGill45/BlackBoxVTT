@@ -1,4 +1,7 @@
-import { applicationIpcChannels } from '../shared/application';
+import {
+  applicationIpcChannels,
+  parseExternalUrl,
+} from '../shared/application';
 
 export interface ApplicationIpcRegistrar {
   handle(
@@ -8,20 +11,6 @@ export interface ApplicationIpcRegistrar {
   on(channel: string, listener: () => void): void;
   removeHandler(channel: string): void;
   removeListener(channel: string, listener: () => void): void;
-}
-
-export function parseExternalHttpUrl(input: unknown): string | null {
-  if (typeof input !== 'string' || input.length > 16_384) {
-    return null;
-  }
-  try {
-    const url = new URL(input);
-    return url.protocol === 'http:' || url.protocol === 'https:'
-      ? url.toString()
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 export function registerApplicationIpcHandlers(
@@ -43,7 +32,7 @@ export function registerApplicationIpcHandlers(
       if (!input || typeof input !== 'object' || !('url' in input)) {
         return false;
       }
-      const url = parseExternalHttpUrl(input.url);
+      const url = parseExternalUrl(input.url);
       if (!url) {
         return false;
       }

@@ -1,8 +1,11 @@
 import {
   applySceneTransformPreview,
+  type AdjustSceneTokenHealthInput,
   type SceneHistoryInput,
   type SceneRecord,
   type SceneResult,
+  type SceneTokenHealthInput,
+  type SceneTokenHealthPresentation,
   type SceneTransformPreviewCancel,
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
@@ -13,8 +16,10 @@ import type { CampaignClient } from './campaignClient';
 
 type SceneClient = Pick<
   CampaignClient,
+  | 'adjustSceneTokenHealth'
   | 'cancelSceneTransform'
   | 'listScenes'
+  | 'listSceneTokenHealth'
   | 'redoSceneEdit'
   | 'sendSceneTransformPreview'
   | 'setSceneObjects'
@@ -61,9 +66,11 @@ export class JoinedSceneSession {
 
   createTransport(campaignId: string): JoinedSceneTransport {
     return {
+      adjustTokenHealth: (input) => this.adjustTokenHealth(input),
       cancelTransform: (input) => this.cancelTransform(input),
       getActiveScene: () => this.getActiveScene(campaignId),
       listScenes: () => this.client.listScenes(),
+      listTokenHealth: (input) => this.listTokenHealth(input),
       trashScene: (input) => this.client.trashScene(input),
       updateScene: (input) => this.client.updateScene(input),
       redo: (input) => this.redo(input),
@@ -195,6 +202,23 @@ export class JoinedSceneSession {
 
   private getActiveScene(campaignId: string): SceneRecord | null {
     return this.activeCampaignId === campaignId ? this.activeScene : null;
+  }
+
+  private adjustTokenHealth(
+    input: AdjustSceneTokenHealthInput,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.client.adjustSceneTokenHealth({
+      command: input.command,
+      operationId: input.operationId,
+      sceneId: input.sceneId,
+      tokenId: input.tokenId,
+    });
+  }
+
+  private listTokenHealth(
+    input: SceneTokenHealthInput,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
+    return this.client.listSceneTokenHealth({ sceneId: input.sceneId });
   }
 
   private async setObjects(

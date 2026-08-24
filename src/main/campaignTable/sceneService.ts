@@ -8,20 +8,29 @@ import {
   type ScenePatch,
   type SceneRecord,
   type SceneResult,
+  type SceneTokenHealthPresentation,
 } from '../../shared/scenes';
 import { projectSceneManifest } from '../scenePolicy';
-import type { SceneRepository } from '../sceneRepository';
+import type {
+  SceneRepository,
+  SceneRepositoryMutation,
+} from '../sceneRepository';
 
 type SceneStore = Pick<
   SceneRepository,
   | 'beginTransform'
   | 'cancelTransform'
+  | 'adjustTokenHealth'
+  | 'adjustTokenHealthWithEffects'
+  | 'listTokenHealth'
   | 'readManifest'
   | 'redo'
+  | 'redoWithEffects'
   | 'refreshTransform'
   | 'setObjects'
   | 'trash'
   | 'undo'
+  | 'undoWithEffects'
   | 'update'
 >;
 
@@ -55,6 +64,77 @@ export class CampaignSceneService {
       ...projected,
       scenes: projected.scenes.map((scene) => projectSceneForPlayer(scene)),
     };
+  }
+
+  async listTokenHealthForPlayer(
+    sceneId: string,
+    userId: string,
+  ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
+    const projected = projectSceneManifest(await this.scenes.readManifest(), {
+      kind: 'player',
+      userId,
+    });
+    if (!projected.scenes.some((scene) => scene.id === sceneId)) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'You cannot view this scene.',
+          sceneId,
+        },
+        ok: false,
+      };
+    }
+    return this.scenes.listTokenHealth(sceneId, actor(userId));
+  }
+
+  async adjustPlayerTokenHealth(
+    sceneId: string,
+    tokenId: string,
+    command: string,
+    operationId: string,
+    userId: string,
+  ): Promise<SceneResult<SceneRecord>> {
+    return (await this.adjustPlayerTokenHealthWithEffects(
+      sceneId,
+      tokenId,
+      command,
+      operationId,
+      userId,
+    )).result;
+  }
+
+  async adjustPlayerTokenHealthWithEffects(
+    sceneId: string,
+    tokenId: string,
+    command: string,
+    operationId: string,
+    userId: string,
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
+    const projected = projectSceneManifest(await this.scenes.readManifest(), {
+      kind: 'player',
+      userId,
+    });
+    if (!projected.scenes.some((scene) => scene.id === sceneId)) {
+      return {
+        authoredDataChangedEntryIds: [],
+        result: {
+          error: {
+            code: 'permission_denied',
+            message: 'You cannot view this scene.',
+            sceneId,
+          },
+          ok: false,
+        },
+      };
+    }
+    const outcome = await this.scenes.adjustTokenHealthWithEffects(
+      sceneId,
+      tokenId,
+      command,
+      operationId,
+      actor(userId),
+    );
+    return { ...outcome, result: projectResult(outcome.result) };
   }
 
   async updateForPlayer(
@@ -142,6 +222,18 @@ export class CampaignSceneService {
     return projectResult(
       await this.scenes[direction](sceneId, actor(userId)),
     );
+  }
+
+  async applyPlayerHistoryWithEffects(
+    direction: HistoryDirection,
+    sceneId: string,
+    userId: string,
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
+    const outcome = await this.scenes[`${direction}WithEffects`](
+      sceneId,
+      actor(userId),
+    );
+    return { ...outcome, result: projectResult(outcome.result) };
   }
 
   beginPlayerTransform(

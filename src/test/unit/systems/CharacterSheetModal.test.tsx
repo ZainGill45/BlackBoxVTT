@@ -268,6 +268,50 @@ describe('CharacterSheetModal token settings', () => {
     expect(within(playerSheet).getByRole('button', { name: 'Token Type' }))
       .toHaveAttribute('aria-disabled', 'true');
   });
+
+  it('accepts a health dice formula for Template Characters', async () => {
+    const user = userEvent.setup();
+    const entry = characterEntry();
+    (entry.data as Dnd5eCharacterData).defaultToken.type = 'template';
+    const { journalApi, sheet } = renderCharacterSheet(entry);
+    const current = within(sheet).getByRole('textbox', {
+      name: 'Current hit points',
+    });
+    const maximum = within(sheet).getByRole('textbox', {
+      name: 'Maximum hit points',
+    });
+    expect(maximum).toHaveAttribute('inputmode', 'text');
+    await user.clear(current);
+    await user.type(current, '8');
+    await user.clear(maximum);
+    await user.type(maximum, 'd10 + 10');
+    await user.tab();
+
+    await waitFor(() => expect(journalApi.updateEntryData).toHaveBeenCalled());
+    expect(vi.mocked(journalApi.updateEntryData).mock.calls.at(-1)?.[0].data)
+      .toMatchObject({
+        health: {
+          currentHitPoints: '8',
+          maximumHitPoints: 'd10 + 10',
+        },
+      });
+  });
+
+  it('silently restores persisted HP when an invalid pair loses focus', async () => {
+    const user = userEvent.setup();
+    const { journalApi, sheet } = renderCharacterSheet();
+    const current = within(sheet).getByRole('textbox', {
+      name: 'Current hit points',
+    });
+    await user.clear(current);
+    await user.type(current, 'not health');
+    await user.tab();
+
+    await waitFor(() => expect(current).toHaveValue('7'));
+    expect(journalApi.updateEntryData).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Character sheet error' }))
+      .not.toBeInTheDocument();
+  });
 });
 
 describe('CharacterSheetModal chat actions', () => {

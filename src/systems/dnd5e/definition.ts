@@ -3,6 +3,7 @@ import type { GameSystemDefinition } from '../types';
 import {
   createDefaultDnd5eCharacterData,
   isDnd5eCharacterData,
+  prepareDnd5eCharacterDataForSave,
   type Dnd5eCharacterData,
   type Dnd5eRulesVersion,
 } from './characterData';
@@ -17,6 +18,12 @@ import {
   describeDnd5eSpellData,
   isDnd5eSpellData,
 } from './spellData';
+import {
+  applyDnd5eTokenHealthCommand,
+  materializeDnd5eTokenHealth,
+  readDnd5eTokenHealth,
+  writeDnd5eTokenHealth,
+} from './tokenHealth';
 
 export {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
@@ -54,7 +61,19 @@ export const dnd5eSystem = {
       groupOrder: 0,
       id: DND5E_CHARACTER_ENTRY_TYPE_ID,
       label: 'Character',
+      prepareDataForSave: prepareDnd5eCharacterDataForSave,
       token: {
+        health: {
+          applyCommand: (data: Dnd5eCharacterData, command: string) =>
+            applyDnd5eTokenHealthCommand(data, command),
+          materialize: (
+            data: Dnd5eCharacterData,
+            roll: (notation: string) => number,
+          ) => materializeDnd5eTokenHealth(data, roll),
+          read: (data: Dnd5eCharacterData) => readDnd5eTokenHealth(data),
+          write: (data: Dnd5eCharacterData, value) =>
+            writeDnd5eTokenHealth(data, value),
+        },
         readDefaultToken: (data: Dnd5eCharacterData) =>
           structuredClone(data.defaultToken),
         writeDefaultToken: (data: Dnd5eCharacterData, token) => ({

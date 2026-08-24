@@ -53,12 +53,14 @@ import styles from './NoteModal.module.css';
 type SaveStatus = 'dirty' | 'failed' | 'loading' | 'saved' | 'saving';
 
 interface NoteModalProps {
+  altHeld?: () => boolean;
   assetApi: AssetApi;
   campaignId: string;
   initialPageId?: string;
   journalApi: JournalApi;
   note: NoteEntry;
   onClose: () => void;
+  onOpenLink?: (url: string) => void;
   onUpdated: (note: NoteEntry | null) => void;
   preparedPages?: ReadonlyMap<string, JournalPage>;
   users: PermissionSubject[];
@@ -105,12 +107,14 @@ function pageAccessLabel(
 }
 
 export function NoteModal({
+  altHeld,
   assetApi,
   campaignId,
   initialPageId,
   journalApi,
   note,
   onClose,
+  onOpenLink,
   onUpdated,
   preparedPages,
   users,
@@ -1351,6 +1355,7 @@ export function NoteModal({
 
             {page && content ? (
               <RichTextEditor
+                altHeld={altHeld}
                 assetApi={assetApi}
                 campaignId={campaignId}
                 content={content}
@@ -1364,6 +1369,7 @@ export function NoteModal({
                   setPageStatus('dirty');
                 }}
                 onChooseImage={(insert) => setChooser(() => insert)}
+                onOpenLink={onOpenLink}
                 titleFormatting={titleFormatting}
               />
             ) : (

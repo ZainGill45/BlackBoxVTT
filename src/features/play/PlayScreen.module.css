@@ -155,3 +155,22 @@
   place-items: center;
   color: var(--color-text-muted);
 }
+
+/* Sized and placed entirely from the bar's live screen rect, so it reads as the
+   bar itself rather than a panel floating over the canvas. The bar draws its own
+   fill and outline in the scene; this contributes only the caret and text. */
+.healthEditor {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  align-items: center;
+  /* Proportional so the inset shrinks with the bar instead of crowding it. */
+  padding-inline: 0.25em;
+  color: var(--color-scene-selection-strong);
+  line-height: 1;
+}
+
+.healthEditor input {
+  color: inherit;
+  caret-color: inherit;
+}

@@ -112,6 +112,30 @@ export const setSceneFogInputSchema = trashSceneInputSchema.extend({
 export const sceneHistoryInputSchema = sceneCampaignInputSchema.extend({
   sceneId: z.string().uuid(),
 });
+export const sceneTokenHealthInputSchema = sceneCampaignInputSchema.extend({
+  sceneId: z.string().uuid(),
+});
+export const adjustSceneTokenHealthInputSchema = sceneTokenHealthInputSchema.extend({
+  command: z.string().min(1).max(128),
+  operationId: z.string().uuid(),
+  tokenId: z.string().min(1).max(128),
+});
+export const sceneTokenHealthPresentationSchema = z
+  .object({
+    currentHundredths: z.number().int().safe().optional(),
+    down: z.boolean(),
+    editable: z.boolean(),
+    maximumHundredths: z.number().int().safe().optional(),
+    ratio: z.number().min(0).max(1),
+    tokenId: z.string().min(1).max(128),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      (value.currentHundredths === undefined) ===
+        (value.maximumHundredths === undefined),
+    'Exact current and maximum health must be present together.',
+  );
 export const sceneEditActorSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('gm') }).strict(),
   z
@@ -173,6 +197,13 @@ export type SceneFogMutation = z.infer<typeof sceneFogMutationSchema>;
 export type SetSceneFogInput = z.infer<typeof setSceneFogInputSchema>;
 export type SceneArrangement = z.infer<typeof sceneArrangementSchema>;
 export type SceneHistoryInput = z.infer<typeof sceneHistoryInputSchema>;
+export type SceneTokenHealthInput = z.infer<typeof sceneTokenHealthInputSchema>;
+export type AdjustSceneTokenHealthInput = z.infer<
+  typeof adjustSceneTokenHealthInputSchema
+>;
+export type SceneTokenHealthPresentation = z.infer<
+  typeof sceneTokenHealthPresentationSchema
+>;
 export type SceneEditActor = z.infer<typeof sceneEditActorSchema>;
 export type SceneTransformPreviewStart = z.infer<
   typeof sceneTransformPreviewStartSchema

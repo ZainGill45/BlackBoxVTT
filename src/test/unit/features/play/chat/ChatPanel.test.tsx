@@ -58,6 +58,7 @@ let applicationApi: ApplicationApi;
 beforeEach(() => {
   playChatMessageSound.mockReset();
   applicationApi = {
+    altHeld: vi.fn(() => false),
     openExternal: vi.fn(async () => true),
     quit: vi.fn(),
     ready: vi.fn(),

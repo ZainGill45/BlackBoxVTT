@@ -288,6 +288,7 @@ describe('App campaign integration', () => {
 
   it('reports ready once campaigns resolve so the host window can be shown', async () => {
     const applicationApi: ApplicationApi = {
+      altHeld: vi.fn(() => false),
       openExternal: vi.fn(async () => true),
       quit: vi.fn(),
       ready: vi.fn(),
@@ -310,6 +311,7 @@ describe('App campaign integration', () => {
     // Without this the window would stay hidden on any storage failure, leaving
     // the app running with nothing on screen.
     const applicationApi: ApplicationApi = {
+      altHeld: vi.fn(() => false),
       openExternal: vi.fn(async () => true),
       quit: vi.fn(),
       ready: vi.fn(),
@@ -784,6 +786,7 @@ describe('App campaign integration', () => {
   it('sends an immediate application quit request from play', async () => {
     const user = userEvent.setup();
     const applicationApi: ApplicationApi = {
+      altHeld: vi.fn(() => false),
       openExternal: vi.fn(async () => true),
       quit: vi.fn(),
       ready: vi.fn(),

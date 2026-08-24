@@ -1,10 +1,15 @@
 import {
   BrowserWindow,
   screen,
+  shell,
   type BrowserWindowConstructorOptions,
   type Rectangle,
   type WebContents,
 } from 'electron';
+import {
+  denyInAppNavigation,
+  denyInAppWindowOpen,
+} from './externalNavigation';
 import {
   journalWindowIpcChannels,
   type DetachedCharacterContext,
@@ -189,6 +194,12 @@ export class JournalWindowManager {
       false,
     );
     window.setAlwaysOnTop(true, 'screen-saver');
+    denyInAppWindowOpen(window.webContents, (url) => shell.openExternal(url));
+    denyInAppNavigation(
+      window.webContents,
+      (url) => shell.openExternal(url),
+      (url) => url === window.webContents.getURL(),
+    );
     let resolveClosed: () => void = () => undefined;
     const closed = new Promise<void>((resolve) => {
       resolveClosed = resolve;

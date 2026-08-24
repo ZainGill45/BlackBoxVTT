@@ -87,7 +87,6 @@ typings/
 
 # Vite
 .vite/
-ui-catalog/dist/
 
 # Electron-Forge
 out/

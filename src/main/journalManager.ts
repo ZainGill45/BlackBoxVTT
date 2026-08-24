@@ -438,6 +438,10 @@ export class JournalManager extends EventEmitter {
     this.emit('changed', event);
   }
 
+  notifyAuthoredDataChanged(event: JournalChangedEvent): void {
+    this.changed(event);
+  }
+
   releaseCampaign(campaignId: string): void {
     this.contentGenerations.set(
       campaignId,

@@ -39,6 +39,7 @@ import {
   type SceneShape,
   type SceneText,
   type SceneToken,
+  type SceneTokenHealthPresentation,
 } from '../shared/scenes';
 import type {
   SceneAccessLevel,
@@ -60,6 +61,7 @@ import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 import {
   TokenRepository,
+  type TokenHealthHistoryChange,
   type TokenSnapshotHistoryChange,
   type TokenSnapshotChanges,
 } from './tokenRepository';
@@ -81,6 +83,11 @@ interface SceneRepositoryOptions {
   tokens?: TokenRepository;
   touchCampaign?: () => Promise<void>;
   warn?: (message: string, error?: unknown) => void;
+}
+
+export interface SceneRepositoryMutation<T> {
+  authoredDataChangedEntryIds: string[];
+  result: SceneResult<T>;
 }
 
 function failure<T>(
@@ -167,6 +174,7 @@ interface SceneHistoryCommand {
     target: SceneFog;
   };
   sceneId: string;
+  tokenHealth?: TokenHealthHistoryChange[];
   tokenSnapshots?: TokenSnapshotHistoryChange[];
 }
 
@@ -1264,6 +1272,13 @@ export class SceneRepository {
     sceneId: string,
     actor: SceneEditActor,
   ): Promise<SceneResult<SceneRecord>> {
+    return this.undoWithEffects(sceneId, actor).then(({ result }) => result);
+  }
+
+  undoWithEffects(
+    sceneId: string,
+    actor: SceneEditActor,
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
     return this.applyHistory(sceneId, actor, false);
   }
 
@@ -1271,6 +1286,13 @@ export class SceneRepository {
     sceneId: string,
     actor: SceneEditActor,
   ): Promise<SceneResult<SceneRecord>> {
+    return this.redoWithEffects(sceneId, actor).then(({ result }) => result);
+  }
+
+  redoWithEffects(
+    sceneId: string,
+    actor: SceneEditActor,
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
     return this.applyHistory(sceneId, actor, true);
   }
 
@@ -1992,8 +2014,8 @@ export class SceneRepository {
     sceneId: string,
     actor: SceneEditActor,
     redo: boolean,
-  ): Promise<SceneResult<SceneRecord>> {
-    return this.mutate(async (manifest) => {
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
+    return this.mutateWithEffects(async (manifest) => {
       const current = manifest.scenes.find((scene) => scene.id === sceneId);
       if (!current) {
         return failure('not_found', 'The scene no longer exists.', sceneId);
@@ -2014,7 +2036,9 @@ export class SceneRepository {
             JSON.stringify(command.fog.expected) ===
               JSON.stringify(current.fog)) &&
           (!command.tokenSnapshots ||
-            this.tokens.historyMatches(command.tokenSnapshots))
+            this.tokens.historyMatches(command.tokenSnapshots)) &&
+          (!command.tokenHealth ||
+            this.tokens.healthHistoryMatches(command.tokenHealth))
         ) {
           break;
         }
@@ -2106,6 +2130,17 @@ export class SceneRepository {
             }
           : {}),
         sceneId,
+        ...(command.tokenHealth
+          ? {
+              tokenHealth: command.tokenHealth.map(
+                ({ expected, source, target }) => ({
+                  expected: structuredClone(target),
+                  source: structuredClone(source),
+                  target: structuredClone(expected),
+                }),
+              ),
+            }
+          : {}),
         ...(command.tokenSnapshots
           ? {
               tokenSnapshots: command.tokenSnapshots.map(
@@ -2132,6 +2167,9 @@ export class SceneRepository {
           ),
         },
         result: { ok: true, value: next },
+        ...(command.tokenHealth
+          ? { healthChanges: structuredClone(command.tokenHealth) }
+          : {}),
         ...(command.tokenSnapshots
           ? { tokenChanges: this.tokens.applyHistory(command.tokenSnapshots) }
           : {}),
@@ -2330,24 +2368,42 @@ export class SceneRepository {
    * Runs a mutation against the current manifest. Returning a `manifest` writes
    * it and bumps the manifest revision; returning a bare result writes nothing.
    */
-  private mutate<T>(
+  private async mutate<T>(
     operation: (
       manifest: SceneManifest,
     ) => Promise<
       | SceneResult<T>
       | {
           completedOperation?: CompletedSceneOperation;
+          healthChanges?: TokenHealthHistoryChange[];
           manifest: SceneManifest;
           result: SceneResult<T>;
           tokenChanges?: TokenSnapshotChanges;
         }
     >,
   ): Promise<SceneResult<T>> {
+    return (await this.mutateWithEffects(operation)).result;
+  }
+
+  private mutateWithEffects<T>(
+    operation: (
+      manifest: SceneManifest,
+    ) => Promise<
+      | SceneResult<T>
+      | {
+          completedOperation?: CompletedSceneOperation;
+          healthChanges?: TokenHealthHistoryChange[];
+          manifest: SceneManifest;
+          result: SceneResult<T>;
+          tokenChanges?: TokenSnapshotChanges;
+        }
+    >,
+  ): Promise<SceneRepositoryMutation<T>> {
     return this.mutations.run(async () => {
       const manifest = await this.readManifest();
       const outcome = await operation(manifest);
       if (!('manifest' in outcome)) {
-        return outcome;
+        return { authoredDataChangedEntryIds: [], result: outcome };
       }
       try {
         await this.writeManifest(
@@ -2357,13 +2413,121 @@ export class SceneRepository {
           },
           outcome.completedOperation,
           outcome.tokenChanges,
+          outcome.healthChanges,
         );
       } catch (error) {
         this.warn('Failed to write the scene manifest.', error);
-        return failure('storage_error', 'The scene could not be saved.');
+        return {
+          authoredDataChangedEntryIds: [],
+          result: failure('storage_error', 'The scene could not be saved.'),
+        };
       }
       await this.touchAfterChange();
-      return outcome.result;
+      return {
+        authoredDataChangedEntryIds: [
+          ...new Set(
+            (outcome.healthChanges ?? []).flatMap(({ source }) =>
+              source.kind === 'linked' ? [source.entryId] : [],
+            ),
+          ),
+        ],
+        result: outcome.result,
+      };
+    });
+  }
+
+  listTokenHealth(
+    sceneId: string,
+    actor: SceneEditActor,
+  ): SceneResult<SceneTokenHealthPresentation[]> {
+    return this.tokens.listHealth(actor, sceneId);
+  }
+
+  adjustTokenHealth(
+    sceneId: string,
+    tokenId: string,
+    command: string,
+    operationId: string,
+    actor: SceneEditActor,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.adjustTokenHealthWithEffects(
+      sceneId,
+      tokenId,
+      command,
+      operationId,
+      actor,
+    ).then(({ result }) => result);
+  }
+
+  adjustTokenHealthWithEffects(
+    sceneId: string,
+    tokenId: string,
+    command: string,
+    operationId: string,
+    actor: SceneEditActor,
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
+    return this.mutateWithEffects(async (manifest) => {
+      const current = manifest.scenes.find((scene) => scene.id === sceneId);
+      if (!current) {
+        return failure('not_found', 'The scene no longer exists.', sceneId);
+      }
+      const completedOperation: CompletedSceneOperation = {
+        actorKey: actorKey(actor),
+        operationId,
+        sceneId,
+      };
+      try {
+        if (this.hasCompletedOperation(completedOperation)) {
+          return { ok: true, value: current };
+        }
+      } catch (error) {
+        this.warn('Failed to read durable health operation state.', error);
+        return failure('storage_error', 'The health could not be saved.', sceneId);
+      }
+      const prepared = this.tokens.prepareHealthAdjustment(
+        actor,
+        current,
+        tokenId,
+        command,
+      );
+      if (!prepared.ok) return prepared;
+      if (JSON.stringify(prepared.value.expected) === JSON.stringify(
+        prepared.value.target,
+      )) {
+        try {
+          this.rememberOperation(completedOperation);
+        } catch (error) {
+          this.warn('Failed to store durable health operation state.', error);
+          return failure('storage_error', 'The health could not be saved.', sceneId);
+        }
+        return { ok: true, value: current };
+      }
+      const timestamp = this.now().toISOString();
+      const next: SceneRecord = {
+        ...current,
+        revision: current.revision + 1,
+        updatedAt: timestamp,
+      };
+      this.recordHistory(actor, {
+        changes: [],
+        sceneId,
+        tokenHealth: [{
+          expected: structuredClone(prepared.value.target),
+          source: structuredClone(prepared.value.source),
+          target: structuredClone(prepared.value.expected),
+        }],
+      });
+      return {
+        completedOperation,
+        healthChanges: [prepared.value],
+        manifest: {
+          ...manifest,
+          scenes: manifest.scenes.map((scene) =>
+            scene.id === sceneId ? next : scene,
+          ),
+        },
+        result: { ok: true, value: next },
+      };
     });
   }
 
@@ -2382,6 +2546,7 @@ export class SceneRepository {
     manifest: SceneManifest,
     completedOperation?: CompletedSceneOperation,
     tokenChanges?: TokenSnapshotChanges,
+    healthChanges?: TokenHealthHistoryChange[],
   ): Promise<void> {
     const parsed = sceneManifestSchema.parse(manifest);
     const database = this.database.connection;
@@ -2414,6 +2579,9 @@ export class SceneRepository {
         insert.run(scene.id, position, JSON.stringify(scene));
       });
       if (tokenChanges) this.tokens.commitChanges(tokenChanges);
+      if (healthChanges) {
+        this.tokens.commitHealthChanges(healthChanges, this.now().toISOString());
+      }
       database
         .prepare(
           `UPDATE scene_manifest

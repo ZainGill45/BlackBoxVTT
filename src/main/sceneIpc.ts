@@ -3,9 +3,11 @@ import { sceneIpcChannels, type SceneResult } from '../shared/scenes';
 import type { SceneManager } from './sceneManager';
 import {
   presentSceneInputSchema as presentSchema,
+  adjustSceneTokenHealthInputSchema as adjustTokenHealthSchema,
   sceneAssetInputSchema as assetSchema,
   sceneCampaignInputSchema as campaignSchema,
   sceneHistoryInputSchema as historySchema,
+  sceneTokenHealthInputSchema as tokenHealthSchema,
   sceneTransformPreviewCancelSchema as previewCancelSchema,
   sceneTransformPreviewDeltaSchema as previewUpdateSchema,
   sceneTransformPreviewStartSchema as previewStartSchema,
@@ -34,10 +36,12 @@ export function registerSceneIpcHandlers(
   getAllowedWebContents: () => WebContents | null,
 ) {
   const requestChannels = [
+    sceneIpcChannels.adjustTokenHealth,
     sceneIpcChannels.create,
     sceneIpcChannels.detachAsset,
     sceneIpcChannels.findDependents,
     sceneIpcChannels.list,
+    sceneIpcChannels.listTokenHealth,
     sceneIpcChannels.present,
     sceneIpcChannels.previewCancel,
     sceneIpcChannels.previewStart,
@@ -65,6 +69,14 @@ export function registerSceneIpcHandlers(
   handle(sceneIpcChannels.list, (input) => {
     const parsed = campaignSchema.safeParse(input);
     return parsed.success ? manager.list(parsed.data.campaignId) : invalid();
+  });
+  handle(sceneIpcChannels.listTokenHealth, (input) => {
+    const parsed = tokenHealthSchema.safeParse(input);
+    return parsed.success ? manager.listTokenHealth(parsed.data) : invalid();
+  });
+  handle(sceneIpcChannels.adjustTokenHealth, (input) => {
+    const parsed = adjustTokenHealthSchema.safeParse(input);
+    return parsed.success ? manager.adjustTokenHealth(parsed.data) : invalid();
   });
   handle(sceneIpcChannels.listUsers, (input) => {
     const parsed = campaignSchema.safeParse(input);

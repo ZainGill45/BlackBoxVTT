@@ -9,8 +9,10 @@ type IpcInvoke = (channel: string, input: unknown) => Promise<unknown>;
 export function createApplicationApi(
   send: IpcSend,
   invoke: IpcInvoke = async () => false,
+  isAltHeld: () => boolean = () => false,
 ): ApplicationApi {
   return {
+    altHeld: () => isAltHeld(),
     openExternal: (url) =>
       invoke(applicationIpcChannels.openExternal, { url }) as Promise<boolean>,
     quit: () => {

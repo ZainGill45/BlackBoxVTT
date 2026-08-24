@@ -1,5 +1,10 @@
 import type { JsonValue } from '../../shared/gameSystems';
 import { MAX_JOURNAL_ENTRIES } from '../../shared/journal';
+import {
+  isValidDnd5eAuthoredHealth,
+  materializeDnd5eTokenHealth,
+  readDnd5eTokenHealth,
+} from './tokenHealth';
 
 export const MAX_DND5E_CHARACTER_FIELD_CODE_UNITS = 128;
 export const MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS = 16_384;
@@ -1363,6 +1368,10 @@ export function isDnd5eCharacterData(
     defaultToken.size.width > MAX_DND5E_TOKEN_SIZE ||
     (defaultToken.type !== 'linked' && defaultToken.type !== 'template') ||
     !hasExactHealthFields(value.health) ||
+    !isValidDnd5eAuthoredHealth({
+      defaultToken: defaultToken as Dnd5eCharacterData['defaultToken'],
+      health: value.health,
+    }) ||
     !isRecord(identity) ||
     !hasExactKeys(identity, IDENTITY_KEYS) ||
     !IDENTITY_STRING_KEYS.every((key) => isBoundedString(identity[key])) ||
@@ -1455,6 +1464,48 @@ export function isDnd5eCharacterData(
     value as unknown as Dnd5eCharacterData,
     '5.5e',
   ) !== null;
+}
+
+/**
+ * Formula health is briefly valid with a requested Linked type only at the
+ * save boundary; the authority immediately materializes it before persistence.
+ */
+export function isDnd5eCharacterDataSaveCandidate(
+  value: JsonValue,
+): boolean {
+  if (isDnd5eCharacterData(value)) return true;
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    Array.isArray(value) ||
+    typeof value.defaultToken !== 'object' ||
+    value.defaultToken === null ||
+    Array.isArray(value.defaultToken) ||
+    value.defaultToken.type !== 'linked'
+  ) {
+    return false;
+  }
+  const candidate = structuredClone(value) as unknown as Dnd5eCharacterData;
+  candidate.defaultToken.type = 'template';
+  return isDnd5eCharacterData(candidate);
+}
+
+export function prepareDnd5eCharacterDataForSave(
+  value: JsonValue,
+  roll: (notation: string) => number,
+): Dnd5eCharacterData | null {
+  if (isDnd5eCharacterData(value)) {
+    return readDnd5eTokenHealth(value)
+      ? materializeDnd5eTokenHealth(value, roll)
+      : structuredClone(value);
+  }
+  if (!isDnd5eCharacterDataSaveCandidate(value)) return null;
+  const candidate = structuredClone(value) as Dnd5eCharacterData;
+  candidate.defaultToken.type = 'template';
+  const materialized = materializeDnd5eTokenHealth(candidate, roll);
+  if (!materialized) return null;
+  materialized.defaultToken.type = 'linked';
+  return isDnd5eCharacterData(materialized) ? materialized : null;
 }
 
 function repairDnd5eActionLinks(

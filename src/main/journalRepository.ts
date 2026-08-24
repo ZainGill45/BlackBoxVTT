@@ -446,7 +446,10 @@ export class JournalRepository {
           });
         }
         const definition = getJournalEntryTypeDefinition(this.system, entry.type_id);
-        if (!definition || !definition.validateData(input.data)) {
+        const preparedData = definition
+          ? this.tokens.prepareRootDataForSave(entry.type_id, input.data)
+          : null;
+        if (!definition || !preparedData || !definition.validateData(preparedData)) {
           return failure('invalid_input', 'The Journal entry data is invalid.', {
             entryId: input.entryId,
           });
@@ -456,7 +459,7 @@ export class JournalRepository {
           ? definition.token.readDefaultToken(previousData)
           : null;
         const nextToken = definition.token
-          ? definition.token.readDefaultToken(input.data)
+          ? definition.token.readDefaultToken(preparedData)
           : null;
         const tokenChanged = !!previousToken && !!nextToken &&
           JSON.stringify(previousToken) !== JSON.stringify(nextToken);
@@ -486,7 +489,7 @@ export class JournalRepository {
             { entryId: input.entryId },
           );
         }
-        const dataJson = JSON.stringify(input.data);
+        const dataJson = JSON.stringify(preparedData);
         const timestamp = this.now().toISOString();
         this.transaction(() => {
           this.database.connection.prepare(
@@ -503,12 +506,12 @@ export class JournalRepository {
           if (tokenChanged && previousToken && nextToken) {
             if (tokenTypeChanged) {
               this.tokens.convertDescendants({
-                data: structuredClone(input.data),
+                data: structuredClone(preparedData),
                 entryId: input.entryId,
                 name: entry.name,
                 token: nextToken,
                 typeId: entry.type_id,
-              }, timestamp);
+              }, previousData, timestamp);
             } else {
               this.synchronizeLinkedTokens(
                 input.entryId,
