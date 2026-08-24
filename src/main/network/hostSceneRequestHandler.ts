@@ -25,6 +25,9 @@ type PlayerSceneService = Pick<
   | 'adjustPlayerTokenHealthWithEffects'
   | 'listForPlayer'
   | 'listTokenHealthForPlayer'
+  | 'getTokenInspectorForPlayer'
+  | 'resolveTokenInspectorRollForPlayer'
+  | 'mutatePlayerTokenInspectorWithEffects'
   | 'setPlayerObjects'
   | 'trashForPlayer'
   | 'updateForPlayer'
@@ -114,6 +117,77 @@ export class HostSceneRequestHandler {
         await this.options.onSceneMutation(
           outcome.authoredDataChangedEntryIds,
         );
+      }
+      return true;
+    }
+    if (envelope.type === 'client.scene_inspector_get') {
+      const input = parsePayload('client.scene_inspector_get', envelope.payload);
+      const result = await this.options.scenes.getTokenInspectorForPlayer(
+        input.sceneId,
+        input.tokenId,
+        client.user.id,
+      );
+      if (!result.ok) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.scene_error',
+          result.error,
+          envelope.requestId,
+        );
+        return true;
+      }
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.scene_inspector',
+        result.value,
+        envelope.requestId,
+      );
+      return true;
+    }
+    if (envelope.type === 'client.scene_inspector_roll_resolve') {
+      const input = parsePayload(
+        'client.scene_inspector_roll_resolve',
+        envelope.payload,
+      );
+      const result = await this.options.scenes.resolveTokenInspectorRollForPlayer(
+        input.sceneId,
+        input.tokenId,
+        input.fieldId,
+        client.user.id,
+      );
+      if (!result.ok) {
+        writeEnvelope(
+          client.socket as unknown as Socket,
+          'server.scene_error',
+          result.error,
+          envelope.requestId,
+        );
+        return true;
+      }
+      writeEnvelope(
+        client.socket as unknown as Socket,
+        'server.scene_inspector_roll',
+        result.value,
+        envelope.requestId,
+      );
+      return true;
+    }
+    if (envelope.type === 'client.scene_inspector_mutate') {
+      const input = parsePayload(
+        'client.scene_inspector_mutate',
+        envelope.payload,
+      );
+      const outcome = await this.options.scenes
+        .mutatePlayerTokenInspectorWithEffects(
+          input.sceneId,
+          input.tokenId,
+          input.mutation,
+          input.operationId,
+          client.user.id,
+        );
+      this.sendResult(client, outcome.result, envelope.requestId);
+      if (outcome.result.ok) {
+        await this.options.onSceneMutation(outcome.authoredDataChangedEntryIds);
       }
       return true;
     }

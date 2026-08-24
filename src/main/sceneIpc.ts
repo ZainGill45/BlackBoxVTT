@@ -8,6 +8,9 @@ import {
   sceneCampaignInputSchema as campaignSchema,
   sceneHistoryInputSchema as historySchema,
   sceneTokenHealthInputSchema as tokenHealthSchema,
+  sceneTokenInspectorInputSchema as tokenInspectorSchema,
+  mutateSceneTokenInspectorInputSchema as mutateTokenInspectorSchema,
+  resolveSceneTokenInspectorRollInputSchema as resolveTokenInspectorRollSchema,
   sceneTransformPreviewCancelSchema as previewCancelSchema,
   sceneTransformPreviewDeltaSchema as previewUpdateSchema,
   sceneTransformPreviewStartSchema as previewStartSchema,
@@ -42,6 +45,9 @@ export function registerSceneIpcHandlers(
     sceneIpcChannels.findDependents,
     sceneIpcChannels.list,
     sceneIpcChannels.listTokenHealth,
+    sceneIpcChannels.getTokenInspector,
+    sceneIpcChannels.mutateTokenInspector,
+    sceneIpcChannels.resolveTokenInspectorRoll,
     sceneIpcChannels.present,
     sceneIpcChannels.previewCancel,
     sceneIpcChannels.previewStart,
@@ -77,6 +83,20 @@ export function registerSceneIpcHandlers(
   handle(sceneIpcChannels.adjustTokenHealth, (input) => {
     const parsed = adjustTokenHealthSchema.safeParse(input);
     return parsed.success ? manager.adjustTokenHealth(parsed.data) : invalid();
+  });
+  handle(sceneIpcChannels.getTokenInspector, (input) => {
+    const parsed = tokenInspectorSchema.safeParse(input);
+    return parsed.success ? manager.getTokenInspector(parsed.data) : invalid();
+  });
+  handle(sceneIpcChannels.mutateTokenInspector, (input) => {
+    const parsed = mutateTokenInspectorSchema.safeParse(input);
+    return parsed.success ? manager.mutateTokenInspector(parsed.data) : invalid();
+  });
+  handle(sceneIpcChannels.resolveTokenInspectorRoll, (input) => {
+    const parsed = resolveTokenInspectorRollSchema.safeParse(input);
+    return parsed.success
+      ? manager.resolveTokenInspectorRoll(parsed.data)
+      : invalid();
   });
   handle(sceneIpcChannels.listUsers, (input) => {
     const parsed = campaignSchema.safeParse(input);

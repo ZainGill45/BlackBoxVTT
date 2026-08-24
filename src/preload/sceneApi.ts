@@ -52,6 +52,18 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
       ipc.invoke(sceneIpcChannels.listTokenHealth, input) as ReturnType<
         SceneApi['listTokenHealth']
       >,
+    getTokenInspector: (input) =>
+      ipc.invoke(sceneIpcChannels.getTokenInspector, input) as ReturnType<
+        SceneApi['getTokenInspector']
+      >,
+    mutateTokenInspector: (input) =>
+      ipc.invoke(sceneIpcChannels.mutateTokenInspector, input) as ReturnType<
+        SceneApi['mutateTokenInspector']
+      >,
+    resolveTokenInspectorRoll: (input) =>
+      ipc.invoke(sceneIpcChannels.resolveTokenInspectorRoll, input) as ReturnType<
+        SceneApi['resolveTokenInspectorRoll']
+      >,
     onChanged: (listener) => subscribe(sceneIpcChannels.changed, listener),
     present: (input) =>
       ipc.invoke(sceneIpcChannels.present, input) as ReturnType<

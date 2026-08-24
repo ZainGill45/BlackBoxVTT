@@ -36,6 +36,67 @@ export interface SceneSelectionPolicy {
   actorId?: string | null;
   canEditImages?: boolean;
   editableTokenEntryIds?: ReadonlySet<string>;
+  inspectableTokenEntryIds?: ReadonlySet<string>;
+}
+
+export function canInspectSceneImage(
+  image: SceneImage,
+  policy: Pick<
+    SceneSelectionPolicy,
+    'canEditImages' | 'editableTokenEntryIds' | 'inspectableTokenEntryIds'
+  >,
+): boolean {
+  return canEditSceneImage(image, policy) ||
+    (isSceneToken(image) &&
+      Boolean(policy.inspectableTokenEntryIds?.has(image.source.entryId)));
+}
+
+export function selectableSceneTargets(
+  scene: SceneRecord,
+  policy: SceneSelectionPolicy,
+  textBounds: SceneTextBoundsLookup = () => null,
+): EditTarget[] {
+  const editable = activeSceneTargets(scene, policy, textBounds);
+  const ids = new Set(editable.map(({ id }) => id));
+  const inspectable = scene.images[policy.activeLayer]
+    .filter((image) => canInspectSceneImage(image, policy) && !ids.has(image.id))
+    .map((image) => ({ id: image.id, image }));
+  const order = new Map(
+    scene.objectOrder[policy.activeLayer].map((id, index) => [id, index]),
+  );
+  const canonical = editable.find(({ id }) => id === CANONICAL_MAP_ID) ?? null;
+  const ordered = [...editable, ...inspectable]
+    .filter(({ id }) => id !== CANONICAL_MAP_ID)
+    .sort(
+    (left, right) =>
+      (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+  );
+  return canonical ? [canonical, ...ordered] : ordered;
+}
+
+export function selectedInspectableTargets(
+  scene: SceneRecord,
+  selected: ReadonlySet<string>,
+  policy: SceneSelectionPolicy,
+  textBounds: SceneTextBoundsLookup = () => null,
+): EditTarget[] {
+  const editable = selectedSceneTargets(scene, selected, policy, textBounds);
+  const ids = new Set(editable.map(({ id }) => id));
+  for (const layer of Object.values(scene.images) as SceneImage[][]) {
+    for (const image of layer) {
+      if (
+        selected.has(image.id) &&
+        !ids.has(image.id) &&
+        canInspectSceneImage(image, policy)
+      ) {
+        editable.push({ id: image.id, image });
+      }
+    }
+  }
+  return [...selected]
+    .map((id) => editable.find((target) => target.id === id) ?? null)
+    .filter((target): target is EditTarget => target !== null);
 }
 
 export interface SelectionFrame {

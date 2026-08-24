@@ -257,6 +257,83 @@ test.describe('Character token workflows', () => {
 
   test.afterEach(() => apps.disposeAll());
 
+  test('keeps the selected Token Inspector interactive and visually compact', async () => {
+    const { entryId, sheet } = await createCharacter(gm.window, 'Vela');
+    const maximumHitPoints = sheet.getByLabel('Maximum hit points');
+    await maximumHitPoints.fill('24');
+    await maximumHitPoints.blur();
+    const currentHitPoints = sheet.getByLabel('Current hit points');
+    await currentHitPoints.fill('24');
+    await currentHitPoints.blur();
+    await sheet.press('Escape');
+    const centre = await stageCentre(gm.window);
+    await dropCharacterOnStage(gm.window, entryId, centre);
+    await expect.poll(async () => sceneTokens(await readScene(gm.window, CAMPAIGN)).length)
+      .toBe(1);
+    const tokenPoint = await findTokenPoint(
+      gm.window,
+      centre,
+      'Open Character Sheet',
+    );
+    await stage(gm.window).click({ position: tokenPoint });
+
+    const inspector = gm.window.getByRole('complementary', {
+      name: 'Token Inspector',
+    });
+    await expect(inspector).toBeVisible();
+    const border = await inspector.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        color: style.borderTopColor,
+        style: style.borderTopStyle,
+        width: style.borderTopWidth,
+      };
+    });
+    expect(border.style).toBe('solid');
+    expect(border.width).not.toBe('0px');
+    expect(border.color).not.toBe('rgba(0, 0, 0, 0)');
+
+    const health = inspector.getByRole('listitem').filter({ hasText: 'Health' });
+    const healthCurrent = inspector.getByRole('textbox', {
+      name: 'Health current',
+    });
+    await expect(healthCurrent).toHaveValue('24');
+    await healthCurrent.click();
+    await healthCurrent.pressSequentially('24-5');
+    await healthCurrent.press('Enter');
+    await expect(healthCurrent).toHaveValue('19');
+    await gm.window.waitForTimeout(500);
+    await expect(healthCurrent).toHaveValue('19');
+    await expect(inspector.getByRole('textbox', {
+      name: 'Health maximum',
+    })).toHaveValue('24');
+
+    const labelSize = await health.getByText('Health').evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).fontSize),
+    );
+    const valueSize = await healthCurrent.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).fontSize),
+    );
+    expect(valueSize).toBeGreaterThanOrEqual(labelSize);
+
+    const search = inspector.getByRole('searchbox', {
+      name: 'Search inspector fields',
+    });
+    await search.click();
+    await search.fill('armor');
+    await expect(inspector).toBeVisible();
+    await expect(inspector.getByText('Armor Class')).toBeVisible();
+    await expect(inspector.getByText('Health')).toHaveCount(0);
+
+    await search.fill('');
+    await inspector.getByRole('button', { name: 'Add inspector field' }).click();
+    await gm.window.getByRole('menuitem', { name: 'Initiative' }).click();
+    await inspector.getByRole('button', { name: 'Roll Initiative' }).click();
+    await gm.window.getByRole('tab', { name: 'Chat' }).click();
+    await expect(gm.window.getByRole('log', { name: 'Campaign chat' })
+      .getByText('Initiative', { exact: true }).first()).toBeVisible();
+  });
+
   test('keeps Linked artwork and a saved default size synchronized', async () => {
     const { entryId, sheet } = await createCharacter(gm.window, 'Aster');
     await chooseTokenArtwork(sheet);
@@ -322,6 +399,12 @@ test.describe('Character token workflows', () => {
     await addPlayer(gm.window, USERNAME, PASSWORD);
     await setHostPort(gm.window, port);
     const { entryId, sheet } = await createCharacter(gm.window);
+    const maximumHitPoints = sheet.getByLabel('Maximum hit points');
+    await maximumHitPoints.fill('24');
+    await maximumHitPoints.blur();
+    const currentHitPoints = sheet.getByLabel('Current hit points');
+    await currentHitPoints.fill('24');
+    await currentHitPoints.blur();
     await sheet.press('Escape');
     await grantCharacterEdit(gm.window, USERNAME);
     await openTab(gm.window, 'Scenes');
@@ -354,6 +437,21 @@ test.describe('Character token workflows', () => {
       target,
       'Open Character Sheet',
     );
+    await stage(player.window).click({ position: start });
+    const inspector = player.window.getByRole('complementary', {
+      name: 'Token Inspector',
+    });
+    const healthCurrent = inspector.getByRole('textbox', {
+      name: 'Health current',
+    });
+    await expect(healthCurrent).toHaveValue('24');
+    await healthCurrent.click();
+    await healthCurrent.pressSequentially('-5');
+    await healthCurrent.press('Enter');
+    await expect(healthCurrent).toHaveValue('19');
+    await player.window.waitForTimeout(500);
+    await expect(healthCurrent).toHaveValue('19');
+
     const movedTarget = { x: start.x + 90, y: start.y + 40 };
     await player.window.keyboard.down('Alt');
     await dragOnStage(player.window, start, movedTarget);

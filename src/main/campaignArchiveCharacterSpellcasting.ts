@@ -35,6 +35,7 @@ export function addDefaultDnd5eSpellcastingToValue(
     ...value,
     defaultToken: {
       imageAssetId: null,
+      inspector: { fieldIds: ['health', 'armor-class'] },
       size: { height: 1, width: 1 },
       type: 'linked',
     },

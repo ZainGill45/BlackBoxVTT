@@ -8,6 +8,7 @@ import { DND5E_CHARACTER_ENTRY_TYPE_ID } from '../systems/dnd5e/ids';
 
 const DEFAULT_TOKEN: Dnd5eCharacterData['defaultToken'] = {
   imageAssetId: null,
+  inspector: { fieldIds: ['health', 'armor-class'] },
   size: { height: 1, width: 1 },
   type: 'linked',
 };

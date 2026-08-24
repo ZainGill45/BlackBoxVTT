@@ -24,6 +24,12 @@ import {
   readDnd5eTokenHealth,
   writeDnd5eTokenHealth,
 } from './tokenHealth';
+import {
+  applyDnd5eTokenInspectorEdit,
+  readDnd5eTokenInspectorFields,
+  rollDnd5eTokenInspectorField,
+  writeDnd5eTokenInspectorField,
+} from './tokenInspector';
 
 export {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
@@ -73,6 +79,12 @@ export const dnd5eSystem = {
           read: (data: Dnd5eCharacterData) => readDnd5eTokenHealth(data),
           write: (data: Dnd5eCharacterData, value) =>
             writeDnd5eTokenHealth(data, value),
+        },
+        inspector: {
+          applyEdit: applyDnd5eTokenInspectorEdit,
+          readFields: readDnd5eTokenInspectorFields,
+          rollField: rollDnd5eTokenInspectorField,
+          writeField: writeDnd5eTokenInspectorField,
         },
         readDefaultToken: (data: Dnd5eCharacterData) =>
           structuredClone(data.defaultToken),

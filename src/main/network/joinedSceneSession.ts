@@ -10,7 +10,12 @@ import {
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
   type SetSceneObjectsInput,
+  type SceneTokenInspectorInput,
+  type MutateSceneTokenInspectorInput,
+  type ResolveSceneTokenInspectorRollInput,
 } from '../../shared/scenes';
+import type { TokenInspectorPresentation } from '../../shared/tokenInspector';
+import type { ChatRollDefinition } from '../../shared/chatRoll';
 import type { JoinedSceneTransport } from '../campaignSceneRuntime';
 import type { CampaignClient } from './campaignClient';
 
@@ -20,6 +25,9 @@ type SceneClient = Pick<
   | 'cancelSceneTransform'
   | 'listScenes'
   | 'listSceneTokenHealth'
+  | 'getSceneTokenInspector'
+  | 'resolveSceneTokenInspectorRoll'
+  | 'mutateSceneTokenInspector'
   | 'redoSceneEdit'
   | 'sendSceneTransformPreview'
   | 'setSceneObjects'
@@ -71,6 +79,9 @@ export class JoinedSceneSession {
       getActiveScene: () => this.getActiveScene(campaignId),
       listScenes: () => this.client.listScenes(),
       listTokenHealth: (input) => this.listTokenHealth(input),
+      getTokenInspector: (input) => this.getTokenInspector(input),
+      resolveTokenInspectorRoll: (input) => this.resolveTokenInspectorRoll(input),
+      mutateTokenInspector: (input) => this.mutateTokenInspector(input),
       trashScene: (input) => this.client.trashScene(input),
       updateScene: (input) => this.client.updateScene(input),
       redo: (input) => this.redo(input),
@@ -219,6 +230,36 @@ export class JoinedSceneSession {
     input: SceneTokenHealthInput,
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
     return this.client.listSceneTokenHealth({ sceneId: input.sceneId });
+  }
+
+  private getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>> {
+    return this.client.getSceneTokenInspector({
+      sceneId: input.sceneId,
+      tokenId: input.tokenId,
+    });
+  }
+
+  private resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>> {
+    return this.client.resolveSceneTokenInspectorRoll({
+      fieldId: input.fieldId,
+      sceneId: input.sceneId,
+      tokenId: input.tokenId,
+    });
+  }
+
+  private mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.client.mutateSceneTokenInspector({
+      mutation: input.mutation,
+      operationId: input.operationId,
+      sceneId: input.sceneId,
+      tokenId: input.tokenId,
+    });
   }
 
   private async setObjects(

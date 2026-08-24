@@ -10,6 +10,9 @@ import {
   type SceneResult,
   type SceneTokenHealthInput,
   type SceneTokenHealthPresentation,
+  type SceneTokenInspectorInput,
+  type MutateSceneTokenInspectorInput,
+  type ResolveSceneTokenInspectorRollInput,
   type SceneTransformPreviewCancel,
   type SceneTransformPreviewDelta,
   type SceneTransformPreviewStart,
@@ -20,6 +23,8 @@ import {
   type ScenePatch,
   type UpdateSceneInput,
 } from '../shared/scenes';
+import type { TokenInspectorPresentation } from '../shared/tokenInspector';
+import type { ChatRollDefinition } from '../shared/chatRoll';
 import type { UpdateScenePermissionsInput } from '../shared/sceneContracts';
 import type { PermissionSubject } from '../shared/permissions';
 import type { LocalCampaignWorkspace } from './campaignWorkspace';
@@ -35,6 +40,15 @@ export interface JoinedSceneTransport {
   listTokenHealth(
     input: SceneTokenHealthInput,
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>>;
+  getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>>;
+  resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>>;
+  mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneResult<SceneRecord>>;
   trashScene(input: {
     expectedRevision: number;
     sceneId: string;
@@ -68,6 +82,15 @@ export interface CampaignSceneRuntime {
   listTokenHealth(
     input: SceneTokenHealthInput,
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>>;
+  getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>>;
+  resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>>;
+  mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>>;
   listUsers(): Promise<SceneResult<PermissionSubject[]>>;
   updatePermissions(
     input: UpdateScenePermissionsInput,
@@ -166,6 +189,27 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
     input: SceneTokenHealthInput,
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
     return this.transport.listTokenHealth(input);
+  }
+
+  getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>> {
+    return this.transport.getTokenInspector(input);
+  }
+
+  resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>> {
+    return this.transport.resolveTokenInspectorRoll(input);
+  }
+
+  async mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>> {
+    return {
+      changed: null,
+      result: await this.transport.mutateTokenInspector(input),
+    };
   }
 
   present(): Promise<SceneRuntimeMutation<SceneManifest>> {
@@ -304,6 +348,41 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
     return Promise.resolve(
       this.workspace.sceneRepository.listTokenHealth(input.sceneId, { kind: 'gm' }),
+    );
+  }
+
+  getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>> {
+    return Promise.resolve(this.workspace.sceneRepository.getTokenInspector(
+      input.sceneId,
+      input.tokenId,
+      { kind: 'gm' },
+    ));
+  }
+
+  resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>> {
+    return Promise.resolve(this.workspace.sceneRepository.resolveTokenInspectorRoll(
+      input.sceneId,
+      input.tokenId,
+      input.fieldId,
+      { kind: 'gm' },
+    ));
+  }
+
+  mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneRuntimeMutation<SceneRecord>> {
+    return this.mutateWithEffects(() =>
+      this.workspace.sceneRepository.mutateTokenInspectorWithEffects(
+        input.sceneId,
+        input.tokenId,
+        input.mutation,
+        input.operationId,
+        { kind: 'gm' },
+      ),
     );
   }
 

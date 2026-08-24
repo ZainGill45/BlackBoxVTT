@@ -32,6 +32,10 @@ import {
   sceneTokenHealthPresentationSchema,
 } from '../../shared/sceneContracts';
 import {
+  tokenInspectorMutationSchema,
+  tokenInspectorPresentationSchema,
+} from '../../shared/tokenInspector';
+import {
   chatRollCardSchema,
   chatRollDefinitionSchema,
 } from '../../shared/chatRoll';
@@ -625,6 +629,27 @@ export const protocolPayloadSchemas = {
   'client.scene_health_list': z
     .object({ sceneId: z.string().uuid() })
     .strict(),
+  'client.scene_inspector_get': z
+    .object({
+      sceneId: z.string().uuid(),
+      tokenId: z.string().min(1).max(128),
+    })
+    .strict(),
+  'client.scene_inspector_mutate': z
+    .object({
+      mutation: tokenInspectorMutationSchema,
+      operationId: z.string().uuid(),
+      sceneId: z.string().uuid(),
+      tokenId: z.string().min(1).max(128),
+    })
+    .strict(),
+  'client.scene_inspector_roll_resolve': z
+    .object({
+      fieldId: z.string().min(1).max(128),
+      sceneId: z.string().uuid(),
+      tokenId: z.string().min(1).max(128),
+    })
+    .strict(),
   'client.scene_shape_preview': shapePreviewSchema,
   'client.scene_objects_set': z
     .object({
@@ -839,6 +864,8 @@ export const protocolPayloadSchemas = {
   'server.scene_health': z
     .array(sceneTokenHealthPresentationSchema)
     .max(MAX_SCENE_OBJECTS),
+  'server.scene_inspector': tokenInspectorPresentationSchema,
+  'server.scene_inspector_roll': chatRollDefinitionSchema,
   'server.scenes_changed': sceneManifestSchema,
   'server.scene_presented': z
     .object({ scene: sceneRecordSchema.nullable() })

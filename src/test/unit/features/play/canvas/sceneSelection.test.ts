@@ -7,6 +7,8 @@ import {
   duplicateSceneImages,
   moveSelectedObjectsToLayer,
   reorderSelectedObjects,
+  selectableSceneTargets,
+  selectedInspectableTargets,
   selectedSceneTargets,
   selectionFrame,
 } from '../../../../../features/play/canvas/sceneSelection';
@@ -133,6 +135,32 @@ describe('scene selection model', () => {
         policy,
       ).map(({ id }) => id),
     ).toEqual([linkedToken.id, owned.id]);
+  });
+
+  it('selects a view-only token without making it an edit target', () => {
+    const characterId = '88888888-8888-4888-8888-888888888888';
+    const token = {
+      ...image,
+      id: '99999999-9999-4999-8999-999999999999',
+      size: { height: 1, kind: 'default' as const, width: 1 },
+      source: { entryId: characterId, kind: 'linked' as const },
+    };
+    const scene = makeScene({ images: { gm: [], map: [], token: [token] } });
+    const policy = {
+      activeLayer: 'token' as const,
+      actorId: 'player-a',
+      canEditImages: false,
+      editableTokenEntryIds: new Set<string>(),
+      inspectableTokenEntryIds: new Set([characterId]),
+    };
+
+    expect(activeSceneTargets(scene, policy)).toEqual([]);
+    expect(selectableSceneTargets(scene, policy).map(({ id }) => id))
+      .toEqual([token.id]);
+    expect(selectedSceneTargets(scene, new Set([token.id]), policy))
+      .toEqual([]);
+    expect(selectedInspectableTargets(scene, new Set([token.id]), policy)
+      .map(({ id }) => id)).toEqual([token.id]);
   });
 
   it('writes image and drawing transforms through one state accessor', () => {

@@ -534,6 +534,9 @@ export type Dnd5eCharacterData = {
   customSkills: Dnd5eCharacterCustomSkill[];
   defaultToken: {
     imageAssetId: string | null;
+    inspector: {
+      fieldIds: string[];
+    };
     size: {
       height: number;
       width: number;
@@ -955,6 +958,7 @@ export function createDefaultDnd5eCharacterData(): Dnd5eCharacterData {
     customSkills: [],
     defaultToken: {
       imageAssetId: null,
+      inspector: { fieldIds: ['health', 'armor-class'] },
       size: { height: 1, width: 1 },
       type: 'linked',
     },
@@ -1352,10 +1356,21 @@ export function isDnd5eCharacterData(
     }) ||
     !hasExactStringFields(value.appearance, APPEARANCE_KEYS) ||
     !isRecord(defaultToken) ||
-    !hasExactKeys(defaultToken, ['imageAssetId', 'size', 'type']) ||
+    !hasExactKeys(defaultToken, ['imageAssetId', 'inspector', 'size', 'type']) ||
     !(defaultToken.imageAssetId === null ||
       (typeof defaultToken.imageAssetId === 'string' &&
         UUID_PATTERN.test(defaultToken.imageAssetId))) ||
+    !isRecord(defaultToken.inspector) ||
+    !hasExactKeys(defaultToken.inspector, ['fieldIds']) ||
+    !Array.isArray(defaultToken.inspector.fieldIds) ||
+    defaultToken.inspector.fieldIds.length > 256 ||
+    !defaultToken.inspector.fieldIds.every((fieldId) =>
+      typeof fieldId === 'string' &&
+      fieldId.length > 0 &&
+      fieldId.length <= MAX_DND5E_CHARACTER_FIELD_CODE_UNITS
+    ) ||
+    new Set(defaultToken.inspector.fieldIds).size !==
+      defaultToken.inspector.fieldIds.length ||
     !isRecord(defaultToken.size) ||
     !hasExactKeys(defaultToken.size, ['height', 'width']) ||
     typeof defaultToken.size.height !== 'number' ||
@@ -1495,9 +1510,17 @@ export function prepareDnd5eCharacterDataForSave(
   roll: (notation: string) => number,
 ): Dnd5eCharacterData | null {
   if (isDnd5eCharacterData(value)) {
-    return readDnd5eTokenHealth(value)
+    const prepared = readDnd5eTokenHealth(value)
       ? materializeDnd5eTokenHealth(value, roll)
       : structuredClone(value);
+    if (!prepared) return null;
+    const resourceIds = new Set(prepared.resources.map(({ id }) => id));
+    prepared.defaultToken.inspector.fieldIds =
+      prepared.defaultToken.inspector.fieldIds.filter((fieldId) =>
+        !fieldId.startsWith('resource:') ||
+        resourceIds.has(fieldId.slice('resource:'.length)),
+      );
+    return prepared;
   }
   if (!isDnd5eCharacterDataSaveCandidate(value)) return null;
   const candidate = structuredClone(value) as Dnd5eCharacterData;
@@ -1505,6 +1528,12 @@ export function prepareDnd5eCharacterDataForSave(
   const materialized = materializeDnd5eTokenHealth(candidate, roll);
   if (!materialized) return null;
   materialized.defaultToken.type = 'linked';
+  const resourceIds = new Set(materialized.resources.map(({ id }) => id));
+  materialized.defaultToken.inspector.fieldIds =
+    materialized.defaultToken.inspector.fieldIds.filter((fieldId) =>
+      !fieldId.startsWith('resource:') ||
+      resourceIds.has(fieldId.slice('resource:'.length)),
+    );
   return isDnd5eCharacterData(materialized) ? materialized : null;
 }
 

@@ -3,6 +3,7 @@ import { Modal } from './Modal';
 import styles from './ErrorModal.module.css';
 
 interface ErrorModalProps {
+  dismissLabel?: string;
   isOpen: boolean;
   message: string;
   onDismiss: () => void;
@@ -10,6 +11,7 @@ interface ErrorModalProps {
 }
 
 export function ErrorModal({
+  dismissLabel = 'OK',
   isOpen,
   message,
   onDismiss,
@@ -25,7 +27,7 @@ export function ErrorModal({
         <h2>{title}</h2>
         <p>{message}</p>
         <Button type="button" variant="primary" onClick={onDismiss} autoFocus>
-          OK
+          {dismissLabel}
         </Button>
       </div>
     </Modal>

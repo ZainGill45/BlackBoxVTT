@@ -27,6 +27,12 @@ describe('createSceneApi', () => {
       sceneId,
       tokenId: 'token-1',
     });
+    await api.resolveTokenInspectorRoll({
+      campaignId,
+      fieldId: 'initiative',
+      sceneId,
+      tokenId: 'token-1',
+    });
     await api.create({ campaignId });
     await api.update({
       campaignId,
@@ -50,6 +56,7 @@ describe('createSceneApi', () => {
       sceneIpcChannels.list,
       sceneIpcChannels.listTokenHealth,
       sceneIpcChannels.adjustTokenHealth,
+      sceneIpcChannels.resolveTokenInspectorRoll,
       sceneIpcChannels.create,
       sceneIpcChannels.update,
       sceneIpcChannels.trash,

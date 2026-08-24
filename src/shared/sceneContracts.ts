@@ -11,6 +11,10 @@ import {
   scenePatchSchema,
   sceneFogOperationSchema,
 } from './sceneSchema';
+import {
+  tokenInspectorMutationSchema,
+  tokenInspectorPresentationSchema,
+} from './tokenInspector';
 
 export const sceneCampaignInputSchema = z
   .object({ campaignId: z.string().uuid() })
@@ -120,6 +124,19 @@ export const adjustSceneTokenHealthInputSchema = sceneTokenHealthInputSchema.ext
   operationId: z.string().uuid(),
   tokenId: z.string().min(1).max(128),
 });
+export const sceneTokenInspectorInputSchema = sceneTokenHealthInputSchema.extend({
+  tokenId: z.string().min(1).max(128),
+});
+export const mutateSceneTokenInspectorInputSchema =
+  sceneTokenInspectorInputSchema.extend({
+    mutation: tokenInspectorMutationSchema,
+    operationId: z.string().uuid(),
+  });
+export const resolveSceneTokenInspectorRollInputSchema =
+  sceneTokenInspectorInputSchema.extend({
+    fieldId: z.string().min(1).max(128),
+  });
+export { tokenInspectorPresentationSchema };
 export const sceneTokenHealthPresentationSchema = z
   .object({
     currentHundredths: z.number().int().safe().optional(),
@@ -203,6 +220,15 @@ export type AdjustSceneTokenHealthInput = z.infer<
 >;
 export type SceneTokenHealthPresentation = z.infer<
   typeof sceneTokenHealthPresentationSchema
+>;
+export type SceneTokenInspectorInput = z.infer<
+  typeof sceneTokenInspectorInputSchema
+>;
+export type MutateSceneTokenInspectorInput = z.infer<
+  typeof mutateSceneTokenInspectorInputSchema
+>;
+export type ResolveSceneTokenInspectorRollInput = z.infer<
+  typeof resolveSceneTokenInspectorRollInputSchema
 >;
 export type SceneEditActor = z.infer<typeof sceneEditActorSchema>;
 export type SceneTransformPreviewStart = z.infer<

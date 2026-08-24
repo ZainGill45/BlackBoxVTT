@@ -100,6 +100,7 @@ import {
 } from './sceneInteractionEngine';
 import {
   activeSceneTargets,
+  canInspectSceneImage,
   canCreateSceneImages,
   canEditDrawing,
   canEditSceneImage,
@@ -114,6 +115,8 @@ import {
   reorderSelectedObjects,
   selectedPlacedImages,
   selectedSceneTargets,
+  selectableSceneTargets,
+  selectedInspectableTargets,
   selectionFrame,
   textAsImage,
   textTransformOf,
@@ -268,6 +271,7 @@ export interface SceneRendererInteraction {
   actorId?: string | null;
   canEditImages?: boolean;
   editableTokenEntryIds?: ReadonlySet<string>;
+  inspectableTokenEntryIds?: ReadonlySet<string>;
   editable: boolean;
   measureEnabled?: boolean;
   paintEnabled?: boolean;
@@ -311,6 +315,7 @@ export interface SceneRendererInteraction {
   ) => void;
   onPing?: (ping: RendererMapPing) => void;
   onOpenLinkedToken?: (token: SceneToken) => void;
+  onSelectionChange?: (selectedIds: readonly string[]) => void;
   onAdjustTokenHealth?: (hit: TokenHealthHit) => void;
   /**
    * The edited bar's current screen rectangle, re-reported whenever the camera
@@ -1404,7 +1409,7 @@ export class SceneRenderer implements SceneRendererHandle {
     const accessRevoked = Boolean(
       this.scene &&
         this.selected.size > 0 &&
-        selectedSceneTargets(
+        selectedInspectableTargets(
           this.scene,
           this.selected,
           options,
@@ -1449,7 +1454,7 @@ export class SceneRenderer implements SceneRendererHandle {
     this.interaction = options;
     if (accessRevoked && this.scene) {
       this.selected = new Set(
-        selectedSceneTargets(
+        selectedInspectableTargets(
           this.scene,
           this.selected,
           options,
@@ -2597,7 +2602,7 @@ export class SceneRenderer implements SceneRendererHandle {
       this.scene.images,
     ) as SceneImage[][]) {
       const image = layer.find((candidate) => candidate.id === id);
-      if (image && canEditSceneImage(image, this.interaction)) {
+      if (image && canInspectSceneImage(image, this.interaction)) {
         return image;
       }
     }
@@ -2635,6 +2640,16 @@ export class SceneRenderer implements SceneRendererHandle {
       : [];
   }
 
+  private selectableTargets(): EditTarget[] {
+    return this.scene
+      ? selectableSceneTargets(
+          this.scene,
+          this.interaction,
+          (id) => this.textRenderer.bounds(id),
+        )
+      : [];
+  }
+
   private selectedTargets(): EditTarget[] {
     return this.scene
       ? selectedSceneTargets(
@@ -2644,6 +2659,22 @@ export class SceneRenderer implements SceneRendererHandle {
           (id) => this.textRenderer.bounds(id),
         )
       : [];
+  }
+
+  private selectedInspectableTargets(): EditTarget[] {
+    return this.scene
+      ? selectedInspectableTargets(
+          this.scene,
+          this.selected,
+          this.interaction,
+          (id) => this.textRenderer.bounds(id),
+        )
+      : [];
+  }
+
+  private selectionIsTransformable(): boolean {
+    return this.selected.size > 0 &&
+      this.selectedTargets().length === this.selected.size;
   }
 
   private selectionFrame(
@@ -2733,7 +2764,7 @@ export class SceneRenderer implements SceneRendererHandle {
     if (this.playerFogCovers(point)) {
       return null;
     }
-    const targets = this.activeTargets();
+    const targets = this.selectableTargets();
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       const target = targets[index];
       if (target.text && containsPoint(target.image, point)) {
@@ -3059,13 +3090,15 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private drawSelection(): void {
+    const transformable = this.selectionIsTransformable();
     this.selectionOverlay.draw({
       camera: this.camera,
-      editable: this.interaction.editable,
+      editable: this.interaction.editable && transformable,
       groupRotation: this.groupSelectionRotation,
-      targets: this.selectedTargets(),
+      targets: this.selectedInspectableTargets(),
       viewport: this.viewport,
     });
+    this.interaction.onSelectionChange?.([...this.selected]);
   }
 
   private handleAt(point: { x: number; y: number }):
@@ -3148,7 +3181,7 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private async deleteSelection(): Promise<void> {
-    if (!this.scene || this.selected.size === 0) {
+    if (!this.scene || !this.selectionIsTransformable()) {
       return;
     }
     const before = sceneObjectStateOf(this.scene);
@@ -3172,7 +3205,11 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private canCopySelection(): boolean {
-    if (!this.scene || this.committing || this.selected.size === 0) {
+    if (
+      !this.scene ||
+      this.committing ||
+      !this.selectionIsTransformable()
+    ) {
       return false;
     }
     return this.selectedPlacedImages().length === this.selected.size;
@@ -3314,7 +3351,11 @@ export class SceneRenderer implements SceneRendererHandle {
         this.interaction.onPing,
     );
     const hit = this.hitAt(screenPoint);
-    const canEditImage = Boolean(this.interaction.editable && hit);
+    const canEditImage = Boolean(
+      this.interaction.editable &&
+      hit &&
+      this.activeTargets().some(({ id }) => id === hit),
+    );
     if (!scenePoint || (!canPing && !canEditImage)) {
       this.closeContextMenu();
       return false;
@@ -3473,6 +3514,7 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private readonly handleContextMenu = (event: MouseEvent) => {
+    if (!this.isSceneSurfaceEvent(event)) return;
     if (this.activeMeasurement) {
       event.preventDefault();
       this.addMeasurementPivot(event.clientX, event.clientY);
@@ -4166,7 +4208,7 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private readonly handleWheel = (event: WheelEvent) => {
-    if (!this.scene) {
+    if (!this.scene || !this.isSceneSurfaceEvent(event)) {
       return;
     }
     this.cancelCameraAnimation();
@@ -4188,7 +4230,7 @@ export class SceneRenderer implements SceneRendererHandle {
   private readonly handlePointerDown = (event: PointerEvent) => {
     // Middle button only. The left button belongs to the tools — selecting,
     // painting, measuring — so it must never move the camera.
-    if (!this.scene) {
+    if (!this.scene || !this.isSceneSurfaceEvent(event)) {
       return;
     }
     if (
@@ -4461,6 +4503,13 @@ export class SceneRenderer implements SceneRendererHandle {
           this.container.style.cursor = 'grabbing';
         }
       } else if (hit) {
+        const transformable = this.activeTargets().some(({ id }) => id === hit);
+        if (!transformable) {
+          this.selected = new Set([hit]);
+          this.groupSelectionRotation = 0;
+          this.drawSelection();
+          return;
+        }
         if (event.shiftKey) {
           if (this.selected.has(hit)) {
             this.selected.delete(hit);
@@ -5084,6 +5133,7 @@ export class SceneRenderer implements SceneRendererHandle {
   }
 
   private readonly handleKeyUp = (event: KeyboardEvent) => {
+    if (!this.isSceneSurfaceEvent(event)) return;
     if (
       this.interactionEngine.releaseKey(
         event.code,
@@ -5097,6 +5147,7 @@ export class SceneRenderer implements SceneRendererHandle {
 
   private readonly handleDoubleClick = (event: MouseEvent) => {
     if (
+      !this.isSceneSurfaceEvent(event) ||
       !this.scene ||
       (!this.interaction.textEnabled && !this.interaction.editable)
     ) {
@@ -5147,14 +5198,7 @@ export class SceneRenderer implements SceneRendererHandle {
   };
 
   private readonly handleKeyDown = (event: KeyboardEvent) => {
-    const target = event.target;
-    if (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      (target instanceof HTMLElement && target.isContentEditable)
-    ) {
-      return;
-    }
+    if (!this.isSceneSurfaceEvent(event)) return;
     if (this.interactionEngine.pressModifier(event.code)) {
       return;
     }
@@ -5274,13 +5318,14 @@ export class SceneRenderer implements SceneRendererHandle {
     }
     if (plan === 'delete') {
       event.preventDefault();
-      if (this.selected.size > 0) {
+      if (this.selectionIsTransformable()) {
         void this.deleteSelection();
       }
       return;
     }
     if (plan === 'nudge') {
       event.preventDefault();
+      if (!this.selectionIsTransformable()) return;
       this.beginNudge();
       this.nudgeKeys.add(event.key);
       const after = nudgeSceneState(
@@ -5303,6 +5348,10 @@ export class SceneRenderer implements SceneRendererHandle {
       }
     }
   };
+
+  private isSceneSurfaceEvent(event: Event): boolean {
+    return event.target === this.container || event.target === this.app.canvas;
+  }
 }
 
 export function createSceneRenderer(): SceneRendererHandle {

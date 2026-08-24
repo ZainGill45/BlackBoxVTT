@@ -26,6 +26,7 @@ import { convertDnd5eSpellFlatScalingFromFormat14 } from './campaignArchiveSpell
 import { isDnd5eCharacterDataBeforeDefaultToken } from './campaignArchiveCharacterDefaultToken';
 import { isDnd5eCharacterDataBeforeTokenType } from './campaignArchiveCharacterTokenType';
 import { isDnd5eCharacterDataFromArchiveFormat17 } from './campaignArchiveFormat17';
+import { isDnd5eCharacterDataBeforeTokenInspector } from './campaignArchiveTokenInspector';
 
 /**
  * Reading a campaign database that this release cannot open.
@@ -40,7 +41,7 @@ import { isDnd5eCharacterDataFromArchiveFormat17 } from './campaignArchiveFormat
  */
 
 export type HistoricalCampaignFormatVersion =
-  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17;
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
 
 export type CampaignSalvageConversion =
   | 1
@@ -60,6 +61,7 @@ export type CampaignSalvageConversion =
   | 15
   | 16
   | 17
+  | 18
   | 'permission-defaults';
 
 export type CampaignFormatDetection =
@@ -99,7 +101,7 @@ const FORMAT_4_TO_6_SCHEMA_FINGERPRINT =
 const FORMAT_7_TO_16_SCHEMA_FINGERPRINT =
   '7ad1c2a3e49cd7e2808dc905bb64fe30f21ef9436614045c94ea613d22969a95';
 
-/** Canonical database schema shared by formats 17 and 18; HP JSON parts them. */
+/** Canonical database schema shared from format 17 onward; Character JSON parts them. */
 const FORMAT_17_SCHEMA_FINGERPRINT =
   '9aa1613743de31593ab11a6a1b5ceec6a4f8a6759059e19a00549a9b788cf761';
 
@@ -509,6 +511,44 @@ function detectFormat17Health(
     : null;
 }
 
+function detectFormat18TokenInspector(
+  connection: DatabaseSync,
+): CampaignFormatDetection | null {
+  const rows = [
+    ...connection.prepare(
+      `SELECT data_json FROM journal_entries
+       WHERE type_id = ? ORDER BY position`,
+    ).all(DND5E_CHARACTER_ENTRY_TYPE_ID),
+    ...connection.prepare(
+      `SELECT data_json FROM scene_token_snapshots
+       WHERE type_id = ? ORDER BY id`,
+    ).all(DND5E_CHARACTER_ENTRY_TYPE_ID),
+  ] as unknown as Array<{ data_json: string }>;
+  if (rows.length === 0) return null;
+  const charactersMatch = rows.every((row) => {
+    try {
+      return isDnd5eCharacterDataBeforeTokenInspector(
+        JSON.parse(row.data_json),
+      );
+    } catch {
+      return false;
+    }
+  });
+  if (!charactersMatch) return null;
+  const spellsMatch = (connection.prepare(
+    `SELECT data_json FROM journal_entries
+     WHERE type_id = ? ORDER BY position`,
+  ).all(DND5E_SPELL_ENTRY_TYPE_ID) as unknown as Array<{ data_json: string }>)
+    .every((row) => {
+      try {
+        return isDnd5eSpellData(JSON.parse(row.data_json));
+      } catch {
+        return false;
+      }
+    });
+  return spellsMatch ? { ok: true, version: 18 } : null;
+}
+
 function detectFormat13ActionEffects(
   connection: DatabaseSync,
 ): CampaignFormatDetection | null {
@@ -598,7 +638,8 @@ export function detectCampaignFormatVersion(
     return format15 ?? detectFormat4To13CharacterEra(connection, true);
   }
   if (fingerprint === FORMAT_17_SCHEMA_FINGERPRINT) {
-    return detectFormat17Health(connection) ?? {
+    return detectFormat18TokenInspector(connection) ??
+      detectFormat17Health(connection) ?? {
       ok: false,
       reason: 'This campaign\u2019s structure is already current, so an outdated ' +
         'format is not what makes it unreadable.',

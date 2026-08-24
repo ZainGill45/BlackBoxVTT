@@ -310,6 +310,15 @@ const sceneApi: SceneApi = {
   async listTokenHealth() {
     return { ok: true, value: [] };
   },
+  async getTokenInspector() {
+    return sceneUnavailable();
+  },
+  async mutateTokenInspector() {
+    return sceneUnavailable();
+  },
+  async resolveTokenInspectorRoll() {
+    return sceneUnavailable();
+  },
   onChanged() {
     return () => undefined;
   },

@@ -22,6 +22,9 @@ import type {
   SceneTokenHealthInput,
   AdjustSceneTokenHealthInput,
   SceneTokenHealthPresentation,
+  SceneTokenInspectorInput,
+  MutateSceneTokenInspectorInput,
+  ResolveSceneTokenInspectorRollInput,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
@@ -33,6 +36,8 @@ import type {
   UpdateSceneInput,
   UpdateScenePermissionsInput,
 } from './sceneContracts';
+import type { TokenInspectorPresentation } from './tokenInspector';
+import type { ChatRollDefinition } from './chatRoll';
 import type { PermissionSubject } from './permissions';
 
 export * from './sceneConstants';
@@ -98,6 +103,9 @@ export const sceneIpcChannels = {
   findDependents: 'scenes:find-dependents',
   list: 'scenes:list',
   listTokenHealth: 'scenes:list-token-health',
+  getTokenInspector: 'scenes:get-token-inspector',
+  mutateTokenInspector: 'scenes:mutate-token-inspector',
+  resolveTokenInspectorRoll: 'scenes:resolve-token-inspector-roll',
   listUsers: 'scenes:list-users',
   present: 'scenes:present',
   previewCancel: 'scenes:preview-cancel',
@@ -141,6 +149,15 @@ export interface SceneApi {
   listTokenHealth(
     input: SceneTokenHealthInput,
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>>;
+  getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>>;
+  mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneResult<SceneRecord>>;
+  resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>>;
   listUsers(input: SceneCampaignInput): Promise<SceneResult<PermissionSubject[]>>;
   onChanged(listener: (event: SceneChangedEvent) => void): () => void;
   present(input: PresentSceneInput): Promise<SceneResult<SceneManifest>>;

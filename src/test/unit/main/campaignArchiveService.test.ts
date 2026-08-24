@@ -259,7 +259,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 18 });
+    ))).toMatchObject({ formatVersion: 19 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -397,7 +397,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 19;
+    manifest.formatVersion = 20;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -1097,6 +1097,7 @@ describe('CampaignArchiveService', () => {
       expect((JSON.parse(character.data_json) as Dnd5eCharacterData)
         .defaultToken).toEqual({
           imageAssetId: null,
+          inspector: { fieldIds: ['health', 'armor-class'] },
           size: { height: 1, width: 1 },
           type: 'linked',
         });
@@ -1166,6 +1167,39 @@ describe('CampaignArchiveService', () => {
       ).get() as { data_json: string };
       expect((JSON.parse(row.data_json) as Dnd5eCharacterData).health)
         .toMatchObject({ currentHitPoints: '1', maximumHitPoints: '1' });
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly adds Token Inspector defaults from the untouched format-18 fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-token-inspector-format-18.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-18-fixture',
+          warnings: [
+            'Added default Token Inspector fields to 1 D&D character and 0 Template token snapshots imported from archive format 18.',
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      expect((JSON.parse(row.data_json) as Dnd5eCharacterData)
+        .defaultToken.inspector.fieldIds).toEqual(['health', 'armor-class']);
     } finally {
       importedDatabase.close();
     }

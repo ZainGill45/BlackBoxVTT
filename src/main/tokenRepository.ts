@@ -3,6 +3,19 @@ import { DiceRoll } from '@dice-roller/rpg-dice-roller';
 import type { JsonValue } from '../shared/gameSystems';
 import type { JournalAccessLevel } from '../shared/journal';
 import {
+  chatRollDefinitionSchema,
+  type ChatRollDefinition,
+} from '../shared/chatRoll';
+import {
+  MAX_TOKEN_INSPECTOR_FIELDS,
+  tokenInspectorFieldValueOf,
+  type TokenInspectorField,
+  type TokenInspectorFieldValue,
+  type TokenInspectorLayoutMutation,
+  type TokenInspectorMutation,
+  type TokenInspectorPresentation,
+} from '../shared/tokenInspector';
+import {
   DEFAULT_TOKEN_ASSET_ID,
   isSceneToken,
   SCENE_LAYERS,
@@ -84,6 +97,27 @@ export interface TokenHealthHistoryChange {
   target: JournalEntryTokenHealthValue;
 }
 
+interface TokenInspectorLayoutState {
+  beforeFieldId?: string | null;
+  selected: boolean;
+}
+
+export type TokenInspectorHistoryChange =
+  | {
+      expected: TokenInspectorLayoutState;
+      fieldId: string;
+      kind: 'layout';
+      source: SceneToken['source'];
+      target: TokenInspectorLayoutState;
+    }
+  | {
+      expected: TokenInspectorFieldValue;
+      fieldId: string;
+      kind: 'value';
+      source: SceneToken['source'];
+      target: TokenInspectorFieldValue;
+    };
+
 export interface PreparedTokenReference {
   definition: JournalEntryDefaultToken;
   placement: 'duplicate-template' | 'existing' | 'new';
@@ -133,6 +167,208 @@ export class TokenRepository {
     if (!snapshot || snapshot.rootEntryId !== source.entryId) return false;
     if (actor.kind === 'gm') return true;
     return Boolean(this.readRoot(actor, snapshot.rootEntryId, 'edit'));
+  }
+
+  canInspect(actor: SceneEditActor, source: SceneToken['source']): boolean {
+    if (source.kind === 'linked') {
+      return Boolean(this.readRoot(actor, source.entryId, 'view'));
+    }
+    const snapshot = this.readSnapshot(source.instanceId);
+    if (!snapshot || snapshot.rootEntryId !== source.entryId) return false;
+    if (actor.kind === 'gm') return true;
+    return Boolean(this.readRoot(actor, snapshot.rootEntryId, 'view'));
+  }
+
+  getInspector(
+    actor: SceneEditActor,
+    sceneId: string,
+    tokenId: string,
+  ): SceneResult<TokenInspectorPresentation> {
+    const scene = this.sceneRows().find(({ id }) => id === sceneId)?.scene;
+    if (!scene) return failure('invalid_input', 'The scene does not exist.');
+    const token = this.findToken(scene, tokenId);
+    if (!token) return failure('invalid_input', 'The token does not exist.');
+    return this.presentInspector(actor, token);
+  }
+
+  resolveInspectorRoll(
+    actor: SceneEditActor,
+    sceneId: string,
+    tokenId: string,
+    fieldId: string,
+  ): SceneResult<ChatRollDefinition> {
+    const scene = this.sceneRows().find(({ id }) => id === sceneId)?.scene;
+    if (!scene) return failure('invalid_input', 'The scene does not exist.');
+    const token = this.findToken(scene, tokenId);
+    if (!token) return failure('invalid_input', 'The token does not exist.');
+    if (!this.canManipulate(actor, token.source)) {
+      return failure('permission_denied', 'You cannot roll for this token.');
+    }
+    const resolved = this.resolveInspectorSource(token.source);
+    const inspector = resolved?.definition.token?.inspector;
+    if (!resolved || !inspector) {
+      return failure('invalid_input', 'This token does not support inspection.');
+    }
+    const settings = this.database.readSystem().settings;
+    const fields = inspector.readFields(settings, resolved.data);
+    const field = fields.find(({ id }) => id === fieldId);
+    if (
+      !field?.roll ||
+      !this.selectedInspectorFieldIds(resolved, fields).includes(field.id)
+    ) {
+      return failure('invalid_input', 'The inspector field cannot be rolled.');
+    }
+    const roll = inspector.rollField(settings, resolved.data, field.id);
+    const parsed = chatRollDefinitionSchema.safeParse(roll);
+    return parsed.success
+      ? { ok: true, value: parsed.data }
+      : failure('invalid_input', 'The system could not build this roll.');
+  }
+
+  prepareInspectorMutation(
+    actor: SceneEditActor,
+    scene: SceneRecord,
+    tokenId: string,
+    mutation: TokenInspectorMutation,
+  ): SceneResult<TokenInspectorHistoryChange> {
+    const token = this.findToken(scene, tokenId);
+    if (!token) return failure('invalid_input', 'The token does not exist.');
+    if (!this.canManipulate(actor, token.source)) {
+      return failure('permission_denied', 'You cannot edit this token.');
+    }
+    const resolved = this.resolveInspectorSource(token.source);
+    const inspector = resolved?.definition.token?.inspector;
+    if (!resolved || !inspector) {
+      return failure('invalid_input', 'This token does not support inspection.');
+    }
+    const settings = this.database.readSystem().settings;
+    const fields = inspector.readFields(settings, resolved.data);
+    const field = fields.find(({ id }) => id === mutation.fieldId);
+    const selected = this.selectedInspectorFieldIds(resolved, fields);
+
+    if (mutation.kind !== 'set-value') {
+      const next = this.applyLayoutMutation(selected, fields, mutation);
+      if (!next) {
+        return failure('invalid_input', 'The inspector layout change is invalid.');
+      }
+      const data = resolved.definition.token!.writeDefaultToken(
+        resolved.data,
+        {
+          ...resolved.definition.token!.readDefaultToken(resolved.data),
+          inspector: { fieldIds: next },
+        },
+      );
+      if (!resolved.definition.validateData(data)) {
+        return failure('invalid_input', 'The system rejected the inspector layout.');
+      }
+      return {
+        ok: true,
+        value: {
+          expected: this.layoutState(selected, mutation.fieldId, mutation.kind),
+          fieldId: mutation.fieldId,
+          kind: 'layout',
+          source: structuredClone(token.source),
+          target: this.layoutState(next, mutation.fieldId, mutation.kind),
+        },
+      };
+    }
+
+    if (!field || !selected.includes(field.id) || field.editor === null) {
+      return failure('invalid_input', 'The inspector field cannot be edited.');
+    }
+    if (
+      (field.kind === 'scalar' && mutation.target !== 'value') ||
+      (field.kind === 'resource' && mutation.target === 'value')
+    ) {
+      return failure('invalid_input', 'The inspector field target is invalid.');
+    }
+    const data = inspector.applyEdit(settings, resolved.data, mutation);
+    if (!data || !resolved.definition.validateData(data)) {
+      return failure('invalid_input', 'The inspector value is invalid.');
+    }
+    const changed = inspector.readFields(settings, data)
+      .find(({ id }) => id === field.id);
+    if (!changed) {
+      return failure('invalid_input', 'The inspector field no longer exists.');
+    }
+    return {
+      ok: true,
+      value: {
+        expected: tokenInspectorFieldValueOf(field),
+        fieldId: field.id,
+        kind: 'value',
+        source: structuredClone(token.source),
+        target: tokenInspectorFieldValueOf(changed),
+      },
+    };
+  }
+
+  inspectorHistoryMatches(changes: TokenInspectorHistoryChange[]): boolean {
+    return changes.every((change) => {
+      const resolved = this.resolveInspectorSource(change.source);
+      const inspector = resolved?.definition.token?.inspector;
+      if (!resolved || !inspector) return false;
+      const fields = inspector.readFields(
+        this.database.readSystem().settings,
+        resolved.data,
+      );
+      if (change.kind === 'value') {
+        const field = fields.find(({ id }) => id === change.fieldId);
+        return Boolean(field) && JSON.stringify(tokenInspectorFieldValueOf(field!)) ===
+          JSON.stringify(change.expected);
+      }
+      const selected = this.selectedInspectorFieldIds(resolved, fields);
+      return this.layoutStateMatches(selected, change.fieldId, change.expected);
+    });
+  }
+
+  commitInspectorChanges(
+    changes: TokenInspectorHistoryChange[],
+    timestamp: string,
+  ): void {
+    for (const change of changes) {
+      const resolved = this.resolveInspectorSource(change.source);
+      const inspector = resolved?.definition.token?.inspector;
+      if (!resolved || !inspector) {
+        throw new Error('The Token Inspector source is missing.');
+      }
+      const settings = this.database.readSystem().settings;
+      const fields = inspector.readFields(settings, resolved.data);
+      let data: JsonValue | null = null;
+      if (change.kind === 'value') {
+        const field = fields.find(({ id }) => id === change.fieldId);
+        if (
+          !field ||
+          JSON.stringify(tokenInspectorFieldValueOf(field)) !==
+            JSON.stringify(change.expected)
+        ) {
+          throw new Error('The Token Inspector value changed before it could be saved.');
+        }
+        data = inspector.writeField(
+          settings,
+          resolved.data,
+          change.fieldId,
+          change.target,
+        );
+      } else {
+        const selected = this.selectedInspectorFieldIds(resolved, fields);
+        if (!this.layoutStateMatches(selected, change.fieldId, change.expected)) {
+          throw new Error('The Token Inspector layout changed before it could be saved.');
+        }
+        const next = this.applyLayoutState(selected, change.fieldId, change.target);
+        data = resolved.definition.token!.writeDefaultToken(
+          resolved.data,
+          {
+            ...resolved.definition.token!.readDefaultToken(resolved.data),
+            inspector: { fieldIds: next },
+          },
+        );
+      }
+      if (!data || !resolved.definition.validateData(data)) {
+        throw new Error('The system rejected the Token Inspector state.');
+      }
+      this.writeSourceData(change.source, data, timestamp);
+    }
   }
 
   prepareRootDataForSave(typeId: string, data: JsonValue): JsonValue | null {
@@ -829,6 +1065,175 @@ export class TokenRepository {
       definition,
       rootEntryId: source.entryId,
     };
+  }
+
+  private resolveInspectorSource(source: SceneToken['source']): {
+    data: JsonValue;
+    definition: NonNullable<ReturnType<typeof getJournalEntryTypeDefinition>>;
+    rootEntryId: string;
+  } | null {
+    const record = source.kind === 'linked'
+      ? this.readRootUnchecked(source.entryId)
+      : this.readSnapshot(source.instanceId);
+    if (!record) return null;
+    const definition = getJournalEntryTypeDefinition(
+      this.database.readSystem(),
+      record.typeId,
+    );
+    if (!definition?.token?.inspector || !definition.validateData(record.data)) {
+      return null;
+    }
+    return {
+      data: structuredClone(record.data),
+      definition,
+      rootEntryId: source.entryId,
+    };
+  }
+
+  private findToken(scene: SceneRecord, tokenId: string): SceneToken | null {
+    return Object.values(scene.images).flat().find(
+      (image): image is SceneToken => isSceneToken(image) && image.id === tokenId,
+    ) ?? null;
+  }
+
+  private presentInspector(
+    actor: SceneEditActor,
+    token: SceneToken,
+  ): SceneResult<TokenInspectorPresentation> {
+    if (!this.canInspect(actor, token.source)) {
+      return failure('permission_denied', 'You cannot view this token.');
+    }
+    const resolved = this.resolveInspectorSource(token.source);
+    const inspector = resolved?.definition.token?.inspector;
+    if (!resolved || !inspector) {
+      return failure('invalid_input', 'This token does not support inspection.');
+    }
+    const fields = inspector.readFields(
+      this.database.readSystem().settings,
+      resolved.data,
+    );
+    const editable = this.canManipulate(actor, token.source);
+    return {
+      ok: true,
+      value: {
+        editable,
+        fields: fields.map((field) => {
+          const cloned = structuredClone(field);
+          if (editable) return cloned;
+          delete cloned.roll;
+          return { ...cloned, editor: null } as TokenInspectorField;
+        }),
+        selectedFieldIds: this.selectedInspectorFieldIds(resolved, fields),
+        tokenId: token.id,
+      },
+    };
+  }
+
+  private selectedInspectorFieldIds(
+    resolved: NonNullable<ReturnType<TokenRepository['resolveInspectorSource']>>,
+    fields: readonly TokenInspectorField[],
+  ): string[] {
+    const available = new Set(fields.map(({ id }) => id));
+    return resolved.definition.token!.readDefaultToken(resolved.data)
+      .inspector.fieldIds.filter((id) => available.has(id));
+  }
+
+  private applyLayoutMutation(
+    selected: readonly string[],
+    fields: readonly TokenInspectorField[],
+    mutation: TokenInspectorLayoutMutation,
+  ): string[] | null {
+    const next = [...selected];
+    const index = next.indexOf(mutation.fieldId);
+    if (mutation.kind === 'add-field') {
+      if (
+        index >= 0 ||
+        next.length >= MAX_TOKEN_INSPECTOR_FIELDS ||
+        !fields.some(({ id }) => id === mutation.fieldId)
+      ) return null;
+      next.push(mutation.fieldId);
+      return next;
+    }
+    if (index < 0) return null;
+    if (mutation.kind === 'delete-field') {
+      next.splice(index, 1);
+      return next;
+    }
+    if (mutation.kind === 'move-field') {
+      const target = index + (mutation.direction === 'down' ? 1 : -1);
+      if (target < 0 || target >= next.length) return null;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    }
+    if (mutation.beforeFieldId === mutation.fieldId) return null;
+    if (
+      mutation.beforeFieldId !== null &&
+      !next.includes(mutation.beforeFieldId)
+    ) return null;
+    next.splice(index, 1);
+    const target = mutation.beforeFieldId === null
+      ? next.length
+      : next.indexOf(mutation.beforeFieldId);
+    next.splice(target, 0, mutation.fieldId);
+    return next;
+  }
+
+  private layoutState(
+    selected: readonly string[],
+    fieldId: string,
+    mutationKind: TokenInspectorLayoutMutation['kind'],
+  ): TokenInspectorLayoutState {
+    const index = selected.indexOf(fieldId);
+    if (index < 0) return { selected: false };
+    return mutationKind !== 'add-field'
+      ? { beforeFieldId: selected[index + 1] ?? null, selected: true }
+      : { selected: true };
+  }
+
+  private layoutStateMatches(
+    selected: readonly string[],
+    fieldId: string,
+    state: TokenInspectorLayoutState,
+  ): boolean {
+    const index = selected.indexOf(fieldId);
+    if ((index >= 0) !== state.selected) return false;
+    return !state.selected || state.beforeFieldId === undefined ||
+      (selected[index + 1] ?? null) === state.beforeFieldId;
+  }
+
+  private applyLayoutState(
+    selected: readonly string[],
+    fieldId: string,
+    state: TokenInspectorLayoutState,
+  ): string[] {
+    const next = selected.filter((id) => id !== fieldId);
+    if (!state.selected) return next;
+    const anchor = state.beforeFieldId === undefined || state.beforeFieldId === null
+      ? -1
+      : next.indexOf(state.beforeFieldId);
+    const index = anchor < 0 ? next.length : anchor;
+    next.splice(index, 0, fieldId);
+    return next;
+  }
+
+  private writeSourceData(
+    source: SceneToken['source'],
+    data: JsonValue,
+    timestamp: string,
+  ): void {
+    if (source.kind === 'linked') {
+      this.database.connection.prepare(
+        `UPDATE journal_entries
+         SET data_json = ?, revision = revision + 1, updated_at = ?
+         WHERE id = ?`,
+      ).run(JSON.stringify(data), timestamp, source.entryId);
+    } else {
+      this.database.connection.prepare(
+        `UPDATE scene_token_snapshots
+         SET data_json = ?, revision = revision + 1, updated_at = ?
+         WHERE id = ?`,
+      ).run(JSON.stringify(data), timestamp, source.instanceId);
+    }
   }
 
   private readSnapshot(id: string): TemplateTokenSnapshot | null {

@@ -54,6 +54,7 @@ import {
 import { snapMove } from './canvas/imageGeometry';
 import { useSceneImageResources } from './useSceneImageUrls';
 import styles from './PlayScreen.module.css';
+import { TokenInspector } from './TokenInspector';
 
 /*
  * Text is sized straight off the bar it sits in, with no legibility floor: a
@@ -85,6 +86,7 @@ interface MapStageProps {
   /** Injected so tests can drive the stage without a WebGL context. */
   createRenderer?: () => SceneRendererHandle;
   editableTokenEntryIds?: ReadonlySet<string>;
+  inspectableTokenEntryIds?: ReadonlySet<string>;
   networkApi: NetworkApi;
   journalApi?: JournalApi;
   journalWindowApi?: Pick<JournalWindowApi, 'focusCharacter'>;
@@ -152,6 +154,7 @@ export function MapStage({
   activeTool = 'select',
   createRenderer,
   editableTokenEntryIds,
+  inspectableTokenEntryIds,
   networkApi,
   journalApi,
   journalWindowApi,
@@ -186,6 +189,7 @@ export function MapStage({
   const seenPingIds = useRef(new Set<string>());
   const [renderer, setRenderer] = useState<SceneRendererHandle | null>(null);
   const [tokenMessage, setTokenMessage] = useState<string | null>(null);
+  const [inspectedTokenId, setInspectedTokenId] = useState<string | null>(null);
   const [healthEditor, setHealthEditor] = useState<
     (TokenHealthHit & { sceneId: string }) | null
   >(null);
@@ -570,6 +574,7 @@ export function MapStage({
       actorId: sessionUserId,
       canEditImages: session.role === 'gm',
       editableTokenEntryIds,
+      inspectableTokenEntryIds,
       editable: activeTool === 'select',
       fogEnabled: session.role === 'gm' && activeTool === 'fog',
       fogMode,
@@ -658,6 +663,17 @@ export function MapStage({
         });
       },
       onOpenLinkedToken: openLinkedToken,
+      onSelectionChange: (selectedIds) => {
+        const current = sceneRef.current;
+        const selectedId = selectedIds[selectedIds.length - 1];
+        const token = current && selectedId
+          ? Object.values(current.images).flat().find(
+              (image): image is SceneToken =>
+                image.id === selectedId && 'source' in image,
+            )
+          : null;
+        setInspectedTokenId(token?.id ?? null);
+      },
       onAdjustTokenHealth: (hit) => {
         const current = sceneRef.current;
         if (!current) return;
@@ -705,6 +721,7 @@ export function MapStage({
     activeTool,
     applyLinkedTokenDefaultSize,
     editableTokenEntryIds,
+    inspectableTokenEntryIds,
     fogMode,
     fogSettings,
     fogSubtool,
@@ -970,6 +987,17 @@ export function MapStage({
               value={healthCommand}
             />
           </div>
+        ) : null}
+        {scene && inspectedTokenId ? (
+          <TokenInspector
+            campaignId={session.campaignId}
+            key={`${scene.id}:${inspectedTokenId}`}
+            networkApi={networkApi}
+            sceneApi={sceneApi}
+            sceneId={scene.id}
+            sceneRevision={scene.revision}
+            tokenId={inspectedTokenId}
+          />
         ) : null}
       </section>
       {openedEntry && journalApi ? (

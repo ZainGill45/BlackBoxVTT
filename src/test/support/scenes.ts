@@ -138,6 +138,18 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
     })),
     listUsers: vi.fn(async () => ({ ok: true as const, value: [] })),
     listTokenHealth: vi.fn(async () => ({ ok: true as const, value: [] })),
+    getTokenInspector: vi.fn(async () => ({
+      error: { code: 'unavailable' as const, message: 'Unavailable.' },
+      ok: false as const,
+    })),
+    mutateTokenInspector: vi.fn(async () => ({
+      error: { code: 'unavailable' as const, message: 'Unavailable.' },
+      ok: false as const,
+    })),
+    resolveTokenInspectorRoll: vi.fn(async () => ({
+      error: { code: 'unavailable' as const, message: 'Unavailable.' },
+      ok: false as const,
+    })),
     updatePermissions: vi.fn(async () => ({ ok: true as const, value: manifest })),
     create: vi.fn(async () => {
       nextId += 1;

@@ -10,6 +10,11 @@ import {
   type SceneResult,
   type SceneTokenHealthPresentation,
 } from '../../shared/scenes';
+import type {
+  TokenInspectorMutation,
+  TokenInspectorPresentation,
+} from '../../shared/tokenInspector';
+import type { ChatRollDefinition } from '../../shared/chatRoll';
 import { projectSceneManifest } from '../scenePolicy';
 import type {
   SceneRepository,
@@ -23,6 +28,9 @@ type SceneStore = Pick<
   | 'adjustTokenHealth'
   | 'adjustTokenHealthWithEffects'
   | 'listTokenHealth'
+  | 'getTokenInspector'
+  | 'resolveTokenInspectorRoll'
+  | 'mutateTokenInspectorWithEffects'
   | 'readManifest'
   | 'redo'
   | 'redoWithEffects'
@@ -101,6 +109,90 @@ export class CampaignSceneService {
       operationId,
       userId,
     )).result;
+  }
+
+  async getTokenInspectorForPlayer(
+    sceneId: string,
+    tokenId: string,
+    userId: string,
+  ): Promise<SceneResult<TokenInspectorPresentation>> {
+    const projected = projectSceneManifest(await this.scenes.readManifest(), {
+      kind: 'player',
+      userId,
+    });
+    if (!projected.scenes.some((scene) => scene.id === sceneId)) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'You cannot view this scene.',
+          sceneId,
+        },
+        ok: false,
+      };
+    }
+    return this.scenes.getTokenInspector(sceneId, tokenId, actor(userId));
+  }
+
+  async resolveTokenInspectorRollForPlayer(
+    sceneId: string,
+    tokenId: string,
+    fieldId: string,
+    userId: string,
+  ): Promise<SceneResult<ChatRollDefinition>> {
+    const projected = projectSceneManifest(await this.scenes.readManifest(), {
+      kind: 'player',
+      userId,
+    });
+    if (!projected.scenes.some((scene) => scene.id === sceneId)) {
+      return {
+        error: {
+          code: 'permission_denied',
+          message: 'You cannot view this scene.',
+          sceneId,
+        },
+        ok: false,
+      };
+    }
+    return this.scenes.resolveTokenInspectorRoll(
+      sceneId,
+      tokenId,
+      fieldId,
+      actor(userId),
+    );
+  }
+
+  async mutatePlayerTokenInspectorWithEffects(
+    sceneId: string,
+    tokenId: string,
+    mutation: TokenInspectorMutation,
+    operationId: string,
+    userId: string,
+  ): Promise<SceneRepositoryMutation<SceneRecord>> {
+    const projected = projectSceneManifest(await this.scenes.readManifest(), {
+      kind: 'player',
+      userId,
+    });
+    if (!projected.scenes.some((scene) => scene.id === sceneId)) {
+      return {
+        authoredDataChangedEntryIds: [],
+        result: {
+          error: {
+            code: 'permission_denied',
+            message: 'You cannot view this scene.',
+            sceneId,
+          },
+          ok: false,
+        },
+      };
+    }
+    const outcome = await this.scenes.mutateTokenInspectorWithEffects(
+      sceneId,
+      tokenId,
+      mutation,
+      operationId,
+      actor(userId),
+    );
+    return { ...outcome, result: projectResult(outcome.result) };
   }
 
   async adjustPlayerTokenHealthWithEffects(

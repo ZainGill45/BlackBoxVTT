@@ -15,7 +15,10 @@ import {
   type SendChatMessageInput,
   type SendChatRollInput,
 } from '../../shared/chat';
-import { CHAT_ROLL_SEND_TIMEOUT_MS } from '../../shared/chatRoll';
+import {
+  CHAT_ROLL_SEND_TIMEOUT_MS,
+  type ChatRollDefinition,
+} from '../../shared/chatRoll';
 import {
   ASSET_CHUNK_BYTES,
   type AssetError,
@@ -57,6 +60,10 @@ import type {
   SceneTransformPreviewStart,
   SetSceneObjectsInput,
 } from '../../shared/scenes';
+import type {
+  TokenInspectorMutation,
+  TokenInspectorPresentation,
+} from '../../shared/tokenInspector';
 import { fail } from '../../shared/result';
 import { ClientNetworkSession } from './clientNetworkSession';
 import { associateUdp } from './udpAssociation';
@@ -973,6 +980,86 @@ export class CampaignClient {
     return this.sceneMutation('client.scene_health_adjust', input);
   }
 
+  async getSceneTokenInspector(input: {
+    sceneId: string;
+    tokenId: string;
+  }): Promise<SceneResult<TokenInspectorPresentation>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return this.sceneFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.scene_inspector_get',
+        input,
+        ['server.scene_inspector', 'server.scene_error'],
+      );
+      if (envelope.type === 'server.scene_error') {
+        return {
+          error: parsePayload('server.scene_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload('server.scene_inspector', envelope.payload),
+      };
+    } catch {
+      return this.sceneFailure(
+        'unavailable',
+        'The Token Inspector could not be read.',
+      );
+    }
+  }
+
+  async resolveSceneTokenInspectorRoll(input: {
+    fieldId: string;
+    sceneId: string;
+    tokenId: string;
+  }): Promise<SceneResult<ChatRollDefinition>> {
+    const active = this.active;
+    if (!active || active.isClosed) {
+      return this.sceneFailure(
+        'unavailable',
+        'The campaign connection is not active.',
+      );
+    }
+    try {
+      const envelope = await active.request(
+        'client.scene_inspector_roll_resolve',
+        input,
+        ['server.scene_inspector_roll', 'server.scene_error'],
+      );
+      if (envelope.type === 'server.scene_error') {
+        return {
+          error: parsePayload('server.scene_error', envelope.payload),
+          ok: false,
+        };
+      }
+      return {
+        ok: true,
+        value: parsePayload('server.scene_inspector_roll', envelope.payload),
+      };
+    } catch {
+      return this.sceneFailure(
+        'unavailable',
+        'The Token Inspector roll could not be prepared.',
+      );
+    }
+  }
+
+  mutateSceneTokenInspector(input: {
+    mutation: TokenInspectorMutation;
+    operationId: string;
+    sceneId: string;
+    tokenId: string;
+  }): Promise<SceneResult<SceneRecord>> {
+    return this.sceneMutation('client.scene_inspector_mutate', input);
+  }
+
   async undoSceneEdit(
     input: Omit<SceneHistoryInput, 'campaignId'>,
   ): Promise<SceneResult<SceneRecord>> {
@@ -1306,6 +1393,7 @@ export class CampaignClient {
     type:
       | 'client.scene_objects_set'
       | 'client.scene_health_adjust'
+      | 'client.scene_inspector_mutate'
       | 'client.scene_redo'
       | 'client.scene_undo'
       | 'client.scene_update',

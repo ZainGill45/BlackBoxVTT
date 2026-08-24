@@ -185,6 +185,21 @@ export function PlayScreen({
     ),
     [journalStore.manifest, session.system],
   );
+  const inspectableTokenEntryIds = useMemo(
+    () => new Set(
+      (journalStore.manifest?.entries ?? [])
+        .filter((entry) =>
+          entry.kind === 'system' &&
+          entry.capabilities.view &&
+          Boolean(
+            getJournalEntryTypeDefinition(session.system, entry.typeId)?.token
+              ?.inspector,
+          ),
+        )
+        .map(({ id }) => id),
+    ),
+    [journalStore.manifest, session.system],
+  );
   const sceneImageIds = useMemo(
     () =>
       scenes.scenes
@@ -363,6 +378,7 @@ export function PlayScreen({
         availableScenes={scenes.scenes}
         createRenderer={preload?.createRenderer ?? undefined}
         editableTokenEntryIds={editableTokenEntryIds}
+        inspectableTokenEntryIds={inspectableTokenEntryIds}
         networkApi={networkApi}
         networkUpdateRate={serverSettings.transformPreviewRate}
         onPrepared={onPrepared}

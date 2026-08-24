@@ -19,7 +19,11 @@ export function addLinkedDnd5eTokenTypeToValue(
   }
   const converted = {
     ...value,
-    defaultToken: { ...value.defaultToken, type: 'linked' },
+    defaultToken: {
+      ...value.defaultToken,
+      inspector: { fieldIds: ['health', 'armor-class'] },
+      type: 'linked',
+    },
   };
   return isDnd5eCharacterData(converted as JsonValue)
     ? converted as unknown as Dnd5eCharacterData

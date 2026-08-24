@@ -25,6 +25,15 @@ function normalizeHealth(value: unknown): Dnd5eCharacterData | null {
   ) {
     return null;
   }
+  if (
+    !candidate.defaultToken ||
+    typeof candidate.defaultToken !== 'object' ||
+    Array.isArray(candidate.defaultToken) ||
+    Object.hasOwn(candidate.defaultToken, 'inspector')
+  ) return null;
+  candidate.defaultToken.inspector = {
+    fieldIds: ['health', 'armor-class'],
+  };
   const shapeProbe = structuredClone(candidate);
   shapeProbe.health.currentHitPoints = '1';
   shapeProbe.health.maximumHitPoints = '1';

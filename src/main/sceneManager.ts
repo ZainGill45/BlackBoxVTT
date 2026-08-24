@@ -11,6 +11,9 @@ import type {
   SceneResult,
   SceneTokenHealthInput,
   SceneTokenHealthPresentation,
+  SceneTokenInspectorInput,
+  MutateSceneTokenInspectorInput,
+  ResolveSceneTokenInspectorRollInput,
   SceneTransformPreviewCancel,
   SceneTransformPreviewDelta,
   SceneTransformPreviewStart,
@@ -21,6 +24,8 @@ import type {
   UpdateSceneInput,
   UpdateScenePermissionsInput,
 } from '../shared/scenes';
+import type { TokenInspectorPresentation } from '../shared/tokenInspector';
+import type { ChatRollDefinition } from '../shared/chatRoll';
 import type { PermissionSubject } from '../shared/permissions';
 import type {
   CampaignRuntimeRegistry,
@@ -68,6 +73,28 @@ export class SceneManager extends EventEmitter {
   ): Promise<SceneResult<SceneRecord>> {
     return this.mutate(input.campaignId, (scenes) =>
       scenes.adjustTokenHealth(input),
+    );
+  }
+
+  async getTokenInspector(
+    input: SceneTokenInspectorInput,
+  ): Promise<SceneResult<TokenInspectorPresentation>> {
+    const scenes = await this.scenes(input.campaignId);
+    return scenes ? scenes.getTokenInspector(input) : unavailable();
+  }
+
+  async resolveTokenInspectorRoll(
+    input: ResolveSceneTokenInspectorRollInput,
+  ): Promise<SceneResult<ChatRollDefinition>> {
+    const scenes = await this.scenes(input.campaignId);
+    return scenes ? scenes.resolveTokenInspectorRoll(input) : unavailable();
+  }
+
+  mutateTokenInspector(
+    input: MutateSceneTokenInspectorInput,
+  ): Promise<SceneResult<SceneRecord>> {
+    return this.mutate(input.campaignId, (scenes) =>
+      scenes.mutateTokenInspector(input),
     );
   }
 

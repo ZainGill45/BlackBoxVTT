@@ -209,6 +209,116 @@ describe('host chat request handler', () => {
 });
 
 describe('host scene request handler', () => {
+  it('routes Token Inspector reads, rolls, and mutations through the authenticated player', async () => {
+    const activeScene = scene();
+    const inspector = {
+      editable: true,
+      fields: [{
+        editor: 'text' as const,
+        id: 'armor-class',
+        kind: 'scalar' as const,
+        label: 'Armor Class',
+        value: '12',
+      }],
+      selectedFieldIds: ['armor-class'],
+      tokenId: '55555555-5555-4555-8555-555555555555',
+    };
+    const getTokenInspectorForPlayer = vi.fn(async () => ({
+      ok: true as const,
+      value: inspector,
+    }));
+    const mutatePlayerTokenInspectorWithEffects = vi.fn(async () => ({
+      authoredDataChangedEntryIds: ['66666666-6666-4666-8666-666666666666'],
+      result: { ok: true as const, value: activeScene },
+    }));
+    const roll = {
+      category: 'Initiative',
+      sections: [{
+        label: 'Initiative',
+        modifiers: [{ label: 'Initiative', value: 2 }],
+        notation: '1d20',
+        typeLabel: null,
+      }],
+      title: null,
+    };
+    const resolveTokenInspectorRollForPlayer = vi.fn(async () => ({
+      ok: true as const,
+      value: roll,
+    }));
+    const onSceneMutation = vi.fn(async () => undefined);
+    const handler = new HostSceneRequestHandler({
+      broadcastDrawingPreview: vi.fn(),
+      broadcastShapePreview: vi.fn(),
+      broadcastTransformCancelled: vi.fn(),
+      broadcastTransformStarted: vi.fn(),
+      campaignId,
+      onSceneMutation,
+      scenes: {
+        getTokenInspectorForPlayer,
+        resolveTokenInspectorRollForPlayer,
+        mutatePlayerTokenInspectorWithEffects,
+      } as unknown as CampaignSceneService,
+    });
+    const { client, writtenEnvelopes } = createClient();
+
+    await handler.handleRequest(client, envelope('client.scene_inspector_get', {
+      sceneId,
+      tokenId: inspector.tokenId,
+    }));
+    await handler.handleRequest(client, envelope('client.scene_inspector_roll_resolve', {
+      fieldId: 'initiative',
+      sceneId,
+      tokenId: inspector.tokenId,
+    }));
+    await handler.handleRequest(client, envelope('client.scene_inspector_mutate', {
+      mutation: {
+        command: '18',
+        fieldId: 'armor-class',
+        kind: 'set-value',
+        target: 'value',
+      },
+      operationId,
+      sceneId,
+      tokenId: inspector.tokenId,
+    }));
+
+    expect(getTokenInspectorForPlayer).toHaveBeenCalledWith(
+      sceneId,
+      inspector.tokenId,
+      userId,
+    );
+    expect(mutatePlayerTokenInspectorWithEffects).toHaveBeenCalledWith(
+      sceneId,
+      inspector.tokenId,
+      expect.objectContaining({ kind: 'set-value' }),
+      operationId,
+      userId,
+    );
+    expect(resolveTokenInspectorRollForPlayer).toHaveBeenCalledWith(
+      sceneId,
+      inspector.tokenId,
+      'initiative',
+      userId,
+    );
+    expect(onSceneMutation).toHaveBeenCalledWith([
+      '66666666-6666-4666-8666-666666666666',
+    ]);
+    expect(writtenEnvelopes()).toEqual([
+      expect.objectContaining({
+        payload: inspector,
+        type: 'server.scene_inspector',
+      }),
+      expect.objectContaining({
+        payload: roll,
+        type: 'server.scene_inspector_roll',
+      }),
+      expect.objectContaining({
+        payload: { scene: activeScene },
+        type: 'server.scene_mutation',
+      }),
+    ]);
+  });
+
   it('routes mutations with the authenticated actor before broadcasting', async () => {
     const activeScene = scene();
     const setPlayerObjects = vi.fn(async () => ({

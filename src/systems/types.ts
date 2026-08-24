@@ -1,14 +1,47 @@
 import type { CampaignSystemState, JsonValue } from '../shared/gameSystems';
 import type { JournalAccessLevel } from '../shared/journal';
+import type { ChatRollDefinition } from '../shared/chatRoll';
+import type {
+  TokenInspectorField,
+  TokenInspectorFieldValue,
+  TokenInspectorValueEdit,
+} from '../shared/tokenInspector';
 
 export type JournalEntryDefaultToken = {
   imageAssetId: string | null;
+  inspector: {
+    fieldIds: string[];
+  };
   size: {
     height: number;
     width: number;
   };
   type: 'linked' | 'template';
 };
+
+/** System-owned fields and mutations projected through the core Token Inspector. */
+export interface JournalEntryTokenInspectorDefinition<
+  TSettings extends JsonValue = JsonValue,
+  TData extends JsonValue = JsonValue,
+> {
+  applyEdit(
+    settings: TSettings,
+    data: TData,
+    edit: TokenInspectorValueEdit,
+  ): TData | null;
+  readFields(settings: TSettings, data: TData): TokenInspectorField[];
+  rollField(
+    settings: TSettings,
+    data: TData,
+    fieldId: string,
+  ): ChatRollDefinition | null;
+  writeField(
+    settings: TSettings,
+    data: TData,
+    fieldId: string,
+    value: TokenInspectorFieldValue,
+  ): TData | null;
+}
 
 export interface JournalEntryTokenHealthValue {
   currentHundredths: number;
@@ -34,9 +67,11 @@ export interface JournalEntryTokenHealthDefinition<
  * without learning what a Character (or any other system record) is.
  */
 export interface JournalEntryTokenDefinition<
+  TSettings extends JsonValue = JsonValue,
   TData extends JsonValue = JsonValue,
 > {
   health?: JournalEntryTokenHealthDefinition<TData>;
+  inspector?: JournalEntryTokenInspectorDefinition<TSettings, TData>;
   readDefaultToken(data: TData): JournalEntryDefaultToken;
   writeDefaultToken(
     data: TData,
@@ -61,7 +96,7 @@ export interface JournalEntryTypeDefinition<
     value: JsonValue,
     roll: (notation: string) => number,
   ): TData | null;
-  token?: JournalEntryTokenDefinition<TData>;
+  token?: JournalEntryTokenDefinition<TSettings, TData>;
   validateData(value: JsonValue): value is TData;
 }
 

@@ -33,6 +33,7 @@ function setup() {
       listeners.set(event, listener);
     }),
     present: vi.fn(async () => ({ ok: true, value: null })),
+    resolveTokenInspectorRoll: vi.fn(async () => ({ ok: true, value: null })),
     setFog: vi.fn(async () => ({ ok: true, value: null })),
     trash: vi.fn(async () => ({ ok: true, value: null })),
     update: vi.fn(async () => ({ ok: true, value: null })),
@@ -62,6 +63,12 @@ describe('registerSceneIpcHandlers', () => {
       sceneId,
       tokenId: 'token-1',
     });
+    await invoke(sceneIpcChannels.resolveTokenInspectorRoll, {
+      campaignId,
+      fieldId: 'initiative',
+      sceneId,
+      tokenId: 'token-1',
+    });
     await invoke(sceneIpcChannels.update, {
       campaignId,
       expectedRevision: 2,
@@ -83,6 +90,12 @@ describe('registerSceneIpcHandlers', () => {
       campaignId,
       command: 'Current-2.5',
       operationId: '22222222-2222-4222-8222-222222222222',
+      sceneId,
+      tokenId: 'token-1',
+    });
+    expect(manager.resolveTokenInspectorRoll).toHaveBeenCalledWith({
+      campaignId,
+      fieldId: 'initiative',
       sceneId,
       tokenId: 'token-1',
     });

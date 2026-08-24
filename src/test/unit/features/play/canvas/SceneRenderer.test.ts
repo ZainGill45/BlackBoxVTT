@@ -3280,6 +3280,47 @@ describe('SceneRenderer', () => {
     ]);
   });
 
+  it('does not clear scene selection when an overlay control is pressed', () => {
+    const tokenId = '44444444-4444-4444-8444-444444444444';
+    renderer.setScene(scene({
+      images: {
+        gm: [],
+        map: [],
+        token: [{
+          ...placement,
+          height: 100,
+          id: tokenId,
+          width: 100,
+          x: 960,
+          y: 540,
+        }],
+      },
+    }), null);
+    renderer.setInteraction({
+      activeLayer: 'token',
+      editable: true,
+      onCommit: async () => null,
+    });
+    renderer.selectImages([tokenId]);
+
+    const control = document.createElement('input');
+    element.append(control);
+    control.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 5,
+      clientY: 5,
+    }));
+    control.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 5,
+      clientY: 5,
+    }));
+
+    expect([
+      ...(renderer as unknown as { selected: Set<string> }).selected,
+    ]).toEqual([tokenId]);
+  });
+
   it('preserves selection and layer state when a layer move fails to commit', async () => {
     const tokenId = '44444444-4444-4444-8444-444444444444';
     const current = scene({
