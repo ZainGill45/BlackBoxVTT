@@ -906,6 +906,7 @@ export function CharacterActionPanel({
   };
 
   const executeAction = async (action: Dnd5eCharacterAction) => {
+    if (!canEdit) return;
     if (!networkApi) {
       onError('Chat is unavailable.');
       return;
@@ -959,7 +960,7 @@ export function CharacterActionPanel({
         <div aria-label="Character actions" className={styles.actionList} ref={actionListRef} role="list">
           {displayedActions.map((action) => {
             const result = compiled.get(action.id);
-            const disabled = !networkApi || !result?.ok || pendingIds.has(action.id);
+            const disabled = !canEdit || !networkApi || !result?.ok || pendingIds.has(action.id);
             return (
               <div
                 className={styles.actionRow}
@@ -979,7 +980,7 @@ export function CharacterActionPanel({
                   title={result?.ok
                     ? canEdit
                       ? `Use ${actionLabel(action)}. Right-click for options.`
-                      : `Use ${actionLabel(action)}.`
+                      : 'Edit access is required to roll for this character.'
                     : result?.issues[0]?.message ?? 'Needs setup'}
                   type="button"
                   variant="text"
@@ -1000,21 +1001,20 @@ export function CharacterActionPanel({
             );
           })}
         </div>
-        {canEdit ? (
-          <div className={styles.addRow}>
-            <CharacterSheetAddEntryButton
-            disabled={actions.length >= MAX_DND5E_CHARACTER_ACTIONS}
+        <div className={styles.addRow}>
+          <CharacterSheetAddEntryButton
+            disabled={!canEdit || actions.length >= MAX_DND5E_CHARACTER_ACTIONS}
             label="Add Action"
             onClick={() => {
+              if (!canEdit) return;
               const action = createDefaultDnd5eCharacterAction();
               if (!onChange({ action, kind: 'add' })) return;
               setEditingId(action.id);
               setExpandedStepIds(new Set());
               void onSave();
             }}
-            />
-          </div>
-        ) : null}
+          />
+        </div>
       </div>
 
       <Modal

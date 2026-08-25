@@ -1329,6 +1329,87 @@ describe('SceneRenderer', () => {
       .toBe(false);
   });
 
+  it('opens a linked token by double-click for a player with view-only Character access', () => {
+    const actorId = '22222222-2222-4222-8222-222222222222';
+    const characterId = '33333333-3333-4333-8333-333333333333';
+    const tokenId = '44444444-4444-4444-8444-444444444444';
+    const token = {
+      assetId: placement.assetId,
+      height: 70,
+      id: tokenId,
+      rotation: 0,
+      size: { height: 1, kind: 'default' as const, width: 1 },
+      source: { entryId: characterId, kind: 'linked' as const },
+      width: 70,
+      x: 960,
+      y: 540,
+    };
+    const onOpenLinkedToken = vi.fn();
+    renderer.setScene(
+      scene({ images: { gm: [], map: [], token: [token] } }),
+      { [placement.assetId]: MAP_URL },
+    );
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId,
+      canEditImages: false,
+      editable: true,
+      editableTokenEntryIds: new Set<string>(),
+      inspectableTokenEntryIds: new Set([characterId]),
+      onOpenLinkedToken,
+    });
+
+    element.dispatchEvent(new MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 400,
+      clientY: 300,
+    }));
+
+    expect(onOpenLinkedToken).toHaveBeenCalledWith(
+      expect.objectContaining({ id: tokenId }),
+    );
+  });
+
+  it('leaves a linked token closed on double-click when the Character is not viewable', () => {
+    const actorId = '22222222-2222-4222-8222-222222222222';
+    const characterId = '33333333-3333-4333-8333-333333333333';
+    const token = {
+      assetId: placement.assetId,
+      height: 70,
+      id: '44444444-4444-4444-8444-444444444444',
+      rotation: 0,
+      size: { height: 1, kind: 'default' as const, width: 1 },
+      source: { entryId: characterId, kind: 'linked' as const },
+      width: 70,
+      x: 960,
+      y: 540,
+    };
+    const onOpenLinkedToken = vi.fn();
+    renderer.setScene(
+      scene({ images: { gm: [], map: [], token: [token] } }),
+      { [placement.assetId]: MAP_URL },
+    );
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId,
+      canEditImages: false,
+      editable: true,
+      editableTokenEntryIds: new Set<string>(),
+      inspectableTokenEntryIds: new Set<string>(),
+      onOpenLinkedToken,
+    });
+
+    element.dispatchEvent(new MouseEvent('dblclick', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 400,
+      clientY: 300,
+    }));
+
+    expect(onOpenLinkedToken).not.toHaveBeenCalled();
+  });
+
   it('selects a committed drawing with the pointer and moves it through the normal Select workflow', async () => {
     const actorId = '22222222-2222-4222-8222-222222222222';
     let authoritative = scene();

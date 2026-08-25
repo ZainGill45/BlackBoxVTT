@@ -725,7 +725,7 @@ describe('Character spell browser', () => {
       .not.toBeInTheDocument();
   });
 
-  it('defaults view-only casting to no-slot and never consumes a slot', async () => {
+  it('requires edit access to cast without consuming a slot', async () => {
     const spell = spellEntry(
       '30000000-0000-4000-8000-000000000001', 'Viewed Cast', 1,
     );
@@ -749,8 +749,8 @@ describe('Character spell browser', () => {
       name: 'Spell cast mode options',
     })).getByRole('option', { name: 'Cast at 1st Level' }))
       .toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Cast' }));
-    await waitFor(() => expect(panel.onSendRoll).toHaveBeenCalledOnce());
+    expect(screen.getByRole('button', { name: 'Cast' })).toBeDisabled();
+    expect(panel.onSendRoll).not.toHaveBeenCalled();
     expect(panel.onAdjustSpellSlot).not.toHaveBeenCalled();
   });
 });

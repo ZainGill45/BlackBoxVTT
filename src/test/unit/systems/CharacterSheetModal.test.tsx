@@ -315,6 +315,32 @@ describe('CharacterSheetModal token settings', () => {
 });
 
 describe('CharacterSheetModal chat actions', () => {
+  it('requires edit access for every home-sheet roll entry point', () => {
+    const entry = characterEntry();
+    entry.capabilities = { ...entry.capabilities, edit: false };
+    const { sendChatRoll, sheet } = renderCharacterSheet(entry);
+
+    for (const name of [
+      'Roll Strength check from ability heading',
+      'Roll Strength check',
+      'Roll Strength saving throw',
+      'Roll Initiative',
+      'Roll Concentration saving throw',
+      'Roll Athletics',
+      'Roll Hit Die',
+    ]) {
+      expect(within(sheet).getByRole('button', { name })).toBeDisabled();
+    }
+
+    fireEvent.contextMenu(
+      within(sheet).getByRole('textbox', { name: 'Recall name' }),
+      { clientX: 100, clientY: 100 },
+    );
+    expect(screen.queryByRole('menuitem', { name: 'Send To Chat' }))
+      .not.toBeInTheDocument();
+    expect(sendChatRoll).not.toHaveBeenCalled();
+  });
+
   it('rolls current ability and important-stat totals', async () => {
     const user = userEvent.setup();
     const { sendChatRoll, sheet } = renderCharacterSheet();

@@ -164,6 +164,7 @@ interface AbilityValueFieldProps {
   rollAccessibleLabel: string;
   rollDisabled: boolean;
   rollPending: boolean;
+  rollTitle: string;
   value: string;
 }
 
@@ -500,6 +501,7 @@ function AbilityValueField({
   rollAccessibleLabel,
   rollDisabled,
   rollPending,
+  rollTitle,
   value,
 }: AbilityValueFieldProps) {
   return (
@@ -509,7 +511,7 @@ function AbilityValueField({
         aria-label={rollAccessibleLabel}
         className={styles.abilityRollButton}
         disabled={rollDisabled}
-        title={rollDisabled && !rollPending ? 'Chat is unavailable.' : rollAccessibleLabel}
+        title={rollPending ? rollAccessibleLabel : rollTitle}
         type="button"
         variant="text"
         onClick={onRoll}
@@ -703,6 +705,12 @@ function CharacterSheetEditor({
   const hitDieCanRoll = createDnd5eHitDieRollDefinition(draft.health.hitDie) !== null;
   const validData = isCharacterEntry(current);
   const canEdit = validData && current.capabilities.edit;
+  const canRoll = canEdit && Boolean(networkApi);
+  const rollTitle = !canEdit
+    ? 'Edit access is required to roll for this character.'
+    : !networkApi
+      ? 'Chat is unavailable.'
+      : null;
   const canChangeTokenType = validData && current.capabilities.managePermissions;
   const tokenPreviewUrl = useAssetPreviewUrl(
     assetApi,
@@ -1711,6 +1719,7 @@ function CharacterSheetEditor({
     key: string,
     definition: ChatRollDefinition,
   ): Promise<boolean> => {
+    if (!canEdit) return false;
     if (!networkApi) {
       setError('Chat is unavailable.');
       return false;
@@ -2419,10 +2428,8 @@ function CharacterSheetEditor({
                           aria-busy={checkPending}
                           aria-label={`Roll ${label} check from ability heading`}
                           className={styles.abilityHeadingButton}
-                          disabled={!networkApi || checkPending}
-                          title={!networkApi
-                            ? 'Chat is unavailable.'
-                            : `Roll ${label} check`}
+                          disabled={!canRoll || checkPending}
+                          title={rollTitle ?? `Roll ${label} check`}
                           type="button"
                           onClick={() => void rollAbility(ability, 'check')}
                         >
@@ -2464,8 +2471,9 @@ function CharacterSheetEditor({
                           onRoll={() => void rollAbility(ability, 'check')}
                           readOnly={!canEdit}
                           rollAccessibleLabel={`Roll ${label} check`}
-                          rollDisabled={!networkApi || checkPending}
+                          rollDisabled={!canRoll || checkPending}
                           rollPending={checkPending}
+                          rollTitle={rollTitle ?? `Roll ${label} check`}
                           value={numericValue(scorePath, String(draft.abilities[ability].score))}
                         />
                         <AbilityValueField
@@ -2480,8 +2488,9 @@ function CharacterSheetEditor({
                           onRoll={() => void rollAbility(ability, 'saving-throw')}
                           readOnly={!canEdit}
                           rollAccessibleLabel={`Roll ${label} saving throw`}
-                          rollDisabled={!networkApi || savingThrowPending}
+                          rollDisabled={!canRoll || savingThrowPending}
                           rollPending={savingThrowPending}
+                          rollTitle={rollTitle ?? `Roll ${label} saving throw`}
                           value={numericValue(
                             savingThrowPath,
                             formatDnd5eSignedValue(derived.abilities[ability].savingThrow),
@@ -2571,10 +2580,8 @@ function CharacterSheetEditor({
                                     ? 'Roll Concentration saving throw'
                                     : 'Roll Initiative'}
                                   className={styles.statRollButton}
-                                  disabled={!networkApi || rollPending}
-                                  title={!networkApi
-                                    ? 'Chat is unavailable.'
-                                    : `Roll ${stat.label}`}
+                                  disabled={!canRoll || rollPending}
+                                  title={rollTitle ?? `Roll ${stat.label}`}
                                   type="button"
                                   variant="text"
                                   onClick={() => rollImportantStat(rollKind)}
@@ -2661,10 +2668,8 @@ function CharacterSheetEditor({
                                     styles.skillName,
                                     styles.skillNameRollButton,
                                   ].join(' ')}
-                                  disabled={!networkApi || rollPending}
-                                  title={!networkApi
-                                    ? 'Chat is unavailable.'
-                                    : `Roll ${skill.label}`}
+                                  disabled={!canRoll || rollPending}
+                                  title={rollTitle ?? `Roll ${skill.label}`}
                                   type="button"
                                   variant="text"
                                   onClick={() => rollBuiltInSkill(skill.id)}
@@ -2724,7 +2729,7 @@ function CharacterSheetEditor({
                         })}
                         <CharacterCustomSkillPanel
                           canEdit={canEdit}
-                          canSendToChat={Boolean(networkApi)}
+                          canSendToChat={canRoll}
                           derived={derived.customSkills}
                           isSendPending={(skillId) => pendingRolls.has(
                             `custom-skill:${skillId}`,
@@ -2776,12 +2781,12 @@ function CharacterSheetEditor({
                             aria-label="Roll Hit Die"
                             className={styles.healthRollButton}
                             disabled={
-                              !networkApi ||
+                              !canRoll ||
                               !hitDieCanRoll ||
                               pendingRolls.has('health:hit-die')
                             }
-                            title={!networkApi
-                              ? 'Chat is unavailable.'
+                            title={rollTitle
+                              ? rollTitle
                               : !hitDieCanRoll
                                 ? 'Set the Hit Die to d4, d6, d8, d10, or d12.'
                               : 'Roll one Hit Die'}

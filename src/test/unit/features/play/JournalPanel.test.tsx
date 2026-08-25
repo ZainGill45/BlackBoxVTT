@@ -2466,8 +2466,8 @@ describe('JournalPanel', () => {
     ]) {
       expect(within(sheet).getByRole('button', { name })).toBeDisabled();
     }
-    expect(within(sheet).queryByRole('button', { name: 'Add Action' }))
-      .not.toBeInTheDocument();
+    expect(within(sheet).getByRole('button', { name: 'Add Action' }))
+      .toBeDisabled();
     expect(within(sheet).getByRole('textbox', { name: 'Copper' }))
       .toHaveAttribute('readonly');
     const inventoryName = within(sheet).getByRole('textbox', { name: 'Locked Pack name' });

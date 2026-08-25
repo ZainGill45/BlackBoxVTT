@@ -3,11 +3,11 @@ import {
   DEFAULT_GRID_SIZE,
   isSceneToken,
   SCENE_LAYERS,
-  type SceneImageLayer,
   type SceneRecord,
   type SceneTokenHealthPresentation,
 } from '../../../shared/scenes';
 import { sceneToScreen, type Camera, type Point, type Viewport } from './camera';
+import { sceneObjectZIndex } from './sceneObjectOrder';
 
 /**
  * Bar geometry is scene units at the default grid, so a bar keeps one apparent
@@ -73,20 +73,13 @@ function gridScale(scene: SceneRecord): number {
 
 /** Draws system-provided health without knowing which game-system fields own it. */
 export class TokenHealthRenderer {
+  private readonly containers: LayerContainers;
   private editingTokenId: string | null = null;
-  private readonly graphics: Record<SceneImageLayer, Graphics>;
+  private readonly graphics = new Map<string, Graphics>();
   private health = new Map<string, SceneTokenHealthPresentation>();
 
   constructor(containers: LayerContainers) {
-    this.graphics = Object.fromEntries(
-      SCENE_LAYERS.map((layer) => {
-        const graphic = new Graphics();
-        graphic.eventMode = 'none';
-        graphic.zIndex = Number.MAX_SAFE_INTEGER;
-        containers[layer].addChild(graphic);
-        return [layer, graphic];
-      }),
-    ) as Record<SceneImageLayer, Graphics>;
+    this.containers = containers;
   }
 
   setHealth(health: readonly SceneTokenHealthPresentation[]): void {
@@ -99,51 +92,82 @@ export class TokenHealthRenderer {
   }
 
   render(scene: SceneRecord | null): void {
-    for (const graphic of Object.values(this.graphics)) graphic.clear();
-    if (!scene) return;
-    const scale = gridScale(scene);
-    const border = BAR_BORDER_UNITS * scale;
-    for (const layer of SCENE_LAYERS) {
-      const graphic = this.graphics[layer];
-      for (const token of scene.images[layer].filter(isSceneToken)) {
-        const health = this.health.get(token.id);
-        if (!health) continue;
-        const editing = token.id === this.editingTokenId;
-        const bar = barGeometry(token, scale);
-        graphic
-          .rect(bar.left, bar.top, bar.width, bar.height)
-          .fill({ color: 0x16161a, alpha: 0.92 });
-        /*
-         * The remaining-health fill would read as text background behind the
-         * editor, so an edited bar keeps only its dark track and swaps its
-         * outline to white: the bar itself is the field's focus ring.
-         */
-        if (!editing && health.ratio > 0) {
+    const wanted = new Set<string>();
+    if (scene) {
+      const scale = gridScale(scene);
+      const border = BAR_BORDER_UNITS * scale;
+      for (const layer of SCENE_LAYERS) {
+        for (
+          let imageIndex = 0;
+          imageIndex < scene.images[layer].length;
+          imageIndex += 1
+        ) {
+          const token = scene.images[layer][imageIndex];
+          if (!isSceneToken(token)) continue;
+          const health = this.health.get(token.id);
+          if (!health) continue;
+          wanted.add(token.id);
+          let graphic = this.graphics.get(token.id);
+          if (!graphic) {
+            graphic = new Graphics();
+            graphic.eventMode = 'none';
+            this.graphics.set(token.id, graphic);
+            this.containers[layer].addChild(graphic);
+          } else if (graphic.parent !== this.containers[layer]) {
+            graphic.parent?.removeChild(graphic);
+            this.containers[layer].addChild(graphic);
+          }
+          graphic.clear();
+          graphic.zIndex = sceneObjectZIndex(
+            scene.objectOrder,
+            layer,
+            token.id,
+            imageIndex,
+            2,
+          );
+          const editing = token.id === this.editingTokenId;
+          const bar = barGeometry(token, scale);
           graphic
-            .rect(bar.left, bar.top, bar.width * health.ratio, bar.height)
-            .fill({ color: 0xe02626, alpha: 1 });
-        }
-        graphic
-          .rect(bar.left, bar.top, bar.width, bar.height)
-          .stroke({
-            alpha: 1,
-            color: editing ? 0xffffff : 0x000000,
-            width: border,
-          });
-        if (health.down) {
-          const halfWidth = token.width * 0.38;
-          const halfHeight = token.height * 0.38;
+            .rect(bar.left, bar.top, bar.width, bar.height)
+            .fill({ color: 0x16161a, alpha: 0.92 });
+          /*
+           * The remaining-health fill would read as text background behind the
+           * editor, so an edited bar keeps only its dark track and swaps its
+           * outline to white: the bar itself is the field's focus ring.
+           */
+          if (!editing && health.ratio > 0) {
+            graphic
+              .rect(bar.left, bar.top, bar.width * health.ratio, bar.height)
+              .fill({ color: 0xe02626, alpha: 1 });
+          }
           graphic
-            .moveTo(token.x - halfWidth, token.y - halfHeight)
-            .lineTo(token.x + halfWidth, token.y + halfHeight)
-            .moveTo(token.x + halfWidth, token.y - halfHeight)
-            .lineTo(token.x - halfWidth, token.y + halfHeight)
+            .rect(bar.left, bar.top, bar.width, bar.height)
             .stroke({
-              color: 0xe02626,
-              width: DOWN_STROKE_UNITS * scale,
+              alpha: 1,
+              color: editing ? 0xffffff : 0x000000,
+              width: border,
             });
+          if (health.down) {
+            const halfWidth = token.width * 0.38;
+            const halfHeight = token.height * 0.38;
+            graphic
+              .moveTo(token.x - halfWidth, token.y - halfHeight)
+              .lineTo(token.x + halfWidth, token.y + halfHeight)
+              .moveTo(token.x + halfWidth, token.y - halfHeight)
+              .lineTo(token.x - halfWidth, token.y + halfHeight)
+              .stroke({
+                color: 0xe02626,
+                width: DOWN_STROKE_UNITS * scale,
+              });
+          }
         }
       }
+    }
+    for (const [tokenId, graphic] of this.graphics) {
+      if (wanted.has(tokenId)) continue;
+      graphic.parent?.removeChild(graphic);
+      graphic.destroy();
+      this.graphics.delete(tokenId);
     }
   }
 
@@ -226,10 +250,11 @@ export class TokenHealthRenderer {
   }
 
   destroy(): void {
-    for (const graphic of Object.values(this.graphics)) {
+    for (const graphic of this.graphics.values()) {
       graphic.parent?.removeChild(graphic);
       graphic.destroy();
     }
+    this.graphics.clear();
     this.health.clear();
   }
 }

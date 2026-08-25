@@ -103,7 +103,6 @@ import {
   canInspectSceneImage,
   canCreateSceneImages,
   canEditDrawing,
-  canEditSceneImage,
   canEditShape,
   canEditText,
   deleteSelectedObjects,
@@ -5160,7 +5159,7 @@ export class SceneRenderer implements SceneRendererHandle {
       return;
     }
     const localPoint = this.localPoint(event);
-    const hit = this.hitAt(localPoint);
+    const hit = this.hitAt(localPoint, this.selectableTargets());
     if (hit && this.scene) {
       const image = Object.values(this.scene.images)
         .flat()
@@ -5168,7 +5167,7 @@ export class SceneRenderer implements SceneRendererHandle {
       if (
         image &&
         isSceneToken(image) &&
-        canEditSceneImage(image, this.interaction)
+        canInspectSceneImage(image, this.interaction)
       ) {
         event.preventDefault();
         event.stopPropagation();

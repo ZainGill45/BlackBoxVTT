@@ -8,6 +8,7 @@ import {
 } from '../../../../../shared/scenes';
 import { makeScene } from '../../../../support/scenes';
 import type { Camera, Viewport } from '../../../../../features/play/canvas/camera';
+import { sceneObjectZIndex } from '../../../../../features/play/canvas/sceneObjectOrder';
 
 const tokenId = '44444444-4444-4444-8444-444444444444';
 const viewport: Viewport = { height: 600, width: 800 };
@@ -59,6 +60,47 @@ function createRenderer(): TokenHealthRenderer {
 }
 
 describe('TokenHealthRenderer', () => {
+  it('places a health bar above its token but below the next image in z order', () => {
+    const containers = {
+      gm: new Container(),
+      map: new Container(),
+      token: new Container(),
+    };
+    const renderer = new TokenHealthRenderer(containers);
+    const sceneToken = token();
+    const coveringImage = {
+      assetId: '77777777-7777-4777-8777-777777777777',
+      height: 70,
+      id: '88888888-8888-4888-8888-888888888888',
+      rotation: 0,
+      width: 70,
+      x: 0,
+      y: 0,
+    };
+    const images = createEmptyImageLayers();
+    images.token.push(sceneToken, coveringImage);
+    const scene = makeScene({ images });
+    renderer.setHealth([health()]);
+
+    renderer.render(scene);
+
+    expect(containers.token.children).toHaveLength(1);
+    const barZIndex = containers.token.children[0].zIndex;
+    expect(barZIndex).toBeGreaterThan(
+      sceneObjectZIndex(scene.objectOrder, 'token', sceneToken.id, 0),
+    );
+    expect(barZIndex).toBeLessThan(
+      sceneObjectZIndex(scene.objectOrder, 'token', coveringImage.id, 1),
+    );
+
+    scene.objectOrder.token = [coveringImage.id, sceneToken.id];
+    renderer.render(scene);
+
+    expect(containers.token.children[0].zIndex).toBeGreaterThan(
+      sceneObjectZIndex(scene.objectOrder, 'token', coveringImage.id, 1),
+    );
+  });
+
   it('reports the bar where the camera currently puts it, not where it opened', () => {
     const renderer = createRenderer();
     const scene = sceneWithToken();

@@ -737,7 +737,7 @@ export function CharacterSpellPanel({
   };
 
   const cast = async () => {
-    if (!selected || !compiled?.ok || castPending || !networkApi) return;
+    if (!canEdit || !selected || !compiled?.ok || castPending || !networkApi) return;
     setCastPending(true);
     try {
       const latest = await journalApi.getEntry({ campaignId, entryId: selected.id });
@@ -1047,8 +1047,11 @@ export function CharacterSpellPanel({
                   ) : null}
                   <Button
                     aria-busy={castPending}
-                    disabled={castPending || !networkApi || !compiled?.ok}
+                    disabled={!canEdit || castPending || !networkApi || !compiled?.ok}
                     size="compact"
+                    title={!canEdit
+                      ? 'Edit access is required to roll for this character.'
+                      : undefined}
                     onClick={() => void cast()}
                   >
                     Cast

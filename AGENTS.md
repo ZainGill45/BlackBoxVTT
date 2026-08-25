@@ -1,12 +1,10 @@
 # BlackBox VTT agent guidance
-
 This file applies to the whole repository. Treat the code, runtime schemas, and
 tests as the source of truth for the current architecture. Do not create or
 maintain parallel inventories of modules, request paths, or class ownership;
 make those relationships clear in the code instead.
 
 ## Product and data policies
-
 - Observable behavior is preserved unless the task explicitly requests a
   product change.
 - Each release defines the sole canonical persistence and runtime data shape.
@@ -59,7 +57,6 @@ make those relationships clear in the code instead.
   Journal entries and pages, Storage assets, and scenes do.
 
 ## Game systems and authored Journal content
-
 - BlackBox VTT does not bundle premade characters, monsters, items, spells, or
   similar campaign content. The active game system supplies authoring
   structure and behavior; the GM and players author the records they use.
@@ -88,7 +85,6 @@ make those relationships clear in the code instead.
   state such as current health or conditions.
 
 ## Trust boundaries
-
 - Treat renderer IPC and remote network bytes as untrusted for application
   safety and campaign integrity. Validate message shapes and bounds, derive
   authenticated identities, preserve canonical data, and never expose
@@ -101,9 +97,6 @@ make those relationships clear in the code instead.
   capability remotely.
 
 ## Verification
-
-### Test design
-
 - Tests assert durable product behavior, data contracts, accessibility,
   security boundaries, and user outcomes. They do not freeze incidental
   presentation.

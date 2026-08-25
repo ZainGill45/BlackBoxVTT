@@ -98,7 +98,7 @@ describe('CharacterActionPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Host unavailable.');
   });
 
-  it('disables incomplete drafts and hides mutation controls from viewers', () => {
+  it('disables incomplete drafts and presents mutation controls read-only to viewers', () => {
     const incomplete = createDefaultDnd5eCharacterAction(
       '10000000-0000-4000-8000-000000000001',
     );
@@ -116,12 +116,12 @@ describe('CharacterActionPanel', () => {
         networkApi={networkApi}
       />,
     );
-    expect(screen.queryByRole('button', { name: 'Add Action' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Action' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'More options for Action 1' }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit Action 1' })).not.toBeInTheDocument();
     const useButton = screen.getByRole('button', { name: 'Use Action 1' });
-    expect(useButton).toBeEnabled();
+    expect(useButton).toBeDisabled();
     fireEvent.contextMenu(useButton.closest('[role="listitem"]')!);
     expect(screen.queryByRole('menu', { name: 'Action 1 actions' })).not.toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

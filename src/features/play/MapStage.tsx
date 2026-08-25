@@ -221,7 +221,15 @@ export function MapStage({
   );
   const resolvedImageUrlsRef = useRef(resolvedImageUrls);
 
-  const loadEditableTokenEntry = useCallback(async (entryId: string) => {
+  /**
+   * Opening a sheet only needs view access; changing a Character's default
+   * token size writes to the entry and needs edit. The caller names which,
+   * so a view-only player is not refused the read-only sheet.
+   */
+  const loadTokenEntry = useCallback(async (
+    entryId: string,
+    capability: 'edit' | 'view',
+  ) => {
     if (!journalApi) return null;
     const result = await journalApi.getEntry({
       campaignId: session.campaignId,
@@ -230,7 +238,7 @@ export function MapStage({
     if (
       !result.ok ||
       result.value.kind !== 'system' ||
-      !result.value.capabilities.edit
+      !result.value.capabilities[capability]
     ) {
       return null;
     }
@@ -252,7 +260,7 @@ export function MapStage({
         });
         if (focused.ok && focused.value) return;
       }
-      const loaded = await loadEditableTokenEntry(token.source.entryId);
+      const loaded = await loadTokenEntry(token.source.entryId, 'view');
       if (!loaded) {
         setTokenMessage(token.source.kind === 'template'
           ? 'The source Character no longer exists or cannot be opened. This Template token keeps its independent data.'
@@ -261,12 +269,12 @@ export function MapStage({
       }
       setOpenedEntry(loaded.entry);
     })();
-  }, [journalWindowApi, loadEditableTokenEntry, session.campaignId]);
+  }, [journalWindowApi, loadTokenEntry, session.campaignId]);
 
   const applyLinkedTokenDefaultSize = useCallback((token: SceneToken) => {
     void (async () => {
       const current = sceneRef.current;
-      const loaded = await loadEditableTokenEntry(token.source.entryId);
+      const loaded = await loadTokenEntry(token.source.entryId, 'edit');
       if (!current || !loaded || !onCommitObjects) {
         setTokenMessage('The Character Token size could not be changed.');
         return;
@@ -294,12 +302,12 @@ export function MapStage({
         setTokenMessage('The Character Token size could not be changed.');
       }
     })();
-  }, [loadEditableTokenEntry, onCommitObjects]);
+  }, [loadTokenEntry, onCommitObjects]);
 
   const saveLinkedTokenDefaultSize = useCallback((token: SceneToken) => {
     void (async () => {
       const current = sceneRef.current;
-      const loaded = await loadEditableTokenEntry(token.source.entryId);
+      const loaded = await loadTokenEntry(token.source.entryId, 'edit');
       if (!current || !loaded || !journalApi) {
         setTokenMessage('The default Character Token size could not be saved.');
         return;
@@ -360,7 +368,7 @@ export function MapStage({
         setTokenMessage('Saved the default Character Token size.');
       }
     })();
-  }, [journalApi, loadEditableTokenEntry, session.campaignId, session.role]);
+  }, [journalApi, loadTokenEntry, session.campaignId, session.role]);
 
   useLayoutEffect(() => {
     sceneRef.current = scene;

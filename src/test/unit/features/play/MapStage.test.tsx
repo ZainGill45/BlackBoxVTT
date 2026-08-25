@@ -31,6 +31,7 @@ import {
 import {
   DEFAULT_TOKEN_ASSET_ID,
   createEmptyImageLayers,
+  type SceneToken,
 } from '../../../../shared/scenes';
 import {
   DND5E_CHARACTER_ENTRY_TYPE_ID,
@@ -436,6 +437,86 @@ describe('MapStage', () => {
     expect(renderer.selectImages).toHaveBeenCalledWith([
       state.images.gm[0].id,
     ]);
+  });
+
+  it('opens a read-only Character Sheet from a token the player may only view', async () => {
+    const { createRenderer, renderer } = fakeRenderer();
+    const characterId = '77777777-7777-4777-8777-777777777777';
+    const tokenId = '66666666-6666-4666-8666-666666666666';
+    const images = createEmptyImageLayers();
+    images.token.push({
+      assetId: DEFAULT_TOKEN_ASSET_ID,
+      height: 70,
+      id: tokenId,
+      rotation: 0,
+      size: { height: 1, kind: 'default', width: 1 },
+      source: { entryId: characterId, kind: 'linked' },
+      width: 70,
+      x: 100,
+      y: 100,
+    });
+    const scene = makeScene({ images });
+    const character = {
+      capabilities: {
+        delete: false,
+        edit: false,
+        managePages: false,
+        managePermissions: false,
+        reorder: false,
+        view: true,
+      },
+      data: createDefaultDnd5eCharacterData(),
+      detail: null,
+      groupId: 'dnd5e.characters',
+      id: characterId,
+      kind: 'system' as const,
+      name: 'Aria Stone',
+      permissionRevision: 0,
+      permissions: { allPlayers: 'view' as const, overrides: [] },
+      position: 0,
+      revision: 0,
+      typeId: DND5E_CHARACTER_ENTRY_TYPE_ID,
+    };
+    const journalApi = {
+      ...window.blackBox.journal,
+      getEntry: vi.fn(async () => ({ ok: true as const, value: character })),
+    } as JournalApi;
+    const viewerSession: PlaySession = {
+      campaignId: session.campaignId,
+      campaignName: session.campaignName,
+      host: '127.0.0.1',
+      port: 30_000,
+      role: 'player',
+      source: 'remote',
+      system: TEST_CAMPAIGN_SYSTEM,
+      userId: '55555555-5555-4555-8555-555555555555',
+      username: 'Alice',
+    };
+    render(
+      <MapStage
+        createRenderer={createRenderer}
+        inspectableTokenEntryIds={new Set([characterId])}
+        journalApi={journalApi}
+        scene={scene}
+        session={viewerSession}
+      />,
+    );
+    await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
+    const interaction = vi
+      .mocked(renderer.setInteraction)
+      .mock.calls.at(-1)?.[0];
+
+    act(() => {
+      interaction?.onOpenLinkedToken?.(scene.images.token[0] as SceneToken);
+    });
+
+    expect(
+      await screen.findByRole('dialog', {
+        name: 'Aria Stone character sheet',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Character Token' }))
+      .not.toBeInTheDocument();
   });
 
   it('enables pings only for Select and optimistically sends and displays them', async () => {
