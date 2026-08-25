@@ -151,6 +151,18 @@ describe('design-system boundaries', () => {
     }
   });
 
+  it('makes fill-height dropdowns occupy the entire available field', () => {
+    const dropdown = readFileSync(
+      join(sourceRoot, 'components/ui/Dropdown.module.css'),
+      'utf8',
+    );
+
+    expect(dropdown).toMatch(
+      /\.heightFill\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*\}/u,
+    );
+    expect(dropdown).toMatch(/\.heightFill>summary\s*\{[^}]*height:\s*100%;[^}]*\}/u);
+  });
+
   it('keeps hover from repainting the canonical field surface', () => {
     const tokens = readFileSync(join(sourceRoot, 'styles/tokens.css'), 'utf8');
     expect(tokens).toMatch(

@@ -187,7 +187,7 @@ const requestQuit = () => {
       shutdownComplete = true;
       const cleanup = instanceProfile.cleanupPath
         ? rm(instanceProfile.cleanupPath, { force: true, recursive: true })
-            .catch(() => undefined)
+          .catch(() => undefined)
         : Promise.resolve();
       if (developmentSessionFile) {
         void rm(developmentSessionFile, { force: true }).catch(() => undefined);
@@ -217,8 +217,8 @@ const loadMainRenderer = (window: BrowserWindow) => {
   const load = MAIN_WINDOW_VITE_DEV_SERVER_URL
     ? window.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
     : window.loadFile(
-        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      );
+      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
+    );
   return load.finally(() => {
     mainNavigationPermitted = false;
   });
@@ -293,6 +293,15 @@ const createWindow = () => {
   mainWindow.setMenuBarVisibility(false);
   mainWindow.webContents.setIgnoreMenuShortcuts(true);
   mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (
+      input.type === 'keyDown' &&
+      (input.key === 'F12' ||
+        (input.control && input.shift && input.key.toLowerCase() === 'i'))
+    ) {
+      _event.preventDefault();
+      mainWindow.webContents.toggleDevTools();
+      return;
+    }
     if (
       input.key !== 'Alt' &&
       input.code !== 'AltLeft' &&
@@ -472,22 +481,22 @@ app.whenReady().then(async () => {
       clientState: context.clientState ?? null,
       connectedParticipants: instanceProfile.environment === 'development'
         ? users
-            .filter((user) => user.connected)
-            .map(({ id, username }) => ({ id, username }))
+          .filter((user) => user.connected)
+          .map(({ id, username }) => ({ id, username }))
         : users.filter((user) => user.connected).length,
       host: status
         ? {
-            boundFamilies: status.boundFamilies,
-            connectedPlayerCount: status.connectedPlayerCount,
-            effectivePort: status.effectivePort,
-            state: status.state,
-            ...(instanceProfile.environment === 'development'
-              ? {
-                  localAddresses: status.localAddresses,
-                  publicAddresses: status.publicAddresses,
-                }
-              : {}),
-          }
+          boundFamilies: status.boundFamilies,
+          connectedPlayerCount: status.connectedPlayerCount,
+          effectivePort: status.effectivePort,
+          state: status.state,
+          ...(instanceProfile.environment === 'development'
+            ? {
+              localAddresses: status.localAddresses,
+              publicAddresses: status.publicAddresses,
+            }
+            : {}),
+        }
         : null,
       transportRecovery: {
         ownerProcessMonitored: Boolean(developmentOwnerPid),
@@ -504,10 +513,10 @@ app.whenReady().then(async () => {
     const runtime = await runtimes.resolve(context.campaignId);
     return runtime
       ? {
-          campaignId: runtime.campaignId,
-          kind: runtime.kind,
-          system: runtime.system,
-        }
+        campaignId: runtime.campaignId,
+        kind: runtime.kind,
+        system: runtime.system,
+      }
       : { campaignId: context.campaignId, state: 'unavailable' };
   });
   diagnostics.registerProvider('persistence', async (input) => {
@@ -555,14 +564,14 @@ app.whenReady().then(async () => {
     return input.content
       ? result.value
       : {
-          activeSceneId: result.value.activeSceneId,
-          revision: result.value.revision,
-          scenes: result.value.scenes.map((scene) => ({
-            id: scene.id,
-            name: scene.name,
-            revision: scene.revision,
-          })),
-        };
+        activeSceneId: result.value.activeSceneId,
+        revision: result.value.revision,
+        scenes: result.value.scenes.map((scene) => ({
+          id: scene.id,
+          name: scene.name,
+          revision: scene.revision,
+        })),
+      };
   });
   diagnostics.registerProvider('journal', async (input) => {
     const campaignId = diagnostics.snapshot().context.campaignId;
@@ -572,15 +581,15 @@ app.whenReady().then(async () => {
     return input.content
       ? result.value
       : {
-          entries: result.value.entries.map((entry) => ({
-            capabilities: entry.capabilities,
-            id: entry.id,
-            kind: entry.kind,
-            name: entry.name,
-            revision: entry.revision,
-          })),
-          revision: result.value.revision,
-        };
+        entries: result.value.entries.map((entry) => ({
+          capabilities: entry.capabilities,
+          id: entry.id,
+          kind: entry.kind,
+          name: entry.name,
+          revision: entry.revision,
+        })),
+        revision: result.value.revision,
+      };
   });
   journalWindowManager = new JournalWindowManager({
     getMainWindow: () => mainWindow,
@@ -687,9 +696,9 @@ app.whenReady().then(async () => {
     async (input) => {
       const campaignId =
         input &&
-        typeof input === 'object' &&
-        'id' in input &&
-        typeof input.id === 'string'
+          typeof input === 'object' &&
+          'id' in input &&
+          typeof input.id === 'string'
           ? input.id
           : null;
       if (campaignId) {
@@ -700,9 +709,9 @@ app.whenReady().then(async () => {
     async (input) => {
       const campaignId =
         input &&
-        typeof input === 'object' &&
-        'id' in input &&
-        typeof input.id === 'string'
+          typeof input === 'object' &&
+          'id' in input &&
+          typeof input.id === 'string'
           ? input.id
           : null;
       if (campaignId) {

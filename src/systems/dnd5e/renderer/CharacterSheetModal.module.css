@@ -89,8 +89,7 @@
   overflow: hidden;
 }
 
-.tokenPlaceholder span {
-}
+.tokenPlaceholder span {}
 
 .identityGrid {
   display: grid;
@@ -281,6 +280,7 @@
   min-width: 0;
   padding: 0;
   margin: 0;
+  margin-bottom: var(--space-2);
   gap: var(--space-2);
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
@@ -335,6 +335,7 @@
 .spellSlotTracker {
   display: grid;
   min-width: 0;
+  margin-bottom: var(--space-2);
   background: var(--color-surface-muted);
   border: var(--border-width) solid var(--color-border-strong);
 }
@@ -791,7 +792,7 @@
   border-bottom: var(--border-width) solid var(--color-border-strong);
 }
 
-.spellPickerHeader > div {
+.spellPickerHeader>div {
   display: grid;
   min-width: 0;
   gap: var(--space-1);
@@ -809,7 +810,7 @@
   line-height: var(--line-height-tight);
 }
 
-.spellPickerHeader > div > p {
+.spellPickerHeader>div>p {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
@@ -864,7 +865,7 @@
   border-color: var(--color-action);
 }
 
-.spellPickerOption > span:last-child {
+.spellPickerOption>span:last-child {
   min-width: 0;
   flex: 1 1 auto;
 }
@@ -884,7 +885,7 @@
 }
 
 .spellPickerOptionIdentity strong,
-.spellPickerOptionIdentity > span {
+.spellPickerOptionIdentity>span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -895,7 +896,7 @@
   font-size: var(--font-size-md);
 }
 
-.spellPickerOptionIdentity > span {
+.spellPickerOptionIdentity>span {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
 }
@@ -956,7 +957,7 @@
   border-top: var(--border-width) solid var(--color-border-strong);
 }
 
-.spellPickerFooter > p {
+.spellPickerFooter>p {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
 }
