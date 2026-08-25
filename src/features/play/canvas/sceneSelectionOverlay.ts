@@ -81,7 +81,7 @@ export class SceneSelectionOverlay {
     viewport: Viewport;
   }): void {
     this.selection.clear();
-    if (!input.editable || input.targets.length === 0) {
+    if (input.targets.length === 0) {
       return;
     }
     const points = selectionScreenCorners(input);
@@ -96,6 +96,9 @@ export class SceneSelectionOverlay {
     }
     this.selection.lineTo(points[0].x, points[0].y);
     this.selection.stroke({ color: focus, width: 2 });
+    if (!input.editable) {
+      return;
+    }
     for (const point of points) {
       this.selection
         .rect(

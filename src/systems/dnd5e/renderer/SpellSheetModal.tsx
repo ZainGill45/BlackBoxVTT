@@ -615,11 +615,6 @@ export function SpellSheetModal({
               key={canEdit ? 'editable-classes' : 'read-only-classes'}
               onToggle={toggleClass}
             />
-            {!canEdit ? (
-              <p className={styles.classSummary}>
-                {draft.classes.length > 0 ? draft.classes.join(', ') : 'No Classes'}
-              </p>
-            ) : null}
           </FormField>
         </div>
 

@@ -3057,12 +3057,14 @@ export class SceneRenderer implements SceneRendererHandle {
     this.pendingPing = null;
   }
 
-  private hitAt(point: { x: number; y: number }): string | null {
+  private hitAt(
+    point: { x: number; y: number },
+    targets = this.activeTargets(),
+  ): string | null {
     const scenePoint = screenToScene(this.camera, this.viewport, point);
     if (this.playerFogCovers(scenePoint)) {
       return null;
     }
-    const targets = this.activeTargets();
     for (let index = targets.length - 1; index >= 0; index -= 1) {
       if (
         targets[index].drawing
@@ -3140,10 +3142,14 @@ export class SceneRenderer implements SceneRendererHandle {
       this.container.style.cursor = 'grab';
     } else if (handle?.mode === 'semantic') {
       this.container.style.cursor = 'crosshair';
-    } else if (this.hitAt(point)) {
-      this.container.style.cursor = 'move';
     } else {
-      this.container.style.cursor = '';
+      const hit = this.hitAt(point, this.selectableTargets());
+      if (!hit) {
+        this.container.style.cursor = '';
+        return;
+      }
+      const transformable = this.activeTargets().some(({ id }) => id === hit);
+      this.container.style.cursor = transformable ? 'move' : 'pointer';
     }
   }
 
@@ -4480,7 +4486,7 @@ export class SceneRenderer implements SceneRendererHandle {
       this.container?.focus();
       const screenPoint = this.localPoint(event);
       const handle = this.handleAt(screenPoint);
-      const hit = this.hitAt(screenPoint);
+      const hit = this.hitAt(screenPoint, this.selectableTargets());
       let mode: Extract<
         SceneGesture,
         { kind: 'edit' }

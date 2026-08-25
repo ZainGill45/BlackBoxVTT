@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   createDefaultGrid,
   createDefaultFog,
@@ -515,13 +516,15 @@ function sameArrangementObjectValues(
   current: SceneObjectState,
   requested: SceneObjectState,
 ): boolean {
-  if (JSON.stringify(current.mapImage) !== JSON.stringify(requested.mapImage)) {
+  if (!isDeepStrictEqual(current.mapImage, requested.mapImage)) {
     return false;
   }
   return SCENE_LAYERS.flatMap((layer) => objectIdsInLayer(current, layer))
     .every((id) =>
-      JSON.stringify(objectContent(current, id)) ===
-        JSON.stringify(objectContent(requested, id)),
+      isDeepStrictEqual(
+        objectContent(current, id),
+        objectContent(requested, id),
+      ),
     );
 }
 

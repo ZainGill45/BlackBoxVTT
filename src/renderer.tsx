@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './app/App';
+import { BlackBoxApp } from './app/App';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/sceneTextFonts.css';
@@ -13,6 +13,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <BlackBoxApp />
   </StrictMode>,
 );

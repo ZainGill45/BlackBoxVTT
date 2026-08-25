@@ -21,5 +21,8 @@ export function createApplicationApi(
     ready: () => {
       send(applicationIpcChannels.ready);
     },
+    retryRenderer: () => {
+      send(applicationIpcChannels.retryRenderer);
+    },
   };
 }

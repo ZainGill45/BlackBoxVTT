@@ -9,11 +9,13 @@ describe('createApplicationApi', () => {
     const api = createApplicationApi(send, invoke);
 
     api.quit();
+    api.retryRenderer();
     await expect(api.openExternal('https://example.com')).resolves.toBe(true);
 
     expect(Object.keys(api))
-      .toEqual(['altHeld', 'openExternal', 'quit', 'ready']);
+      .toEqual(['altHeld', 'openExternal', 'quit', 'ready', 'retryRenderer']);
     expect(send).toHaveBeenCalledWith(applicationIpcChannels.quit);
+    expect(send).toHaveBeenCalledWith(applicationIpcChannels.retryRenderer);
     expect(invoke).toHaveBeenCalledWith(
       applicationIpcChannels.openExternal,
       { url: 'https://example.com' },

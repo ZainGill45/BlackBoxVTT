@@ -292,6 +292,7 @@ describe('App campaign integration', () => {
       openExternal: vi.fn(async () => true),
       quit: vi.fn(),
       ready: vi.fn(),
+      retryRenderer: vi.fn(),
     };
     const campaignApi: CampaignApi = {
       ...campaignTransferStubs(),
@@ -315,6 +316,7 @@ describe('App campaign integration', () => {
       openExternal: vi.fn(async () => true),
       quit: vi.fn(),
       ready: vi.fn(),
+      retryRenderer: vi.fn(),
     };
     const campaignApi: CampaignApi = {
       ...campaignTransferStubs(),
@@ -790,6 +792,7 @@ describe('App campaign integration', () => {
       openExternal: vi.fn(async () => true),
       quit: vi.fn(),
       ready: vi.fn(),
+      retryRenderer: vi.fn(),
     };
     const campaignApi: CampaignApi = {
       ...campaignTransferStubs(),

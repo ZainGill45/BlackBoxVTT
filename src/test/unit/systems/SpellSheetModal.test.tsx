@@ -112,6 +112,19 @@ function renderSpell(
 }
 
 describe('SpellSheetModal', () => {
+  it('does not repeat selected classes below the picker for view-only players', () => {
+    const data = createDefaultDnd5eSpellData();
+    data.classes = ['Cleric', 'Wizard'];
+    const entry = spellEntry(data, false);
+
+    renderSpell(entry, controlledApi(entry).api);
+    const dialog = screen.getByRole('dialog', { name: 'New Spell spell sheet' });
+
+    expect(within(dialog).getByRole('button', { name: 'Spell classes' }))
+      .toHaveTextContent('2 Classes');
+    expect(within(dialog).queryByText('Cleric, Wizard')).not.toBeInTheDocument();
+  });
+
   it('renders the agreed defaults and immediately persists structured controls and Roll Actions', async () => {
     const user = userEvent.setup();
     const entry = spellEntry();

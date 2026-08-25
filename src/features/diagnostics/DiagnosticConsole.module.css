@@ -1,0 +1,72 @@
+.host,
+.application {
+  width: 100%;
+  height: 100%;
+}
+
+.console {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  color: var(--color-text);
+  background: var(--color-console-backdrop);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.output {
+  position: relative;
+  min-height: 0;
+  padding: var(--space-3);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.entry {
+  margin: 0 0 var(--space-1);
+  color: var(--color-text);
+  font: inherit;
+  line-height: var(--line-height-standard);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entry[data-level="debug"] {
+  color: var(--color-text-subtle);
+}
+
+.entry[data-level="warn"] {
+  color: var(--color-roll-attack);
+}
+
+.entry[data-level="error"] {
+  color: var(--color-status-offline);
+}
+
+.prompt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  min-height: var(--navigation-height);
+  padding: 0 var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-console-prompt);
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+}
+
+.unseen {
+  position: sticky;
+  bottom: 0;
+  left: 50%;
+  font: inherit;
+  transform: translateX(-50%);
+}

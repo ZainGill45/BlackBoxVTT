@@ -780,6 +780,14 @@ export class CampaignDatabase {
     this.validateTokenSnapshots();
   }
 
+  /** Runs SQLite's bounded read-only integrity check for diagnostics. */
+  checkIntegrity(): boolean {
+    const result = this.connection
+      .prepare('PRAGMA quick_check(1)')
+      .get() as Record<string, unknown> | undefined;
+    return Boolean(result && Object.values(result).includes('ok'));
+  }
+
   private validateJournalState(): void {
     const system = this.readSystem();
     const entries = this.connection.prepare(

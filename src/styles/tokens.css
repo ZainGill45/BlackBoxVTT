@@ -145,6 +145,8 @@
   --color-die-face: var(--palette-alpha-neutral-850);
   --color-die-edge: var(--palette-alpha-black-78);
   --color-journal-sheen: var(--palette-alpha-white-1);
+  --color-console-backdrop: var(--palette-alpha-black-78);
+  --color-console-prompt: var(--palette-alpha-black-72);
 
   --font-sans: "Inter", ui-sans-serif, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;

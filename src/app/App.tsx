@@ -7,6 +7,7 @@ import type {
   CreateCampaignDraft,
 } from '../features/connection/types';
 import { PlayScreen } from '../features/play/PlayScreen';
+import { DiagnosticConsole } from '../features/diagnostics/DiagnosticConsole';
 import {
   CAMPAIGN_PRELOAD_INACTIVITY_MS,
   preloadCampaign,
@@ -39,12 +40,14 @@ import type {
 import type { SceneApi } from '../shared/scenes';
 import type { JournalApi } from '../shared/journal';
 import type { JournalWindowApi } from '../shared/journalWindows';
+import type { DiagnosticsApi } from '../shared/diagnostics';
 import styles from './App.module.css';
 
 interface AppProps {
   applicationApi?: ApplicationApi;
   assetApi?: AssetApi;
   campaignApi?: CampaignApi;
+  diagnosticsApi?: DiagnosticsApi;
   journalApi?: JournalApi;
   journalWindowApi?: JournalWindowApi;
   networkApi?: NetworkApi;
@@ -56,6 +59,15 @@ function sortCampaigns(campaigns: readonly CampaignSummary[]) {
     (left, right) =>
       right.updatedAt.localeCompare(left.updatedAt) ||
       left.id.localeCompare(right.id),
+  );
+}
+
+/** Composition root for the main window and its preload-backed diagnostics. */
+export function BlackBoxApp() {
+  return (
+    <DiagnosticConsole api={window.blackBox.diagnostics}>
+      <App />
+    </DiagnosticConsole>
   );
 }
 
@@ -106,6 +118,7 @@ export function App({
   applicationApi = window.blackBox.application,
   assetApi = window.blackBox.assets,
   campaignApi = window.blackBox.campaigns,
+  diagnosticsApi = window.blackBox.diagnostics,
   journalApi = window.blackBox.journal,
   journalWindowApi = window.blackBox.journalWindows,
   networkApi = window.blackBox.network,
@@ -137,6 +150,38 @@ export function App({
      session closes before its assets and campaign reads have finished. */
   const entryRequestRef = useRef(0);
   const campaignPreparingRef = useRef(false);
+
+  useEffect(() => {
+    diagnosticsApi.updateContext(
+      playSession
+        ? {
+            campaignId: playSession.campaignId,
+            campaignName: playSession.campaignName,
+            role: playSession.role,
+            runtimeKind: playSession.source === 'local' ? 'local' : 'joined',
+            screen: 'play',
+            systemId: playSession.system.id,
+            userId: playSession.role === 'player' ? playSession.userId : null,
+            username: playSession.role === 'player' ? playSession.username : null,
+          }
+        : {
+            activeLayer: null,
+            activeSceneId: null,
+            activeSceneName: null,
+            activeSidebar: null,
+            activeTool: null,
+            campaignId: null,
+            campaignName: null,
+            preparation: preloadProgress?.label ?? null,
+            role: null,
+            runtimeKind: null,
+            screen: 'connection',
+            systemId: null,
+            userId: null,
+            username: null,
+          },
+    );
+  }, [diagnosticsApi, playSession, preloadProgress?.label]);
 
   useEffect(() => {
     const removeHostListener = networkApi.onHostStatusChanged(setHostStatus);
@@ -554,6 +599,12 @@ export function App({
                     serverSettingsActions.deleteUser(userId),
                   )
               : undefined
+          }
+          onDiagnosticContext={(context) =>
+            diagnosticsApi.updateContext({
+              ...context,
+              preparation: preloadProgress?.label ?? null,
+            })
           }
           onServerPasswordReset={
             serverSettingsActions

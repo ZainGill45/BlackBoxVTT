@@ -62,6 +62,7 @@ beforeEach(() => {
     openExternal: vi.fn(async () => true),
     quit: vi.fn(),
     ready: vi.fn(),
+    retryRenderer: vi.fn(),
   };
 });
 

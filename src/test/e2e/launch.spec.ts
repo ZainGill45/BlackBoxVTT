@@ -27,6 +27,7 @@ test.describe('application launch', () => {
       'application',
       'assets',
       'campaigns',
+      'diagnostics',
       'journal',
       'journalWindows',
       'network',

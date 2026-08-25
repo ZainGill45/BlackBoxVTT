@@ -75,6 +75,86 @@ afterEach(async () => {
 });
 
 describe('JournalRepository', () => {
+  it('moves a linked token between scene layers through the authoritative path', async () => {
+    const mutations = new MutationQueue();
+    const tokens = new TokenRepository({ database });
+    const scenes = new RealSceneRepository({
+      database,
+      mutations,
+      tokens,
+      touchCampaign: vi.fn(async () => undefined),
+      warn: vi.fn(),
+    });
+    const journal = new JournalRepository({
+      assets: {
+        readManifest: vi.fn(async () => ({ assets: [], revision: 0 })),
+        trashAsset: vi.fn(),
+      } as unknown as AssetRepository,
+      database,
+      mutations,
+      scenes,
+      tokens,
+      touchCampaign: vi.fn(async () => undefined),
+    });
+    const character = await journal.createEntry(
+      { kind: 'gm' },
+      DND5E_CHARACTER_ENTRY_TYPE_ID,
+    );
+    if (!character.ok || character.value.kind !== 'system') {
+      throw new Error('Character setup failed.');
+    }
+    const createdScene = await scenes.create();
+    if (!createdScene.ok) throw new Error('Scene setup failed.');
+    const tokenId = '66666666-6666-4666-8666-666666666666';
+    const placedState = sceneObjectStateOf(createdScene.value);
+    placedState.images.token.push({
+      assetId: DEFAULT_TOKEN_ASSET_ID,
+      height: createdScene.value.grid.size,
+      id: tokenId,
+      rotation: 0,
+      size: { height: 1, kind: 'default', width: 1 },
+      source: { entryId: character.value.id, kind: 'linked' },
+      width: createdScene.value.grid.size,
+      x: 100,
+      y: 100,
+    });
+    placedState.objectOrder.token.push(tokenId);
+    const placed = await scenes.setObjects(
+      createdScene.value.id,
+      placedState,
+      createdScene.value.revision,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      { kind: 'gm' },
+    );
+    if (!placed.ok) throw new Error('Token placement failed.');
+    const persisted = (await scenes.readManifest()).scenes.find(
+      (candidate) => candidate.id === placed.value.id,
+    );
+    expect(persisted && sceneObjectStateOf(persisted))
+      .toEqual(sceneObjectStateOf(placed.value));
+
+    const movedState = sceneObjectStateOf(placed.value);
+    movedState.images.map.push(movedState.images.token.shift()!);
+    movedState.objectOrder.map.push(tokenId);
+    movedState.objectOrder.token = [];
+    const moved = await scenes.setObjects(
+      placed.value.id,
+      movedState,
+      placed.value.revision,
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      { kind: 'gm' },
+      { kind: 'move-layer', targetLayer: 'map', targets: [tokenId] },
+    );
+
+    expect(moved).toMatchObject({
+      ok: true,
+      value: {
+        images: { map: [{ id: tokenId }], token: [] },
+        objectOrder: { map: [tokenId], token: [] },
+      },
+    });
+  });
+
   it('places Template tokens as independent validated Character snapshots', async () => {
     const mutations = new MutationQueue();
     const tokens = new TokenRepository({ database });

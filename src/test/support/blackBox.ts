@@ -6,6 +6,7 @@ import type { ChatResult } from '../../shared/chat';
 import type { NetworkApi, NetworkResult } from '../../shared/network';
 import type { JournalApi, JournalResult } from '../../shared/journal';
 import type { JournalWindowApi } from '../../shared/journalWindows';
+import type { DiagnosticsApi } from '../../shared/diagnostics';
 import {
   createEmptySceneManifest,
   type SceneApi,
@@ -87,6 +88,46 @@ const applicationApi: ApplicationApi = {
   },
   quit() {},
   ready() {},
+  retryRenderer() {},
+};
+
+const diagnosticsApi: DiagnosticsApi = {
+  async clear() {},
+  async inspect(input) {
+    return { provider: input.provider, value: {} };
+  },
+  onChanged() {
+    return () => undefined;
+  },
+  onOpenRequested() {
+    return () => undefined;
+  },
+  record() {},
+  async snapshot() {
+    return {
+      capabilities: { development: true, providers: [] },
+      context: { screen: 'connection' },
+      events: [],
+      instance: {
+        appVersion: 'test',
+        electronVersion: 'test',
+        environment: 'test',
+        id: 'test-instance',
+        label: 'test',
+        platform: 'test',
+        processId: 1,
+        profileKind: 'test',
+        startedAt: '2026-08-24T00:00:00.000Z',
+      },
+      stats: {
+        bytes: 0,
+        discarded: { debug: 0, error: 0, info: 0, warn: 0 },
+        events: 0,
+        truncated: 0,
+      },
+    };
+  },
+  updateContext() {},
 };
 
 const assetApi: AssetApi = {
@@ -399,6 +440,7 @@ export function installBlackBoxStub(): void {
     application: applicationApi,
     assets: assetApi,
     campaigns: campaignApi,
+    diagnostics: diagnosticsApi,
     journal: journalApi,
     journalWindows: journalWindowApi,
     network: networkApi,

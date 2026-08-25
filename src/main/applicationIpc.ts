@@ -18,12 +18,16 @@ export function registerApplicationIpcHandlers(
   quit: () => void,
   ready: () => void,
   openExternal: (url: string) => Promise<void>,
+  retryRenderer: () => void = () => undefined,
 ) {
   const handleQuit = () => {
     quit();
   };
   const handleReady = () => {
     ready();
+  };
+  const handleRetryRenderer = () => {
+    retryRenderer();
   };
   ipc.removeHandler(applicationIpcChannels.openExternal);
   ipc.handle(
@@ -47,10 +51,15 @@ export function registerApplicationIpcHandlers(
 
   ipc.on(applicationIpcChannels.quit, handleQuit);
   ipc.on(applicationIpcChannels.ready, handleReady);
+  ipc.on(applicationIpcChannels.retryRenderer, handleRetryRenderer);
 
   return () => {
     ipc.removeHandler(applicationIpcChannels.openExternal);
     ipc.removeListener(applicationIpcChannels.quit, handleQuit);
     ipc.removeListener(applicationIpcChannels.ready, handleReady);
+    ipc.removeListener(
+      applicationIpcChannels.retryRenderer,
+      handleRetryRenderer,
+    );
   };
 }

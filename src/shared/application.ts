@@ -3,6 +3,7 @@ export const applicationIpcChannels = {
   openExternal: 'application:open-external',
   quit: 'application:quit',
   ready: 'application:ready',
+  retryRenderer: 'application:retry-renderer',
 } as const;
 
 const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:']);
@@ -37,4 +38,6 @@ export interface ApplicationApi {
    * this arrives, so it is never shown mid-load.
    */
   ready(): void;
+  /** Retries the main renderer after the stable crash recovery screen. */
+  retryRenderer(): void;
 }

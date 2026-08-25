@@ -1226,6 +1226,56 @@ describe('SceneRepository', () => {
     });
   });
 
+  it('moves an image between layers through the authoritative arrangement path', async () => {
+    const repository = createRepository();
+    const created = await repository.create();
+    if (!created.ok) throw new Error('setup failed');
+    const imageId = '11111111-1111-4111-8111-111111111111';
+    const initial = sceneObjectStateOf(created.value);
+    initial.images.token.push({
+      assetId: '55555555-5555-4555-8555-555555555555',
+      height: 100,
+      id: imageId,
+      rotation: 0,
+      width: 100,
+      x: 100,
+      y: 100,
+    });
+    initial.objectOrder.token.push(imageId);
+    const saved = await repository.setObjects(
+      created.value.id,
+      initial,
+      created.value.revision,
+      '66666666-6666-4666-8666-666666666666',
+      { kind: 'gm' },
+    );
+    if (!saved.ok) throw new Error('setup failed');
+
+    const movedState = sceneObjectStateOf(saved.value);
+    const movedImage = movedState.images.token.shift()!;
+    // Schema and IPC reconstruction may preserve values while changing key order.
+    const { id, ...rest } = movedImage;
+    movedState.images.map.push({ id, ...rest });
+    movedState.objectOrder.token = [];
+    movedState.objectOrder.map = [imageId];
+    const moved = await repository.setObjects(
+      created.value.id,
+      movedState,
+      saved.value.revision,
+      '77777777-7777-4777-8777-777777777777',
+      { kind: 'gm' },
+      { kind: 'move-layer', targetLayer: 'map', targets: [imageId] },
+    );
+
+    expect(moved).toMatchObject({
+      ok: true,
+      value: {
+        images: { map: [{ id: imageId }], token: [] },
+        objectOrder: { map: [imageId], token: [] },
+      },
+    });
+  });
+
   it('authoritatively reorders mixed objects and histories shape layer transfers', async () => {
     const repository = createRepository();
     const created = await repository.create();

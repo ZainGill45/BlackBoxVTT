@@ -15,6 +15,7 @@ let handlers: Map<string, OpenExternalHandler>;
 let quit: ReturnType<typeof vi.fn>;
 let ready: ReturnType<typeof vi.fn>;
 let openExternal: ReturnType<typeof vi.fn>;
+let retryRenderer: ReturnType<typeof vi.fn>;
 let unregister: () => void;
 
 beforeEach(() => {
@@ -39,7 +40,14 @@ beforeEach(() => {
   quit = vi.fn();
   ready = vi.fn();
   openExternal = vi.fn(async () => undefined);
-  unregister = registerApplicationIpcHandlers(ipc, quit, ready, openExternal);
+  retryRenderer = vi.fn();
+  unregister = registerApplicationIpcHandlers(
+    ipc,
+    quit,
+    ready,
+    openExternal,
+    retryRenderer,
+  );
 });
 
 function handleOpenExternal(): OpenExternalHandler {
@@ -51,10 +59,11 @@ function handleOpenExternal(): OpenExternalHandler {
 }
 
 describe('application lifecycle channels', () => {
-  it('listens on exactly the quit and ready channels', () => {
+  it('listens on exactly the lifecycle channels', () => {
     expect([...listeners.keys()]).toEqual([
       applicationIpcChannels.quit,
       applicationIpcChannels.ready,
+      applicationIpcChannels.retryRenderer,
     ]);
   });
 
@@ -68,6 +77,12 @@ describe('application lifecycle channels', () => {
     listeners.get(applicationIpcChannels.ready)?.();
 
     expect(ready).toHaveBeenCalledOnce();
+  });
+
+  it('retries the renderer from the stable recovery screen', () => {
+    listeners.get(applicationIpcChannels.retryRenderer)?.();
+
+    expect(retryRenderer).toHaveBeenCalledOnce();
   });
 
   it('removes every listener and handler on unregister', () => {

@@ -30,12 +30,6 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.classSummary {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-
 .components {
   display: grid;
   min-width: 0;

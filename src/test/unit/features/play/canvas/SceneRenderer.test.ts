@@ -1259,6 +1259,76 @@ describe('SceneRenderer', () => {
     expect(activeTargets()).toEqual([ownedId, foreignId]);
   });
 
+  it('shows and selects a linked token for a player with view-only Character access', () => {
+    const actorId = '22222222-2222-4222-8222-222222222222';
+    const characterId = '33333333-3333-4333-8333-333333333333';
+    const tokenId = '44444444-4444-4444-8444-444444444444';
+    const onCommit = vi.fn(async () => null);
+    const onSelectionChange = vi.fn();
+    renderer.setScene(
+      scene({
+        images: {
+          gm: [],
+          map: [],
+          token: [{
+            assetId: placement.assetId,
+            height: 70,
+            id: tokenId,
+            rotation: 0,
+            size: { height: 1, kind: 'default', width: 1 },
+            source: { entryId: characterId, kind: 'linked' },
+            width: 70,
+            x: 960,
+            y: 540,
+          }],
+        },
+      }),
+      { [placement.assetId]: MAP_URL },
+    );
+    renderer.setInteraction({
+      activeLayer: 'token',
+      actorId,
+      canEditImages: false,
+      editable: true,
+      editableTokenEntryIds: new Set<string>(),
+      inspectableTokenEntryIds: new Set([characterId]),
+      onCommit,
+      onSelectionChange,
+    });
+
+    element.dispatchEvent(pointerEvent('pointermove', {
+      button: -1,
+      clientX: 400,
+      clientY: 300,
+    }));
+    expect(element.style.cursor).toBe('pointer');
+
+    element.dispatchEvent(pointerEvent('pointerdown', {
+      button: 0,
+      clientX: 400,
+      clientY: 300,
+    }));
+    element.dispatchEvent(pointerEvent('pointerup', {
+      button: 0,
+      clientX: 400,
+      clientY: 300,
+    }));
+
+    expect([...(renderer as unknown as { selected: Set<string> }).selected])
+      .toEqual([tokenId]);
+    expect(onSelectionChange).toHaveBeenCalledWith([tokenId]);
+    expect(onCommit).not.toHaveBeenCalled();
+    const selectionGraphics = (
+      renderer as unknown as {
+        selectionOverlay: { selection: Graphics };
+      }
+    ).selectionOverlay.selection;
+    expect(selectionGraphics.calls.some(({ op }) => op === 'stroke'))
+      .toBe(true);
+    expect(selectionGraphics.calls.some(({ op }) => op === 'rect'))
+      .toBe(false);
+  });
+
   it('selects a committed drawing with the pointer and moves it through the normal Select workflow', async () => {
     const actorId = '22222222-2222-4222-8222-222222222222';
     let authoritative = scene();
