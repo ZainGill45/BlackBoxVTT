@@ -20,7 +20,6 @@ import type {
   SceneChangedEvent,
   SceneHistoryInput,
   SceneTokenHealthInput,
-  AdjustSceneTokenHealthInput,
   SceneTokenHealthPresentation,
   SceneTokenInspectorInput,
   MutateSceneTokenInspectorInput,
@@ -97,7 +96,6 @@ import {
 
 export const sceneIpcChannels = {
   changed: 'scenes:changed',
-  adjustTokenHealth: 'scenes:adjust-token-health',
   create: 'scenes:create',
   detachAsset: 'scenes:detach-asset',
   findDependents: 'scenes:find-dependents',
@@ -139,9 +137,6 @@ export interface SceneError {
 export type SceneResult<T> = Result<T, SceneError>;
 
 export interface SceneApi {
-  adjustTokenHealth(
-    input: AdjustSceneTokenHealthInput,
-  ): Promise<SceneResult<SceneRecord>>;
   create(input: SceneCampaignInput): Promise<SceneResult<SceneRecord>>;
   detachAsset(input: SceneAssetInput): Promise<SceneResult<null>>;
   findDependents(input: SceneAssetInput): Promise<SceneResult<SceneRecord[]>>;

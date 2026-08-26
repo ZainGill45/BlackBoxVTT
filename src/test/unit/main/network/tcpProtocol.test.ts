@@ -433,36 +433,15 @@ describe('client.scene_objects_set arrangements', () => {
 });
 
 describe('token health protocol messages', () => {
-  const sceneId = '11111111-1111-4111-8111-111111111111';
-  const operationId = '33333333-3333-4333-8333-333333333333';
-
-  it('validates commands and ratio-only player projections', () => {
-    expect(parsePayload('client.scene_health_adjust', {
-      command: 'Maximum+5',
-      operationId,
-      sceneId,
-      tokenId: 'token-1',
-    })).toMatchObject({ command: 'Maximum+5', sceneId, tokenId: 'token-1' });
+  it('validates visual health projections', () => {
     expect(parsePayload('server.scene_health', [{
       down: false,
-      editable: false,
       ratio: 0.5,
       tokenId: 'token-1',
     }])).toHaveLength(1);
-  });
-
-  it('rejects spoofed actors and incomplete exact health', () => {
-    expect(() => parsePayload('client.scene_health_adjust', {
-      actor: { kind: 'gm' },
-      command: 'Current+1',
-      operationId,
-      sceneId,
-      tokenId: 'token-1',
-    })).toThrow();
     expect(() => parsePayload('server.scene_health', [{
       currentHundredths: 100,
       down: false,
-      editable: true,
       ratio: 0.5,
       tokenId: 'token-1',
     }])).toThrow();

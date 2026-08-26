@@ -2,17 +2,17 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { App } from 'electron';
-import type { DiagnosticInstance } from '../shared/diagnostics';
+
+type InstanceEnvironment = 'development' | 'production' | 'test';
 
 const PROFILE_NAME = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
 export const TEMPORARY_PROFILE_MARKER = '.blackboxvtt-temporary-profile.json';
 
 export interface InstanceProfile {
   cleanupPath: string | null;
-  environment: DiagnosticInstance['environment'];
+  environment: InstanceEnvironment;
   error: string | null;
   label: string;
-  profileKind: DiagnosticInstance['profileKind'];
   userDataPath: string;
   windowed: boolean;
 }
@@ -45,7 +45,6 @@ export function configureInstanceProfile(
         ? 'Development instance options are unavailable in packaged builds.'
         : null,
       label: 'production',
-      profileKind: 'production',
       userDataPath: canonical,
       windowed: false,
     };
@@ -73,7 +72,6 @@ export function configureInstanceProfile(
       environment: 'test',
       error: null,
       label: 'test',
-      profileKind: 'test',
       userDataPath: app.getPath('userData'),
       windowed,
     };
@@ -100,7 +98,6 @@ export function configureInstanceProfile(
       environment: 'development',
       error: null,
       label,
-      profileKind: 'temporary',
       userDataPath: directory,
       windowed,
     };
@@ -118,7 +115,6 @@ export function configureInstanceProfile(
     environment: 'development',
     error: null,
     label,
-    profileKind: 'persistent',
     userDataPath: directory,
     windowed,
   };
@@ -141,7 +137,6 @@ function invalidProfile(
     environment: 'development',
     error,
     label: 'invalid',
-    profileKind: 'persistent',
     userDataPath: directory,
     windowed,
   };

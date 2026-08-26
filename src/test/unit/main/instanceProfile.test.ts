@@ -27,7 +27,6 @@ describe('configureInstanceProfile', () => {
     expect(profile).toMatchObject({
       environment: 'development',
       label: 'default',
-      profileKind: 'persistent',
     });
     expect(profile.userDataPath).toBe(
       path.join('C:\\AppData', 'blackboxvtt-development', 'profiles', 'default'),
@@ -54,7 +53,6 @@ describe('configureInstanceProfile', () => {
       '--temporary-profile=guest',
     ]);
 
-    expect(profile.profileKind).toBe('temporary');
     expect(profile.cleanupPath).toBe(profile.userDataPath);
     expect(profile.userDataPath).toContain('blackboxvtt-development-');
     rmSync(profile.userDataPath, { force: true, recursive: true });
@@ -67,7 +65,6 @@ describe('configureInstanceProfile', () => {
       '--user-data-dir=C:\\TestProfile',
     ]);
 
-    expect(profile.profileKind).toBe('test');
     expect(profile.userDataPath).toBe('C:\\Existing');
     expect(electron.setPath).not.toHaveBeenCalled();
   });
@@ -79,7 +76,6 @@ describe('configureInstanceProfile', () => {
 
     expect(profile.userDataPath).toBe(path.join('C:\\AppData', 'blackboxvtt'));
     expect(profile.error).toContain('unavailable');
-    expect(profile.profileKind).toBe('production');
   });
 
   it('rejects profile path traversal', () => {

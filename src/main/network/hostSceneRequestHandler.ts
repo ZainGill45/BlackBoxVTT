@@ -22,7 +22,6 @@ type PlayerSceneService = Pick<
   | 'applyPlayerHistoryWithEffects'
   | 'beginPlayerTransform'
   | 'cancelTransform'
-  | 'adjustPlayerTokenHealthWithEffects'
   | 'listForPlayer'
   | 'listTokenHealthForPlayer'
   | 'getTokenInspectorForPlayer'
@@ -101,23 +100,6 @@ export class HostSceneRequestHandler {
         result.value,
         envelope.requestId,
       );
-      return true;
-    }
-    if (envelope.type === 'client.scene_health_adjust') {
-      const input = parsePayload('client.scene_health_adjust', envelope.payload);
-      const outcome = await this.options.scenes.adjustPlayerTokenHealthWithEffects(
-        input.sceneId,
-        input.tokenId,
-        input.command,
-        input.operationId,
-        client.user.id,
-      );
-      this.sendResult(client, outcome.result, envelope.requestId);
-      if (outcome.result.ok) {
-        await this.options.onSceneMutation(
-          outcome.authoredDataChangedEntryIds,
-        );
-      }
       return true;
     }
     if (envelope.type === 'client.scene_inspector_get') {

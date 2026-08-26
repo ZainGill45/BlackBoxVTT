@@ -3,7 +3,6 @@ import { sceneIpcChannels, type SceneResult } from '../shared/scenes';
 import type { SceneManager } from './sceneManager';
 import {
   presentSceneInputSchema as presentSchema,
-  adjustSceneTokenHealthInputSchema as adjustTokenHealthSchema,
   sceneAssetInputSchema as assetSchema,
   sceneCampaignInputSchema as campaignSchema,
   sceneHistoryInputSchema as historySchema,
@@ -39,7 +38,6 @@ export function registerSceneIpcHandlers(
   getAllowedWebContents: () => WebContents | null,
 ) {
   const requestChannels = [
-    sceneIpcChannels.adjustTokenHealth,
     sceneIpcChannels.create,
     sceneIpcChannels.detachAsset,
     sceneIpcChannels.findDependents,
@@ -79,10 +77,6 @@ export function registerSceneIpcHandlers(
   handle(sceneIpcChannels.listTokenHealth, (input) => {
     const parsed = tokenHealthSchema.safeParse(input);
     return parsed.success ? manager.listTokenHealth(parsed.data) : invalid();
-  });
-  handle(sceneIpcChannels.adjustTokenHealth, (input) => {
-    const parsed = adjustTokenHealthSchema.safeParse(input);
-    return parsed.success ? manager.adjustTokenHealth(parsed.data) : invalid();
   });
   handle(sceneIpcChannels.getTokenInspector, (input) => {
     const parsed = tokenInspectorSchema.safeParse(input);

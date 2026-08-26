@@ -47,7 +47,6 @@ import {
 } from '../../shared/network';
 import type {
   SceneError,
-  AdjustSceneTokenHealthInput,
   SceneHistoryInput,
   SceneManifest,
   SceneObjectState,
@@ -974,12 +973,6 @@ export class CampaignClient {
     }
   }
 
-  adjustSceneTokenHealth(
-    input: Omit<AdjustSceneTokenHealthInput, 'campaignId'>,
-  ): Promise<SceneResult<SceneRecord>> {
-    return this.sceneMutation('client.scene_health_adjust', input);
-  }
-
   async getSceneTokenInspector(input: {
     sceneId: string;
     tokenId: string;
@@ -1392,7 +1385,6 @@ export class CampaignClient {
   private async sceneMutation(
     type:
       | 'client.scene_objects_set'
-      | 'client.scene_health_adjust'
       | 'client.scene_inspector_mutate'
       | 'client.scene_redo'
       | 'client.scene_undo'

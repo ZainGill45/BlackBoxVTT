@@ -132,10 +132,6 @@ export function createFakeSceneApi(initial: SceneRecord[] = []) {
   };
 
   const api: SceneApi = {
-    adjustTokenHealth: vi.fn(async () => ({
-      error: { code: 'unavailable' as const, message: 'Unavailable.' },
-      ok: false as const,
-    })),
     listUsers: vi.fn(async () => ({ ok: true as const, value: [] })),
     listTokenHealth: vi.fn(async () => ({ ok: true as const, value: [] })),
     getTokenInspector: vi.fn(async () => ({

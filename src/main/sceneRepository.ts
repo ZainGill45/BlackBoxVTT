@@ -67,7 +67,6 @@ import { CampaignDatabase } from './storage/campaignDatabase';
 import { MutationQueue } from './storage/mutationQueue';
 import {
   TokenRepository,
-  type TokenHealthHistoryChange,
   type TokenInspectorHistoryChange,
   type TokenSnapshotHistoryChange,
   type TokenSnapshotChanges,
@@ -181,7 +180,6 @@ interface SceneHistoryCommand {
     target: SceneFog;
   };
   sceneId: string;
-  tokenHealth?: TokenHealthHistoryChange[];
   tokenInspector?: TokenInspectorHistoryChange[];
   tokenSnapshots?: TokenSnapshotHistoryChange[];
 }
@@ -2047,8 +2045,6 @@ export class SceneRepository {
               JSON.stringify(current.fog)) &&
           (!command.tokenSnapshots ||
             this.tokens.historyMatches(command.tokenSnapshots)) &&
-          (!command.tokenHealth ||
-            this.tokens.healthHistoryMatches(command.tokenHealth)) &&
           (!command.tokenInspector ||
             this.tokens.inspectorHistoryMatches(command.tokenInspector))
         ) {
@@ -2142,17 +2138,6 @@ export class SceneRepository {
             }
           : {}),
         sceneId,
-        ...(command.tokenHealth
-          ? {
-              tokenHealth: command.tokenHealth.map(
-                ({ expected, source, target }) => ({
-                  expected: structuredClone(target),
-                  source: structuredClone(source),
-                  target: structuredClone(expected),
-                }),
-              ),
-            }
-          : {}),
         ...(command.tokenInspector
           ? {
               tokenInspector: command.tokenInspector.map((change) => ({
@@ -2188,9 +2173,6 @@ export class SceneRepository {
           ),
         },
         result: { ok: true, value: next },
-        ...(command.tokenHealth
-          ? { healthChanges: structuredClone(command.tokenHealth) }
-          : {}),
         ...(command.tokenInspector
           ? { inspectorChanges: structuredClone(command.tokenInspector) }
           : {}),
@@ -2399,7 +2381,6 @@ export class SceneRepository {
       | SceneResult<T>
       | {
           completedOperation?: CompletedSceneOperation;
-          healthChanges?: TokenHealthHistoryChange[];
           inspectorChanges?: TokenInspectorHistoryChange[];
           manifest: SceneManifest;
           result: SceneResult<T>;
@@ -2417,7 +2398,6 @@ export class SceneRepository {
       | SceneResult<T>
       | {
           completedOperation?: CompletedSceneOperation;
-          healthChanges?: TokenHealthHistoryChange[];
           inspectorChanges?: TokenInspectorHistoryChange[];
           manifest: SceneManifest;
           result: SceneResult<T>;
@@ -2439,7 +2419,6 @@ export class SceneRepository {
           },
           outcome.completedOperation,
           outcome.tokenChanges,
-          outcome.healthChanges,
           outcome.inspectorChanges,
         );
       } catch (error) {
@@ -2454,9 +2433,6 @@ export class SceneRepository {
         authoredDataChangedEntryIds: [
           ...new Set(
             [
-              ...(outcome.healthChanges ?? []).flatMap(({ source }) =>
-                source.kind === 'linked' ? [source.entryId] : [],
-              ),
               ...(outcome.inspectorChanges ?? []).flatMap(({ source }) =>
                 source.kind === 'linked' ? [source.entryId] : [],
               ),
@@ -2470,9 +2446,8 @@ export class SceneRepository {
 
   listTokenHealth(
     sceneId: string,
-    actor: SceneEditActor,
   ): SceneResult<SceneTokenHealthPresentation[]> {
-    return this.tokens.listHealth(actor, sceneId);
+    return this.tokens.listHealth(sceneId);
   }
 
   getTokenInspector(
@@ -2588,94 +2563,6 @@ export class SceneRepository {
     });
   }
 
-  adjustTokenHealth(
-    sceneId: string,
-    tokenId: string,
-    command: string,
-    operationId: string,
-    actor: SceneEditActor,
-  ): Promise<SceneResult<SceneRecord>> {
-    return this.adjustTokenHealthWithEffects(
-      sceneId,
-      tokenId,
-      command,
-      operationId,
-      actor,
-    ).then(({ result }) => result);
-  }
-
-  adjustTokenHealthWithEffects(
-    sceneId: string,
-    tokenId: string,
-    command: string,
-    operationId: string,
-    actor: SceneEditActor,
-  ): Promise<SceneRepositoryMutation<SceneRecord>> {
-    return this.mutateWithEffects(async (manifest) => {
-      const current = manifest.scenes.find((scene) => scene.id === sceneId);
-      if (!current) {
-        return failure('not_found', 'The scene no longer exists.', sceneId);
-      }
-      const completedOperation: CompletedSceneOperation = {
-        actorKey: actorKey(actor),
-        operationId,
-        sceneId,
-      };
-      try {
-        if (this.hasCompletedOperation(completedOperation)) {
-          return { ok: true, value: current };
-        }
-      } catch (error) {
-        this.warn('Failed to read durable health operation state.', error);
-        return failure('storage_error', 'The health could not be saved.', sceneId);
-      }
-      const prepared = this.tokens.prepareHealthAdjustment(
-        actor,
-        current,
-        tokenId,
-        command,
-      );
-      if (!prepared.ok) return prepared;
-      if (JSON.stringify(prepared.value.expected) === JSON.stringify(
-        prepared.value.target,
-      )) {
-        try {
-          this.rememberOperation(completedOperation);
-        } catch (error) {
-          this.warn('Failed to store durable health operation state.', error);
-          return failure('storage_error', 'The health could not be saved.', sceneId);
-        }
-        return { ok: true, value: current };
-      }
-      const timestamp = this.now().toISOString();
-      const next: SceneRecord = {
-        ...current,
-        revision: current.revision + 1,
-        updatedAt: timestamp,
-      };
-      this.recordHistory(actor, {
-        changes: [],
-        sceneId,
-        tokenHealth: [{
-          expected: structuredClone(prepared.value.target),
-          source: structuredClone(prepared.value.source),
-          target: structuredClone(prepared.value.expected),
-        }],
-      });
-      return {
-        completedOperation,
-        healthChanges: [prepared.value],
-        manifest: {
-          ...manifest,
-          scenes: manifest.scenes.map((scene) =>
-            scene.id === sceneId ? next : scene,
-          ),
-        },
-        result: { ok: true, value: next },
-      };
-    });
-  }
-
   private async touchAfterChange(): Promise<void> {
     if (!this.touchCampaign) return;
     try {
@@ -2691,7 +2578,6 @@ export class SceneRepository {
     manifest: SceneManifest,
     completedOperation?: CompletedSceneOperation,
     tokenChanges?: TokenSnapshotChanges,
-    healthChanges?: TokenHealthHistoryChange[],
     inspectorChanges?: TokenInspectorHistoryChange[],
   ): Promise<void> {
     const parsed = sceneManifestSchema.parse(manifest);
@@ -2725,9 +2611,6 @@ export class SceneRepository {
         insert.run(scene.id, position, JSON.stringify(scene));
       });
       if (tokenChanges) this.tokens.commitChanges(tokenChanges);
-      if (healthChanges) {
-        this.tokens.commitHealthChanges(healthChanges, this.now().toISOString());
-      }
       if (inspectorChanges) {
         this.tokens.commitInspectorChanges(
           inspectorChanges,

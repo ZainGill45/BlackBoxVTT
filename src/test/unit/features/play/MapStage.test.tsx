@@ -595,26 +595,17 @@ describe('MapStage', () => {
     });
   });
 
-  it('loads token health and applies a command typed into the bar editor', async () => {
+  it('loads token health into the scene renderer', async () => {
     const { createRenderer, renderer } = fakeRenderer();
     const currentScene = makeScene();
     const sceneApi = createFakeSceneApi([currentScene]);
     const tokenId = '44444444-4444-4444-8444-444444444444';
     const health = [{
-      currentHundredths: 1_750,
       down: false,
-      editable: true,
-      maximumHundredths: 2_000,
       ratio: 0.875,
       tokenId,
     }];
-    vi.mocked(sceneApi.listTokenHealth)
-      .mockResolvedValueOnce({ ok: true, value: [] })
-      .mockResolvedValueOnce({ ok: true, value: health });
-    vi.mocked(sceneApi.adjustTokenHealth).mockResolvedValue({
-      ok: true,
-      value: { ...currentScene, revision: currentScene.revision + 1 },
-    });
+    vi.mocked(sceneApi.listTokenHealth).mockResolvedValue({ ok: true, value: health });
 
     render(
       <MapStage
@@ -625,213 +616,7 @@ describe('MapStage', () => {
       />,
     );
 
-    await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
-    const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
-    act(() => {
-      interaction?.onAdjustTokenHealth?.({
-        height: 7,
-        tokenId,
-        width: 70,
-        x: 120,
-        y: 40,
-      });
-    });
-
-    const editor = await screen.findByRole('textbox', {
-      name: 'Adjust token health',
-    });
-    expect(editor).toHaveValue('Current');
-    fireEvent.change(editor, { target: { value: 'Current-2.5' } });
-    fireEvent.keyDown(editor, { key: 'Enter' });
-
-    await waitFor(() => {
-      expect(sceneApi.adjustTokenHealth).toHaveBeenCalledWith({
-        campaignId: session.campaignId,
-        command: 'Current-2.5',
-        operationId: expect.any(String),
-        sceneId: currentScene.id,
-        tokenId,
-      });
-      expect(renderer.setTokenHealth).toHaveBeenCalledWith(health);
-    });
-  });
-
-  it('ignores a health response after the viewed scene changes', async () => {
-    const { createRenderer, renderer } = fakeRenderer();
-    const currentScene = makeScene();
-    const nextScene = makeScene({
-      id: '22222222-2222-4222-8222-222222222222',
-      name: 'Next Scene',
-    });
-    const sceneApi = createFakeSceneApi([currentScene, nextScene]);
-    let resolveAdjustment!: (
-      value: Awaited<ReturnType<typeof sceneApi.adjustTokenHealth>>,
-    ) => void;
-    const pendingAdjustment = new Promise<
-      Awaited<ReturnType<typeof sceneApi.adjustTokenHealth>>
-    >((resolve) => {
-      resolveAdjustment = resolve;
-    });
-    vi.mocked(sceneApi.adjustTokenHealth)
-      .mockReturnValueOnce(pendingAdjustment)
-      .mockResolvedValueOnce({
-        ok: true,
-        value: { ...nextScene, revision: nextScene.revision + 1 },
-      });
-    vi.mocked(sceneApi.listTokenHealth).mockResolvedValue({ ok: true, value: [] });
-
-    const view = render(
-      <MapStage
-        createRenderer={createRenderer}
-        scene={currentScene}
-        sceneApi={sceneApi}
-        session={session}
-      />,
-    );
-
-    await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
-    const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
-    const openAndSubmit = async () => {
-      act(() => {
-        interaction?.onAdjustTokenHealth?.({
-          height: 7,
-          tokenId: '44444444-4444-4444-8444-444444444444',
-          width: 70,
-          x: 120,
-          y: 40,
-        });
-      });
-      const editor = await screen.findByRole('textbox', {
-        name: 'Adjust token health',
-      });
-      fireEvent.change(editor, { target: { value: 'Current-1' } });
-      fireEvent.keyDown(editor, { key: 'Enter' });
-    };
-
-    await openAndSubmit();
-    await waitFor(() => expect(sceneApi.adjustTokenHealth).toHaveBeenCalledTimes(1));
-    view.rerender(
-      <MapStage
-        createRenderer={createRenderer}
-        scene={nextScene}
-        sceneApi={sceneApi}
-        session={session}
-      />,
-    );
-    await waitFor(() => expect(sceneApi.listTokenHealth).toHaveBeenCalledWith({
-      campaignId: session.campaignId,
-      sceneId: nextScene.id,
-    }));
-    await act(async () => {
-      resolveAdjustment({
-        ok: true,
-        value: { ...currentScene, revision: currentScene.revision + 1 },
-      });
-      await pendingAdjustment;
-    });
-
-    await openAndSubmit();
-    await waitFor(() => expect(sceneApi.adjustTokenHealth).toHaveBeenCalledTimes(2));
-    expect(vi.mocked(sceneApi.adjustTokenHealth).mock.calls.at(-1)?.[0])
-      .toMatchObject({ sceneId: nextScene.id });
-  });
-
-  it('keeps the health editor on its bar through camera moves', async () => {
-    const { createRenderer, renderer } = fakeRenderer();
-    const currentScene = makeScene();
-    const sceneApi = createFakeSceneApi([currentScene]);
-    const tokenId = '44444444-4444-4444-8444-444444444444';
-    vi.mocked(sceneApi.listTokenHealth).mockResolvedValue({ ok: true, value: [] });
-
-    render(
-      <MapStage
-        createRenderer={createRenderer}
-        scene={currentScene}
-        sceneApi={sceneApi}
-        session={session}
-      />,
-    );
-
-    await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
-    const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
-    act(() => {
-      interaction?.onAdjustTokenHealth?.({
-        height: 7,
-        tokenId,
-        width: 70,
-        x: 120,
-        y: 40,
-      });
-    });
-
-    // Opening the editor turns the bar itself into the field's frame.
-    expect(renderer.setTokenHealthEditing).toHaveBeenCalledWith(tokenId);
-    const editor = await screen.findByRole('textbox', {
-      name: 'Adjust token health',
-    });
-    const panel = editor.parentElement as HTMLElement;
-    expect(panel.style.left).toBe('120px');
-
-    // The renderer re-reports the bar as the camera moves; the field follows it
-    // instead of staying at the pixel it was opened over.
-    act(() => {
-      interaction?.onTokenHealthEditorRect?.({
-        height: 48,
-        tokenId,
-        width: 140,
-        x: 300,
-        y: 210,
-      });
-    });
-    expect(panel.style.left).toBe('300px');
-    expect(panel.style.top).toBe('210px');
-    expect(panel.style.width).toBe('140px');
-    expect(panel.style.height).toBe('48px');
-
-    // Losing the bar leaves the field nothing to sit on.
-    act(() => {
-      interaction?.onTokenHealthEditorRect?.(null);
-    });
-    expect(screen.queryByRole('textbox', { name: 'Adjust token health' }))
-      .not.toBeInTheDocument();
-  });
-
-  it('returns the bar to its resting paint when the editor closes', async () => {
-    const { createRenderer, renderer } = fakeRenderer();
-    const currentScene = makeScene();
-    const sceneApi = createFakeSceneApi([currentScene]);
-    const tokenId = '44444444-4444-4444-8444-444444444444';
-    vi.mocked(sceneApi.listTokenHealth).mockResolvedValue({ ok: true, value: [] });
-
-    render(
-      <MapStage
-        createRenderer={createRenderer}
-        scene={currentScene}
-        sceneApi={sceneApi}
-        session={session}
-      />,
-    );
-
-    await waitFor(() => expect(renderer.setInteraction).toHaveBeenCalled());
-    const interaction = vi.mocked(renderer.setInteraction).mock.calls.at(-1)?.[0];
-    act(() => {
-      interaction?.onAdjustTokenHealth?.({
-        height: 7,
-        tokenId,
-        width: 70,
-        x: 120,
-        y: 40,
-      });
-    });
-
-    const editor = await screen.findByRole('textbox', {
-      name: 'Adjust token health',
-    });
-    fireEvent.keyDown(editor, { key: 'Escape' });
-
-    expect(renderer.setTokenHealthEditing).toHaveBeenLastCalledWith(null);
-    expect(screen.queryByRole('textbox', { name: 'Adjust token health' }))
-      .not.toBeInTheDocument();
+    await waitFor(() => expect(renderer.setTokenHealth).toHaveBeenCalledWith(health));
   });
 
   it('wires GM fog settings and authoritative commits without preview transport', async () => {

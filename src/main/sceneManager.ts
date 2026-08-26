@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type {
   PresentSceneInput,
-  AdjustSceneTokenHealthInput,
   ReorderScenesInput,
   SceneAssetInput,
   SceneChangedEvent,
@@ -66,14 +65,6 @@ export class SceneManager extends EventEmitter {
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
     const scenes = await this.scenes(input.campaignId);
     return scenes ? scenes.listTokenHealth(input) : unavailable();
-  }
-
-  adjustTokenHealth(
-    input: AdjustSceneTokenHealthInput,
-  ): Promise<SceneResult<SceneRecord>> {
-    return this.mutate(input.campaignId, (scenes) =>
-      scenes.adjustTokenHealth(input),
-    );
   }
 
   async getTokenInspector(

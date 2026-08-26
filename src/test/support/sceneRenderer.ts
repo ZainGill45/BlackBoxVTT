@@ -15,7 +15,6 @@ export function createFakeSceneRenderer(): SceneRendererHandle {
     setInteraction: vi.fn(),
     setScene: vi.fn(),
     setTokenHealth: vi.fn(),
-    setTokenHealthEditing: vi.fn(),
     showDrawingPreview: vi.fn(),
     showMeasurement: vi.fn(),
     showShapePreview: vi.fn(),

@@ -12,7 +12,6 @@ import {
   type SaveDialogOptions,
 } from 'electron';
 import { rm, writeFile } from 'node:fs/promises';
-import { format } from 'node:util';
 import { tmpdir } from 'node:os';
 import { applicationIpcChannels } from './shared/application';
 import path from 'node:path';
@@ -40,10 +39,6 @@ import { registerNetworkIpcHandlers } from './main/networkIpc';
 import { registerSceneIpcHandlers } from './main/sceneIpc';
 import { SceneManager } from './main/sceneManager';
 import { configureInstanceProfile } from './main/instanceProfile';
-import { DiagnosticService } from './main/diagnostics/diagnosticService';
-import { registerDiagnosticIpcHandlers } from './main/diagnostics/diagnosticIpc';
-import { createDiagnosticIpcMain } from './main/diagnostics/diagnosticIpcMain';
-import { diagnosticIpcChannels } from './shared/diagnostics';
 
 if (started) {
   app.quit();
@@ -65,61 +60,6 @@ const developmentSessionFile = requestedSessionFile &&
   path.basename(requestedSessionFile).startsWith('blackboxvtt-development-')
   ? path.resolve(requestedSessionFile)
   : null;
-const diagnostics = new DiagnosticService({
-  development: instanceProfile.environment !== 'production',
-  instance: {
-    appVersion: app.getVersion(),
-    electronVersion: process.versions.electron,
-    environment: instanceProfile.environment,
-    label: instanceProfile.label,
-    platform: process.platform,
-    processId: process.pid,
-    profileKind: instanceProfile.profileKind,
-  },
-  redactRoots: [instanceProfile.userDataPath, app.getPath('home')],
-});
-const originalWarn = console.warn.bind(console);
-const originalError = console.error.bind(console);
-console.warn = (...values: unknown[]) => {
-  originalWarn(...values);
-  diagnostics.record('main', {
-    category: 'console',
-    level: 'warn',
-    message: format(...values),
-  });
-};
-console.error = (...values: unknown[]) => {
-  originalError(...values);
-  diagnostics.record('main', {
-    category: 'console',
-    level: 'error',
-    message: format(...values),
-  });
-};
-process.on('uncaughtExceptionMonitor', (error) => {
-  diagnostics.record('main', {
-    category: 'process',
-    level: 'error',
-    message: error.message,
-    stack: error.stack,
-  });
-});
-process.on('unhandledRejection', (reason) => {
-  const error = reason instanceof Error ? reason : new Error(format(reason));
-  diagnostics.record('main', {
-    category: 'process',
-    level: 'error',
-    message: `Unhandled rejection: ${error.message}`,
-    stack: error.stack,
-  });
-});
-diagnostics.record('main', {
-  category: 'application',
-  kind: 'system',
-  level: 'info',
-  message: `Starting ${instanceProfile.label} instance.`,
-});
-
 /**
  * Whether this process owns the application. Startup is slow enough that the
  * icon can be clicked several times before anything appears on screen, and
@@ -166,7 +106,6 @@ let ownerMonitor: ReturnType<typeof setInterval> | null = null;
 let rendererHealthyTimer: ReturnType<typeof setTimeout> | null = null;
 let rendererReloadAttempted = false;
 let recoveryScreenVisible = false;
-let openConsoleAfterLoad = false;
 let mainNavigationPermitted = false;
 
 const requestQuit = () => {
@@ -247,7 +186,6 @@ const retryMainRenderer = () => {
   const window = mainWindow;
   if (!window || window.isDestroyed()) return;
   rendererReloadAttempted = false;
-  openConsoleAfterLoad = true;
   void loadMainRenderer(window);
 };
 
@@ -334,26 +272,14 @@ const createWindow = () => {
     rendererHealthyTimer = setTimeout(() => {
       rendererReloadAttempted = false;
     }, 30_000);
-    if (openConsoleAfterLoad) {
-      openConsoleAfterLoad = false;
-      mainWindow.webContents.send(diagnosticIpcChannels.openRequested);
-    }
   });
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
     if (rendererHealthyTimer) {
       clearTimeout(rendererHealthyTimer);
       rendererHealthyTimer = null;
     }
-    diagnostics.record('main', {
-      category: 'renderer.lifecycle',
-      details: { exitCode: details.exitCode, reason: details.reason },
-      kind: 'system',
-      level: 'error',
-      message: `Renderer stopped: ${details.reason}.`,
-    });
     if (!rendererReloadAttempted) {
       rendererReloadAttempted = true;
-      openConsoleAfterLoad = true;
       void loadMainRenderer(mainWindow);
       return;
     }
@@ -460,7 +386,7 @@ app.whenReady().then(async () => {
     runtimes,
   });
   networkManager = manager;
-  const applicationIpc = createDiagnosticIpcMain(ipcMain, diagnostics);
+  const applicationIpc = ipcMain;
   assetManager = new AssetManager({
     getWindow: () => mainWindow,
     previewRegistry: assetPreviewRegistry,
@@ -470,127 +396,6 @@ app.whenReady().then(async () => {
     runtimes,
   });
   journalManager = new JournalManager(runtimes);
-  diagnostics.registerProvider('network', async () => {
-    const context = diagnostics.snapshot().context;
-    const status = networkManager?.getHostStatus();
-    const settings = context.campaignId && networkManager
-      ? await networkManager.getServerSettings(context.campaignId)
-      : null;
-    const users = settings?.ok ? settings.value.users : [];
-    return {
-      clientState: context.clientState ?? null,
-      connectedParticipants: instanceProfile.environment === 'development'
-        ? users
-          .filter((user) => user.connected)
-          .map(({ id, username }) => ({ id, username }))
-        : users.filter((user) => user.connected).length,
-      host: status
-        ? {
-          boundFamilies: status.boundFamilies,
-          connectedPlayerCount: status.connectedPlayerCount,
-          effectivePort: status.effectivePort,
-          state: status.state,
-          ...(instanceProfile.environment === 'development'
-            ? {
-              localAddresses: status.localAddresses,
-              publicAddresses: status.publicAddresses,
-            }
-            : {}),
-        }
-        : null,
-      transportRecovery: {
-        ownerProcessMonitored: Boolean(developmentOwnerPid),
-        powerResumeRetryEnabled: true,
-      },
-      updateRates: settings?.ok
-        ? { transformPreviewPerSecond: settings.value.transformPreviewRate ?? null }
-        : null,
-    };
-  });
-  diagnostics.registerProvider('campaign', async () => {
-    const context = diagnostics.snapshot().context;
-    if (!context.campaignId) return { state: 'not_open' };
-    const runtime = await runtimes.resolve(context.campaignId);
-    return runtime
-      ? {
-        campaignId: runtime.campaignId,
-        kind: runtime.kind,
-        system: runtime.system,
-      }
-      : { campaignId: context.campaignId, state: 'unavailable' };
-  });
-  diagnostics.registerProvider('persistence', async (input) => {
-    const context = diagnostics.snapshot().context;
-    if (!context.campaignId) return { state: 'not_open' };
-    const runtime = await runtimes.resolve(context.campaignId);
-    if (!runtime) return { state: 'unavailable' };
-    if (runtime.kind === 'joined') {
-      return { kind: 'remote_cache', state: 'available' };
-    }
-    return {
-      campaignId: runtime.campaignId,
-      check: input.check
-        ? runtime.workspace.database.checkIntegrity()
-          ? 'ok'
-          : 'failed'
-        : 'validated_on_open',
-      directory: runtime.workspace.directory,
-      kind: 'campaign_sqlite',
-    };
-  });
-  diagnostics.registerProvider('assets', async () => {
-    const campaignId = diagnostics.snapshot().context.campaignId;
-    if (!campaignId || !assetManager) return { state: 'not_open' };
-    const result = await assetManager.list(campaignId);
-    if (!result.ok) return { error: result.error.code, state: 'unavailable' };
-    return {
-      available: result.value.filter((asset) => asset.available).length,
-      byKind: Object.fromEntries(
-        ['audio', 'document', 'image'].map((kind) => [
-          kind,
-          result.value.filter((asset) => asset.kind === kind).length,
-        ]),
-      ),
-      highestRevision: Math.max(0, ...result.value.map((asset) => asset.revision)),
-      total: result.value.length,
-      unavailable: result.value.filter((asset) => !asset.available).length,
-    };
-  });
-  diagnostics.registerProvider('scenes', async (input) => {
-    const campaignId = diagnostics.snapshot().context.campaignId;
-    if (!campaignId || !sceneManager) return { state: 'not_open' };
-    const result = await sceneManager.list(campaignId);
-    if (!result.ok) return { error: result.error.code, state: 'unavailable' };
-    return input.content
-      ? result.value
-      : {
-        activeSceneId: result.value.activeSceneId,
-        revision: result.value.revision,
-        scenes: result.value.scenes.map((scene) => ({
-          id: scene.id,
-          name: scene.name,
-          revision: scene.revision,
-        })),
-      };
-  });
-  diagnostics.registerProvider('journal', async (input) => {
-    const campaignId = diagnostics.snapshot().context.campaignId;
-    if (!campaignId || !journalManager) return { state: 'not_open' };
-    const result = await journalManager.list(campaignId);
-    if (!result.ok) return { error: result.error.code, state: 'unavailable' };
-    return input.content
-      ? result.value
-      : {
-        entries: result.value.entries.map((entry) => ({
-          capabilities: entry.capabilities,
-          id: entry.id,
-          kind: entry.kind,
-          name: entry.name,
-          revision: entry.revision,
-        })),
-        revision: result.value.revision,
-      };
-  });
   journalWindowManager = new JournalWindowManager({
     getMainWindow: () => mainWindow,
     journalManager,
@@ -627,30 +432,6 @@ app.whenReady().then(async () => {
   networkManager.on('journal-changed', (event) =>
     journalManager?.notifyRemoteChanged(event),
   );
-  networkManager.on('client-state-changed', (event: { state: string }) => {
-    diagnostics.updateContext({ clientState: event.state });
-    diagnostics.record('main', {
-      category: 'network.client',
-      details: { state: event.state },
-      kind: 'system',
-      level: 'info',
-      message: `Client state changed to ${event.state}.`,
-    });
-  });
-  networkManager.on('host-status-changed', (status) => {
-    diagnostics.updateContext({ hostState: status.state });
-    diagnostics.record('main', {
-      category: 'network.host',
-      details: {
-        connectedPlayerCount: status.connectedPlayerCount,
-        effectivePort: status.effectivePort,
-        state: status.state,
-      },
-      kind: 'system',
-      level: 'info',
-      message: `Host state changed to ${status.state}.`,
-    });
-  });
   networkManager.on('campaign-closed', (event: { campaignId: string }) => {
     void journalWindowManager?.closeCampaign(event.campaignId);
     assetManager?.releaseCampaign(event.campaignId);
@@ -721,11 +502,6 @@ app.whenReady().then(async () => {
     },
   );
   mainWindow = createWindow();
-  registerDiagnosticIpcHandlers(
-    applicationIpc,
-    diagnostics,
-    () => mainWindow?.webContents ?? null,
-  );
   void protocol.handle('blackbox-asset', (request) =>
     assetPreviewRegistry.handle(request),
   );

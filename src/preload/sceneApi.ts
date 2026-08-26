@@ -22,10 +22,6 @@ export function createSceneApi(ipc: SceneIpcRenderer): SceneApi {
   };
 
   return {
-    adjustTokenHealth: (input) =>
-      ipc.invoke(sceneIpcChannels.adjustTokenHealth, input) as ReturnType<
-        SceneApi['adjustTokenHealth']
-      >,
     create: (input) =>
       ipc.invoke(sceneIpcChannels.create, input) as ReturnType<
         SceneApi['create']

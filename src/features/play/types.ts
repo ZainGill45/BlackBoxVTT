@@ -14,7 +14,6 @@ import type {
 import type { CampaignSystemState } from '../../shared/gameSystems';
 import type { JournalApi } from '../../shared/journal';
 import type { JournalWindowApi } from '../../shared/journalWindows';
-import type { DiagnosticContext } from '../../shared/diagnostics';
 
 export type PlaySession =
   | {
@@ -86,7 +85,6 @@ export interface PlayScreenProps {
   onPreparationProgress?: (progress: CampaignPreparationProgress) => void;
   onCreateServerUser?: (username: string, password: string) => void;
   onDeleteServerUser?: (userId: string) => void;
-  onDiagnosticContext?: (context: DiagnosticContext) => void;
   onServerPortChange?: (port: number) => void;
   onMaxChatMessageCharactersChange?: (maximum: number) => void;
   onTransformPreviewRateChange?: (rate: number) => void;

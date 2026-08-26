@@ -155,18 +155,3 @@
   place-items: center;
   color: var(--color-text-muted);
 }
-
-.healthEditor {
-  position: absolute;
-  z-index: 3;
-  display: grid;
-  align-items: center;
-  padding-inline: 0.25em;
-  color: var(--color-scene-selection-strong);
-  line-height: 1;
-}
-
-.healthEditor input {
-  color: inherit;
-  caret-color: inherit;
-}

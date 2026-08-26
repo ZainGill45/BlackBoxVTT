@@ -19,7 +19,6 @@ import {
   isDnd5eSpellData,
 } from './spellData';
 import {
-  applyDnd5eTokenHealthCommand,
   materializeDnd5eTokenHealth,
   readDnd5eTokenHealth,
   writeDnd5eTokenHealth,
@@ -70,8 +69,6 @@ export const dnd5eSystem = {
       prepareDataForSave: prepareDnd5eCharacterDataForSave,
       token: {
         health: {
-          applyCommand: (data: Dnd5eCharacterData, command: string) =>
-            applyDnd5eTokenHealthCommand(data, command),
           materialize: (
             data: Dnd5eCharacterData,
             roll: (notation: string) => number,

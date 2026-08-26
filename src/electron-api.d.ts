@@ -8,7 +8,6 @@ import type {
   JournalWindowApi,
 } from './shared/journalWindows';
 import type { SceneApi } from './shared/scenes';
-import type { DiagnosticsApi } from './shared/diagnostics';
 
 declare global {
   interface Window {
@@ -18,7 +17,6 @@ declare global {
       application: ApplicationApi;
       assets: AssetApi;
       campaigns: CampaignApi;
-      diagnostics: DiagnosticsApi;
       journal: JournalApi;
       journalWindows: JournalWindowApi;
       network: NetworkApi;

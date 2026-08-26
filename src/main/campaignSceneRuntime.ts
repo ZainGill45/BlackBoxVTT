@@ -1,7 +1,6 @@
 import {
   createEmptySceneManifest,
   type PresentSceneInput,
-  type AdjustSceneTokenHealthInput,
   type SceneAssetInput,
   type ReorderScenesInput,
   type SceneHistoryInput,
@@ -31,9 +30,6 @@ import type { LocalCampaignWorkspace } from './campaignWorkspace';
 import type { SceneRepositoryMutation } from './sceneRepository';
 
 export interface JoinedSceneTransport {
-  adjustTokenHealth(
-    input: AdjustSceneTokenHealthInput,
-  ): Promise<SceneResult<SceneRecord>>;
   cancelTransform(input: SceneTransformPreviewCancel): Promise<void>;
   getActiveScene(): SceneRecord | null;
   listScenes(): Promise<SceneResult<SceneManifest>>;
@@ -72,9 +68,6 @@ export interface SceneRuntimeMutation<T> {
 }
 
 export interface CampaignSceneRuntime {
-  adjustTokenHealth(
-    input: AdjustSceneTokenHealthInput,
-  ): Promise<SceneRuntimeMutation<SceneRecord>>;
   create(): Promise<SceneRuntimeMutation<SceneRecord>>;
   detachAsset(input: SceneAssetInput): Promise<SceneRuntimeMutation<null>>;
   findDependents(input: SceneAssetInput): Promise<SceneResult<SceneRecord[]>>;
@@ -132,12 +125,6 @@ class JoinedSceneRuntime implements CampaignSceneRuntime {
 
   create(): Promise<SceneRuntimeMutation<SceneRecord>> {
     return this.readOnlyMutation();
-  }
-
-  async adjustTokenHealth(
-    input: AdjustSceneTokenHealthInput,
-  ): Promise<SceneRuntimeMutation<SceneRecord>> {
-    return { changed: null, result: await this.transport.adjustTokenHealth(input) };
   }
 
   detachAsset(): Promise<SceneRuntimeMutation<null>> {
@@ -315,20 +302,6 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
     return this.mutate(() => this.workspace.sceneRepository.create());
   }
 
-  adjustTokenHealth(
-    input: AdjustSceneTokenHealthInput,
-  ): Promise<SceneRuntimeMutation<SceneRecord>> {
-    return this.mutateWithEffects(() =>
-      this.workspace.sceneRepository.adjustTokenHealthWithEffects(
-        input.sceneId,
-        input.tokenId,
-        input.command,
-        input.operationId,
-        { kind: 'gm' },
-      ),
-    );
-  }
-
   detachAsset(input: SceneAssetInput): Promise<SceneRuntimeMutation<null>> {
     return this.mutate(() =>
       this.workspace.sceneRepository.detachAsset(input.assetId),
@@ -347,7 +320,7 @@ class LocalSceneRuntime implements CampaignSceneRuntime {
     input: SceneTokenHealthInput,
   ): Promise<SceneResult<SceneTokenHealthPresentation[]>> {
     return Promise.resolve(
-      this.workspace.sceneRepository.listTokenHealth(input.sceneId, { kind: 'gm' }),
+      this.workspace.sceneRepository.listTokenHealth(input.sceneId),
     );
   }
 

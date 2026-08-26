@@ -618,14 +618,6 @@ export const protocolPayloadSchemas = {
     })
     .strict(),
   'client.scene_drawing_preview': drawingPreviewSchema,
-  'client.scene_health_adjust': z
-    .object({
-      command: z.string().min(1).max(128),
-      operationId: z.string().uuid(),
-      sceneId: z.string().uuid(),
-      tokenId: z.string().min(1).max(128),
-    })
-    .strict(),
   'client.scene_health_list': z
     .object({ sceneId: z.string().uuid() })
     .strict(),

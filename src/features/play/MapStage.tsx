@@ -8,7 +8,6 @@ import {
 } from 'react';
 import { CANVAS_IMAGE_DRAG_TYPE, type AssetApi } from '../../shared/assets';
 import { ErrorModal } from '../../components/ui/ErrorModal';
-import { InlineInput } from '../../components/ui/InlineInput';
 import {
   JOURNAL_ENTRY_DRAG_TYPE,
   type JournalApi,
@@ -37,7 +36,6 @@ import type {
   ScenePreparationProgress,
   SceneRendererHandle,
 } from './canvas/SceneRenderer';
-import type { TokenHealthHit } from './canvas/tokenHealthRenderer';
 import type { PlaySession, PlayToolId } from './types';
 import type { TextSettings } from './textSettings';
 import type { ShapeSettings, ShapeSubtool } from './shapeSettings';
@@ -56,13 +54,6 @@ import { useSceneImageResources } from './useSceneImageUrls';
 import styles from './PlayScreen.module.css';
 import { TokenInspector } from './TokenInspector';
 
-/*
- * Text is sized straight off the bar it sits in, with no legibility floor: a
- * field that stopped shrinking with its bar would start overhanging it, which is
- * the overlay look this editor exists to avoid. Zooming in is how you get a
- * bigger field.
- */
-const HEALTH_EDITOR_FONT_RATIO = 0.55;
 const EMPTY_IMAGE_URLS: Record<string, string> = {};
 const EMPTY_SCENES: readonly SceneRecord[] = [];
 
@@ -190,14 +181,6 @@ export function MapStage({
   const [renderer, setRenderer] = useState<SceneRendererHandle | null>(null);
   const [tokenMessage, setTokenMessage] = useState<string | null>(null);
   const [inspectedTokenId, setInspectedTokenId] = useState<string | null>(null);
-  const [healthEditor, setHealthEditor] = useState<
-    (TokenHealthHit & { sceneId: string }) | null
-  >(null);
-  const closeHealthEditor = useCallback(() => {
-    setHealthEditor(null);
-    renderer?.setTokenHealthEditing(null);
-  }, [renderer]);
-  const [healthCommand, setHealthCommand] = useState('');
   const [openedEntry, setOpenedEntry] =
     useState<SystemJournalEntry | null>(null);
   const sessionUserId =
@@ -476,40 +459,6 @@ export function MapStage({
     };
   }, [renderer, scene, sceneApi, session.campaignId]);
 
-  const applyHealthCommand = useCallback(
-    async (tokenId: string, command: string) => {
-      const current = sceneRef.current;
-      if (!current || !renderer) return;
-      const result = await sceneApi.adjustTokenHealth({
-        campaignId: session.campaignId,
-        command,
-        operationId: crypto.randomUUID(),
-        sceneId: current.id,
-        tokenId,
-      });
-      if (displayedSceneIdRef.current !== current.id) return;
-      if (!result.ok) {
-        setTokenMessage(
-          'That health command was not accepted. Use Current+5, Current=12, ' +
-          'or Maximum-2.5.',
-        );
-        return;
-      }
-      sceneRef.current = result.value;
-      const health = await sceneApi.listTokenHealth({
-        campaignId: session.campaignId,
-        sceneId: current.id,
-      });
-      if (
-        displayedSceneIdRef.current === current.id &&
-        health.ok
-      ) {
-        renderer.setTokenHealth(health.value);
-      }
-    },
-    [renderer, sceneApi, session.campaignId],
-  );
-
   useEffect(() => {
     if (!renderer) return;
     void renderer
@@ -681,21 +630,6 @@ export function MapStage({
             )
           : null;
         setInspectedTokenId(token?.id ?? null);
-      },
-      onAdjustTokenHealth: (hit) => {
-        const current = sceneRef.current;
-        if (!current) return;
-        setHealthCommand('Current');
-        setHealthEditor({ ...hit, sceneId: current.id });
-        renderer.setTokenHealthEditing(hit.tokenId);
-      },
-      onTokenHealthEditorRect: (rect) => {
-        // The bar is the editor's frame, so losing the bar closes the editor.
-        setHealthEditor((current) =>
-          current && rect && rect.tokenId === current.tokenId
-            ? { ...current, ...rect }
-            : null,
-        );
       },
       onShapePreview: (preview) => {
         void networkApi.sendShapePreview({
@@ -950,52 +884,6 @@ export function MapStage({
             ? `Viewing the scene ${scene.name}.`
             : 'No scene is being displayed.'}
         </p>
-        {healthEditor && healthEditor.sceneId === scene?.id ? (
-          <div
-            className={styles.healthEditor}
-            style={{
-              /*
-               * The bar draws its own dark fill and white outline in the scene, so
-               * the field is transparent chrome laid over exactly that rect and
-               * sized from it. Nothing here may exceed the bar.
-               */
-              fontSize: healthEditor.height * HEALTH_EDITOR_FONT_RATIO,
-              height: healthEditor.height,
-              left: healthEditor.x,
-              top: healthEditor.y,
-              width: healthEditor.width,
-            }}
-          >
-            <InlineInput
-              align="left"
-              aria-label="Adjust token health"
-              autoFocus
-              height="fill"
-              onBlur={closeHealthEditor}
-              onChange={(event) => setHealthCommand(event.target.value)}
-              onFocus={(event) => {
-                const { value } = event.currentTarget;
-                event.currentTarget.setSelectionRange(value.length, value.length);
-              }}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === 'Escape') {
-                  event.preventDefault();
-                  closeHealthEditor();
-                  return;
-                }
-                if (event.key !== 'Enter') return;
-                event.preventDefault();
-                const command = healthCommand.trim();
-                const { tokenId } = healthEditor;
-                closeHealthEditor();
-                if (command) void applyHealthCommand(tokenId, command);
-              }}
-              surface="borderless"
-              value={healthCommand}
-            />
-          </div>
-        ) : null}
         {scene && inspectedTokenId ? (
           <TokenInspector
             campaignId={session.campaignId}

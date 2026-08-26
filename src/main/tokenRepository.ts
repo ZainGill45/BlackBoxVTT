@@ -29,7 +29,6 @@ import { sceneRecordSchema } from '../shared/sceneSchema';
 import { getJournalEntryTypeDefinition } from '../systems/catalog';
 import type {
   JournalEntryDefaultToken,
-  JournalEntryTokenHealthValue,
 } from '../systems/types';
 import type { CampaignDatabase } from './storage/campaignDatabase';
 
@@ -89,12 +88,6 @@ export interface TokenSnapshotHistoryChange {
   expected: TemplateTokenSnapshot | null;
   id: string;
   target: TemplateTokenSnapshot | null;
-}
-
-export interface TokenHealthHistoryChange {
-  expected: JournalEntryTokenHealthValue;
-  source: SceneToken['source'];
-  target: JournalEntryTokenHealthValue;
 }
 
 interface TokenInspectorLayoutState {
@@ -383,10 +376,7 @@ export class TokenRepository {
     return definition.validateData(data) ? structuredClone(data) : null;
   }
 
-  listHealth(
-    actor: SceneEditActor,
-    sceneId: string,
-  ): SceneResult<SceneTokenHealthPresentation[]> {
+  listHealth(sceneId: string): SceneResult<SceneTokenHealthPresentation[]> {
     const scene = this.sceneRows().find(({ id }) => id === sceneId)?.scene;
     if (!scene) return failure('invalid_input', 'The scene does not exist.');
     const presentations: SceneTokenHealthPresentation[] = [];
@@ -395,114 +385,18 @@ export class TokenRepository {
       if (!resolved) continue;
       const health = resolved.definition.token?.health?.read(resolved.data);
       if (!health) continue;
-      const canView = actor.kind === 'gm' || this.hasRootAccess(
-        actor,
-        resolved.rootEntryId,
-        'view',
-      );
       const ratio = health.maximumHundredths > 0
         ? Math.max(0, Math.min(1,
             health.currentHundredths / health.maximumHundredths,
           ))
         : 0;
       presentations.push({
-        ...(canView
-          ? {
-              currentHundredths: health.currentHundredths,
-              maximumHundredths: health.maximumHundredths,
-            }
-          : {}),
         down: health.maximumHundredths > 0 && health.currentHundredths <= 0,
-        editable: this.canManipulate(actor, token.source),
         ratio,
         tokenId: token.id,
       });
     }
     return { ok: true, value: presentations };
-  }
-
-  prepareHealthAdjustment(
-    actor: SceneEditActor,
-    scene: SceneRecord,
-    tokenId: string,
-    command: string,
-  ): SceneResult<TokenHealthHistoryChange> {
-    const token = Object.values(scene.images).flat()
-      .find((image): image is SceneToken =>
-        isSceneToken(image) && image.id === tokenId,
-      );
-    if (!token) return failure('invalid_input', 'The token does not exist.');
-    if (!this.canManipulate(actor, token.source)) {
-      return failure('permission_denied', 'You cannot edit this token health.');
-    }
-    const resolved = this.resolveHealthSource(token.source);
-    const healthDefinition = resolved?.definition.token?.health;
-    if (!resolved || !healthDefinition) {
-      return failure('invalid_input', 'This token does not support health.');
-    }
-    const expected = healthDefinition.read(resolved.data);
-    const nextData = healthDefinition.applyCommand(resolved.data, command);
-    const target = nextData ? healthDefinition.read(nextData) : null;
-    if (
-      !expected ||
-      !target ||
-      !resolved.definition.validateData(nextData)
-    ) {
-      return failure('invalid_input', 'The health adjustment is invalid.');
-    }
-    return {
-      ok: true,
-      value: {
-        expected: structuredClone(expected),
-        source: structuredClone(token.source),
-        target: structuredClone(target),
-      },
-    };
-  }
-
-  healthHistoryMatches(changes: TokenHealthHistoryChange[]): boolean {
-    return changes.every(({ expected, source }) => {
-      const resolved = this.resolveHealthSource(source);
-      const health = resolved?.definition.token?.health?.read(resolved.data);
-      return JSON.stringify(health) === JSON.stringify(expected);
-    });
-  }
-
-  commitHealthChanges(
-    changes: TokenHealthHistoryChange[],
-    timestamp: string,
-  ): void {
-    for (const change of changes) {
-      const resolved = this.resolveHealthSource(change.source);
-      const healthDefinition = resolved?.definition.token?.health;
-      const current = resolved && healthDefinition
-        ? healthDefinition.read(resolved.data)
-        : null;
-      if (
-        !resolved ||
-        !healthDefinition ||
-        JSON.stringify(current) !== JSON.stringify(change.expected)
-      ) {
-        throw new Error('Token health changed before it could be saved.');
-      }
-      const data = healthDefinition.write(resolved.data, change.target);
-      if (!data || !resolved.definition.validateData(data)) {
-        throw new Error('The system rejected the token health state.');
-      }
-      if (change.source.kind === 'linked') {
-        this.database.connection.prepare(
-          `UPDATE journal_entries
-           SET data_json = ?, revision = revision + 1, updated_at = ?
-           WHERE id = ?`,
-        ).run(JSON.stringify(data), timestamp, change.source.entryId);
-      } else {
-        this.database.connection.prepare(
-          `UPDATE scene_token_snapshots
-           SET data_json = ?, revision = revision + 1, updated_at = ?
-           WHERE id = ?`,
-        ).run(JSON.stringify(data), timestamp, change.source.instanceId);
-      }
-    }
   }
 
   getTemplateSnapshot(

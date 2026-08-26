@@ -90,7 +90,6 @@ export function PlayScreen({
   onExit,
   onCreateServerUser,
   onDeleteServerUser,
-  onDiagnosticContext,
   onLayerChange,
   onLogout,
   onMaxChatMessageCharactersChange,
@@ -297,23 +296,6 @@ export function PlayScreen({
   useEffect(() => {
     saveFogToolSettings(session, fogSettings);
   }, [fogSettings, session]);
-
-  useEffect(() => {
-    onDiagnosticContext?.({
-      activeLayer,
-      activeSceneId: scenes.viewedScene?.id ?? null,
-      activeSceneName: scenes.viewedScene?.name ?? null,
-      activeSidebar: activeSidebarTab,
-      activeTool,
-    });
-  }, [
-    activeLayer,
-    activeSidebarTab,
-    activeTool,
-    onDiagnosticContext,
-    scenes.viewedScene?.id,
-    scenes.viewedScene?.name,
-  ]);
 
   useEffect(() => {
     const handlePaintWidthShortcut = (event: KeyboardEvent) => {

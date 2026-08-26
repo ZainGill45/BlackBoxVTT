@@ -7,7 +7,6 @@ import { createNetworkApi } from './preload/networkApi';
 import { createJournalApi } from './preload/journalApi';
 import { createJournalWindowApi } from './preload/journalWindowApi';
 import { createSceneApi } from './preload/sceneApi';
-import { createDiagnosticsApi } from './preload/diagnosticsApi';
 
 let altHeld = false;
 ipcRenderer.on(applicationIpcChannels.altHeld, (_event, down) => {
@@ -26,7 +25,6 @@ contextBridge.exposeInMainWorld('blackBox', {
   campaigns: createCampaignApi((channel, input) =>
     ipcRenderer.invoke(channel, input),
   ),
-  diagnostics: createDiagnosticsApi(ipcRenderer),
   journal: createJournalApi(ipcRenderer),
   journalWindows: createJournalWindowApi((channel, input) =>
     ipcRenderer.invoke(channel, input),

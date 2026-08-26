@@ -52,7 +52,6 @@ export interface JournalEntryTokenHealthValue {
 export interface JournalEntryTokenHealthDefinition<
   TData extends JsonValue = JsonValue,
 > {
-  applyCommand(data: TData, command: string): TData | null;
   materialize(
     data: TData,
     roll: (notation: string) => number,

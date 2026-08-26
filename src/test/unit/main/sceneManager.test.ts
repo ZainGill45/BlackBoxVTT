@@ -16,7 +16,7 @@ describe('SceneManager authored-data notifications', () => {
       ...createEmptySceneManifest(),
       scenes: [scene],
     };
-    const adjustTokenHealth = vi.fn(async () => ({
+    const mutateTokenInspector = vi.fn(async () => ({
       authoredDataChangedEntryIds: [entryId],
       changed: manifest,
       result: { ok: true as const, value: scene },
@@ -27,15 +27,20 @@ describe('SceneManager authored-data notifications', () => {
       result: { ok: true as const, value: scene },
     }));
     const runtimes = {
-      resolve: vi.fn(async () => ({ scenes: { adjustTokenHealth, undo } })),
+      resolve: vi.fn(async () => ({ scenes: { mutateTokenInspector, undo } })),
     } as unknown as CampaignRuntimeRegistry;
     const manager = new SceneManager({ runtimes });
     const changed = vi.fn();
     manager.on('health-changed', changed);
 
-    await manager.adjustTokenHealth({
+    await manager.mutateTokenInspector({
       campaignId: testCampaignId,
-      command: 'Current-1',
+      mutation: {
+        command: '-1',
+        fieldId: 'health',
+        kind: 'set-value',
+        target: 'current',
+      },
       operationId,
       sceneId,
       tokenId,

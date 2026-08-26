@@ -25,8 +25,6 @@ type SceneStore = Pick<
   SceneRepository,
   | 'beginTransform'
   | 'cancelTransform'
-  | 'adjustTokenHealth'
-  | 'adjustTokenHealthWithEffects'
   | 'listTokenHealth'
   | 'getTokenInspector'
   | 'resolveTokenInspectorRoll'
@@ -92,23 +90,7 @@ export class CampaignSceneService {
         ok: false,
       };
     }
-    return this.scenes.listTokenHealth(sceneId, actor(userId));
-  }
-
-  async adjustPlayerTokenHealth(
-    sceneId: string,
-    tokenId: string,
-    command: string,
-    operationId: string,
-    userId: string,
-  ): Promise<SceneResult<SceneRecord>> {
-    return (await this.adjustPlayerTokenHealthWithEffects(
-      sceneId,
-      tokenId,
-      command,
-      operationId,
-      userId,
-    )).result;
+    return this.scenes.listTokenHealth(sceneId);
   }
 
   async getTokenInspectorForPlayer(
@@ -189,40 +171,6 @@ export class CampaignSceneService {
       sceneId,
       tokenId,
       mutation,
-      operationId,
-      actor(userId),
-    );
-    return { ...outcome, result: projectResult(outcome.result) };
-  }
-
-  async adjustPlayerTokenHealthWithEffects(
-    sceneId: string,
-    tokenId: string,
-    command: string,
-    operationId: string,
-    userId: string,
-  ): Promise<SceneRepositoryMutation<SceneRecord>> {
-    const projected = projectSceneManifest(await this.scenes.readManifest(), {
-      kind: 'player',
-      userId,
-    });
-    if (!projected.scenes.some((scene) => scene.id === sceneId)) {
-      return {
-        authoredDataChangedEntryIds: [],
-        result: {
-          error: {
-            code: 'permission_denied',
-            message: 'You cannot view this scene.',
-            sceneId,
-          },
-          ok: false,
-        },
-      };
-    }
-    const outcome = await this.scenes.adjustTokenHealthWithEffects(
-      sceneId,
-      tokenId,
-      command,
       operationId,
       actor(userId),
     );

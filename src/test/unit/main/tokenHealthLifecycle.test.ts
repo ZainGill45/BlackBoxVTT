@@ -177,40 +177,14 @@ describe('token health lifecycle', () => {
     });
     expect(roll).toHaveBeenCalledTimes(2);
 
-    const adjustedTemplate = await scenes.adjustTokenHealthWithEffects(
-      second.value.id,
-      firstId,
-      'Current-1',
-      '20000000-0000-4000-8000-000000000004',
-      { kind: 'gm' },
-    );
-    expect(adjustedTemplate.authoredDataChangedEntryIds).toEqual([]);
-
-    const hidden = await journal.updateEntryPermissions({ kind: 'gm' }, {
-      entryId: configured.value.id,
-      expectedPermissionRevision: granted.value.permissionRevision,
-      permissions: { allPlayers: 'none', overrides: [] },
-    });
-    expect(hidden).toMatchObject({ ok: true });
-    expect(scenes.listTokenHealth(second.value.id, player)).toMatchObject({
+    expect(scenes.listTokenHealth(second.value.id)).toMatchObject({
       ok: true,
       value: expect.arrayContaining([{
         down: false,
-        editable: false,
         ratio: expect.any(Number),
         tokenId: firstId,
       }]),
     });
-    const privateHealth = scenes.listTokenHealth(second.value.id, player);
-    expect(privateHealth.ok ? privateHealth.value[0] : null)
-      .not.toHaveProperty('currentHundredths');
-    await expect(scenes.adjustTokenHealth(
-      second.value.id,
-      firstId,
-      'Current-1',
-      '20000000-0000-4000-8000-000000000005',
-      player,
-    )).resolves.toMatchObject({ error: { code: 'permission_denied' }, ok: false });
 
     const linkedData = structuredClone(configured.value.data as Dnd5eCharacterData);
     linkedData.defaultToken.type = 'linked';
@@ -244,18 +218,18 @@ describe('token health lifecycle', () => {
           )
         : false,
     ).toBe(true);
-    const sharedHealth = scenes.listTokenHealth(second.value.id, { kind: 'gm' });
+    const sharedHealth = scenes.listTokenHealth(second.value.id);
     expect(sharedHealth.ok ? sharedHealth.value : []).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          currentHundredths: 4_400,
-          maximumHundredths: 4_400,
+          down: false,
+          ratio: 1,
         }),
       ]),
     );
   });
 
-  it('adjusts Linked health authoritatively and supports stale-aware undo', async () => {
+  it('edits Linked health through the Token Inspector with stale-aware undo', async () => {
     const mutations = new MutationQueue();
     const tokens = new TokenRepository({ database });
     const scenes = new SceneRepository({ database, mutations, tokens, warn: vi.fn() });
@@ -302,20 +276,23 @@ describe('token health lifecycle', () => {
     );
     if (!placed.ok) throw new Error('placement');
 
-    expect(scenes.listTokenHealth(placed.value.id, player)).toMatchObject({
+    expect(scenes.listTokenHealth(placed.value.id)).toMatchObject({
       ok: true,
       value: [{
-        currentHundredths: 1_000,
-        editable: true,
-        maximumHundredths: 2_000,
+        down: false,
         ratio: 0.5,
         tokenId,
       }],
     });
-    const adjusted = await scenes.adjustTokenHealthWithEffects(
+    const adjusted = await scenes.mutateTokenInspectorWithEffects(
       placed.value.id,
       tokenId,
-      'Maximum=5',
+      {
+        command: '=5',
+        fieldId: 'health',
+        kind: 'set-value',
+        target: 'maximum',
+      },
       '40000000-0000-4000-8000-000000000002',
       player,
     );
@@ -323,9 +300,9 @@ describe('token health lifecycle', () => {
       authoredDataChangedEntryIds: [configured.value.id],
       result: { ok: true },
     });
-    expect(scenes.listTokenHealth(placed.value.id, player)).toMatchObject({
+    expect(scenes.listTokenHealth(placed.value.id)).toMatchObject({
       ok: true,
-      value: [{ currentHundredths: -500, down: true, maximumHundredths: 500 }],
+      value: [{ down: true, ratio: 0, tokenId }],
     });
 
     const latest = await journal.getEntry({ kind: 'gm' }, configured.value.id);

@@ -174,7 +174,7 @@ import {
   drawImagePlaceholder,
 } from './additionalImageRenderer';
 import { SceneShapeRenderer } from './sceneShapeRenderer';
-import { TokenHealthRenderer, type TokenHealthHit } from './tokenHealthRenderer';
+import { TokenHealthRenderer } from './tokenHealthRenderer';
 import { fogCoversPoint, SceneFogRenderer } from './sceneFogRenderer';
 import styles from './SceneRenderer.module.css';
 
@@ -251,7 +251,6 @@ export interface SceneRendererHandle {
   showTransformStarted(input: SceneTransformPreviewStart): void;
   setInteraction(options: SceneRendererInteraction): void;
   setTokenHealth(health: readonly SceneTokenHealthPresentation[]): void;
-  setTokenHealthEditing(tokenId: string | null): void;
   setScene(
     scene: SceneRecord | null,
     imageUrls: Record<string, string> | string | null,
@@ -315,12 +314,6 @@ export interface SceneRendererInteraction {
   onPing?: (ping: RendererMapPing) => void;
   onOpenLinkedToken?: (token: SceneToken) => void;
   onSelectionChange?: (selectedIds: readonly string[]) => void;
-  onAdjustTokenHealth?: (hit: TokenHealthHit) => void;
-  /**
-   * The edited bar's current screen rectangle, re-reported whenever the camera
-   * moves so the inline editor can stay on it. Null once the bar is gone.
-   */
-  onTokenHealthEditorRect?: (rect: TokenHealthHit | null) => void;
   onRedo?: () => Promise<SceneRecord | null>;
   onSaveLinkedTokenDefaultSize?: (token: SceneToken) => void;
   onUndo?: () => Promise<SceneRecord | null>;
@@ -529,8 +522,6 @@ export class SceneRenderer implements SceneRendererHandle {
   } | null = null;
   private hatchTexture: Texture | null = null;
   private activeTextEditor: SceneTextEditorController | null = null;
-  private tokenHealthEditorToken: string | null = null;
-  private tokenHealthEditorRect: TokenHealthHit | null = null;
   private textDraftFontTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly imageResources = new SceneImageResourceCache();
   private pendingMapLoad: {
@@ -1483,49 +1474,6 @@ export class SceneRenderer implements SceneRendererHandle {
   setTokenHealth(health: readonly SceneTokenHealthPresentation[]): void {
     this.activeGraph.tokenHealthRenderer.setHealth(health);
     this.activeGraph.tokenHealthRenderer.render(this.scene);
-    this.syncTokenHealthEditor();
-  }
-
-  setTokenHealthEditing(tokenId: string | null): void {
-    this.tokenHealthEditorToken = tokenId;
-    // Forces the next sync to report, so opening an editor always places it.
-    this.tokenHealthEditorRect = null;
-    this.activeGraph.tokenHealthRenderer.setEditing(tokenId);
-    this.activeGraph.tokenHealthRenderer.render(this.scene);
-    this.syncTokenHealthEditor();
-  }
-
-  private syncTokenHealthEditor(): void {
-    const tokenId = this.tokenHealthEditorToken;
-    if (!tokenId) return;
-    const rect = this.activeGraph.tokenHealthRenderer.screenRectFor(
-      this.scene,
-      this.camera,
-      this.viewport,
-      tokenId,
-    );
-    if (!rect) {
-      // The bar is gone, so the editor it framed has nothing left to sit on.
-      this.tokenHealthEditorToken = null;
-      this.tokenHealthEditorRect = null;
-      this.activeGraph.tokenHealthRenderer.setEditing(null);
-      this.interaction.onTokenHealthEditorRect?.(null);
-      return;
-    }
-    // Camera work runs per pointer move; only a rectangle that actually moved
-    // is worth waking the editor for.
-    const previous = this.tokenHealthEditorRect;
-    if (
-      previous &&
-      rect.x === previous.x &&
-      rect.y === previous.y &&
-      rect.width === previous.width &&
-      rect.height === previous.height
-    ) {
-      return;
-    }
-    this.tokenHealthEditorRect = rect;
-    this.interaction.onTokenHealthEditorRect?.(rect);
   }
 
   selectImages(ids: string[]): void {
@@ -3689,7 +3637,6 @@ export class SceneRenderer implements SceneRendererHandle {
       this.renderFog();
     }
     this.syncTextEditor();
-    this.syncTokenHealthEditor();
   }
 
   private drawRemotePaintPreviews(): void {
@@ -4237,24 +4184,6 @@ export class SceneRenderer implements SceneRendererHandle {
     // painting, measuring — so it must never move the camera.
     if (!this.scene || !this.isSceneSurfaceEvent(event)) {
       return;
-    }
-    if (
-      event.button === 0 &&
-      this.interaction.onAdjustTokenHealth &&
-      event.target === this.app.canvas
-    ) {
-      const hit = this.activeGraph.tokenHealthRenderer.editableTokenAt(
-        this.scene,
-        this.camera,
-        this.viewport,
-        this.localPoint(event),
-      );
-      if (hit) {
-        event.preventDefault();
-        event.stopPropagation();
-        this.interaction.onAdjustTokenHealth(hit);
-        return;
-      }
     }
     if (this.beginFogGesture(event)) {
       return;

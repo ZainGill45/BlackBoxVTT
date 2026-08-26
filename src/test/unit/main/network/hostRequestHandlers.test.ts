@@ -372,39 +372,6 @@ describe('host scene request handler', () => {
     ]);
   });
 
-  it('broadcasts only the Journal entries changed by token health', async () => {
-    const activeScene = scene();
-    const entryId = '55555555-5555-4555-8555-555555555555';
-    const adjustPlayerTokenHealthWithEffects = vi.fn(async () => ({
-      authoredDataChangedEntryIds: [entryId],
-      result: { ok: true as const, value: activeScene },
-    }));
-    const onSceneMutation = vi.fn(async () => undefined);
-    const handler = new HostSceneRequestHandler({
-      broadcastDrawingPreview: vi.fn(),
-      broadcastShapePreview: vi.fn(),
-      broadcastTransformCancelled: vi.fn(),
-      broadcastTransformStarted: vi.fn(),
-      campaignId,
-      onSceneMutation,
-      scenes: {
-        adjustPlayerTokenHealthWithEffects,
-      } as unknown as CampaignSceneService,
-    });
-    const { client } = createClient();
-
-    await expect(handler.handleRequest(
-      client,
-      envelope('client.scene_health_adjust', {
-        command: 'Current-1',
-        operationId,
-        sceneId,
-        tokenId: '66666666-6666-4666-8666-666666666666',
-      }),
-    )).resolves.toBe(true);
-
-    expect(onSceneMutation).toHaveBeenCalledWith([entryId]);
-  });
 });
 
 describe('host asset request handler', () => {

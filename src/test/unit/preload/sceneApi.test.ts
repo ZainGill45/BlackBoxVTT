@@ -20,13 +20,6 @@ describe('createSceneApi', () => {
 
     await api.list({ campaignId });
     await api.listTokenHealth({ campaignId, sceneId });
-    await api.adjustTokenHealth({
-      campaignId,
-      command: 'Maximum+5',
-      operationId: '33333333-3333-4333-8333-333333333333',
-      sceneId,
-      tokenId: 'token-1',
-    });
     await api.resolveTokenInspectorRoll({
       campaignId,
       fieldId: 'initiative',
@@ -55,7 +48,6 @@ describe('createSceneApi', () => {
     expect(channels).toEqual([
       sceneIpcChannels.list,
       sceneIpcChannels.listTokenHealth,
-      sceneIpcChannels.adjustTokenHealth,
       sceneIpcChannels.resolveTokenInspectorRoll,
       sceneIpcChannels.create,
       sceneIpcChannels.update,
