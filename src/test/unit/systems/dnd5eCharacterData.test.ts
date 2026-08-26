@@ -15,10 +15,14 @@ import {
   deriveDnd5eCharacterValues,
   DND5E_ABILITIES,
   DND5E_ACTION_STEP_PURPOSES,
+  DND5E_CHARACTER_SHEET_CLASSES,
+  DND5E_MONSTER_CLASS,
   DND5E_SKILLS,
   DND5E_SPELL_SLOT_LEVELS,
   formatDnd5eSignedValue,
+  hasUsableDnd5eSpellSlot,
   isDnd5eCharacterData,
+  isDnd5eMonster,
   MAX_DND5E_CHARACTER_DESCRIPTION_CODE_UNITS,
   MAX_DND5E_CHARACTER_CUSTOM_SKILLS,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
@@ -75,6 +79,21 @@ function inventoryContainer(
 }
 
 describe('D&D Character data', () => {
+  it('identifies only the exact Monster Class without treating it as an Adventuring Class', () => {
+    const data = createDefaultDnd5eCharacterData();
+    expect(isDnd5eMonster(data)).toBe(false);
+    expect(DND5E_CHARACTER_SHEET_CLASSES.at(-1)).toBe(DND5E_MONSTER_CLASS);
+
+    data.identity.className = DND5E_MONSTER_CLASS;
+    expect(isDnd5eMonster(data)).toBe(true);
+    expect(defaultDnd5eSpellcastingAbilityForClass(
+      data.identity.className,
+    )).toBeNull();
+
+    data.identity.className = 'monster';
+    expect(isDnd5eMonster(data)).toBe(false);
+  });
+
   it('defaults Characters to Linked tokens and validates the exact Token Type', () => {
     const linked = createDefaultDnd5eCharacterData();
     expect(linked.defaultToken.type).toBe('linked');
@@ -130,6 +149,38 @@ describe('D&D Character data', () => {
         }],
       }],
     })).toBe(false);
+  });
+
+  it('accepts Spell Save DC only as an exact Save Prompt DC term', () => {
+    const data = createDefaultDnd5eCharacterData();
+    const action = createDefaultDnd5eCharacterAction(
+      '10000000-0000-4000-8000-000000000001',
+    );
+    const save = createDefaultDnd5eActionStep(
+      'save',
+      '20000000-0000-4000-8000-000000000001',
+    );
+    if (save.purpose !== 'save') throw new Error('Fixture step must be a Save Prompt.');
+    save.dcTerms = [{ kind: 'spell-save-dc' }];
+    action.steps = [save];
+    data.actions = [action];
+    expect(isDnd5eCharacterData(data)).toBe(true);
+
+    const extraField = structuredClone(data);
+    (extraField.actions[0].steps[0] as typeof save).dcTerms = [{
+      kind: 'spell-save-dc',
+      unexpected: true,
+    } as never];
+    expect(isDnd5eCharacterData(extraField)).toBe(false);
+
+    const roll = createDefaultDnd5eActionStep(
+      'roll',
+      '20000000-0000-4000-8000-000000000002',
+    );
+    if (roll.purpose !== 'roll') throw new Error('Fixture step must be a Roll.');
+    roll.terms = [{ kind: 'spell-save-dc' } as never];
+    action.steps = [roll];
+    expect(isDnd5eCharacterData(data)).toBe(false);
   });
 
   it('requires unique Action and step IDs, ordered tiers, and valid critical links', () => {
@@ -1107,6 +1158,23 @@ describe('D&D Character data', () => {
       preparedMaximumBase: 0,
       saveDc: null,
     });
+  });
+
+  it('gives Monsters the original tracker capacity at every spell-slot level', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.identity.className = DND5E_MONSTER_CLASS;
+    data.identity.level = 1;
+    const derived = deriveDnd5eCharacterValues(data, '5.5e');
+    if (!derived) throw new Error('Monster fixture must derive.');
+
+    expect(DND5E_SPELL_SLOT_LEVELS.map((slotLevel) =>
+      derived.spellcasting.slots[slotLevel].baseTotal,
+    )).toEqual([4, 3, 3, 3, 3, 2, 2, 1, 1]);
+
+    data.spellcasting.slots['9'].current = 1;
+    const configuredDerived = deriveDnd5eCharacterValues(data, '5.5e');
+    if (!configuredDerived) throw new Error('Configured Monster fixture must derive.');
+    expect(hasUsableDnd5eSpellSlot(data, configuredDerived, '9')).toBe(true);
   });
 
   it('uses the class and rules-version prepared-spell progressions', () => {

@@ -29,6 +29,7 @@ import type {
 import {
   DND5E_SPELL_SLOT_LEVELS,
   hasUsableDnd5eSpellSlot,
+  isDnd5eMonster,
   MAX_DND5E_CHARACTER_SPELLS,
   type Dnd5eCharacterData,
   type Dnd5eCharacterSpellMutation,
@@ -399,7 +400,8 @@ export function CharacterSpellPanel({
   const unavailablePrepared = unavailable.some(
     ({ preparation }) => preparation === 'prepared',
   );
-  const overPrepared = preparedCurrent > derived.spellcasting.preparedMaximum;
+  const overPrepared = !isDnd5eMonster(data) &&
+    preparedCurrent > derived.spellcasting.preparedMaximum;
 
   useEffect(() => onPreparedSummaryChange({
     current: preparedCurrent,

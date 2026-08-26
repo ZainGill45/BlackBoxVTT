@@ -41,6 +41,7 @@ import {
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
   createDefaultDnd5eActionStep,
   createDefaultDnd5eCharacterAction,
+  type Dnd5eAbilityId,
   type Dnd5eActionDiceTier,
   type Dnd5eActionStep,
   type Dnd5eActionValueTerm,
@@ -55,6 +56,23 @@ import {
   RollNumericField as NumericField,
 } from './RollEditorControls';
 import styles from './CharacterActionPanel.module.css';
+
+const ABILITY_LABELS: Record<Dnd5eAbilityId, string> = {
+  charisma: 'Charisma',
+  constitution: 'Constitution',
+  dexterity: 'Dexterity',
+  intelligence: 'Intelligence',
+  strength: 'Strength',
+  wisdom: 'Wisdom',
+};
+
+// Damage types are free-form, so custom entries get the same leading-capital
+// treatment the built-in list already reads with.
+function damageTypeLabel(damageType: string): string {
+  return damageType.length === 0
+    ? damageType
+    : `${damageType[0].toLocaleUpperCase()}${damageType.slice(1)}`;
+}
 
 interface CharacterActionPanelProps {
   actions: readonly Dnd5eCharacterAction[];
@@ -158,14 +176,14 @@ function TermEditor({
               <EditorField label="Ability modifier">
                 <Dropdown
                   accessibleLabel={`Ability modifier ${index + 1}`}
-                  label={term.ability}
+                  label={ABILITY_LABELS[term.ability]}
                   panelLabel="Ability modifier options"
                 >
                   {DND5E_ABILITIES.map((ability) => (
                     <DropdownOption
                       active={ability === term.ability}
                       key={ability}
-                      label={ability}
+                      label={ABILITY_LABELS[ability]}
                       onSelect={() => update(index, { ...term, ability })}
                     />
                   ))}
@@ -203,6 +221,10 @@ function TermEditor({
                   value={term.value}
                   onCommit={(value) => update(index, { ...term, value })}
                 />
+              </EditorField>
+            ) : term.kind === 'spell-save-dc' ? (
+              <EditorField label="Spell Save DC">
+                <span className={styles.termValue}>Current spell save DC</span>
               </EditorField>
             ) : (
               <EditorField label="Character level">
@@ -331,6 +353,12 @@ function TermEditor({
             label="Flat modifier"
             onSelect={() => add({ kind: 'flat', value: 0 })}
           />
+          {!allowDice ? (
+            <DropdownOption
+              label="Spell Save DC"
+              onSelect={() => add({ kind: 'spell-save-dc' })}
+            />
+          ) : null}
         </Dropdown>
       </EditorField>
     </div>
@@ -366,7 +394,10 @@ function StepEditor({
     if (step.purpose === 'save') {
       onChange({ ...step, dcTerms: terms.filter((term) => term.kind !== 'dice') });
     } else {
-      onChange({ ...step, terms });
+      onChange({
+        ...step,
+        terms: terms.filter((term) => term.kind !== 'spell-save-dc'),
+      });
     }
   };
   return (
@@ -433,13 +464,13 @@ function StepEditor({
                 <Dropdown
                   accessibleLabel={`${stepLabel(step)} saving throw ability`}
                   disabled={!canEdit}
-                  label={step.ability}
+                  label={ABILITY_LABELS[step.ability]}
                 >
                   {DND5E_ABILITIES.map((ability) => (
                     <DropdownOption
                       active={ability === step.ability}
                       key={ability}
-                      label={ability}
+                      label={ABILITY_LABELS[ability]}
                       onSelect={() => {
                         onChange({ ...step, ability });
                         onSave();
@@ -489,7 +520,7 @@ function StepEditor({
                   <Dropdown
                     accessibleLabel={`${stepLabel(step)} damage type`}
                     disabled={!canEdit}
-                    label={step.damageType || 'None'}
+                    label={step.damageType ? damageTypeLabel(step.damageType) : 'None'}
                   >
                     <DropdownOption label="None" onSelect={() => {
                       onChange({ ...step, damageType: null });
@@ -499,7 +530,7 @@ function StepEditor({
                       <DropdownOption
                         active={damageType === step.damageType}
                         key={damageType}
-                        label={damageType}
+                        label={damageTypeLabel(damageType)}
                         onSelect={() => {
                           onChange({ ...step, damageType });
                           onSave();
@@ -1095,12 +1126,6 @@ export function CharacterActionPanel({
                         />
                       ))}
                     </div>
-                    {editingAction.steps.length === 0 ? (
-                      <div className={styles.emptySteps}>
-                        <strong>This action has no steps yet.</strong>
-                        <span>Add a step to describe what happens when it is used.</span>
-                      </div>
-                    ) : null}
                     <CharacterSheetAddEntryButton
                       disabled={editingAction.steps.length >= MAX_DND5E_ACTION_STEPS}
                       label="Add Step"

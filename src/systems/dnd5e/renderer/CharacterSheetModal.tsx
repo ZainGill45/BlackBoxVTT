@@ -13,6 +13,7 @@ import {
   Music2,
   Shield,
   ShieldCheck,
+  Skull,
   Sparkles,
   Swords,
   WandSparkles,
@@ -75,9 +76,10 @@ import {
   calculateDnd5eOffsetForTotal,
   createDefaultDnd5eCharacterData,
   defaultDnd5eSpellcastingAbilityForClass,
-  DND5E_5_5E_CLASSES,
   DND5E_ABILITIES,
   DND5E_CHARACTER_LEVELS,
+  DND5E_CHARACTER_SHEET_CLASSES,
+  DND5E_MONSTER_CLASS,
   DND5E_SKILLS,
   DND5E_SPELL_SLOT_LEVELS,
   deriveDnd5eCharacterValues,
@@ -85,6 +87,7 @@ import {
   hasUsableDnd5eSpellSlot,
   isDnd5eCharacterData,
   isDnd5eCharacterDataSaveCandidate,
+  isDnd5eMonster,
   MAX_DND5E_TOKEN_SIZE,
   MAX_DND5E_CHARACTER_FIELD_CODE_UNITS,
   MIN_DND5E_TOKEN_SIZE,
@@ -197,13 +200,14 @@ const CLASS_ICONS = {
   Druid: Leaf,
   Fighter: Swords,
   Monk: HandFist,
+  Monster: Skull,
   Paladin: ShieldCheck,
   Ranger: Crosshair,
   Rogue: KeyRound,
   Sorcerer: Sparkles,
   Warlock: Eye,
   Wizard: WandSparkles,
-} satisfies Record<(typeof DND5E_5_5E_CLASSES)[number], LucideIcon>;
+} satisfies Record<(typeof DND5E_CHARACTER_SHEET_CLASSES)[number], LucideIcon>;
 
 const LEVEL_ICONS: Readonly<Record<string, LucideIcon>> = Object.fromEntries(
   DND5E_CHARACTER_LEVELS.map((level) => {
@@ -2009,13 +2013,24 @@ function CharacterSheetEditor({
   const selectClass = (className: string) => {
     const fields = new Map<string, CharacterFieldValue>([
       ['identity.className', className],
-      [
+    ]);
+    if (className !== DND5E_MONSTER_CLASS) {
+      fields.set(
         'spellcasting.ability',
         defaultDnd5eSpellcastingAbilityForClass(className),
-      ],
-    ]);
+      );
+    }
     const candidate = mergeFields(draftRef.current, fields);
-    if (deriveDnd5eCharacterValues(candidate, rulesVersion) === null) return;
+    const candidateDerived = deriveDnd5eCharacterValues(candidate, rulesVersion);
+    if (candidateDerived === null) return;
+    if (className === DND5E_MONSTER_CLASS) {
+      for (const slotLevel of DND5E_SPELL_SLOT_LEVELS) {
+        fields.set(
+          `spellcasting.slots.${slotLevel}.current`,
+          candidateDerived.spellcasting.slots[slotLevel].total,
+        );
+      }
+    }
     changeFields(fields);
     void save();
   };
@@ -2334,7 +2349,7 @@ function CharacterSheetEditor({
                       'identity.className',
                       'Class',
                       "The character's primary adventuring class.",
-                      DND5E_5_5E_CLASSES,
+                      DND5E_CHARACTER_SHEET_CLASSES,
                       CLASS_ICONS,
                       false,
                       (value) => selectClass(String(value)),
@@ -3089,16 +3104,23 @@ function CharacterSheetEditor({
                           {preparedSpellSummary.current}
                         </output>
                         <span aria-hidden>/</span>
-                        {spellSummaryCalculatedInput(
-                          'spellcasting.preparedMaximumOffset',
-                          'Total Prepared Spells',
-                          derived.spellcasting.preparedMaximum,
-                          draft.spellcasting.preparedMaximumOffset,
-                          false,
-                          true,
-                          derived.spellcasting.preparedMaximumBase +
+                        {isDnd5eMonster(draft) ? (
+                          <output
+                            aria-label="Total Prepared Spells"
+                            className={styles.spellSummaryInput}
+                          >
+                            No limit
+                          </output>
+                        ) : spellSummaryCalculatedInput(
+                            'spellcasting.preparedMaximumOffset',
+                            'Total Prepared Spells',
+                            derived.spellcasting.preparedMaximum,
                             draft.spellcasting.preparedMaximumOffset,
-                        )}
+                            false,
+                            true,
+                            derived.spellcasting.preparedMaximumBase +
+                              draft.spellcasting.preparedMaximumOffset,
+                          )}
                       </div>
                     </section>
                   </section>

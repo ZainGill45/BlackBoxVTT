@@ -40,8 +40,8 @@ import { CharacterSheetDetached } from '../../../../systems/dnd5e/renderer/Chara
 import { createDefaultCampaignSystemState } from '../../../../systems/catalog';
 import {
   createDefaultDnd5eCharacterData,
-  DND5E_5_5E_CLASSES,
   DND5E_CHARACTER_LEVELS,
+  DND5E_CHARACTER_SHEET_CLASSES,
   type Dnd5eCharacterData,
 } from '../../../../systems/dnd5e/characterData';
 import { createDefaultDnd5eSpellData } from '../../../../systems/dnd5e/spellData';
@@ -381,7 +381,7 @@ describe('JournalPanel', () => {
     const classOptions = within(sheet).getByRole('listbox', { name: 'Class options' });
     const classOptionButtons = within(classOptions).getAllByRole('option');
     expect(classOptionButtons.map(({ textContent }) => textContent))
-      .toEqual([...DND5E_5_5E_CLASSES]);
+      .toEqual([...DND5E_CHARACTER_SHEET_CLASSES]);
     await user.click(within(classOptions).getByRole('option', { name: 'Fighter' }));
     await waitFor(() => expect(updateEntryData).toHaveBeenCalledWith(expect.objectContaining({
       campaignId,

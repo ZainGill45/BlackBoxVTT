@@ -259,7 +259,7 @@ describe('CampaignArchiveService', () => {
     expect(JSON.parse(await readFile(
       path.join(inspectionDirectory, 'export.json'),
       'utf8',
-    ))).toMatchObject({ formatVersion: 19 });
+    ))).toMatchObject({ formatVersion: 20 });
 
     const imported = await service.importCampaign();
     expect(imported).toEqual({
@@ -397,7 +397,7 @@ describe('CampaignArchiveService', () => {
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {
       formatVersion: number;
     };
-    manifest.formatVersion = 20;
+    manifest.formatVersion = 21;
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     const unsupportedPath = path.join(
       temporaryDirectory,
@@ -1200,6 +1200,46 @@ describe('CampaignArchiveService', () => {
       ).get() as { data_json: string };
       expect((JSON.parse(row.data_json) as Dnd5eCharacterData)
         .defaultToken.inspector.fieldIds).toEqual(['health', 'armor-class']);
+    } finally {
+      importedDatabase.close();
+    }
+  });
+
+  it('directly imports the untouched format-19 Character Action fixture', async () => {
+    const { dialogs, rootDirectory, service } = await fixture();
+    dialogs.chooseImportPath.mockResolvedValueOnce(path.resolve(
+      'src/test/fixtures/archives/dnd5e-spell-save-dc-format-19.blackbox-campaign',
+    ));
+
+    await expect(service.importCampaign()).resolves.toMatchObject({
+      ok: true,
+      value: {
+        report: {
+          sourceRelease: '1.0.0-format-19-fixture',
+          warnings: [
+            'Server identity was not imported; a new TLS identity will be generated.',
+          ],
+        },
+      },
+    });
+    const importedDatabase = CampaignDatabase.open(
+      path.join(rootDirectory, importedId),
+    );
+    try {
+      const row = importedDatabase.connection.prepare(
+        `SELECT data_json FROM journal_entries
+         WHERE type_id = 'dnd5e.character'`,
+      ).get() as { data_json: string };
+      const data = JSON.parse(row.data_json) as Dnd5eCharacterData;
+      expect(data.actions[0].steps[0]).toMatchObject({
+        ability: 'charisma',
+        dcTerms: [
+          { kind: 'flat', value: 8 },
+          { kind: 'proficiency', scale: 'once' },
+          { ability: 'intelligence', kind: 'ability' },
+        ],
+        purpose: 'save',
+      });
     } finally {
       importedDatabase.close();
     }

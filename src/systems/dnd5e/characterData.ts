@@ -46,6 +46,13 @@ export const DND5E_5_5E_CLASSES = [
   'Wizard',
 ] as const;
 
+export const DND5E_MONSTER_CLASS = 'Monster' as const;
+
+export const DND5E_CHARACTER_SHEET_CLASSES = [
+  ...DND5E_5_5E_CLASSES,
+  DND5E_MONSTER_CLASS,
+] as const;
+
 export const DND5E_CHARACTER_LEVELS = Array.from(
   { length: 20 },
   (_, index) => String(index + 1),
@@ -220,7 +227,18 @@ export type Dnd5eActionValueTerm =
   | { ability: Dnd5eAbilityId; kind: 'ability' }
   | { kind: 'proficiency'; scale: Dnd5eProficiencyScale }
   | { kind: 'level' }
-  | { kind: 'flat'; value: number };
+  | { kind: 'flat'; value: number }
+  | { kind: 'spell-save-dc' };
+
+export type Dnd5eActionRollTerm = Exclude<
+  Dnd5eActionValueTerm,
+  { kind: 'spell-save-dc' }
+>;
+
+export type Dnd5eActionSaveDcTerm = Exclude<
+  Dnd5eActionValueTerm,
+  { kind: 'dice' }
+>;
 
 type Dnd5eActionStepBase = {
   id: string;
@@ -229,29 +247,29 @@ type Dnd5eActionStepBase = {
 
 export type Dnd5eActionAttackStep = Dnd5eActionStepBase & {
   purpose: 'attack';
-  terms: Dnd5eActionValueTerm[];
+  terms: Dnd5eActionRollTerm[];
 };
 
 export type Dnd5eActionRollStep = Dnd5eActionStepBase & {
   purpose: 'roll';
-  terms: Dnd5eActionValueTerm[];
+  terms: Dnd5eActionRollTerm[];
 };
 
 export type Dnd5eActionDamageStep = Dnd5eActionStepBase & {
   criticalSourceStepId: string | null;
   damageType: Dnd5eDamageType | string | null;
   purpose: 'damage';
-  terms: Dnd5eActionValueTerm[];
+  terms: Dnd5eActionRollTerm[];
 };
 
 export type Dnd5eActionHealingStep = Dnd5eActionStepBase & {
   purpose: 'healing';
-  terms: Dnd5eActionValueTerm[];
+  terms: Dnd5eActionRollTerm[];
 };
 
 export type Dnd5eActionSaveStep = Dnd5eActionStepBase & {
   ability: Dnd5eAbilityId;
-  dcTerms: Exclude<Dnd5eActionValueTerm, { kind: 'dice' }>[];
+  dcTerms: Dnd5eActionSaveDcTerm[];
   failure: string;
   purpose: 'save';
   success: string;
@@ -585,6 +603,10 @@ export type Dnd5eCharacterData = {
   };
 };
 
+export function isDnd5eMonster(data: Dnd5eCharacterData): boolean {
+  return data.identity.className === DND5E_MONSTER_CLASS;
+}
+
 const ABILITY_KEYS = [
   'modifierOffset',
   'savingThrowOffset',
@@ -607,6 +629,7 @@ const ACTION_TERM_KEYS = {
   flat: ['kind', 'value'],
   level: ['kind'],
   proficiency: ['kind', 'scale'],
+  'spell-save-dc': ['kind'],
 } as const;
 const APPEARANCE_KEYS = [
   'age',
@@ -1031,6 +1054,7 @@ function isDnd5eActionTerm(
       value.scale === 'once' ||
       value.scale === 'twice';
   }
+  if (kind === 'spell-save-dc') return !allowDice;
   if (kind === 'level') return true;
   if (kind === 'flat') return isSafeInteger(value.value);
   if (!allowDice || !Array.isArray(value.tiers)) return false;
@@ -2202,16 +2226,23 @@ function deriveDnd5ePreparedSpellMaximumBase(
 }
 
 function deriveDnd5eSpellSlotBases(
-  className: Dnd5eCharacterClass | null,
+  className: Dnd5eCharacterClass | typeof DND5E_MONSTER_CLASS | null,
   level: number | null,
   rulesVersion: Dnd5eRulesVersion,
 ): Record<Dnd5eSpellSlotLevel, number> {
   const totals = Object.fromEntries(
     DND5E_SPELL_SLOT_LEVELS.map((slotLevel) => [slotLevel, 0]),
   ) as Record<Dnd5eSpellSlotLevel, number>;
-  if (className === null || level === null || level < 1 || level > 20) {
+  if (className === null) return totals;
+
+  if (className === DND5E_MONSTER_CLASS) {
+    FULL_CASTER_SPELL_SLOTS.at(-1)?.forEach((total, index) => {
+      totals[DND5E_SPELL_SLOT_LEVELS[index]] = total;
+    });
     return totals;
   }
+
+  if (level === null || level < 1 || level > 20) return totals;
 
   if (className === 'Warlock') {
     const pactMagic = PACT_MAGIC_SPELL_SLOTS[level - 1];
@@ -2347,7 +2378,7 @@ export function deriveDnd5eCharacterValues(
   const preparedMaximum = Math.max(0, preparedMaximumWithOffset);
 
   const spellSlotBases = deriveDnd5eSpellSlotBases(
-    knownClass,
+    isDnd5eMonster(data) ? DND5E_MONSTER_CLASS : knownClass,
     level,
     rulesVersion,
   );

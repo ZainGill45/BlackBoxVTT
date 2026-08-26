@@ -84,8 +84,6 @@
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: var(--space-2);
-  margin-bottom: var(--space-1);
   font-size: var(--font-size-xs);
 }
 
@@ -117,13 +115,13 @@
 
 .rollTitle {
   margin: 0;
-  margin-block: var(--space-1);
+  margin-bottom: var(--space-2);
   overflow-wrap: anywhere;
 }
 
 .rollSections {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .rollDetailGrid {
@@ -211,11 +209,6 @@
 
 .rollSection[data-static="true"] .rollSectionBody {
   padding: 0;
-}
-
-.rollSection[data-static-role="description"],
-.rollSection[data-static-role="unheaded"] {
-  margin-bottom: var(--space-2);
 }
 
 .rollStaticText {

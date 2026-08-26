@@ -221,6 +221,71 @@ describe('D&D Character Action compilation', () => {
     });
   });
 
+  it('uses the character\'s current spell save DC in a Save Prompt', () => {
+    const data = createDefaultDnd5eCharacterData();
+    data.abilities.intelligence.score = 18;
+    data.identity.className = 'Wizard';
+    data.identity.level = 5;
+    data.spellcasting.ability = 'intelligence';
+    data.spellcasting.saveDcOffset = 2;
+    const derived = deriveDnd5eCharacterValues(data, '5.5e');
+    if (!derived) throw new Error('Fixture Character must derive.');
+    const action: Dnd5eCharacterAction = {
+      activation: '',
+      description: '',
+      duration: '',
+      id: actionId,
+      name: 'Arcane Rebuke',
+      range: '',
+      steps: [{
+        ability: 'charisma',
+        dcTerms: [{ kind: 'spell-save-dc' }],
+        failure: '',
+        id: saveId,
+        label: 'Resist',
+        purpose: 'save',
+        success: '',
+      }],
+      target: '',
+    };
+
+    expect(derived.spellcasting.saveDc).toBe(17);
+    expect(compileDnd5eCharacterAction(action, data, derived)).toMatchObject({
+      definition: {
+        sections: [{
+          kind: 'prompt',
+          label: 'Resist',
+          value: 'DC 17 Charisma Save',
+        }],
+      },
+      ok: true,
+      previews: [{ summary: 'DC 17 Charisma Save' }],
+    });
+  });
+
+  it('keeps Spell Save DC prompts incomplete until spellcasting is configured', () => {
+    const { action, data, derived } = fixture();
+    action.steps = [{
+      ability: 'wisdom',
+      dcTerms: [{ kind: 'spell-save-dc' }],
+      failure: '',
+      id: saveId,
+      label: 'Resist',
+      purpose: 'save',
+      success: '',
+    }];
+
+    expect(derived.spellcasting.saveDc).toBeNull();
+    expect(compileDnd5eCharacterAction(action, data, derived)).toMatchObject({
+      issues: [{
+        message: 'Configure a resolvable save DC.',
+        stepId: saveId,
+      }],
+      ok: false,
+      previews: [{ summary: 'Incomplete' }],
+    });
+  });
+
   it('doubles linked Damage dice on a natural 20 while applying modifiers once', () => {
     const { action, data, derived } = fixture();
     const compiled = compileDnd5eCharacterAction(action, data, derived);

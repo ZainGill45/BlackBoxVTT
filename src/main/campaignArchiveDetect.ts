@@ -62,6 +62,7 @@ export type CampaignSalvageConversion =
   | 16
   | 17
   | 18
+  | 19
   | 'permission-defaults';
 
 export type CampaignFormatDetection =

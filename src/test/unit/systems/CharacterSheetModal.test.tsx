@@ -198,6 +198,69 @@ describe('CharacterSheetModal layout', () => {
   });
 });
 
+describe('CharacterSheetModal identity', () => {
+  it('offers Monster last and preserves authored data and Token Type when selected', async () => {
+    const user = userEvent.setup();
+    const entry = characterEntry();
+    const data = entry.data as Dnd5eCharacterData;
+    data.spellcasting.ability = 'wisdom';
+    data.defaultToken.type = 'linked';
+    const { journalApi, sheet } = renderCharacterSheet(entry);
+
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    const options = within(screen.getByRole('listbox', {
+      name: 'Class options',
+    })).getAllByRole('option');
+    expect(options.at(-1)).toHaveAccessibleName('Monster');
+    await user.click(screen.getByRole('option', { name: 'Monster' }));
+
+    await waitFor(() => expect(journalApi.updateEntryData).toHaveBeenCalled());
+    const saved = vi.mocked(journalApi.updateEntryData).mock.calls.at(-1)?.[0];
+    expect(saved?.data).toMatchObject({
+      defaultToken: { type: 'linked' },
+      identity: { className: 'Monster' },
+      spellcasting: { ability: 'wisdom' },
+    });
+    expect(journalApi.prepareDelete).not.toHaveBeenCalled();
+
+    await user.click(within(sheet).getByRole('tab', { name: 'Spells' }));
+    expect(within(sheet).getByLabelText('Total Prepared Spells'))
+      .toHaveTextContent('No limit');
+    const currentSlotInputs = within(sheet).getAllByRole('textbox', {
+      name: /Spell Slots Current$/,
+    });
+    expect(currentSlotInputs).toHaveLength(9);
+    expect(currentSlotInputs.map((input) => (input as HTMLInputElement).value))
+      .toEqual(['4', '3', '3', '3', '3', '2', '2', '1', '1']);
+    const totalSlotInputs = within(sheet).getAllByRole('textbox', {
+      name: /Spell Slots Total$/,
+    });
+    expect(totalSlotInputs).toHaveLength(9);
+    expect(totalSlotInputs.map((input) => (input as HTMLInputElement).value))
+      .toEqual(['4', '3', '3', '3', '3', '2', '2', '1', '1']);
+  });
+
+  it('retains normal Class selection behavior after Monster', async () => {
+    const user = userEvent.setup();
+    const entry = characterEntry();
+    const data = entry.data as Dnd5eCharacterData;
+    data.identity.className = 'Monster';
+    data.spellcasting.ability = 'wisdom';
+    const { journalApi, sheet } = renderCharacterSheet(entry);
+
+    await user.click(within(sheet).getByRole('button', { name: 'Class' }));
+    await user.click(screen.getByRole('option', { name: 'Wizard' }));
+
+    await waitFor(() => expect(journalApi.updateEntryData).toHaveBeenCalled());
+    const saved = vi.mocked(journalApi.updateEntryData).mock.calls.at(-1)?.[0];
+    expect(saved?.data).toMatchObject({
+      defaultToken: { type: 'linked' },
+      identity: { className: 'Wizard' },
+      spellcasting: { ability: 'intelligence' },
+    });
+  });
+});
+
 describe('CharacterSheetModal token settings', () => {
   it('shows the three useful token settings in order and commits size as one pair', async () => {
     const user = userEvent.setup();

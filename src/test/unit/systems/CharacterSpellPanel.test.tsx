@@ -59,6 +59,7 @@ function spellEntry(
 
 interface RenderPanelOptions {
   canEdit?: boolean;
+  className?: string;
   entries: SystemJournalEntry[];
   onSendRoll?: ReturnType<typeof vi.fn>;
   preparedMaximumOffset?: number;
@@ -68,6 +69,7 @@ interface RenderPanelOptions {
 
 function renderPanel({
   canEdit = true,
+  className = 'Wizard',
   entries: initialEntries,
   onSendRoll = vi.fn(async () => true),
   preparedMaximumOffset = 0,
@@ -116,7 +118,7 @@ function renderPanel({
   function Harness() {
     const [data, setData] = useState<Dnd5eCharacterData>(() => {
       const value = createDefaultDnd5eCharacterData();
-      value.identity.className = 'Wizard';
+      value.identity.className = className;
       value.identity.level = 5;
       value.abilities.intelligence.score = 18;
       value.spellcasting.ability = 'intelligence';
@@ -694,6 +696,50 @@ describe('Character spell browser', () => {
     );
     expect(panel.onError).toHaveBeenCalledWith(
       'The cast was not sent. The spell slot was refunded.',
+    );
+  });
+
+  it('lets a Monster cast any attached spell at its level or higher without a prepared limit', async () => {
+    const spell = spellEntry(
+      '30000000-0000-4000-8000-000000000001',
+      'Monster Miracle',
+      3,
+      { classes: ['Cleric'] },
+    );
+    const panel = renderPanel({
+      className: 'Monster',
+      entries: [spell],
+      preparedMaximumOffset: -100,
+      references: [{ entryId: spell.id, preparation: 'prepared' }],
+      slots: { '1': 1, '3': 1, '9': 1 },
+    });
+    const user = userEvent.setup();
+    await screen.findByRole('heading', { name: 'Monster Miracle' });
+    await waitFor(() => expect(panel.onPreparedSummaryChange).toHaveBeenLastCalledWith({
+      current: 1,
+      incomplete: false,
+      overMaximum: false,
+    }));
+    expect(screen.queryByText('Prepared spells exceed the current maximum.'))
+      .not.toBeInTheDocument();
+
+    const castMode = screen.getByRole('button', { name: 'Spell cast mode' });
+    expect(castMode).toHaveTextContent('Cast at 3rd Level');
+    await user.click(castMode);
+    const options = screen.getByRole('listbox', { name: 'Spell cast mode options' });
+    expect(within(options).queryByRole('option', { name: 'Cast at 1st Level' }))
+      .not.toBeInTheDocument();
+    expect(within(options).getByRole('option', { name: 'Cast at 3rd Level' }))
+      .toBeInTheDocument();
+    await user.click(within(options).getByRole('option', {
+      name: 'Cast at 9th Level',
+    }));
+    await user.click(screen.getByRole('button', { name: 'Cast' }));
+
+    await waitFor(() => expect(panel.onAdjustSpellSlot).toHaveBeenCalledWith('9', -1));
+    expect(panel.onSendRoll).toHaveBeenCalledWith(
+      `spell:${spell.id}`,
+      expect.objectContaining({ category: 'Spell', title: 'Monster Miracle' }),
     );
   });
 

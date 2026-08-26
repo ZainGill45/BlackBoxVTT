@@ -212,6 +212,13 @@ function resolveTerms(
       summary.push(`Level ${signed(level)}`);
       continue;
     }
+    if (term.kind === 'spell-save-dc') {
+      const value = derived.spellcasting.saveDc;
+      if (value === null) return null;
+      modifiers.push({ label: 'Spell Save DC', value });
+      summary.push(`Spell Save DC ${value}`);
+      continue;
+    }
     modifiers.push({ label: 'Flat Modifier', value: term.value });
     summary.push(`Flat ${signed(term.value)}`);
   }
@@ -308,9 +315,6 @@ export function compileDnd5eCharacterAction(
   if (!normalize(action.name)) {
     issues.push({ message: 'Give the Action a name.', stepId: null });
   }
-  if (action.steps.length === 0) {
-    issues.push({ message: 'Add at least one step.', stepId: null });
-  }
   for (const step of action.steps) {
     const label = normalize(step.label);
     if (!label) {
@@ -376,6 +380,11 @@ export function compileDnd5eCharacterAction(
     });
   }
   if (issues.length > 0) return { issues, ok: false, previews };
+  // Actions can be pure narration: with no steps and nothing worth a details
+  // section, the name alone still posts so the table sees the action was used.
+  if (sections.length === 0) {
+    sections.push({ kind: 'effect', label: 'Details', text: normalize(action.name) });
+  }
   const definition = {
     category: 'Roll',
     sections,

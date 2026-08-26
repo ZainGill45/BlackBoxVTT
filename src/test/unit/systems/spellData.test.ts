@@ -47,6 +47,7 @@ describe('D&D Spell authored data', () => {
   it('accepts only official schools, bundled unique classes, and standard damage types', () => {
     expect(DND5E_SPELL_SCHOOLS).toHaveLength(8);
     expect(DND5E_5_5E_CLASSES).toContain('Artificer');
+    expect(DND5E_5_5E_CLASSES).not.toContain('Monster');
     const spell = createDefaultDnd5eSpellData();
     spell.classes = ['Artificer', 'Wizard'];
     spell.school = 'Transmutation';
@@ -59,6 +60,7 @@ describe('D&D Spell authored data', () => {
     expect(isDnd5eSpellData(asJson({ ...spell, school: 'Chronurgy' }))).toBe(false);
     expect(isDnd5eSpellData(asJson({ ...spell, classes: ['Wizard', 'Wizard'] }))).toBe(false);
     expect(isDnd5eSpellData(asJson({ ...spell, classes: ['Blood Hunter'] }))).toBe(false);
+    expect(isDnd5eSpellData(asJson({ ...spell, classes: ['Monster'] }))).toBe(false);
     expect(isDnd5eSpellData(asJson({
       ...spell,
       rollSteps: [{ ...damage, damageType: 'untyped magic' }],

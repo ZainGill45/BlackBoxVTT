@@ -98,15 +98,39 @@ describe('CharacterActionPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Host unavailable.');
   });
 
+  it('rolls an action that has no steps', async () => {
+    const sendChatRoll = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    const networkApi = createMockNetworkApi({ sendChatRoll });
+    const narration = completeAction();
+    narration.steps = [];
+    render(<Harness initialActions={[narration]} networkApi={networkApi} />);
+
+    const useButton = screen.getByRole('button', { name: 'Use Action 1' });
+    expect(useButton).not.toBeDisabled();
+    fireEvent.click(useButton);
+
+    await waitFor(() => expect(sendChatRoll).toHaveBeenCalledTimes(1));
+    expect(sendChatRoll).toHaveBeenCalledWith(expect.objectContaining({
+      definition: {
+        category: 'Roll',
+        sections: [{
+          kind: 'effect',
+          label: 'Details',
+          text: `Activation: Action\nDescription 1`,
+        }],
+        title: 'Action 1',
+      },
+    }));
+  });
+
   it('disables incomplete drafts and presents mutation controls read-only to viewers', () => {
-    const incomplete = createDefaultDnd5eCharacterAction(
-      '10000000-0000-4000-8000-000000000001',
-    );
+    const incomplete = completeAction();
+    incomplete.steps = [{ ...incomplete.steps[0], label: '' }];
     const networkApi = createMockNetworkApi();
     const { rerender } = render(
       <Harness initialActions={[incomplete]} networkApi={networkApi} />,
     );
-    expect(screen.getByRole('button', { name: 'Use New Action' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Use Action 1' })).toBeDisabled();
 
     rerender(
       <Harness
@@ -214,5 +238,28 @@ describe('CharacterActionPanel', () => {
       .queryByRole('option', { name: 'Effect' })).not.toBeInTheDocument();
     fireEvent.contextMenu(editor.querySelector('[data-action-step-order-id]')!);
     expect(screen.getByRole('menu', { name: 'Roll actions' })).toBeInTheDocument();
+  });
+
+  it('adds Spell Save DC to a Save Prompt formula', () => {
+    render(
+      <Harness
+        initialActions={[completeAction()]}
+        networkApi={createMockNetworkApi()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Action 1' }));
+    const editor = screen.getByRole('dialog', { name: 'Action 1 action editor' });
+    fireEvent.click(within(editor).getByRole('button', { name: 'Roll purpose' }));
+    fireEvent.click(within(screen.getByRole('listbox', {
+      name: 'Action step purposes',
+    })).getByRole('option', { name: 'Save Prompt' }));
+
+    fireEvent.click(within(editor).getByRole('button', { name: 'Add DC term' }));
+    fireEvent.click(within(screen.getByRole('menu', {
+      name: 'DC term types',
+    })).getByRole('menuitem', { name: 'Spell Save DC' }));
+
+    expect(editor.querySelector('[data-term-kind="spell-save-dc"]'))
+      .toHaveTextContent('Current spell save DC');
   });
 });
