@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from "electron";
+import { join } from "path";
 
 function createWindow(): void {
     const mainWindow = new BrowserWindow({
@@ -8,7 +9,7 @@ function createWindow(): void {
     mainWindow.setMenuBarVisibility(false);
     mainWindow.setAutoHideMenuBar(false);
 
-    mainWindow.loadFile("index.html");
+    mainWindow.loadFile(join(import.meta.dirname, "../renderer/index.html"));
 }
 
 app.whenReady().then(() => {
