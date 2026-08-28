@@ -11,13 +11,17 @@
     "url": "git+https://github.com/ZainGill45/BlackBoxVTT.git"
   },
   "author": "Zain Gill",
-  "type": "commonjs",
-  "main": "main.js",
+  "type": "module",
+  "main": "dist/main.js",
   "scripts": {
-    "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "buildMainTSC": "tsc -p tsconfig.main.json",
+    "buildRendererTSC": "tsc -p tsconfig.renderer.json",
+    "typecheck": "tsc --noEmit -p tsconfig.main.json && tsc --noemit -p tsconfig.renderer.json",
+    "start": "npm run typecheck && npm run buildMainTSC && npm run buildRendererTSC && electron ."
   },
   "devDependencies": {
-    "electron": "^44.0.0"
+    "@types/node": "^26.4.0",
+    "electron": "^44.0.0",
+    "typescript": "^7.0.2"
   }
 }
