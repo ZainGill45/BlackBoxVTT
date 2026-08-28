@@ -21,6 +21,7 @@
         "exactOptionalPropertyTypes": true
     },
     "include": [
-        "src/main/**/*.ts"
+        "src/main/**/*.ts",
+        "forge.env.d.ts"
     ]
 }

@@ -1,8 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import { join } from "path";
 
-const isDevelopment = process.argv.includes("--dev");
-
 function createWindow(): void {
     const mainWindow = new BrowserWindow({
         fullscreen: true
@@ -11,10 +9,10 @@ function createWindow(): void {
     mainWindow.setMenuBarVisibility(false);
     mainWindow.setAutoHideMenuBar(false);
 
-    if (isDevelopment) {
-        mainWindow.loadURL("http://localhost:5173");
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+        mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     } else {
-        mainWindow.loadFile(join(import.meta.dirname, "../renderer/index.html"));
+        mainWindow.loadFile(join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`));
     }
 }
 
