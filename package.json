@@ -1,0 +1,23 @@
+{
+  "name": "blackboxvtt",
+  "version": "1.0.0",
+  "description": "BlackBox VTT is a self-hosted Electron virtual tabletop for running secure, persistent multiplayer campaigns. It combines real-time scene editing, maps, fog, journals, chat, dice rolling, asset management, permissions, and D&D 5e/5.5e support.",
+  "homepage": "https://github.com/ZainGill45/BlackBoxVTT#readme",
+  "bugs": {
+    "url": "https://github.com/ZainGill45/BlackBoxVTT/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZainGill45/BlackBoxVTT.git"
+  },
+  "author": "Zain Gill",
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}
