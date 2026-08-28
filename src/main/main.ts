@@ -12,9 +12,9 @@ function createWindow(): void {
     mainWindow.setAutoHideMenuBar(false);
 
     if (isDevelopment) {
-        mainWindow.loadURL("http://localhost:5173").then(response => console.log(response));
+        mainWindow.loadURL("http://localhost:5173");
     } else {
-        mainWindow.loadFile(join(import.meta.dirname, "../renderer/index.html")).then(response => console.log(response));
+        mainWindow.loadFile(join(import.meta.dirname, "../renderer/index.html"));
     }
 }
 
