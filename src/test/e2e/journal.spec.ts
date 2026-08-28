@@ -86,7 +86,7 @@ test.describe('networked Journal permissions', () => {
     const colorPanel = gmNote.getByRole('listbox', {
       name: 'Text Color: Default options',
     });
-    await expect(colorPanel.getByRole('option')).toHaveCount(12);
+    await expect(colorPanel.getByRole('option')).toHaveCount(15);
     await expect(colorPanel.getByRole('option', { name: 'Text color: Brown' })).toBeVisible();
     await gmNote.getByRole('button', { name: 'Text Color: Default', exact: true }).click();
     await expect(gmNote.getByRole('textbox', { name: 'Page content' })).toHaveAttribute(

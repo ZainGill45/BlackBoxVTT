@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useMemo, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import type { ChatMessage } from '../../../shared/chat';
 import type { NetworkApi } from '../../../shared/network';
 import {
   applyDnd5eCharacterActionMutations,
@@ -26,6 +27,19 @@ function completeAction(index = 1): Dnd5eCharacterAction {
     `20000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
   )];
   return action;
+}
+
+function successfulMessage(): ChatMessage {
+  return {
+    acceptedAt: new Date(0).toISOString(),
+    clientMessageId: '30000000-0000-4000-8000-000000000001',
+    generation: '30000000-0000-4000-8000-000000000002',
+    id: '30000000-0000-4000-8000-000000000003',
+    payload: { kind: 'text', text: 'Rolled.' },
+    recipient: null,
+    sender: { displayName: 'Game Master', kind: 'gm' },
+    sequence: 1,
+  };
 }
 
 function Harness({
@@ -99,7 +113,10 @@ describe('CharacterActionPanel', () => {
   });
 
   it('rolls an action that has no steps', async () => {
-    const sendChatRoll = vi.fn(async () => ({ ok: true as const, value: undefined }));
+    const sendChatRoll = vi.fn(async () => ({
+      ok: true as const,
+      value: successfulMessage(),
+    }));
     const networkApi = createMockNetworkApi({ sendChatRoll });
     const narration = completeAction();
     narration.steps = [];

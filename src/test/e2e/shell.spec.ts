@@ -595,6 +595,7 @@ test.describe('local Journal durability', () => {
       'Sorcerer',
       'Warlock',
       'Wizard',
+      'Monster',
     ]);
     await classOptions.getByRole('option', { name: 'Fighter' }).click();
     const levelDropdown = sheet.getByRole('button', { exact: true, name: 'Level' });

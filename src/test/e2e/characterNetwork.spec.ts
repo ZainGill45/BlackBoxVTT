@@ -262,25 +262,24 @@ test.describe('networked D&D character sheets', () => {
     await expect(playerSheet.getByLabel('Action Surge source type')).toHaveValue('Fighter');
     await expect(playerSheet.getByLabel('Action Surge description'))
       .toHaveValue('Take one additional action.\nOnce per rest.');
-    await expect(playerSheet.getByRole('button', { name: 'Use Network Strike' })).toBeEnabled();
+    await expect(playerSheet.getByRole('button', { name: 'Use Network Strike' })).toBeDisabled();
+    await expect(playerSheet.getByRole('button', { name: 'Use Network Strike' }))
+      .toHaveAttribute('title', 'Edit access is required to roll for this character.');
     await expect(playerSheet.getByRole('button', { name: 'Edit Network Strike' })).toHaveCount(0);
-    await playerSheet.getByRole('button', { name: 'Use Network Strike' }).click();
-    await expect(playerSheet).toBeVisible();
     await playerSheet.press('Escape');
-    await openTab(player.window, 'Chat');
-    await openTab(gm.window, 'Chat');
-    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Strike' }))
-      .toHaveCount(1);
-    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Strike' }))
-      .toHaveCount(1);
     await openTab(player.window, 'Journal');
     await openTab(gm.window, 'Journal');
-    await player.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
-    await gm.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
-    await player.window.getByRole('button', {
+    const playerRow = player.window.getByRole('button', {
       exact: true,
       name: 'Open New Character',
-    }).click();
+    });
+    if (!await playerRow.isVisible()) {
+      await player.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    }
+    if (!await gmRow.isVisible()) {
+      await gm.window.locator('button[aria-expanded]', { hasText: 'Characters' }).click();
+    }
+    await playerRow.click();
     playerSheet = player.window.getByRole('dialog', {
       name: 'New Character character sheet',
     });
@@ -402,7 +401,7 @@ test.describe('networked D&D character sheets', () => {
     )).toBe(1);
   });
 
-  test('synchronizes spell ordering and deletion, casts, and hides revoked details', async () => {
+  test('synchronizes spell ordering and deletion, restricts casting, and hides revoked details', async () => {
     const gm = await apps.launch();
     const player = await apps.launch();
     const port = await availablePort();
@@ -579,57 +578,9 @@ test.describe('networked D&D character sheets', () => {
       .getByRole('listbox', { name: 'Spell cast mode options' })
       .getByRole('option', { name: 'Cast at 1st Level' }))
       .toBeDisabled();
-    await playerCharacterSheet.getByRole('button', { exact: true, name: 'Cast' }).click();
+    await expect(playerCharacterSheet.getByRole('button', { exact: true, name: 'Cast' }))
+      .toBeDisabled();
     await playerCharacterSheet.press('Escape');
-
-    await openTab(player.window, 'Chat');
-    await openTab(gm.window, 'Chat');
-    await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
-      .toHaveCount(1);
-    await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
-      .toHaveCount(1);
-    let gmWardCards = chatLog(gm.window).locator('article').filter({
-      has: gm.window.getByRole('heading', { exact: true, name: 'Network Ward' }),
-    });
-    const noSlotCard = gmWardCards.nth(0);
-    const noSlotDetails = noSlotCard.getByLabel('Roll details');
-    await expect(noSlotDetails).toBeVisible();
-    await expect(noSlotDetails.locator('dt')).toHaveText([
-      'Casting Time',
-      'Range',
-      'Duration',
-      'Target',
-      'Components',
-      'Material',
-    ]);
-    await expect(noSlotDetails.locator('dd')).toHaveText([
-      'Action',
-      '60 feet',
-      '1 minute',
-      'One creature',
-      'V, S, M, C, R',
-      'a silver thread',
-    ]);
-    await expect(noSlotCard.getByRole('heading', { name: 'Description' })).toHaveCount(0);
-    await expect(noSlotCard.getByText('The ward protects one additional creature when upcast.'))
-      .toHaveCount(0);
-    await expect(noSlotCard.getByText('Spell Details')).toHaveCount(0);
-
-    const detailRows = await noSlotDetails.locator(':scope > div').evaluateAll((fields) => (
-      fields.map((field) => {
-        const bounds = field.getBoundingClientRect();
-        return {
-          left: Math.round(bounds.left),
-          top: Math.round(bounds.top),
-          width: Math.round(bounds.width),
-        };
-      })
-    ));
-    expect(new Set(detailRows.slice(0, 3).map(({ top }) => top)).size).toBe(1);
-    expect(new Set(detailRows.slice(3, 5).map(({ top }) => top)).size).toBe(1);
-    expect(detailRows[3]?.top).toBeGreaterThan(detailRows[0]?.top ?? 0);
-    expect(detailRows[5]?.top).toBeGreaterThan(detailRows[3]?.top ?? 0);
-    expect(detailRows[5]?.width).toBeGreaterThan(detailRows[3]?.width ?? 0);
 
     await openTab(gm.window, 'Journal');
     if (!await characterRow.isVisible()) {
@@ -649,15 +600,16 @@ test.describe('networked D&D character sheets', () => {
     await expect(gmFirstLevelSlots).toHaveValue('0');
     await gmCharacterSheet.press('Escape');
 
+    await openTab(player.window, 'Chat');
     await openTab(gm.window, 'Chat');
     await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
-      .toHaveCount(2);
+      .toHaveCount(1);
     await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
-      .toHaveCount(2);
-    gmWardCards = chatLog(gm.window).locator('article').filter({
+      .toHaveCount(1);
+    let gmWardCards = chatLog(gm.window).locator('article').filter({
       has: gm.window.getByRole('heading', { exact: true, name: 'Network Ward' }),
     });
-    await expect(gmWardCards.nth(1).getByText(
+    await expect(gmWardCards.nth(0).getByText(
       'The ward protects one additional creature when upcast.',
     )).toHaveCount(0);
 
@@ -681,13 +633,13 @@ test.describe('networked D&D character sheets', () => {
 
     await openTab(gm.window, 'Chat');
     await expect(chatLog(gm.window).getByRole('heading', { name: 'Network Ward' }))
-      .toHaveCount(3);
+      .toHaveCount(2);
     await expect(chatLog(player.window).getByRole('heading', { name: 'Network Ward' }))
-      .toHaveCount(3);
+      .toHaveCount(2);
     gmWardCards = chatLog(gm.window).locator('article').filter({
       has: gm.window.getByRole('heading', { exact: true, name: 'Network Ward' }),
     });
-    const upcastCard = gmWardCards.nth(2);
+    const upcastCard = gmWardCards.nth(1);
     await expect(upcastCard.getByText(
       'The ward protects one additional creature when upcast.',
     )).toBeVisible();
