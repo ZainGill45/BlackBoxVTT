@@ -1,12 +1,17 @@
 ﻿<script setup lang="ts">
 import HorizontalRule from './HorizontalRule.vue';
 import DefaultButton from './DefaultButton.vue';
+import { ref } from 'vue';
 
+type TabName = 'join' | 'create';
+
+const activeTab = ref<TabName>('join');
+
+const handleTabSwitch = (tab: TabName) => { activeTab.value = tab;};
 const requestExitApplication = () => window.electronAPI.exitApplication();
-const connect = () => { console.log('Attempting to connect to server...'); };
-const create = () => { console.log('Attempting to create a game...'); };
-
-
+const connectToServer = () => { console.log('Attempting to connect to server...'); };
+const importGame = () => { console.log('Attempting to import a game...'); };
+const createGame = () => { console.log('Attempting to create a game...'); };
 </script>
 
 <template>
@@ -20,14 +25,14 @@ const create = () => { console.log('Attempting to create a game...'); };
           <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
                                        hover:cursor-pointer hover:border-neutral-400 
                                        active:bg-neutral-950
-                                       focus:bg-neutral-950">Join Game</button>
+                                       focus:bg-neutral-950" :class="activeTab === 'join' ? 'bg-neutral-950' : ''" @click="handleTabSwitch('join')">Join Game</button>
           <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
                                        hover:cursor-pointer hover:border-neutral-400 
                                        active:bg-neutral-950
-                                       focus:bg-neutral-950">Create Game</button>
+                                       focus:bg-neutral-950" :class="activeTab === 'create' ? 'bg-neutral-950' : ''" @click="handleTabSwitch('create')">Create Game</button>
         </div>
-        <HorizontalRule class="hidden"/>
-        <div class="h-full w-full flex flex-col items-center justify-center gap-2" id="join-game-content">
+        <HorizontalRule/>
+        <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'join' ? '' : 'hidden'" id="join-game-content">
           <div class="flex w-full gap-2">
             <input type="text" id="server-ip" name="server-ip" placeholder="Enter Server IP"
                    class="h-8 w-full border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
@@ -35,15 +40,16 @@ const create = () => { console.log('Attempting to create a game...'); };
             <input type="text" id="server-port" name="server-port" placeholder="Enter Port"
                    class="h-8 w-28 border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
                           focus:border-neutral-400"/>
-            <DefaultButton buttonText="Connect" v-bind:buttonFunction="connect" />
+            <DefaultButton buttonText="Connect" v-bind:buttonFunction="connectToServer" />
           </div>
         </div>
-        <div class="h-full w-full flex flex-col items-center justify-center gap-2 hidden" id="create-game-content">
+        <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'create' ? '' : 'hidden'" id="create-game-content">
           <div class="flex w-full gap-2">
             <input type="text" id="server-ip" name="server-ip" placeholder="Enter Game Name"
                               class="h-8 w-full border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
                                       focus:border-neutral-400"/>
-            <DefaultButton buttonText="Create" v-bind:buttonFunction="create" />
+            <DefaultButton buttonText="Create" v-bind:buttonFunction="createGame" />
+            <DefaultButton buttonText="Import" v-bind:buttonFunction="importGame" />
           </div>
         </div>
       </section>
