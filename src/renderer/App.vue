@@ -1,27 +1,24 @@
 ﻿<script setup lang="ts">
-
+const requestExitApplication = () => window.preload.exitApplication();
 </script>
 
 <template>
-  <main class="w-screen h-screen bg-zinc-950">
-    <div class="h-screen w-screen flex justify-center items-center bg-grid-overlay">
-      <div class="w-1/4 h-1/4 flex flex-col items-center px-3 py-2 bg-linear-to-b from-zinc-900 to-zinc-950 to-zinc-900 border border-zinc-600 shadow-lg shadow-zinc-900">
-        <div class="w-full h-1/5 flex items-center gap-2">
-          <div class="w-full h-10/12 flex justify-center items-center border border-zinc-500 bg-neutral-900
-                      hover:border-zinc-400 hover:cursor-pointer
-                      active:bg-zinc-950
-                      focus:bg-zinc-950">
-            <p class="text-sm text-zinc-300 leading-none select-none" style="text-box-trim: trim-both; text-box-edge: cap alphabetic;">Join Game</p>
-          </div>
-          <div class="w-full h-10/12 flex justify-center items-center border border-zinc-500 bg-zinc-900
-                      hover:border-zinc-400 hover:cursor-pointer
-                      active:bg-zinc-950
-                      focus:bg-zinc-950">
-            <p class="text-sm text-zinc-300 leading-none select-none" style="text-box-trim: trim-both; text-box-edge: cap alphabetic;">Create Game</p>
-          </div>
+  <main class="h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100">
+    <button type="button" class="absolute top-6 right-8 cursor-pointer" @click="requestExitApplication">
+      <span class="material-icons-sharp text-neutral-50 hover:opacity-80" style="font-size: 32px;">close</span>
+    </button>
+    <div class="bg-grid-overlay flex h-full w-full items-center justify-center p-6">
+      <section class="flex w-1/4 flex-col items-center border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 shadow-lg shadow-black/50">
+        <div class="flex w-full items-center gap-2">
+          <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
+                                       hover:cursor-pointer hover:border-neutral-400 
+                                       active:bg-neutral-950">Join Game</button>
+          <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
+                                       hover:cursor-pointer hover:border-neutral-400 
+                                       active:bg-neutral-950">Create Game</button>
         </div>
-        <div class="w-full h-full"></div>
-      </div>
+        <div class="h-full w-full"></div>
+      </section>
     </div>
   </main>
 </template>

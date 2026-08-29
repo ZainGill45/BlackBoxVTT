@@ -1,10 +1,13 @@
-import { app, BrowserWindow } from "electron";
+import { app, ipcMain, BrowserWindow } from "electron";
 import { join } from "path";
 
 function createWindow(): void {
     const mainWindow = new BrowserWindow({
-        fullscreen: true
-    })
+        fullscreen: true,
+        webPreferences: {
+            preload: join(__dirname, 'preload.js')
+        }
+    });
 
     mainWindow.setMenuBarVisibility(false);
     mainWindow.setAutoHideMenuBar(false);
@@ -17,17 +20,27 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+    ipcMain.handle('exitApplication', () => {
+        BrowserWindow.getAllWindows().forEach((openWindow) => {
+            if (!openWindow.isDestroyed()) {
+                openWindow.hide();
+            }
+        });
+
+        app.quit();
+    });
+
     createWindow()
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow()
+            createWindow();
         }
-    })
-})
+    });
+});
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
-        app.quit()
+        app.quit();
     }
-})
+});

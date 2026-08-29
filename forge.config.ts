@@ -9,6 +9,11 @@ export default {
                     config: "vite.main.config.ts",
                     target: "main",
                 },
+                {
+                    entry: "src/renderer/preload.ts",
+                    config: "vite.preload.config.ts",
+                    target: "preload",
+                }
             ],
             renderer: [
                 {
