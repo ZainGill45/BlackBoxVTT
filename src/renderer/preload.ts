@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-contextBridge.exposeInMainWorld('preload', {
+contextBridge.exposeInMainWorld('electronAPI', {
     exitApplication: () => ipcRenderer.invoke('exitApplication'),
 });

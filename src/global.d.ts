@@ -1,6 +1,6 @@
 declare global {
     interface Window {
-        preload: {
+        electronAPI: {
             exitApplication: () => Promise<void>;
         };
     }

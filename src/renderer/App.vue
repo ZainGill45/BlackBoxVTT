@@ -1,23 +1,42 @@
 ﻿<script setup lang="ts">
-const requestExitApplication = () => window.preload.exitApplication();
+import HorizontalRule from './HorizontalRule.vue';
+
+
+const requestExitApplication = () => window.electronAPI.exitApplication();
 </script>
 
 <template>
   <main class="h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100">
-    <button type="button" class="absolute top-6 right-8 cursor-pointer" @click="requestExitApplication">
-      <span class="material-icons-sharp text-neutral-50 hover:opacity-80" style="font-size: 32px;">close</span>
+    <button type="button" class="absolute top-6 right-8 cursor-pointer hover:opacity-80 focus:opacity-80" @click="requestExitApplication">
+      <span class="material-symbols-sharp text-neutral-50">close</span>
     </button>
     <div class="bg-grid-overlay flex h-full w-full items-center justify-center p-6">
-      <section class="flex w-1/4 flex-col items-center border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 shadow-lg shadow-black/50">
+      <section class="flex w-1/4 flex-col items-center gap-2 border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 pb-2.5 shadow-lg shadow-black/50">
         <div class="flex w-full items-center gap-2">
           <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
                                        hover:cursor-pointer hover:border-neutral-400 
-                                       active:bg-neutral-950">Join Game</button>
+                                       active:bg-neutral-950
+                                       focus:border-neutral-400">Join Game</button>
           <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
                                        hover:cursor-pointer hover:border-neutral-400 
-                                       active:bg-neutral-950">Create Game</button>
+                                       active:bg-neutral-950
+                                       focus:border-neutral-400">Create Game</button>
         </div>
-        <div class="h-full w-full"></div>
+        <HorizontalRule />
+        <div class="h-full w-full flex flex-col items-center justify-center gap-2">
+          <div class="flex w-full gap-2">
+            <input type="text" id="server-ip" name="server-ip" placeholder="Enter server IP"
+                   class="h-8 w-full border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
+                          focus:border-neutral-400"/>
+            <input type="text" id="server-port" name="server-port" placeholder="Enter Port"
+                   class="h-8 w-32 border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
+                          focus:border-neutral-400"/>
+            <button type="button" class="flex h-8 w-32 items-center justify-center border border-neutral-600 bg-neutral-900 text-xs text-neutral-300
+                                         hover:cursor-pointer hover:border-neutral-400 
+                                         active:bg-neutral-950
+                                         focus:border-neutral-400">Connect</button>
+          </div>
+        </div>
       </section>
     </div>
   </main>

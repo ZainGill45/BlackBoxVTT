@@ -1,4 +1,4 @@
-﻿@import 'material-icons/iconfont/material-icons.css';
+﻿@import "material-symbols";
 @import "tailwindcss";
 
 @font-face {
@@ -43,6 +43,10 @@
         background-position: center center, center center, center center;
     }
 
+}
+
+*:focus {
+    outline: none;
 }
 
 html,
