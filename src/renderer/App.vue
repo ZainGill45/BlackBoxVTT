@@ -1,8 +1,12 @@
 ﻿<script setup lang="ts">
 import HorizontalRule from './HorizontalRule.vue';
-
+import DefaultButton from './DefaultButton.vue';
 
 const requestExitApplication = () => window.electronAPI.exitApplication();
+const connect = () => { console.log('Attempting to connect to server...'); };
+const create = () => { console.log('Attempting to create a game...'); };
+
+
 </script>
 
 <template>
@@ -10,31 +14,36 @@ const requestExitApplication = () => window.electronAPI.exitApplication();
     <button type="button" class="absolute top-6 right-8 cursor-pointer hover:opacity-80 focus:opacity-80" @click="requestExitApplication">
       <span class="material-symbols-sharp text-neutral-50">close</span>
     </button>
-    <div class="bg-grid-overlay flex h-full w-full items-center justify-center p-6">
-      <section class="flex w-1/4 flex-col items-center gap-2 border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 pb-2.5 shadow-lg shadow-black/50">
+    <div class="bg-grid-overlay flex h-full w-full items-center justify-center">
+      <section class="flex w-2/7 flex-col items-center gap-2 border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 pb-2.5 shadow-lg shadow-black/50">
         <div class="flex w-full items-center gap-2">
           <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
                                        hover:cursor-pointer hover:border-neutral-400 
                                        active:bg-neutral-950
-                                       focus:border-neutral-400">Join Game</button>
+                                       focus:bg-neutral-950">Join Game</button>
           <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
                                        hover:cursor-pointer hover:border-neutral-400 
                                        active:bg-neutral-950
-                                       focus:border-neutral-400">Create Game</button>
+                                       focus:bg-neutral-950">Create Game</button>
         </div>
-        <HorizontalRule />
-        <div class="h-full w-full flex flex-col items-center justify-center gap-2">
+        <HorizontalRule class="hidden"/>
+        <div class="h-full w-full flex flex-col items-center justify-center gap-2" id="join-game-content">
           <div class="flex w-full gap-2">
-            <input type="text" id="server-ip" name="server-ip" placeholder="Enter server IP"
+            <input type="text" id="server-ip" name="server-ip" placeholder="Enter Server IP"
                    class="h-8 w-full border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
                           focus:border-neutral-400"/>
             <input type="text" id="server-port" name="server-port" placeholder="Enter Port"
-                   class="h-8 w-32 border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
+                   class="h-8 w-28 border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
                           focus:border-neutral-400"/>
-            <button type="button" class="flex h-8 w-32 items-center justify-center border border-neutral-600 bg-neutral-900 text-xs text-neutral-300
-                                         hover:cursor-pointer hover:border-neutral-400 
-                                         active:bg-neutral-950
-                                         focus:border-neutral-400">Connect</button>
+            <DefaultButton buttonText="Connect" v-bind:buttonFunction="connect" />
+          </div>
+        </div>
+        <div class="h-full w-full flex flex-col items-center justify-center gap-2 hidden" id="create-game-content">
+          <div class="flex w-full gap-2">
+            <input type="text" id="server-ip" name="server-ip" placeholder="Enter Game Name"
+                              class="h-8 w-full border border-neutral-600 bg-neutral-950 px-2 text-xs text-neutral-300
+                                      focus:border-neutral-400"/>
+            <DefaultButton buttonText="Create" v-bind:buttonFunction="create" />
           </div>
         </div>
       </section>
