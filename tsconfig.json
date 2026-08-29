@@ -3,11 +3,9 @@
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "Bundler",
-
         "strict": true,
         "noEmit": true,
         "isolatedModules": true,
-
         "lib": [
             "ESNext",
             "DOM",
@@ -17,7 +15,6 @@
             "node",
             "vite/client"
         ],
-
         "skipLibCheck": true,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
@@ -28,8 +25,7 @@
         "noUncheckedIndexedAccess": true,
         "noPropertyAccessFromIndexSignature": true,
         "erasableSyntaxOnly": true,
-        "noImplicitOverride": true,
-        "noErrorTruncation": true
+        "noImplicitOverride": true
     },
     "include": [
         "src/**/*.ts",

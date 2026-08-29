@@ -49,6 +49,11 @@
     outline: none;
 }
 
+:root {
+    --font-default: "Inter", sans-serif;
+    --font-mono: "JetBrains Mono", monospace;
+}
+
 html,
 body,
 #app {
