@@ -1,16 +1,14 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>BlackBox VTT</title>
+    </head>
 
-<head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
-    <title>Hello from Electron renderer!</title>
-</head>
-
-<body>
-    <h1>Hello from Electron renderer!</h1>
-    <p>👋</p>
-    <script type="module" src="/src/renderer/renderer.ts" defer></script>
-</body>
-
+    <body>
+        <div id="app"></div>
+        <script type="module" src="/src/renderer/renderer.ts"></script>
+    </body>
 </html>

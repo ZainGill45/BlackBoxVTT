@@ -3,9 +3,22 @@
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "Bundler",
+
         "strict": true,
         "noEmit": true,
         "isolatedModules": true,
+
+        "lib": [
+            "ESNext",
+            "DOM",
+            "DOM.Iterable"
+        ],
+        "types": [
+            "node",
+            "vite/client"
+        ],
+
+        "skipLibCheck": true,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
         "allowUnusedLabels": false,
@@ -16,16 +29,12 @@
         "noPropertyAccessFromIndexSignature": true,
         "erasableSyntaxOnly": true,
         "noImplicitOverride": true,
-        "noErrorTruncation": true,
-        "exactOptionalPropertyTypes": true,
-        "lib": [
-            "ESNext",
-            "DOM",
-            "DOM.Iterable"
-        ]
+        "noErrorTruncation": true
     },
     "include": [
-        "src/main/**/*.ts",
+        "src/**/*.ts",
+        "src/**/*.vue",
+        "*.config.ts",
         "forge.env.d.ts"
     ]
 }

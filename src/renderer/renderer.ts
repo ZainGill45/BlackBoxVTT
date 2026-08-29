@@ -1,5 +1,5 @@
-import { add } from "./math.js";
+import { createApp } from "vue";
+import App from "./App.vue";
+import "./styles.css";
 
-const result = add(2, 6);
-
-document.body.textContent = `2 + 6 = ${result}`;
+createApp(App).mount("#app");
