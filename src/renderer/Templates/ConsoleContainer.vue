@@ -3,7 +3,7 @@ import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { log, uiLogs } from '../logger.js';
 
 import DefaultTextInput from './DefaultTextInput.vue';
-import LogMessage from './LogMessage.vue';
+import LogEntry from './LogEntry.vue';
 
 let consoleInputTraversalIndex: number = -1;
 
@@ -113,9 +113,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-screen h-screen fixed bg-zinc-950/75 z-1000 px-4 py-3" v-if="consoleOpen" id="log-prompt">
-    <div class="w-full h-32/33 flex flex-col gap-1 px-4 overflow-y-scroll" ref="consoleLogContainer" id="log-content">
-      <LogMessage />
+  <div class="w-screen h-screen fixed bg-zinc-950/75 z-1000 px-4 py-3" v-if="consoleOpen">
+    <div class="w-full h-32/33 flex flex-col gap-1 px-4 overflow-y-scroll" ref="consoleLogContainer">
+      <LogEntry v-for="log in uiLogs" :key="log.id" :log="log"/>
     </div>
     <div class="w-sceen h-full border">
       <DefaultTextInput identifier="command-input" placeholder="Enter Command..." v-model="consoleInput" @keydown.enter="handleCommand" @keydown.up="traverseConsoleHistory(consoleInputHistory, 'up')" @keydown.down="traverseConsoleHistory(consoleInputHistory, 'down')" v-focus />

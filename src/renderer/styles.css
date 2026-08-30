@@ -68,3 +68,13 @@ body,
 body {
   margin: 0;
 }
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 256ms ease-out;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+}
