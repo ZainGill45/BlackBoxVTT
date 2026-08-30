@@ -27,14 +27,8 @@ const createGame = (): void => { log('Attempting to create a game...'); };
     <div class="bg-grid-overlay flex h-full w-full items-center justify-center">
       <section class="flex w-2/7 flex-col items-center gap-2 border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 pb-2.5 shadow-lg shadow-black/50">
         <div class="flex w-full items-center gap-2">
-          <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
-                                       hover:cursor-pointer hover:border-neutral-400 
-                                       active:bg-neutral-950
-                                       focus:bg-neutral-950" :class="activeTab === 'join' ? 'bg-neutral-950' : ''" @click="handleTabSwitch('join')">Join Game</button>
-          <button type="button" class="flex h-10 w-full items-center justify-center border border-neutral-600 bg-neutral-900 text-sm text-neutral-300
-                                       hover:cursor-pointer hover:border-neutral-400 
-                                       active:bg-neutral-950
-                                       focus:bg-neutral-950" :class="activeTab === 'create' ? 'bg-neutral-950' : ''" @click="handleTabSwitch('create')">Create Game</button>
+          <DefaultButton buttonText="Join Game" v-bind:buttonFunction="() => handleTabSwitch('join')" :class="activeTab === 'join' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm!" />
+          <DefaultButton buttonText="Create Game" v-bind:buttonFunction="() => handleTabSwitch('create')" :class="activeTab === 'create' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm!" />
         </div>
         <HorizontalRule />
         <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'join' ? '' : 'hidden'" id="join-game-content">

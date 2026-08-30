@@ -5,6 +5,14 @@ import { log, uiLogs } from '../logger.js';
 import DefaultTextInput from './DefaultTextInput.vue';
 import LogMessage from './LogMessage.vue';
 
+let consoleInputTraversalIndex: number = -1;
+
+const availableCommands: Record<string, string> = {
+  help: 'help',
+  clear: 'clear',
+  ping: 'ping'
+}
+const consoleInputHistory: string[] = [];
 const consoleInput = ref('');
 const consoleOpen = ref(false);
 
@@ -13,28 +21,56 @@ const vFocus = {
 }
 
 const handleCommand = (): void => {
-  const commandInput = consoleInput.value;
+  const commandInput = consoleInput.value.toLocaleLowerCase().trim();
 
   if (commandInput === '')
     return;
 
-  commandInput.toLowerCase();
-  commandInput.trim();
-
+  consoleInputHistory.push(commandInput);
   consoleInput.value = '';
 
+  consoleInputTraversalIndex = -1;
+
   switch (commandInput) {
-    case 'help':
+    case availableCommands['help']:
       log('Available commands: help, clear, ping');
       break
-    case 'clear':
+    case availableCommands['clear']:
       uiLogs.value.length = 0;
       break
-    case 'ping':
+    case availableCommands['ping']:
       log("pong!");
       break
     default:
       log('Error command not recognized available commands: help, clear, ping', 'error');
+  }
+}
+const traverseConsoleHistory = (history: string[], direction: 'up' | 'down'): void => {
+  if (history.length === 0)
+    return;
+
+  if (direction === 'up') {
+    if (consoleInputTraversalIndex === 0) {
+      return;
+    } else if (consoleInputTraversalIndex === -1) {
+      consoleInputTraversalIndex = history.length - 1;
+    } else {
+      consoleInputTraversalIndex--;
+    }
+  } else if (direction === 'down') {
+    if (consoleInputTraversalIndex === -1) {
+      return;
+    } else if (consoleInputTraversalIndex === history.length - 1) {
+      consoleInputTraversalIndex = -1;
+      consoleInput.value = '';
+      return;
+    } else {
+      consoleInputTraversalIndex++;
+    }
+  }
+
+  if (consoleInputTraversalIndex >= 0 && history[consoleInputTraversalIndex] !== undefined) {
+    consoleInput.value = history[consoleInputTraversalIndex] ?? '';
   }
 }
 
@@ -62,7 +98,7 @@ onUnmounted(() => {
       <LogMessage />
     </div>
     <div class="w-sceen h-full border">
-      <DefaultTextInput identifier="command-input" placeholder="Enter Command..." v-model="consoleInput" @keydown.enter="handleCommand" v-focus />
+      <DefaultTextInput identifier="command-input" placeholder="Enter Command..." v-model="consoleInput" @keydown.enter="handleCommand" @keydown.up="traverseConsoleHistory(consoleInputHistory, 'up')" @keydown.down="traverseConsoleHistory(consoleInputHistory, 'down')" v-focus />
     </div>
   </div>
 </template>
