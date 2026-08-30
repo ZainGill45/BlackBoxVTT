@@ -42,7 +42,10 @@
         background-repeat: no-repeat, repeat, repeat;
         background-position: center center, center center, center center;
     }
+}
 
+* {
+    scrollbar-width: none;
 }
 
 *:focus {

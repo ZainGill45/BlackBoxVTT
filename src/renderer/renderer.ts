@@ -1,8 +1,7 @@
-import { createApp, ref } from "vue";
-import App from "./App.vue";
+import { initializeLogger } from "./logger.js";
+import { createApp } from "vue";
+import App from "./Templates/App.vue";
 import "./styles.css";
 
-export const uiLogs = ref<LogEntry[]>([]);
-window.electronAPI.onLogAdded((newLog: LogEntry) => uiLogs.value.push(newLog));
-
+initializeLogger();
 createApp(App).mount("#app");
