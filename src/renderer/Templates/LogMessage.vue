@@ -8,7 +8,7 @@ const textColors: Record<string, string> = {
 }
 
 const borderColors: Record<string, string> = {
-	info: 'border-neutral-500',
+	info: 'border-neutral-800',
 	warning: 'border-amber-300',
 	error: 'border-red-500'
 }
@@ -17,6 +17,6 @@ const borderColors: Record<string, string> = {
 <template>
 	<div v-for="log in uiLogs" :key="log.id">
 		<p class="text-sm font-light font-mono py-1.5" :class="textColors[log.type]">{{ log.timestamp }}: {{ log.content }}</p>
-		<hr class="border-b-0 border-neutral-500" :class="borderColors[log.type]">
+		<hr class="border-b-0 border-neutral-800" :class="borderColors[log.type]">
 	</div>
 </template>

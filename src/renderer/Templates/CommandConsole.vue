@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { log, uiLogs } from '../logger.js';
 
 import DefaultTextInput from './DefaultTextInput.vue';
@@ -12,6 +12,7 @@ const availableCommands: Record<string, string> = {
   clear: 'clear',
   ping: 'ping'
 }
+const consoleLogContainer = ref<HTMLElement | null>(null);
 const consoleInputHistory: string[] = [];
 const consoleInput = ref('');
 const consoleOpen = ref(false);
@@ -20,7 +21,7 @@ const vFocus = {
   mounted: (element: HTMLElement) => element.focus()
 }
 
-const handleCommand = (): void => {
+const handleCommand = async (): Promise<void> => {
   const commandInput = consoleInput.value.toLocaleLowerCase().trim();
 
   if (commandInput === '')
@@ -74,8 +75,27 @@ const traverseConsoleHistory = (history: string[], direction: 'up' | 'down'): vo
   }
 }
 
-const toggleConsole = (): void => {
+watch(() => uiLogs.value.length, async () => {
+  await nextTick();
+
+  if (consoleLogContainer.value) {
+    const isScrolledToBottom = consoleLogContainer.value.scrollHeight - consoleLogContainer.value.scrollTop <= consoleLogContainer.value.clientHeight + 64;
+
+    if (!isScrolledToBottom)
+      return;
+
+    consoleLogContainer.value.scrollTop = consoleLogContainer.value.scrollHeight;
+  }
+});
+
+const toggleConsole = async (): Promise<void> => {
   consoleOpen.value = !consoleOpen.value;
+
+  await nextTick();
+
+  if (consoleLogContainer.value) {
+    consoleLogContainer.value.scrollTop = consoleLogContainer.value.scrollHeight;
+  }
 }
 const handleKeyDown = (event: KeyboardEvent) => {
   if (event.code === 'Backquote') {
@@ -94,7 +114,7 @@ onUnmounted(() => {
 
 <template>
   <div class="w-screen h-screen fixed bg-zinc-950/75 z-1000 px-4 py-3" v-if="consoleOpen" id="log-prompt">
-    <div class="w-full h-32/33 flex flex-col gap-1 px-4 overflow-y-scroll" id="log-content">
+    <div class="w-full h-32/33 flex flex-col gap-1 px-4 overflow-y-scroll" ref="consoleLogContainer" id="log-content">
       <LogMessage />
     </div>
     <div class="w-sceen h-full border">
