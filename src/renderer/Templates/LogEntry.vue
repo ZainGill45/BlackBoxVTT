@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Log } from '../../shared/types/log';
+import { Log } from '../../shared/types/Log';
 
 const textColors: Record<string, string> = {
 	info: 'text-neutral-300',

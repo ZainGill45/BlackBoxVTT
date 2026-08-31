@@ -1,0 +1,23 @@
+0. At application start up campaign requests to main process for updated list of all campaigns
+	-> Main receives it and sends back the updated list response for the data
+		-> Renderer receives the response updates it's state/UI silently
+
+1. User inputs what he wants for a new campaign name - Done
+	-> submits it - Done
+
+2. Input is validated in the renderer using shared method - Done
+	-> a request is sent to the main process to create a campaign - Done
+
+3. Main receives the request - Done
+	-> validates the input again using shared method - Done
+		-> does additional validation only the main process can do - Done
+
+4. Main after validation creates campaign folder - Done
+	-> creates campaign.json according to Zod schema - Done
+		-> sends response for request back to renderer - Done
+
+5. Renderer receives request sees if failed or succeeded - Done
+	-> requests for an updated list of all campaigns to the main process on success
+		-> Main receives it and sends back the updated list response for the data
+			-> Renderer receives the response updates it's state/UI and displays success message/toast
+		-> displays appropriate message/toasts to the user on failure

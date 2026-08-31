@@ -1,6 +1,9 @@
+import { Game, GameNameSchema, GameSchema } from "../shared/schemas/game";
+import { initializeNewGame, getAllGameEntryData } from "./files";
 import { app, ipcMain, BrowserWindow } from "electron";
 import { log, onLogCreated } from "./logger";
 import { join } from "path";
+import { GameEntryData } from "../shared/types/gameEntryData";
 
 export let mainWindow: BrowserWindow;
 
@@ -25,7 +28,7 @@ const createWindow = () => {
 }
 
 app.whenReady().then(() => {
-  ipcMain.handle('recieveApplicationExitRequest', () => {
+  ipcMain.handle('receiveApplicationExitRequest', () => {
     log("Attemping to close application");
 
     BrowserWindow.getAllWindows().forEach((openWindow) => {
@@ -37,8 +40,46 @@ app.whenReady().then(() => {
     app.quit();
   });
 
-  ipcMain.handle('recieveLogUpdateRequest', (_event, content: string, type: 'info' | 'warning' | 'error' = 'info') => {
+  ipcMain.handle('receiveLogUpdateRequest', (_event, content: string, type: 'info' | 'warning' | 'error' = 'info') => {
     log(content, type);
+  });
+
+  ipcMain.handle('game:create', (_event, input: string): Promise<void> => {
+    return new Promise(async (resolve, reject) => {
+      const parsedInput = GameNameSchema.safeParse(input);
+      if (!parsedInput.success) {
+        const rejectMessage = parsedInput.error.issues[0]?.message ?? 'Invalid campaign name';
+        log(rejectMessage, 'warning');
+        reject(rejectMessage);
+      };
+
+      const newGame: Game = {
+        schemaVersion: 1,
+        uuid: crypto.randomUUID(),
+        name: parsedInput.data ?? 'You Should Never See This',
+        gameSizeBytes: 0,
+      }
+
+      const parsedGame = GameSchema.safeParse(newGame);
+      if (!parsedGame.success) {
+        const rejectMessage = parsedGame.error.issues[0]?.message ?? 'Invalid template schema';
+        log(rejectMessage, 'error');
+        reject(rejectMessage);
+      };
+
+      if (parsedGame.data !== undefined) {
+        await initializeNewGame(parsedGame.data).then(() => {
+          resolve()
+        }).catch((error) => {
+          log(error);
+          reject(error);
+        });
+      }
+    });
+  });
+
+  ipcMain.handle('game:read', (_event): Promise<GameEntryData> => {
+    return getAllGameEntryData();
   });
 
   createWindow()

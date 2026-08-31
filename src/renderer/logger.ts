@@ -1,4 +1,4 @@
-import { Log } from '../shared/types/log'
+import { Log } from '../shared/types/Log'
 import { ref } from "vue";
 
 export const uiLogs = ref<Log[]>([]);

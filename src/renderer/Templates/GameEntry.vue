@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { GameEntry } from '../gameEntryController';
+import { UIGameEntry } from '../gameEntryController';
 
 import DefaultButton from './DefaultButton.vue';
 
 defineProps<{
-  gameEntry: GameEntry
+  gameEntry: UIGameEntry
 }>();
 </script>
 

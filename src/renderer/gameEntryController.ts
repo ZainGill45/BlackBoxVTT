@@ -1,45 +1,66 @@
-import { ref } from "vue";
-import { log } from "./logger";
+import { GameNameSchema } from "../shared/schemas/game";
 import { toast } from "./toast";
+import { log } from "./logger";
+import { ref } from "vue";
 
-export interface GameEntry {
+export interface UIGameEntry {
   id: number;
   name: string;
+  gameSizeMB: number;
 }
-
-const maxGameNameLength = 256;
-const invalidCharactersRegex = /[^\w\s]/g;
 
 let gameID = 0;
 
-export const gameEntries = ref<GameEntry[]>([]);
+export const gameEntries = ref<UIGameEntry[]>([]);
 
-export function addGameEntry(name: string) {
+export const addGameEntry = async (inputName: string) => {
   log('Attempting to create a game...');
 
-  if (name === '') {
-    toast('Warning Creating Game', 'Tried to create game but name was empty', 'warning');
-    log('Tried to create game but name was empty');
-    return;
-  }
-  if (name.length > maxGameNameLength) {
-    toast('Warning Creating Game', 'Game name is too long', 'warning');
-    log('Game name is too long');
-    return;
-  }
-  if (name.match(invalidCharactersRegex)) {
-    toast('Warning Creating Game', 'Game name contains invalid characters', 'warning');
-    log('Game name contains invalid characters');
+  const parsedInput = GameNameSchema.safeParse(inputName);
+
+  if (!parsedInput.success) {
+    const message = parsedInput.error.issues[0]?.message ?? 'Invalid Game name';
+    log(`Unable to Create Game: ${message}`, 'warning')
+    toast('Unable to Create Game', message, 'warning');
     return;
   }
 
-  const entry: GameEntry = {
-    id: gameID++,
-    name,
-  };
+  log(`Renderer side input schema validation passed for ${parsedInput.data} sending request to main process`)
 
-  gameEntries.value.push(entry);
+  await window.electronAPI.requestCreateGame(parsedInput.data).then(() => {
+    log(`Added game entry for ${inputName}`);
+    toast('Game Created', `Game "${inputName}" has been created"`);
+    updateGameEntries();
+  }).catch((error) => {
+    log(`Main game creation request rejected ${error}`, 'warning');
+    toast('Unable to Create Game', error, 'warning');
+  });
+}
 
-  log(`Added game entry: ${name} with ID = ${entry.id}`);
-  toast('Game Created', `Game "${name}" has been created`);
+export const updateGameEntries = async () => {
+  await window.electronAPI.requestGameEntryData().then((response) => {
+    log(response.gameNames.toString());
+    for (let i = 0; i < response.gameNames.length; i++) {
+      const entryIsInUI = gameEntries.value.some((entry) => entry.name === response.gameNames[i]);
+
+      if (entryIsInUI) {
+        log(`Did not add ${response.gameNames[i]} as it's already in the gameEntries array continuing to next entry`)
+        continue;
+      }
+
+      if (response.gameNames[i] !== undefined && response.gameSizesBytes[i] !== undefined) {
+        const entry: UIGameEntry = {
+          id: gameID++,
+          name: response.gameNames[i]!,
+          gameSizeMB: parseFloat((response.gameSizesBytes[i]! / 1000000).toFixed(2)),
+        };
+
+        gameEntries.value.push(entry);
+        log(`Added new ui game entry: ${entry.name}`)
+      }
+    }
+  }).catch((error) => {
+    log(`Could not update ui game entries ${error}`, 'error');
+    toast('Data Read Error', `Could not request game entry data ${error}"`, 'error');
+  });
 }

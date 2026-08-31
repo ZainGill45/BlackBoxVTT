@@ -27,7 +27,6 @@ const importGame = (): void => {
   log('Attempting to import a game...');
 };
 const initCreateGame = (): void => {
-  log('Attempting to create a game...');
   addGameEntry(gameNameInputValue.value);
   gameNameInputValue.value = '';
 };
