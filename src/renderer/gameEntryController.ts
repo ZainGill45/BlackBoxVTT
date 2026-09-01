@@ -37,6 +37,14 @@ export const addGameEntry = async (userInput: string) => {
   }
 }
 
+export const ensureFileSystemStructure = async () => {
+  try {
+    await window.electronAPI.requestEnsureFileSystemStructure();
+  } catch (error) {
+    log(`ensureFileSystemStructure: ${error}`)
+  }
+}
+
 export const updateGameEntries = async () => {
   try {
     const gameEntryArrayResponse = await window.electronAPI.requestGameEntryData();
@@ -48,7 +56,7 @@ export const updateGameEntries = async () => {
       parsedGameEntries[i] = GameSchema.safeParse(gameEntryArrayResponse[i]);
 
       if (!parsedGameEntries[i]?.success) {
-        log('Failed to validate a schema for a given game while updating game entries array');
+        log('updateGameEntries: Failed to validate a schema for a given game while updating game entries array');
         toast('Operation Warning', 'Failed to validate a schema for a given game while updating game entries array', 'warning')
         continue;
       }
@@ -61,10 +69,12 @@ export const updateGameEntries = async () => {
       };
 
       gameEntries.value.push(entry);
-      log(`Added new ui game entry: ${entry.name}`)
+      log(`updateGameEntries: Added new ui game entry: ${entry.name}`)
     }
+
+    log('updateGameEntries: successfully executed cleared and updated game entries');
   } catch (error) {
-    log(`Could not update ui game entries ${error}`, 'error');
+    log(`updateGameEntries: ${error}`, 'error');
     toast('Data Read Error', `Could not request game entry data ${error}"`, 'error');
   }
 }

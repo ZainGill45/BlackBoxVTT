@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, onMounted, onUnmounted } from 'vue';
-import { log, uiLogs } from '../logger.js';
+import { log, logs } from '../logger.js';
 
 import DefaultTextInput from './DefaultTextInput.vue';
 import LogEntry from './LogEntry.vue';
@@ -35,17 +35,13 @@ const handleCommand = async (): Promise<void> => {
 
   switch (commandInput) {
     case availableCommands['help']:
-      log('Available commands: help, clear, ping, playbyplay');
+      log('Available commands: help, clear, ping');
       break;
     case availableCommands['clear']:
-      uiLogs.value.length = 0;
+      logs.value.length = 0;
       break;
     case availableCommands['ping']:
       log("pong!");
-      break;
-    case availableCommands['playbyplay']:
-      uiLogs.value.length = 0;
-      window.electronAPI.requestLogPlayByPlay();
       break;
     default:
       log('Error command not recognized available commands: help, clear, ping', 'error');
@@ -80,7 +76,7 @@ const traverseConsoleHistory = (history: string[], direction: 'up' | 'down'): vo
   }
 }
 
-watch(() => uiLogs.value.length, async () => {
+watch(() => logs.value.length, async () => {
   await nextTick();
 
   if (consoleLogContainer.value) {
@@ -120,7 +116,7 @@ onUnmounted(() => {
 <template>
   <div class="w-screen h-screen fixed bg-zinc-950/75 z-1000 px-4 py-3" v-if="consoleOpen">
     <div class="w-full h-32/33 flex flex-col gap-1 px-4 overflow-y-scroll" ref="consoleLogContainer">
-      <LogEntry v-for="log in uiLogs" :key="log.id" :log="log"/>
+      <LogEntry v-for="log in logs" :key="log.id" :log="log"/>
     </div>
     <div class="w-sceen h-full border">
       <DefaultTextInput identifier="command-input" placeholder="Enter Command..." v-model="consoleInput" @keydown.enter="handleCommand" @keydown.up="traverseConsoleHistory(consoleInputHistory, 'up')" @keydown.down="traverseConsoleHistory(consoleInputHistory, 'down')" v-focus />

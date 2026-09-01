@@ -1,6 +1,7 @@
 import { Log } from '../shared/types/Log'
 
 const logs: Log[] = [];
+const logRetentionCount = 512;
 
 let logCallback: ((log: Log) => void) | undefined;
 let logID = 0;
@@ -33,16 +34,11 @@ export const log = (content: unknown, type: 'info' | 'warning' | 'error' = 'info
 
   logs.push(newLog);
 
+  if (logs.length > logRetentionCount) {
+    logs.shift();
+  }
+
   if (logCallback) {
     logCallback(newLog);
   }
 };
-
-export const relogLogHistory = () => {
-  const logCopy = structuredClone(logs);
-  logs.length = 0;
-
-  for (let i = 0; i < logCopy.length; i++) {
-    log(logCopy[i]?.content, logCopy[i]?.type);
-  }
-}

@@ -121,7 +121,7 @@ export const ensureFileStructure = async (): Promise<void> => {
       await fs.promises.mkdir(gameFolderPath, { recursive: true });
       log(`ensureFileStructure: successfully created new path at: ${gameFolderPath}`);
     } catch (error) {
-      log(`ensureFileStructure: failed ${error}`)
+      throw error;
     }
   }
 }
