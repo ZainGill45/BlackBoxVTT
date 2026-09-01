@@ -1,4 +1,3 @@
-import { GameEntryData } from '../shared/types/gameEntryData';
 import { Game, GameSchema } from '../shared/schemas/game';
 import { log } from './logger';
 import { app } from 'electron';
@@ -49,11 +48,8 @@ export const initializeNewGame = async (game: Game): Promise<string> => {
   });
 }
 
-export const getAllGameEntryData = async (): Promise<GameEntryData> => {
-  const gameEntryData: GameEntryData = {
-    gameNames: [],
-    gameSizesBytes: [],
-  };
+export const getAllGameEntryData = async (): Promise<Game[]> => {
+  const games: Game[] = [];
 
   const rootGameFolderFiles = await fs.promises.readdir(gameFolderPath, { withFileTypes: true });
 
@@ -70,10 +66,40 @@ export const getAllGameEntryData = async (): Promise<GameEntryData> => {
         return;
       }
 
-      gameEntryData.gameNames.push(varifiedData.data.name);
-      gameEntryData.gameSizesBytes.push(varifiedData.data.gameSizeBytes);
+      games.push(varifiedData.data);
     }
   });
 
-  return gameEntryData;
+  return games;
+}
+
+export const deleteGameData = async (game: Game): Promise<void> => {
+  let rootGameFolderFiles: fs.Dirent<string>[];
+
+  try {
+    rootGameFolderFiles = await fs.promises.readdir(gameFolderPath, { withFileTypes: true });
+  } catch {
+    throw new Error('Error reading the files at root game folder');
+  }
+
+  for (let i = 0; i < rootGameFolderFiles.length; i++) {
+    if (rootGameFolderFiles[i] === undefined || !rootGameFolderFiles[i]?.isDirectory()) {
+      log('Encountered an undefinied value or non directory file in the root game folder continuing to next file', 'warning');
+      continue;
+    }
+
+    if (rootGameFolderFiles[i]?.name === game.uuid) {
+      log('Found folder UUID that matches game UUID deleting...');
+
+      try {
+        await fs.promises.rm(path.join(gameFolderPath, game.uuid), { recursive: true, force: true });
+        log(`Deleted data directory for ${game.name}`);
+        return Promise.resolve()
+      } catch(error) {
+        throw error;
+      }
+    }
+  }
+
+  return Promise.reject();
 }

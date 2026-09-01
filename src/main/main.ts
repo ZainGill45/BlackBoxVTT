@@ -1,9 +1,8 @@
 import { Game, GameNameSchema, GameSchema } from "../shared/schemas/game";
-import { initializeNewGame, getAllGameEntryData } from "./files";
+import { initializeNewGame, getAllGameEntryData, deleteGameData } from "./files";
 import { app, ipcMain, BrowserWindow } from "electron";
 import { log, onLogCreated } from "./logger";
 import { join } from "path";
-import { GameEntryData } from "../shared/types/gameEntryData";
 
 export let mainWindow: BrowserWindow;
 
@@ -44,6 +43,10 @@ app.whenReady().then(() => {
     log(content, type);
   });
 
+  ipcMain.handle('game:read', (_event): Promise<Game[]> => {
+    return getAllGameEntryData();
+  });
+
   ipcMain.handle('game:create', (_event, input: string): Promise<void> => {
     return new Promise(async (resolve, reject) => {
       const parsedInput = GameNameSchema.safeParse(input);
@@ -78,8 +81,8 @@ app.whenReady().then(() => {
     });
   });
 
-  ipcMain.handle('game:read', (_event): Promise<GameEntryData> => {
-    return getAllGameEntryData();
+  ipcMain.handle('game:delete', (_event, game: Game): Promise<void> => {
+    return deleteGameData(game);
   });
 
   createWindow()

@@ -1,17 +1,9 @@
-import { GameNameSchema } from "../shared/schemas/game";
+import { Game, GameNameSchema, GameSchema } from "../shared/schemas/game";
 import { toast } from "./toast";
 import { log } from "./logger";
 import { ref } from "vue";
 
-export interface UIGameEntry {
-  id: number;
-  name: string;
-  gameSizeMB: number;
-}
-
-let gameID = 0;
-
-export const gameEntries = ref<UIGameEntry[]>([]);
+export const gameEntries = ref<Game[]>([]);
 
 export const addGameEntry = async (inputName: string) => {
   log('Attempting to create a game...');
@@ -38,29 +30,47 @@ export const addGameEntry = async (inputName: string) => {
 }
 
 export const updateGameEntries = async () => {
-  await window.electronAPI.requestGameEntryData().then((response) => {
-    log(response.gameNames.toString());
-    for (let i = 0; i < response.gameNames.length; i++) {
-      const entryIsInUI = gameEntries.value.some((entry) => entry.name === response.gameNames[i]);
+  try {
+    const response = await window.electronAPI.requestGameEntryData();
 
-      if (entryIsInUI) {
-        log(`Did not add ${response.gameNames[i]} as it's already in the gameEntries array continuing to next entry`)
+    gameEntries.value = [];
+    const parsedResponse = [];
+
+    for (let i = 0; i < response.length; i++) {
+      parsedResponse[i] = GameSchema.safeParse(response[i]);
+
+      if (!parsedResponse[i]?.success) {
+        log('Failed to validate a schema for a given game while updating game entries array');
+        toast('Operation Warning', 'Failed to validate a schema for a given game while updating game entries array', 'warning')
         continue;
       }
 
-      if (response.gameNames[i] !== undefined && response.gameSizesBytes[i] !== undefined) {
-        const entry: UIGameEntry = {
-          id: gameID++,
-          name: response.gameNames[i]!,
-          gameSizeMB: parseFloat((response.gameSizesBytes[i]! / 1000000).toFixed(2)),
-        };
+      const entry: Game = {
+        schemaVersion: parsedResponse[i]?.data?.schemaVersion!,
+        uuid: parsedResponse[i]?.data?.uuid!,
+        name: parsedResponse[i]?.data?.name!,
+        gameSizeBytes: parsedResponse[i]?.data?.gameSizeBytes!,
+      };
 
-        gameEntries.value.push(entry);
-        log(`Added new ui game entry: ${entry.name}`)
-      }
+      gameEntries.value.push(entry);
+      log(`Added new ui game entry: ${entry.name}`)
     }
-  }).catch((error) => {
+  } catch (error) {
     log(`Could not update ui game entries ${error}`, 'error');
     toast('Data Read Error', `Could not request game entry data ${error}"`, 'error');
-  });
+  }
 }
+
+export const deleteGameEntry = async (game: Game) => {
+  log('Attempting to delete game...');
+
+  try {
+    await window.electronAPI.requestDeleteGame(game);
+    log(`Successfully deleted ${game.name}`);
+    toast('Operation Successful', `${game.name} was successfully deleted.`);
+    updateGameEntries();
+  } catch (error) {
+    log(`Error occured while deleting ${game.name} ${error}`)
+    toast('Operation Failure', `Error occured while deleting ${game.name} ${error}`, 'error');
+  }
+};
