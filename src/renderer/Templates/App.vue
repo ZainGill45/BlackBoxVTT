@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import { log } from '../logger.js';
 import { toast } from '../toast.js';
+import { addGameEntry } from '../gameEntryController.js';
 
 import GameEntryContainer from './GameEntryContainer.vue';
 import DefaultTextInput from './DefaultTextInput.vue';
@@ -9,7 +10,6 @@ import ConsoleContainer from './ConsoleContainer.vue';
 import HorizontalRule from './HorizontalRule.vue';
 import ToastContainer from './ToastContainer.vue';
 import DefaultButton from './DefaultButton.vue';
-import { addGameEntry } from '../gameEntryController.js';
 
 type TabName = 'join' | 'create';
 

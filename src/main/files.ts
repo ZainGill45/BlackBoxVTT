@@ -4,71 +4,77 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const userDataPath = path.join(app.getPath('userData'), 'UserData');
+const userDataPath = path.join(app.getPath('userData'), 'userData');
 const gameFolderPath = path.join(userDataPath, 'Games');
 const gameEntrySubFolders = ['Scenes', 'Journal', 'Miscellaneous', 'Chat', 'Music', 'Storage'];
 const baseGameFileName = 'game.json';
 
-export const initializeNewGame = async (game: Game): Promise<string> => {
-  return new Promise<string>(async (resolve, reject) => {
-    const gameRootDirectoryPath = path.join(gameFolderPath, game.uuid);
+export const initializeNewGame = async (game: Game): Promise<void> => {
+  const gameRootDirectoryPath = path.join(gameFolderPath, game.uuid);
 
-    await fs.promises.mkdir(gameRootDirectoryPath, { recursive: true }).then((response) => {
-      log(`Successfully created new path for ${game.name} at: ${response}`);
-    }).catch((error) => {
-      const rejectMessage = `Failed to create folder for ${game.name} ${error}`;
-      log(rejectMessage, 'error');
-      reject(rejectMessage);
-    });
+  try {
+    const rootDirectoryResponse = await fs.promises.mkdir(gameRootDirectoryPath, { recursive: true });
+    log(`Successfully created new path for ${game.name} at: ${rootDirectoryResponse}`);
 
-    gameEntrySubFolders.forEach((folderName) => {
-      const subFolderPath = path.join(gameRootDirectoryPath, folderName)
-
-      fs.promises.mkdir(subFolderPath, { recursive: true }).then((response) => {
-        log(`Successfully created new path for ${game.name} at: ${response}`);
-      }).catch((error) => {
-        const rejectMessage = `Failed to create sub folder for ${game.name} ${error}`;
-        log(rejectMessage, 'error');
-        reject(rejectMessage);
-      });
-    });
+    for (let i = 0; i < gameEntrySubFolders.length; i++) {
+      const subFolderPath = path.join(gameRootDirectoryPath, gameEntrySubFolders[i]!);
+      const subfolderResponse = await fs.promises.mkdir(subFolderPath, { recursive: true });
+      log(`Successfully created new path for ${game.name} at: ${subfolderResponse}`);
+    }
 
     const gameContentJSON = JSON.stringify(game, null, 2);
 
-    await fs.promises.writeFile(path.join(gameRootDirectoryPath, baseGameFileName), gameContentJSON, 'utf-8').then(() => {
-      log(`Successfully created file for ${game.name}`)
-    }).catch((error) => {
-      const rejectMessage = `Failed to create file for ${game.name} ${error}`;
-      log(rejectMessage);
-      reject(rejectMessage);
-    });
+    await fs.promises.writeFile(path.join(gameRootDirectoryPath, baseGameFileName), gameContentJSON, 'utf-8');
+    log(`Successfully created data file for ${game.name}`);
+  } catch (error) {
+    try {
+      await deleteGameData(game);
+      log(`Game initialization failed for ${game.name}, but deleted any uncomplete data that was generated`, 'warning')
+    } catch (error) {
+      log(`Game initialization failed for ${game.name}, uncomplete data delation also failed stale data remains on system: ${error}`, 'error')
+    }
 
-    log(`Successfully create directories for ${game.name}`);
-    resolve(`Successfully create directories for ${game.name}`);
-  });
+    const rejectMessage = `Failed to initialize game ${game.name}: ${error}`;
+    log(rejectMessage, 'error');
+    throw new Error(rejectMessage);
+  }
 }
 
 export const getAllGameEntryData = async (): Promise<Game[]> => {
   const games: Game[] = [];
 
-  const rootGameFolderFiles = await fs.promises.readdir(gameFolderPath, { withFileTypes: true });
+  try {
+    const rootGameFolderFiles = await fs.promises.readdir(gameFolderPath, { withFileTypes: true });
 
-  rootGameFolderFiles.forEach((file) => {
-    if (file.isDirectory()) {
-      const gameDirectoryPath = path.join(gameFolderPath, file.name);
-      const baseGameFilePath = path.join(gameDirectoryPath, baseGameFileName);
-      const gameFileData = fs.readFileSync(baseGameFilePath, 'utf-8');
-      const parsedJSONData = JSON.parse(gameFileData);
-      const varifiedData = GameSchema.safeParse(parsedJSONData);
-
-      if (!varifiedData.success) {
-        log(`Could not varify base game schema for ${baseGameFilePath}`, 'error');
-        return;
+    for (let i = 0; i < rootGameFolderFiles.length; i++) {
+      if (!rootGameFolderFiles[i]?.isDirectory()) {
+        log(`Found a file in the root game folder that is not directory continuing to next file`);
+        continue;
       }
 
-      games.push(varifiedData.data);
+      const gameDirectoryPath = path.join(gameFolderPath, rootGameFolderFiles[i]?.name!);
+      const baseGameFilePath = path.join(gameDirectoryPath, baseGameFileName);
+
+      try {
+        const gameFileDataResponse = await fs.promises.readFile(baseGameFilePath, 'utf-8');
+
+        const parsedJSONData = JSON.parse(gameFileDataResponse);
+        const varifiedData = GameSchema.safeParse(parsedJSONData);
+
+        if (!varifiedData.success) {
+          log(`Could not varify base game schema for ${baseGameFilePath} continuing to next game`, 'error');
+          continue;
+        }
+
+        games.push(varifiedData.data);
+      } catch (error) {
+        log(`Could not read ${error} continuing to next game`)
+        continue;
+      }
     }
-  });
+  } catch (error) {
+    throw error;
+  }
 
   return games;
 }
@@ -102,4 +108,20 @@ export const deleteGameData = async (game: Game): Promise<void> => {
   }
 
   return Promise.reject();
+}
+
+export const ensureFileStructure = async (): Promise<void> => {
+  try {
+    await fs.promises.readdir(gameFolderPath, { withFileTypes: true });
+    log('ensureFileStructure: successfully read from gameFolderPath');
+  } catch {
+    log('ensureFileStructure: failed listing base file structure for application moving onto ensuring it exists', 'warning');
+
+    try {
+      await fs.promises.mkdir(gameFolderPath, { recursive: true });
+      log(`ensureFileStructure: successfully created new path at: ${gameFolderPath}`);
+    } catch (error) {
+      log(`ensureFileStructure: failed ${error}`)
+    }
+  }
 }

@@ -1,12 +1,13 @@
-import { Game, GameNameSchema, GameSchema } from "../shared/schemas/game";
-import { initializeNewGame, getAllGameEntryData, deleteGameData } from "./files";
+import { initializeNewGame, getAllGameEntryData, deleteGameData, ensureFileStructure } from "./files";
+import { Game, GameSchema } from "../shared/schemas/game";
 import { app, ipcMain, BrowserWindow } from "electron";
-import { log, onLogCreated } from "./logger";
+import { log, onLogCreated, relogLogHistory } from "./logger";
 import { join } from "path";
 
 export let mainWindow: BrowserWindow;
 
-const createWindow = () => {
+const createWindow = async () => {
+
   mainWindow = new BrowserWindow({
     fullscreen: true,
     webPreferences: {
@@ -15,6 +16,7 @@ const createWindow = () => {
   });
 
   onLogCreated((log) => { mainWindow.webContents.send('new-log-added', log) });
+  await ensureFileStructure();
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(false);
@@ -43,42 +45,33 @@ app.whenReady().then(() => {
     log(content, type);
   });
 
-  ipcMain.handle('game:read', (_event): Promise<Game[]> => {
-    return getAllGameEntryData();
+  ipcMain.handle('log:read', (_event) => {
+    relogLogHistory();
   });
 
-  ipcMain.handle('game:create', (_event, input: string): Promise<void> => {
-    return new Promise(async (resolve, reject) => {
-      const parsedInput = GameNameSchema.safeParse(input);
-      if (!parsedInput.success) {
-        const rejectMessage = parsedInput.error.issues[0]?.message ?? 'Invalid campaign name';
-        log(rejectMessage, 'warning');
-        reject(rejectMessage);
-      };
+  ipcMain.handle('game:read', async (_event): Promise<Game[]> => {
+    try {
+      return await getAllGameEntryData();
+    } catch (error) {
+      throw error;
+    }
+  });
 
-      const newGame: Game = {
-        schemaVersion: 1,
-        uuid: crypto.randomUUID(),
-        name: parsedInput.data ?? 'You Should Never See This',
-        gameSizeBytes: 0,
-      }
+  ipcMain.handle('game:create', async (_event, game: Game): Promise<void> => {
+    const parsedGame = GameSchema.safeParse(game);
 
-      const parsedGame = GameSchema.safeParse(newGame);
-      if (!parsedGame.success) {
-        const rejectMessage = parsedGame.error.issues[0]?.message ?? 'Invalid template schema';
-        log(rejectMessage, 'error');
-        reject(rejectMessage);
-      };
+    if (!parsedGame.success) {
+      const rejectMessage = parsedGame.error.issues[0]?.message ?? 'Invalid game schema detected';
+      log(rejectMessage, 'error');
+      throw new Error(rejectMessage);
+    };
 
-      if (parsedGame.data !== undefined) {
-        await initializeNewGame(parsedGame.data).then(() => {
-          resolve()
-        }).catch((error) => {
-          log(error);
-          reject(error);
-        });
-      }
-    });
+    try {
+      await initializeNewGame(parsedGame.data);
+      log(`Successfully create directories for ${parsedGame.data.name}`);
+    } catch (error) {
+      throw error;
+    }
   });
 
   ipcMain.handle('game:delete', (_event, game: Game): Promise<void> => {

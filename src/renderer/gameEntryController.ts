@@ -1,55 +1,63 @@
-import { Game, GameNameSchema, GameSchema } from "../shared/schemas/game";
+import { Game, GameSchema } from "../shared/schemas/game";
 import { toast } from "./toast";
 import { log } from "./logger";
 import { ref } from "vue";
 
 export const gameEntries = ref<Game[]>([]);
 
-export const addGameEntry = async (inputName: string) => {
+export const addGameEntry = async (userInput: string) => {
   log('Attempting to create a game...');
 
-  const parsedInput = GameNameSchema.safeParse(inputName);
+  const templateGame: Game = {
+    schemaVersion: 1,
+    uuid: crypto.randomUUID(),
+    name: userInput,
+    gameSizeBytes: 0,
+  };
 
-  if (!parsedInput.success) {
-    const message = parsedInput.error.issues[0]?.message ?? 'Invalid Game name';
-    log(`Unable to Create Game: ${message}`, 'warning')
-    toast('Unable to Create Game', message, 'warning');
+  const parsedGame = GameSchema.safeParse(templateGame);
+
+  if (!parsedGame.success) {
+    const message = parsedGame.error.issues[0]?.message ?? 'Invalid game schema detected';
+    log(`Unable to Create Game: ${message}`, 'error')
+    toast('Unable to Create Game', message, 'error');
     return;
   }
 
-  log(`Renderer side input schema validation passed for ${parsedInput.data} sending request to main process`)
+  log(`Render side schema validation passed for ${parsedGame.data} sending to main process`)
 
-  await window.electronAPI.requestCreateGame(parsedInput.data).then(() => {
-    log(`Added game entry for ${inputName}`);
-    toast('Game Created', `Game "${inputName}" has been created"`);
+  try {
+    await window.electronAPI.requestCreateGame(parsedGame.data);
+    log(`Added game entry for ${userInput}`);
+    toast('Game Created', `Game "${userInput}" has been created"`);
     updateGameEntries();
-  }).catch((error) => {
+  } catch (error) {
     log(`Main game creation request rejected ${error}`, 'warning');
     toast('Unable to Create Game', error, 'warning');
-  });
+  }
 }
 
 export const updateGameEntries = async () => {
   try {
-    const response = await window.electronAPI.requestGameEntryData();
+    const gameEntryArrayResponse = await window.electronAPI.requestGameEntryData();
 
     gameEntries.value = [];
-    const parsedResponse = [];
+    const parsedGameEntries = [];
 
-    for (let i = 0; i < response.length; i++) {
-      parsedResponse[i] = GameSchema.safeParse(response[i]);
+    for (let i = 0; i < gameEntryArrayResponse.length; i++) {
+      parsedGameEntries[i] = GameSchema.safeParse(gameEntryArrayResponse[i]);
 
-      if (!parsedResponse[i]?.success) {
+      if (!parsedGameEntries[i]?.success) {
         log('Failed to validate a schema for a given game while updating game entries array');
         toast('Operation Warning', 'Failed to validate a schema for a given game while updating game entries array', 'warning')
         continue;
       }
 
       const entry: Game = {
-        schemaVersion: parsedResponse[i]?.data?.schemaVersion!,
-        uuid: parsedResponse[i]?.data?.uuid!,
-        name: parsedResponse[i]?.data?.name!,
-        gameSizeBytes: parsedResponse[i]?.data?.gameSizeBytes!,
+        schemaVersion: parsedGameEntries[i]?.data?.schemaVersion!,
+        uuid: parsedGameEntries[i]?.data?.uuid!,
+        name: parsedGameEntries[i]?.data?.name!,
+        gameSizeBytes: parsedGameEntries[i]?.data?.gameSizeBytes!,
       };
 
       gameEntries.value.push(entry);

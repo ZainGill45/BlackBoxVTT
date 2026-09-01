@@ -10,7 +10,8 @@ let consoleInputTraversalIndex: number = -1;
 const availableCommands: Record<string, string> = {
   help: 'help',
   clear: 'clear',
-  ping: 'ping'
+  ping: 'ping',
+  playbyplay: 'playbyplay',
 }
 const consoleLogContainer = ref<HTMLElement | null>(null);
 const consoleInputHistory: string[] = [];
@@ -34,14 +35,18 @@ const handleCommand = async (): Promise<void> => {
 
   switch (commandInput) {
     case availableCommands['help']:
-      log('Available commands: help, clear, ping');
-      break
+      log('Available commands: help, clear, ping, playbyplay');
+      break;
     case availableCommands['clear']:
       uiLogs.value.length = 0;
-      break
+      break;
     case availableCommands['ping']:
       log("pong!");
-      break
+      break;
+    case availableCommands['playbyplay']:
+      uiLogs.value.length = 0;
+      window.electronAPI.requestLogPlayByPlay();
+      break;
     default:
       log('Error command not recognized available commands: help, clear, ping', 'error');
   }
