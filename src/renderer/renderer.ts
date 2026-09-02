@@ -2,7 +2,7 @@ import { updateGameEntries, ensureFileSystemStructure } from "./gameEntryControl
 import { initializeLogger } from "./logger.js";
 import { createApp } from "vue";
 
-import App from "./Templates/App.vue";
+import App from "./templates/App.vue";
 
 import "./styles.css";
 
