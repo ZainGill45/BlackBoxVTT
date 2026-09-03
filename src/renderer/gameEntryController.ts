@@ -19,21 +19,16 @@ export const addGameEntry = async (userInput: string) => {
 
   if (!parsedGame.success) {
     const message = parsedGame.error.issues[0]?.message ?? 'Invalid game schema detected';
-    log(`Unable to Create Game: ${message}`, 'error')
-    toast('Unable to Create Game', message, 'error');
-    return;
+    throw new Error(message);
   }
 
   log(`Render side schema validation passed for ${parsedGame.data} sending to main process`)
 
   try {
     await window.electronAPI.requestCreateGame(parsedGame.data);
-    log(`Added game entry for ${userInput}`);
-    toast('Game Created', `Game "${userInput}" has been created"`);
-    updateGameEntries();
+    await updateGameEntries();
   } catch (error) {
-    log(`Main game creation request rejected ${error}`, 'warning');
-    toast('Unable to Create Game', error, 'warning');
+    throw error;
   }
 }
 

@@ -125,12 +125,12 @@ body {
   transform: translateZ(64px);
 }
 
-.toast-enter-active,
-.toast-leave-active {
+.fade-enter-active,
+.fade-leave-active {
   transition: all 256ms ease-out;
 }
 
-.toast-enter-from,
-.toast-leave-to {
+.fade-enter-from,
+.fade-leave-to {
   opacity: 0;
 }

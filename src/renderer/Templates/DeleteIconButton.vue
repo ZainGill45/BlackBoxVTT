@@ -21,10 +21,11 @@ defineProps<{
                  active:bg-neutral-950"
           :class="deletePrimed ? 'bg-neutral-300! border-neutral-300! text-neutral-900' : ''"
           @click="deletePrimed ? (buttonFunction && buttonFunction()) : primeDeleteButton()"
+          title="Delete"
   >
-    <span class="material-symbols-sharp text-neutral-400"
+    <span class="material-symbols-sharp text-neutral-500"
           :class="deletePrimed ? 'text-neutral-900!' : ''"
-          style="font-size: 23px; font-weight: 300;"
+          style="font-weight: 300;"
           :style="deletePrimed ? 'font-size: 24px' : 'font-size: 22px'"
     >
       {{ deletePrimed ? 'check' : 'delete' }}

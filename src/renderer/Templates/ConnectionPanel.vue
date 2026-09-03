@@ -24,9 +24,17 @@ const importGame = (): void => {
   toast('Importing game...', 'Attempting to import a game...');
   log('Attempting to import a game...');
 };
-const initCreateGame = (): void => {
-  addGameEntry(gameNameInputValue.value);
-  gameNameInputValue.value = '';
+const initCreateGame = async (): Promise<void> => {
+
+  try {
+    await addGameEntry(gameNameInputValue.value);
+    log(`Added game entry for ${gameNameInputValue.value}`);
+    toast('Operation Succeeded', `Game "${gameNameInputValue.value}" has been created`);
+    gameNameInputValue.value = '';
+  } catch (error) {
+    log(`initCreateGame: ${error}`, 'error');
+    toast('Operation Failed', error, 'error');
+  }
 };
 
 const requestExitApplication = async () => {
@@ -58,9 +66,9 @@ const requestExitApplication = async () => {
     </div>
     <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'create' ? '' : 'hidden'">
       <div class="flex w-full gap-2">
-        <DefaultTextInput identifier="game-name" placeholder="Enter Game Name" v-model="gameNameInputValue" />
-        <DefaultButton buttonText="Create" v-bind:buttonFunction="initCreateGame" />
-        <DefaultButton buttonText="Import" v-bind:buttonFunction="importGame" />
+        <DefaultTextInput identifier="game-name" placeholder="Enter Game Name" v-model="gameNameInputValue" @keyup.enter="initCreateGame" />
+        <DefaultButton buttonText="Create" :buttonFunction="initCreateGame" />
+        <DefaultButton buttonText="Import" :buttonFunction="importGame" />
       </div>
       <GameEntryContainer />
     </div>
