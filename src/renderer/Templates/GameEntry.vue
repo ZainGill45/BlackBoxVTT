@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Game } from '../../shared/schemas/game';
 import { deleteGameEntry } from '../gameEntryController';
+import { loadGame } from '../gameEnterController';
 
 import DefaultButton from './DefaultButton.vue';
 import DeleteIconButton from './DeleteIconButton.vue';
@@ -17,6 +18,15 @@ const deleteEntryRequested = () => {
     gameSizeBytes: props.game.gameSizeBytes
   });
 };
+
+const enterGameRequested = () => {
+  loadGame({
+    schemaVersion: props.game.schemaVersion,
+    uuid: props.game.uuid,
+    name: props.game.name,
+    gameSizeBytes: props.game.gameSizeBytes
+  });
+}
 </script>
 
 <template>
@@ -26,7 +36,7 @@ const deleteEntryRequested = () => {
         <p class="text-xs ml-1.5">{{ game.name }}</p>
       </div>
       <div class="w-fit flex justify-center items-center gap-2">
-        <DefaultButton buttonText="Enter"/>
+        <DefaultButton buttonText="Enter" :buttonFunction="enterGameRequested"/>
         <DeleteIconButton :buttonFunction="deleteEntryRequested"/>
       </div>
     </div>
