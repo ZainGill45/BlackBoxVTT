@@ -8,6 +8,7 @@ import GameEntryContainer from "./GameEntryContainer.vue";
 import DefaultTextInput from "./DefaultTextInput.vue";
 import HorizontalRule from "./HorizontalRule.vue";
 import DefaultButton from "./DefaultButton.vue";
+import DefaultIconButton from "./DefaultIconButton.vue";
 
 const handleTabSwitch = (tab: TabName): void => {
   activeTab.value = tab;
@@ -50,26 +51,24 @@ const requestExitApplication = async () => {
 
 <template>
   <section class="flex w-2/7 flex-col items-center gap-2 border border-neutral-600 bg-linear-to-b from-neutral-800 via-neutral-900 to-neutral-950 p-2 pb-2.5 shadow-lg shadow-black/50">
-    <button type="button" class="absolute top-6 right-8 cursor-pointer hover:opacity-80 focus:opacity-80" @click="requestExitApplication">
-      <span class="material-symbols-sharp text-neutral-50">close</span>
-    </button>
+    <DefaultIconButton iconName="close" ariaLabel="Exit Application" class="absolute! top-6 right-8 inline-block! h-auto! w-auto! cursor-pointer! border-0! bg-transparent! p-0! text-neutral-50! transition-none! hover:border-transparent! hover:opacity-80 focus:opacity-80 active:bg-transparent! [&>span]:text-[24px]! [&>span]:font-normal! [&>span]:text-neutral-50!" @click="requestExitApplication" />
     <div class="flex w-full items-center">
-      <DefaultButton buttonText="Join Game" :buttonFunction="() => handleTabSwitch('join')" :class="activeTab === 'join' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm! border-r-0! hover:border-r!" />
-      <DefaultButton buttonText="Create Game" :buttonFunction="() => handleTabSwitch('create')" :class="activeTab === 'create' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm!" />
+      <DefaultButton buttonText="Join Game" :class="activeTab === 'join' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm! border-r-0! hover:border-r!" @click="handleTabSwitch('join')" />
+      <DefaultButton buttonText="Create Game" :class="activeTab === 'create' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm!" @click="handleTabSwitch('create')" />
     </div>
     <HorizontalRule />
     <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'join' ? '' : 'hidden'">
       <div class="flex w-full gap-2">
         <DefaultTextInput identifier="server-ip" placeholder="Enter Server IP" />
         <DefaultTextInput identifier="server-port" placeholder="Enter Port" class="w-28!" />
-        <DefaultButton buttonText="Connect" :buttonFunction="connectToServer" />
+        <DefaultButton buttonText="Connect" @click="connectToServer" />
       </div>
     </div>
     <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'create' ? '' : 'hidden'">
       <div class="flex w-full gap-2">
         <DefaultTextInput identifier="game-name" placeholder="Enter Game Name" v-model="gameNameInputValue" @keyup.enter="initCreateGame" />
-        <DefaultButton buttonText="Create" :buttonFunction="initCreateGame" />
-        <DefaultButton buttonText="Import" :buttonFunction="importGame" />
+        <DefaultButton buttonText="Create" @click="initCreateGame" />
+        <DefaultButton buttonText="Import" @click="importGame" />
       </div>
       <GameEntryContainer />
     </div>

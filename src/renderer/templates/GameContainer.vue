@@ -22,8 +22,8 @@ const requestExitApplication = async () => {
 <template>
   <div class="w-screen h-screen">
     <div class="flex flex-col gap-1.5 absolute top-4 left-4">
-      <DefaultIconButton iconName="power_settings_new" ariaLabel="Exit Application" :buttonFunction="requestExitApplication" />
-      <DefaultIconButton iconName="logout" ariaLabel="Logout" :buttonFunction="exitGameRequested" />
+      <DefaultIconButton iconName="power_settings_new" ariaLabel="Exit Application" @click="requestExitApplication" />
+      <DefaultIconButton iconName="logout" ariaLabel="Logout" @click="exitGameRequested" />
       <DefaultIconButton iconName="arrow_selector_tool" ariaLabel="Select Tool" />
       <DefaultIconButton iconName="design_services" ariaLabel="Measure Tool" />
       <DefaultIconButton iconName="palette" ariaLabel="Paint Tool" />

@@ -36,8 +36,8 @@ const enterGameRequested = () => {
         <p class="text-xs ml-1.5">{{ game.name }}</p>
       </div>
       <div class="w-fit flex justify-center items-center gap-2">
-        <DefaultButton buttonText="Enter" :buttonFunction="enterGameRequested" />
-        <DeleteIconButton :buttonFunction="deleteEntryRequested" />
+        <DefaultButton buttonText="Enter" @click="enterGameRequested" />
+        <DeleteIconButton @click="deleteEntryRequested" />
       </div>
     </div>
   </div>
