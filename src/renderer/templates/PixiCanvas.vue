@@ -126,7 +126,7 @@ onMounted(async () => {
         return;
 
       const gridTile = new Graphics();
-      gridTile.rect(gridCordCenterPoint.x!, gridCordCenterPoint.y!, gridCellSize, gridCellSize);
+      gridTile.rect(gridCordCenterPoint.x, gridCordCenterPoint.y, gridCellSize, gridCellSize);
       gridTile.fill(0xffffff);
 
       gridTile.onRender = () => {
@@ -191,12 +191,10 @@ onMounted(async () => {
     if (newScaleX < minScale) {
       newScaleX = minScale;
       newScaleY = minScale;
-      zoomDelta = minScale / container.scale.x;
     }
     if (newScaleX > maxScale) {
       newScaleX = maxScale;
       newScaleY = maxScale;
-      zoomDelta = maxScale / container.scale.x;
     }
 
     container.scale.set(newScaleX, newScaleY);

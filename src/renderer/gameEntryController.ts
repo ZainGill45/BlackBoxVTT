@@ -22,7 +22,7 @@ export const addGameEntry = async (userInput: string) => {
     throw new Error(message);
   }
 
-  log(`Render side schema validation passed for ${parsedGame.data} sending to main process`);
+  log(`Render side schema validation passed for ${parsedGame.data.name} sending to main process`);
 
   try {
     await window.electronAPI.requestCreateGame(parsedGame.data);
@@ -81,7 +81,7 @@ export const deleteGameEntry = async (game: Game) => {
     await window.electronAPI.requestDeleteGame(game);
     log(`Successfully deleted ${game.name}`);
     toast("Operation Successful", `${game.name} was successfully deleted.`);
-    updateGameEntries();
+    await updateGameEntries();
   } catch (error) {
     log(`Error occured while deleting ${game.name} ${error}`);
     toast("Operation Failure", `Error occured while deleting ${game.name} ${error}`, "error");

@@ -4,7 +4,7 @@ import { ref } from "vue";
 
 export type AppState = "connection" | "loading" | "game";
 
-export let currentAppState = ref<AppState>("connection");
+export const currentAppState = ref<AppState>("connection");
 
 export const loadGame = (game: Game) => {
   log(`Loading game: ${game.name} (${game.uuid})`);

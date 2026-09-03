@@ -2,7 +2,7 @@
 import { ref } from "vue";
 
 const deletePrimeTime = 5000;
-let deletePrimed = ref(false);
+const deletePrimed = ref(false);
 
 const primeDeleteButton = () => {
   deletePrimed.value = true;
@@ -10,7 +10,7 @@ const primeDeleteButton = () => {
 };
 
 defineProps<{
-  buttonFunction?: Function;
+  buttonFunction?: () => void;
 }>();
 </script>
 

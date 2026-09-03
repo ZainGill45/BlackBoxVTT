@@ -10,8 +10,8 @@ const props = defineProps<{
   game: Game;
 }>();
 
-const deleteEntryRequested = () => {
-  deleteGameEntry({
+const deleteEntryRequested = async (): Promise<void> => {
+  await deleteGameEntry({
     schemaVersion: props.game.schemaVersion,
     uuid: props.game.uuid,
     name: props.game.name,

@@ -26,7 +26,7 @@ export const toast = (title: string, content: unknown, type: "info" | "warning" 
   } else if (content instanceof Error) {
     sanitizedContent = content.message;
   } else if (content && typeof content === "object" && "message" in content) {
-    sanitizedContent = String((content as any).message);
+    sanitizedContent = String(content.message);
   } else {
     sanitizedContent = String(content);
   }

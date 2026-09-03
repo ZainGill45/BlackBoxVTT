@@ -20,7 +20,7 @@ export const log = (content: unknown, type: "info" | "warning" | "error" = "info
   } else if (content instanceof Error) {
     sanitizedContent = content.message;
   } else if (content && typeof content === "object" && "message" in content) {
-    sanitizedContent = String((content as any).message);
+    sanitizedContent = String(content.message);
   } else {
     sanitizedContent = String(content);
   }

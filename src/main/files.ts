@@ -100,14 +100,14 @@ export const deleteGameData = async (game: Game): Promise<void> => {
       try {
         await fs.promises.rm(path.join(gameFolderPath, game.uuid), { recursive: true, force: true });
         log(`Deleted data directory for ${game.name}`);
-        return Promise.resolve();
+        return;
       } catch (error) {
         throw error;
       }
     }
   }
 
-  return Promise.reject();
+  throw new Error(`Could not find data directory for ${game.name}`);
 };
 
 export const ensureFileStructure = async (): Promise<void> => {

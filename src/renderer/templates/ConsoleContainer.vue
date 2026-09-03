@@ -22,7 +22,7 @@ const vFocus = {
   mounted: (element: HTMLElement) => element.focus(),
 };
 
-const handleCommand = async (): Promise<void> => {
+const handleCommand = (): void => {
   const commandInput = consoleInput.value.toLocaleLowerCase().trim();
 
   if (commandInput === "")
@@ -89,19 +89,21 @@ watch(() => logs.value.length, async () => {
   }
 });
 
-const toggleConsole = async (): Promise<void> => {
-  consoleOpen.value = !consoleOpen.value;
+watch(consoleOpen, async (isConsoleOpen) => {
+  if (!isConsoleOpen)
+    return;
 
   await nextTick();
 
   if (consoleLogContainer.value) {
     consoleLogContainer.value.scrollTop = consoleLogContainer.value.scrollHeight;
   }
-};
-const handleKeyDown = (event: KeyboardEvent) => {
+});
+
+const handleKeyDown = (event: KeyboardEvent): void => {
   if (event.code === "Backquote") {
     event.preventDefault();
-    toggleConsole();
+    consoleOpen.value = !consoleOpen.value;
   }
 };
 

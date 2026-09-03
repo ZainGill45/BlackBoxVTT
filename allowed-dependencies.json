@@ -1,0 +1,27 @@
+{
+  "dependencies": [
+    "material-symbols",
+    "pixi.js",
+    "vue",
+    "zod"
+  ],
+  "devDependencies": [
+    "@electron-forge/cli",
+    "@electron-forge/plugin-vite",
+    "@eslint/js",
+    "@tailwindcss/vite",
+    "@types/node",
+    "@vitejs/plugin-vue",
+    "dependency-cruiser",
+    "dprint",
+    "electron",
+    "eslint",
+    "eslint-plugin-vue",
+    "globals",
+    "tailwindcss",
+    "typescript",
+    "typescript-eslint",
+    "vite",
+    "vue-tsc"
+  ]
+}
