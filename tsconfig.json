@@ -1,36 +1,36 @@
 {
-    "compilerOptions": {
-        "target": "ESNext",
-        "module": "ESNext",
-        "moduleResolution": "Bundler",
-        "strict": true,
-        "noEmit": true,
-        "isolatedModules": true,
-        "lib": [
-            "ESNext",
-            "DOM",
-            "DOM.Iterable"
-        ],
-        "types": [
-            "node",
-            "vite/client"
-        ],
-        "skipLibCheck": true,
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "allowUnusedLabels": false,
-        "noUncheckedSideEffectImports": true,
-        "noFallthroughCasesInSwitch": true,
-        "allowUnreachableCode": false,
-        "noUncheckedIndexedAccess": true,
-        "noPropertyAccessFromIndexSignature": true,
-        "erasableSyntaxOnly": true,
-        "noImplicitOverride": true
-    },
-    "include": [
-        "src/**/*.ts",
-        "src/**/*.vue",
-        "*.config.ts",
-        "forge.env.d.ts"
-    ]
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "skipLibCheck": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "allowUnusedLabels": false,
+    "noUncheckedSideEffectImports": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false,
+    "noUncheckedIndexedAccess": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "erasableSyntaxOnly": true,
+    "noImplicitOverride": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.vue",
+    "*.config.ts",
+    "forge.env.d.ts"
+  ]
 }

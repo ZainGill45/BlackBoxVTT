@@ -2,8 +2,8 @@
 const model = defineModel<string>();
 
 defineProps<{
-  identifier: string,
-  placeholder: string,
+  identifier: string;
+  placeholder: string;
 }>();
 </script>
 

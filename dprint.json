@@ -1,0 +1,67 @@
+{
+  "excludes": [
+    "**/node_modules",
+    "**/.claude",
+    "**/.vite",
+    "package-lock.json",
+    "src/assets"
+  ],
+  "typescript": {
+    "lineWidth": 100000,
+    "indentWidth": 2,
+    "useTabs": false,
+    "newLineKind": "crlf",
+    "semiColons": "always",
+    "quoteStyle": "alwaysDouble",
+    "quoteProps": "asNeeded",
+    "trailingCommas": "onlyMultiLine",
+    "bracePosition": "sameLine",
+    "nextControlFlowPosition": "sameLine",
+    "useBraces": "maintain",
+    "arrowFunction.useParentheses": "force",
+    "spaceSurroundingProperties": true,
+    "preferSingleLine": true,
+    "objectExpression.preferSingleLine": false,
+    "objectPattern.preferSingleLine": false,
+    "typeLiteral.preferSingleLine": false,
+    "module.sortImportDeclarations": "maintain",
+    "module.sortExportDeclarations": "maintain",
+    "importDeclaration.sortNamedImports": "maintain",
+    "exportDeclaration.sortNamedExports": "maintain"
+  },
+  "markup": {
+    "printWidth": 100000,
+    "indentWidth": 2,
+    "quotes": "double",
+    "preferAttrsSingleLine": true,
+    "scriptIndent": false,
+    "styleIndent": false,
+    "vBindStyle": "short",
+    "vOnStyle": "short",
+    "lineBreak": "crlf"
+  },
+  "malva": {
+    "printWidth": 100000,
+    "indentWidth": 2,
+    "quotes": "alwaysDouble",
+    "lineBreak": "crlf",
+    "preferSingleLine": true
+  },
+  "json": {
+    "lineWidth": 100000,
+    "indentWidth": 2,
+    "newLineKind": "crlf"
+  },
+  "markdown": {
+    "lineWidth": 100000,
+    "newLineKind": "crlf",
+    "textWrap": "never"
+  },
+  "plugins": [
+    "npm:@dprint/typescript@0.96.1",
+    "npm:@dprint/json@0.23.0",
+    "npm:@dprint/markdown@0.23.2",
+    "npm:dprint-plugin-markup@0.27.3",
+    "npm:dprint-plugin-malva@0.16.0"
+  ]
+}

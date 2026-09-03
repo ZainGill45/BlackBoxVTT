@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { exitGame } from '../gameEnterController.js';
-import { toast } from '../toast.js';
-import { log } from '../logger.js';
+import { exitGame } from "../gameEnterController.js";
+import { toast } from "../toast.js";
+import { log } from "../logger.js";
 
-import PixiCanvas from './PixiCanvas.vue';
-import DefaultIconButton from './DefaultIconButton.vue';
+import PixiCanvas from "./PixiCanvas.vue";
+import DefaultIconButton from "./DefaultIconButton.vue";
 const exitGameRequested = () => {
   exitGame();
-}
+};
 
 const requestExitApplication = async () => {
   try {
-     await window.electronAPI.requestApplicationExit();
+    await window.electronAPI.requestApplicationExit();
   } catch (error) {
-    log(`requestExitApplication: ${error}`, 'error');
-    toast('Operation Failure', `requestExitApplication: ${error}`, 'error')
+    log(`requestExitApplication: ${error}`, "error");
+    toast("Operation Failure", `requestExitApplication: ${error}`, "error");
   }
 };
 </script>
@@ -36,8 +36,7 @@ const requestExitApplication = async () => {
       <DefaultIconButton iconName="token" ariaLabel="Token Layer" />
       <DefaultIconButton iconName="map" ariaLabel="Map Layer" />
     </div>
-    <PixiCanvas class="w-screen h-screen z-0"/>
-    <div class="w-sm h-screen bg-neutral-800 border-l border-neutral-700 absolute right-0 top-0">
-    </div>
+    <PixiCanvas class="w-screen h-screen z-0" />
+    <div class="w-sm h-screen bg-neutral-800 border-l border-neutral-700 absolute right-0 top-0"></div>
   </div>
 </template>

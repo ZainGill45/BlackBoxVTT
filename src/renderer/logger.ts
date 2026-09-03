@@ -1,13 +1,13 @@
-import { Log } from '../shared/types/Log'
+import { Log } from "../shared/types/Log";
 import { ref } from "vue";
 
 const logRetentionCount = 512;
 
 export const logs = ref<Log[]>([]);
 
-export const log = (content: string, type: 'info' | 'warning' | 'error' = 'info'): void => {
-    window.electronAPI.requestLogUpdate(content, type);
-}
+export const log = (content: string, type: "info" | "warning" | "error" = "info"): void => {
+  window.electronAPI.requestLogUpdate(content, type);
+};
 export const initializeLogger = (): void => {
   window.electronAPI.onLogAdded((newLog: Log) => {
     logs.value.push(newLog);
@@ -16,4 +16,4 @@ export const initializeLogger = (): void => {
       logs.value.shift();
     }
   });
-}
+};

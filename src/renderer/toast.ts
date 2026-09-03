@@ -1,4 +1,4 @@
-﻿import { ref } from "vue";
+import { ref } from "vue";
 import { log } from "./logger";
 
 export interface Toast {
@@ -21,11 +21,11 @@ export const toast = (title: string, content: unknown, type: "info" | "warning" 
 
   let sanitizedContent: string;
 
-  if (typeof content === 'string') {
+  if (typeof content === "string") {
     sanitizedContent = content;
   } else if (content instanceof Error) {
     sanitizedContent = content.message;
-  } else if (content && typeof content === 'object' && 'message' in content) {
+  } else if (content && typeof content === "object" && "message" in content) {
     sanitizedContent = String((content as any).message);
   } else {
     sanitizedContent = String(content);
@@ -36,7 +36,7 @@ export const toast = (title: string, content: unknown, type: "info" | "warning" 
     title: title,
     content: sanitizedContent,
     type: type,
-  }
+  };
   toasts.value.push(newToast);
   log(`New toast added with ID ${toastID} array length is now ${toasts.value.length}`);
 
@@ -44,13 +44,13 @@ export const toast = (title: string, content: unknown, type: "info" | "warning" 
 };
 
 const dismissToast = (id: number): void => {
-  const index = toasts.value.findIndex(toast => toast.id === id);
+  const index = toasts.value.findIndex((toast) => toast.id === id);
 
   if (index === -1) {
-    log(`No toast with id = ${id} found returning`)
+    log(`No toast with id = ${id} found returning`);
     return;
   }
 
   toasts.value.splice(index, 1);
-  log(`Toast with id = ${id} removed array length is now ${toasts.value.length}`)
+  log(`Toast with id = ${id} removed array length is now ${toasts.value.length}`);
 };

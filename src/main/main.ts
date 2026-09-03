@@ -11,14 +11,16 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     fullscreen: true,
     webPreferences: {
-      preload: join(__dirname, 'preload.js'),
+      preload: join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-    }
+    },
   });
 
-  onLogCreated((log) => { mainWindow.webContents.send('new-log-added', log) });
+  onLogCreated((log) => {
+    mainWindow.webContents.send("new-log-added", log);
+  });
 
   mainWindow.setMenuBarVisibility(false);
   mainWindow.setAutoHideMenuBar(false);
@@ -28,10 +30,10 @@ const createWindow = () => {
   } else {
     mainWindow.loadFile(join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`)).then(() => log(`Loading index.html from ${MAIN_WINDOW_VITE_NAME}`));
   }
-}
+};
 
 app.whenReady().then(() => {
-  ipcMain.handle('receiveEnsureFileSystemStructureRequest', async (event) => {
+  ipcMain.handle("receiveEnsureFileSystemStructureRequest", async (event) => {
     verifyIPCSender(mainWindow, event);
 
     try {
@@ -41,7 +43,7 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('receiveApplicationExitRequest', (event) => {
+  ipcMain.handle("receiveApplicationExitRequest", (event) => {
     verifyIPCSender(mainWindow, event);
 
     BrowserWindow.getAllWindows().forEach((openWindow) => {
@@ -53,13 +55,13 @@ app.whenReady().then(() => {
     app.quit();
   });
 
-  ipcMain.handle('receiveLogUpdateRequest', (event, content: string, type: 'info' | 'warning' | 'error' = 'info') => {
+  ipcMain.handle("receiveLogUpdateRequest", (event, content: string, type: "info" | "warning" | "error" = "info") => {
     verifyIPCSender(mainWindow, event);
 
     log(content, type);
   });
 
-  ipcMain.handle('receiveGameReadRequest', async (event): Promise<Game[]> => {
+  ipcMain.handle("receiveGameReadRequest", async (event): Promise<Game[]> => {
     verifyIPCSender(mainWindow, event);
 
     try {
@@ -69,15 +71,15 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('receiveGameCreateRequest', async (event, game: Game): Promise<void> => {
+  ipcMain.handle("receiveGameCreateRequest", async (event, game: Game): Promise<void> => {
     verifyIPCSender(mainWindow, event);
 
     const parsedGame = GameSchema.safeParse(game);
     if (!parsedGame.success) {
-      const rejectMessage = parsedGame.error.issues[0]?.message ?? 'Invalid game schema detected';
-      log(rejectMessage, 'error');
+      const rejectMessage = parsedGame.error.issues[0]?.message ?? "Invalid game schema detected";
+      log(rejectMessage, "error");
       throw new Error(rejectMessage);
-    };
+    }
 
     try {
       await initializeNewGame(parsedGame.data);
@@ -87,13 +89,13 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('receiveGameDeleteRequest', (event, game: Game): Promise<void> => {
+  ipcMain.handle("receiveGameDeleteRequest", (event, game: Game): Promise<void> => {
     verifyIPCSender(mainWindow, event);
 
     return deleteGameData(game);
   });
 
-  app.on('activate', () => {
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
@@ -102,8 +104,8 @@ app.whenReady().then(() => {
   createWindow();
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });

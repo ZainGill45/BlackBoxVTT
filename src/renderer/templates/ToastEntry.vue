@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import type { Toast } from '../toast';
+import type { Toast } from "../toast";
 
 const borderColors: Record<string, string> = {
-	info: 'border-neutral-600',
-	warning: 'border-amber-300',
-	error: 'border-red-500'
-}
+  info: "border-neutral-600",
+  warning: "border-amber-300",
+  error: "border-red-500",
+};
 
 const textColors: Record<string, string> = {
-	info: 'text-neutral-300',
-	warning: 'text-amber-300',
-	error: 'text-red-500',
-}
+  info: "text-neutral-300",
+  warning: "text-amber-300",
+  error: "text-red-500",
+};
 
 defineProps<{
-  toast: Toast
+  toast: Toast;
 }>();
 </script>
 

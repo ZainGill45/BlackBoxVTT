@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref } from "vue";
 
 const deletePrimeTime = 5000;
 let deletePrimed = ref(false);
@@ -7,7 +7,7 @@ let deletePrimed = ref(false);
 const primeDeleteButton = () => {
   deletePrimed.value = true;
   setTimeout(() => deletePrimed.value = false, deletePrimeTime);
-}
+};
 
 defineProps<{
   buttonText: string;

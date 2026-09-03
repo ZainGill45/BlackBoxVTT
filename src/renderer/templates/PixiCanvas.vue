@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { Application, Graphics, Container, FederatedWheelEvent } from 'pixi.js';
-import { onMounted, onUnmounted, useTemplateRef } from 'vue';
-import 'pixi.js/unsafe-eval';
+import { Application, Graphics, Container, FederatedWheelEvent } from "pixi.js";
+import { onMounted, onUnmounted, useTemplateRef } from "vue";
+import "pixi.js/unsafe-eval";
 
-const canvas = useTemplateRef<HTMLDivElement>('canvas');
+const canvas = useTemplateRef<HTMLDivElement>("canvas");
 const gridCellSize = 70;
 const gridColumns = 25;
 const gridRows = 25;
@@ -33,17 +33,14 @@ const buildGrid = (sizeX: number, sizeY: number, cellSize: number, columns: numb
   });
 
   return grid;
-}
-const getGridCordinate = (globalPositionX: number, globalPositionY: number, container: Container): { x: number | undefined, y: number | undefined } => {
-  const cordinate: { x: number | undefined, y: number | undefined } = { x: undefined, y: undefined };
+};
+const getGridCordinate = (globalPositionX: number, globalPositionY: number, container: Container): { x: number | undefined; y: number | undefined; } => {
+  const cordinate: { x: number | undefined; y: number | undefined; } = { x: undefined, y: undefined };
 
-  const worldPoint = { x: globalPositionX, y: globalPositionY }
-  const localContainerPosition = container.toLocal(worldPoint)
+  const worldPoint = { x: globalPositionX, y: globalPositionY };
+  const localContainerPosition = container.toLocal(worldPoint);
 
-  if (localContainerPosition.x < 0
-    || localContainerPosition.y < 0
-    || localContainerPosition.x > gridCellSize * gridColumns
-    || localContainerPosition.y > gridCellSize * gridRows) {
+  if (localContainerPosition.x < 0 || localContainerPosition.y < 0 || localContainerPosition.x > gridCellSize * gridColumns || localContainerPosition.y > gridCellSize * gridRows) {
     return cordinate;
   }
 
@@ -68,22 +65,19 @@ const getGridCordinate = (globalPositionX: number, globalPositionY: number, cont
   }
 
   return cordinate;
-}
-const getGridCordinateLocalPoint = (cordinateX: number, cordinateY: number): { x: number | undefined, y: number | undefined } => {
-  const cordinate: { x: number | undefined, y: number | undefined } = { x: undefined, y: undefined };
+};
+const getGridCordinateLocalPoint = (cordinateX: number, cordinateY: number): { x: number | undefined; y: number | undefined; } => {
+  const cordinate: { x: number | undefined; y: number | undefined; } = { x: undefined, y: undefined };
 
-  if (cordinateX < 0
-      || cordinateY < 0
-      || cordinateX > gridColumns
-      || cordinateY > gridRows) {
+  if (cordinateX < 0 || cordinateY < 0 || cordinateX > gridColumns || cordinateY > gridRows) {
     return cordinate;
   }
 
-  cordinate.x = (cordinateX * gridCellSize) - (gridCellSize);
-  cordinate.y = (cordinateY * gridCellSize) - (gridCellSize);
+  cordinate.x = (cordinateX * gridCellSize) - gridCellSize;
+  cordinate.y = (cordinateY * gridCellSize) - gridCellSize;
 
   return cordinate;
-}
+};
 
 onMounted(async () => {
   if (!canvas.value)
@@ -94,12 +88,12 @@ onMounted(async () => {
   await app.init({
     resizeTo: window,
     backgroundAlpha: 0,
-    antialias: true
+    antialias: true,
   });
 
   canvas.value.appendChild(app.canvas);
 
-  app.stage.eventMode = 'static';
+  app.stage.eventMode = "static";
   app.stage.hitArea = app.screen;
 
   const containerWidth = gridColumns * gridCellSize;
@@ -109,7 +103,7 @@ onMounted(async () => {
   container.setSize(containerWidth, containerHeight);
   container.pivot.set(containerWidth / 2, containerHeight / 2);
   container.position.set(app.screen.width / 2, app.screen.height / 2);
-  container.eventMode = 'static';
+  container.eventMode = "static";
 
   app.stage.addChild(container);
 
@@ -123,7 +117,7 @@ onMounted(async () => {
 
   container.scale.set(0.5);
 
-  app.stage.on('mousedown', (event) => {
+  app.stage.on("mousedown", (event) => {
     if (event.button === 0) {
       const gridCordinate = getGridCordinate(event.globalX, event.globalY, container);
       const gridCordCenterPoint = getGridCordinateLocalPoint(gridCordinate.x!, gridCordinate.y!);
@@ -149,18 +143,18 @@ onMounted(async () => {
       panningActive = true;
       previousPointerX = event.global.x;
       previousPointerY = event.global.y;
-      app!.stage.cursor = 'grab';
-      container.cursor = 'grab';
+      app!.stage.cursor = "grab";
+      container.cursor = "grab";
     }
   });
-  app.stage.on('mouseup', (event) => {
+  app.stage.on("mouseup", (event) => {
     if (event.button === 1) {
       panningActive = false;
-      app!.stage.cursor = 'default';
-      container.cursor = 'default';
+      app!.stage.cursor = "default";
+      container.cursor = "default";
     }
   });
-  app.stage.on('mousemove', (event) => {
+  app.stage.on("mousemove", (event) => {
     if (panningActive) {
       const currentPanDeltaX = previousPointerX - event.global.x;
       const currentPanDeltaY = previousPointerY - event.global.y;
@@ -172,7 +166,7 @@ onMounted(async () => {
     }
   });
 
-  container.on('wheel', (event: FederatedWheelEvent) => {
+  container.on("wheel", (event: FederatedWheelEvent) => {
     event.preventDefault();
 
     const mouseLocalPos = container.toLocal(event.global);

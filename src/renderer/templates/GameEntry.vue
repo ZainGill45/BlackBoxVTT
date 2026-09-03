@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { Game } from '../../shared/schemas/game';
-import { deleteGameEntry } from '../gameEntryController';
-import { loadGame } from '../gameEnterController';
+import { Game } from "../../shared/schemas/game";
+import { deleteGameEntry } from "../gameEntryController";
+import { loadGame } from "../gameEnterController";
 
-import DefaultButton from './DefaultButton.vue';
-import DeleteIconButton from './DeleteIconButton.vue';
+import DefaultButton from "./DefaultButton.vue";
+import DeleteIconButton from "./DeleteIconButton.vue";
 
 const props = defineProps<{
-  game: Game
+  game: Game;
 }>();
 
 const deleteEntryRequested = () => {
@@ -15,7 +15,7 @@ const deleteEntryRequested = () => {
     schemaVersion: props.game.schemaVersion,
     uuid: props.game.uuid,
     name: props.game.name,
-    gameSizeBytes: props.game.gameSizeBytes
+    gameSizeBytes: props.game.gameSizeBytes,
   });
 };
 
@@ -24,9 +24,9 @@ const enterGameRequested = () => {
     schemaVersion: props.game.schemaVersion,
     uuid: props.game.uuid,
     name: props.game.name,
-    gameSizeBytes: props.game.gameSizeBytes
+    gameSizeBytes: props.game.gameSizeBytes,
   });
-}
+};
 </script>
 
 <template>
@@ -36,8 +36,8 @@ const enterGameRequested = () => {
         <p class="text-xs ml-1.5">{{ game.name }}</p>
       </div>
       <div class="w-fit flex justify-center items-center gap-2">
-        <DefaultButton buttonText="Enter" :buttonFunction="enterGameRequested"/>
-        <DeleteIconButton :buttonFunction="deleteEntryRequested"/>
+        <DefaultButton buttonText="Enter" :buttonFunction="enterGameRequested" />
+        <DeleteIconButton :buttonFunction="deleteEntryRequested" />
       </div>
     </div>
   </div>
