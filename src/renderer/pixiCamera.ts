@@ -43,8 +43,8 @@ export const registerPixiCamera = (app: Application, container: Container) => {
     const currentScaleY = container.scale.y;
 
     const zoomFactor = 0.1;
-    const minScale = 0.1;
-    const maxScale = 1.5;
+    const minScale = 0.2;
+    const maxScale = 2.5;
 
     let zoomDelta = 0;
 

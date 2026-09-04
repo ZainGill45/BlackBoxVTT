@@ -10,4 +10,4 @@ export const grid: Grid = {
   rows: 25,
 };
 
-export const rightSidebarWidth = 384;
+export const rightSidebarWidth = 357;

@@ -7,10 +7,10 @@ export const buildGridGraphic = (gridToBuild: Grid): Graphics => {
   grid.setSize(gridToBuild.columns * gridToBuild.cellSize, gridToBuild.rows * gridToBuild.cellSize);
 
   for (let i = 1; i < gridToBuild.columns; i++) {
-    grid.moveTo(i * gridToBuild.cellSize, 0).lineTo(i * gridToBuild.cellSize, gridToBuild.rows * gridToBuild.cellSize - 2);
+    grid.moveTo(i * gridToBuild.cellSize, 0).lineTo(i * gridToBuild.cellSize, gridToBuild.rows * gridToBuild.cellSize);
   }
   for (let i = 1; i < gridToBuild.rows; i++) {
-    grid.moveTo(0, i * gridToBuild.cellSize).lineTo(gridToBuild.columns * gridToBuild.cellSize - 2, i * gridToBuild.cellSize);
+    grid.moveTo(0, i * gridToBuild.cellSize).lineTo(gridToBuild.columns * gridToBuild.cellSize, i * gridToBuild.cellSize);
   }
 
   return grid;
