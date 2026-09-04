@@ -54,7 +54,7 @@ const requestExitApplication = async () => {
       <DefaultIconButton iconName="map" ariaLabel="Map Layer" :class="selectedLayer === 'map' ? 'border-neutral-400!' : ''" @click="switchSelectedLayer('map')"/>
     </div>
     <PixiCanvas class="w-screen h-screen z-0" />
-    <div class="h-screen bg-neutral-900 border-l border-neutral-700 absolute right-0 top-0" :class="`w-[${rightSidebarWidth}px]`" >
+    <div class="h-screen bg-neutral-900 border-l border-neutral-700 absolute right-0 top-0" :style="{width: `${rightSidebarWidth}px`}" >
 
     </div>
   </div>
