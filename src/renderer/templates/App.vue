@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { currentAppState } from "../gameEnterController";
+import { currentAppState } from "../gameInitializationController";
 
 import ConsoleContainer from "./ConsoleContainer.vue";
 import ConnectionPanel from "./ConnectionPanel.vue";

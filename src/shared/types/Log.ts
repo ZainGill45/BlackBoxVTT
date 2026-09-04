@@ -1,6 +1,8 @@
+import type { LogType } from "./LogType";
+
 export interface Log {
   id: number;
   content: string;
-  type: "info" | "warning" | "error";
+  type: LogType;
   timestamp: string;
 }

@@ -1,6 +1,7 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
+import { LogType } from "../shared/types/LogType";
 import { Game } from "../shared/schemas/game";
-import { Log } from "../shared/types/Log";
+import { log } from "./logger";
 
 contextBridge.exposeInMainWorld("electronAPI", {
   requestEnsureFileSystemStructure: () => ipcRenderer.invoke("receiveEnsureFileSystemStructureRequest"),
@@ -8,6 +9,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   requestGameEntryData: () => ipcRenderer.invoke("receiveGameReadRequest"),
   requestCreateGame: (game: Game) => ipcRenderer.invoke("receiveGameCreateRequest", game),
   requestDeleteGame: (game: Game) => ipcRenderer.invoke("receiveGameDeleteRequest", game),
-  requestLogUpdate: (content: string, type: "info" | "warning" | "error" = "info") => ipcRenderer.invoke("receiveLogUpdateRequest", content, type),
-  onLogAdded: (callback: (message: Log) => void) => ipcRenderer.on("new-log-added", (_event: IpcRendererEvent, value: Log) => callback(value)),
+  onMainLogged: () => ipcRenderer.on("onMainLogged", (content: unknown, type: LogType = "info") => log(content, type)),
 });

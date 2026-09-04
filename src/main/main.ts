@@ -2,7 +2,7 @@ import { initializeNewGame, getAllGameEntryData, deleteGameData, ensureFileStruc
 import { Game, GameSchema } from "../shared/schemas/game";
 import { app, ipcMain, BrowserWindow } from "electron";
 import { verifyIPCSender } from "./ipcVerifier";
-import { log, onLogCreated } from "./logger";
+import { log } from "./logger";
 import { join } from "path";
 
 let mainWindow: BrowserWindow;
@@ -16,10 +16,6 @@ const createWindow = () => {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
-
-  onLogCreated((log) => {
-    mainWindow.webContents.send("new-log-added", log);
   });
 
   mainWindow.setMenuBarVisibility(false);
@@ -53,12 +49,6 @@ app.whenReady().then(() => {
     });
 
     app.quit();
-  });
-
-  ipcMain.handle("receiveLogUpdateRequest", (event, content: string, type: "info" | "warning" | "error" = "info") => {
-    verifyIPCSender(mainWindow, event);
-
-    log(content, type);
   });
 
   ipcMain.handle("receiveGameReadRequest", async (event): Promise<Game[]> => {

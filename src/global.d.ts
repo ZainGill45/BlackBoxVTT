@@ -4,19 +4,17 @@ import { Log } from "./shared/types/Log";
 declare global {
   interface Window {
     electronAPI: {
+      requestGameEntryData: () => Promise<Game[]>;
+
       requestEnsureFileSystemStructure: () => Promise<void>;
       requestApplicationExit: () => Promise<void>;
-      requestLogUpdate: (content: string, type?: "info" | "warning" | "error") => Promise<void>;
+      
       requestCreateGame: (game: Game) => Promise<void>;
-      requestGameEntryData: () => Promise<Game[]>;
       requestDeleteGame: (game: Game) => Promise<void>;
-      onLogAdded: (callBack: (log: Log) => void) => void;
+
+      onMainLogged: (log: Log) => void;
     };
   }
-}
-
-declare global {
-  function getErrorMessage(error: unknown): string;
 }
 
 export {};

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { exitGame } from "../gameEnterController.js";
+import { exitGame } from "../gameInitializationController.js";
 import { toast } from "../toast.js";
 import { log } from "../logger.js";
 

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Game } from "../../shared/schemas/game";
+import { loadGame } from "../gameInitializationController";
 import { deleteGameEntry } from "../gameEntryController";
-import { loadGame } from "../gameEnterController";
+import { Game } from "../../shared/schemas/game";
 
-import DefaultButton from "./DefaultButton.vue";
 import DeleteIconButton from "./DeleteIconButton.vue";
+import DefaultButton from "./DefaultButton.vue";
 
 const props = defineProps<{
   game: Game;

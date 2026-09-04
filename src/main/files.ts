@@ -113,13 +113,13 @@ export const deleteGameData = async (game: Game): Promise<void> => {
 export const ensureFileStructure = async (): Promise<void> => {
   try {
     await fs.promises.readdir(gameFolderPath, { withFileTypes: true });
-    log("ensureFileStructure: successfully read from gameFolderPath");
+    log("successfully read from gameFolderPath");
   } catch {
-    log("ensureFileStructure: failed listing base file structure for application moving onto ensuring it exists", "warning");
+    log("failed listing base file structure for application moving onto ensuring it exists", "warning");
 
     try {
       await fs.promises.mkdir(gameFolderPath, { recursive: true });
-      log(`ensureFileStructure: successfully created new path at: ${gameFolderPath}`);
+      log(`successfully created new path at: ${gameFolderPath}`);
     } catch (error) {
       throw error;
     }

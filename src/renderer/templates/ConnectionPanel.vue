@@ -2,13 +2,12 @@
 import { ref } from "vue";
 import { log } from "../logger.js";
 import { toast } from "../toast.js";
-import { addGameEntry } from "../gameEntryController.js";
 
-import GameEntryContainer from "./GameEntryContainer.vue";
-import DefaultTextInput from "./DefaultTextInput.vue";
 import HorizontalRule from "./HorizontalRule.vue";
 import DefaultButton from "./DefaultButton.vue";
 import DefaultIconButton from "./DefaultIconButton.vue";
+import JoinGamePanel from "./JoinGamePanel.vue";
+import CreateGamePanel from "./CreateGamePanel.vue";
 
 const handleTabSwitch = (tab: TabName): void => {
   activeTab.value = tab;
@@ -17,27 +16,6 @@ const handleTabSwitch = (tab: TabName): void => {
 type TabName = "join" | "create";
 
 const activeTab = ref<TabName>("join");
-const gameNameInputValue = ref<string>("");
-
-const connectToServer = (): void => {
-  toast("Connecting to server...", "Attempting to connect to server please wait a few moments...");
-  log("Attempting to connect to server...");
-};
-const importGame = (): void => {
-  toast("Importing game...", "Attempting to import a game...");
-  log("Attempting to import a game...");
-};
-const initCreateGame = async (): Promise<void> => {
-  try {
-    await addGameEntry(gameNameInputValue.value);
-    log(`Added game entry for ${gameNameInputValue.value}`);
-    toast("Operation Succeeded", `Game "${gameNameInputValue.value}" has been created`);
-    gameNameInputValue.value = "";
-  } catch (error) {
-    log(`initCreateGame: ${error}`, "error");
-    toast("Operation Failed", error, "error");
-  }
-};
 
 const requestExitApplication = async () => {
   try {
@@ -57,20 +35,7 @@ const requestExitApplication = async () => {
       <DefaultButton buttonText="Create Game" :class="activeTab === 'create' ? 'bg-neutral-950' : ''" class="w-full! h-10! text-sm!" @click="handleTabSwitch('create')" />
     </div>
     <HorizontalRule />
-    <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'join' ? '' : 'hidden'">
-      <div class="flex w-full gap-2">
-        <DefaultTextInput identifier="server-ip" placeholder="Enter Server IP" />
-        <DefaultTextInput identifier="server-port" placeholder="Enter Port" class="w-28!" />
-        <DefaultButton buttonText="Connect" @click="connectToServer" />
-      </div>
-    </div>
-    <div class="h-full w-full flex flex-col items-center justify-center gap-2" :class="activeTab === 'create' ? '' : 'hidden'">
-      <div class="flex w-full gap-2">
-        <DefaultTextInput identifier="game-name" placeholder="Enter Game Name" v-model="gameNameInputValue" @keyup.enter="initCreateGame" />
-        <DefaultButton buttonText="Create" @click="initCreateGame" />
-        <DefaultButton buttonText="Import" @click="importGame" />
-      </div>
-      <GameEntryContainer />
-    </div>
+    <JoinGamePanel v-show="activeTab === 'join'" />
+    <CreateGamePanel v-show="activeTab === 'create'" />
   </section>
 </template>
