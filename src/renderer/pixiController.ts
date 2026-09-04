@@ -1,7 +1,7 @@
 import { Application, Graphics, Container } from "pixi.js";
+import { grid, rightSidebarWidth } from "./dataStore"; 
 import { registerPixiCamera } from "./pixiCamera";
 import { buildGridGraphic } from "./pixiGrid";
-import { grid } from "./dataStore"; 
 
 import "pixi.js/unsafe-eval";
 
@@ -31,7 +31,7 @@ export const initializePixi = async () => {
   const container = new Container();
   container.setSize(containerWidth, containerHeight);
   container.pivot.set(containerWidth / 2, containerHeight / 2);
-  container.position.set((app.screen.width / 2) - 192, app.screen.height / 2);
+  container.position.set((app.screen.width / 2) - (rightSidebarWidth / 2), app.screen.height / 2);
 
   app.stage.hitArea = app.screen;
   app.stage.eventMode = "static";
