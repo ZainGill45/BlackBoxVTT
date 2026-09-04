@@ -1,13 +1,25 @@
 import { Application, Graphics, Container } from "pixi.js";
-import { grid, rightSidebarWidth } from "./dataStore"; 
+import { grid, rightSidebarWidth } from "./dataStore";
 import { registerPixiCamera } from "./pixiCamera";
 import { buildGridGraphic } from "./pixiGrid";
+import { log } from "./logger";
 
 import "pixi.js/unsafe-eval";
 
+let app: Application | null = null;
+let container: Container | null = null;
+let canvas: HTMLElement | null = null;
+let gridGraphic: Graphics | null = null;
+let borderGraphic: Graphics | null = null;
+
+const containerWidth = grid.columns * grid.cellSize;
+const containerHeight = grid.rows * grid.cellSize;
+const gridLineThicknessInScreenPixels = 1;
+const borderLineThicknessInScreenPixels = 1;
+
 export const initializePixi = async () => {
-  const canvas = document.getElementById("pixi-canvas");
-  const app = new Application();
+  canvas = document.getElementById("pixi-canvas");
+  app = new Application();
 
   if (!canvas) {
     throw new Error("Canvas element not found");
@@ -17,6 +29,9 @@ export const initializePixi = async () => {
     resizeTo: window,
     backgroundAlpha: 0,
     antialias: true,
+    autoDensity: true,
+    resolution: window.devicePixelRatio,
+    preference: "webgpu",
     webgpu: {
       powerPreference: "high-performance",
       antialias: true,
@@ -25,10 +40,7 @@ export const initializePixi = async () => {
 
   canvas.appendChild(app.canvas);
 
-  const containerWidth = grid.columns * grid.cellSize;
-  const containerHeight = grid.rows * grid.cellSize;
-
-  const container = new Container();
+  container = new Container();
   container.sortableChildren = true;
   container.setSize(containerWidth, containerHeight);
   container.pivot.set(containerWidth / 2, containerHeight / 2);
@@ -40,6 +52,19 @@ export const initializePixi = async () => {
 
   app.stage.addChild(container);
 
+  container.scale.set(0.5);
+
+  buildStaticSceneBase();
+  redrawScaleDependentSceneBase(container.scale.x);
+  registerPixiCamera(app, container, redrawScaleDependentSceneBase);
+};
+
+const buildStaticSceneBase = () => {
+  if (!container) {
+    log("Container is null in buildStaticSceneBase", "error");
+    return;
+  }
+
   const backgroundGraphic = new Graphics();
   backgroundGraphic.rect(0, 0, containerWidth, containerHeight);
   backgroundGraphic.fill(0x262626);
@@ -47,8 +72,6 @@ export const initializePixi = async () => {
   container.addChild(backgroundGraphic);
 
   const crossHatchGraphic = new Graphics();
-  crossHatchGraphic.setSize(containerWidth, containerHeight);
-
   const density = 4;
   const step = grid.cellSize / density;
 
@@ -72,22 +95,38 @@ export const initializePixi = async () => {
     }
   }
 
-  crossHatchGraphic.stroke({ width: 2, pixelLine: true, color: 0x303030, alpha: 0.5 });
+  crossHatchGraphic.stroke({ width: 2, color: 0x303030, alpha: 0.5 });
   crossHatchGraphic.zIndex = 1;
   container.addChild(crossHatchGraphic);
 
-  const gridGraphic = buildGridGraphic(grid);
-  gridGraphic.stroke({pixelLine: true, width: 1, color: 0x404040});
+  gridGraphic = new Graphics();
   gridGraphic.zIndex = 2;
   container.addChild(gridGraphic);
 
-  const borderGraphic = new Graphics();
-  borderGraphic.rect(0, 0, containerWidth, containerHeight);
-  borderGraphic.stroke({ width: 1, pixelLine: true, color: 0x737373 });
+  borderGraphic = new Graphics();
   borderGraphic.zIndex = 4;
   container.addChild(borderGraphic);
+};
 
-  container.scale.set(0.5);
+const redrawScaleDependentSceneBase = (cameraScale: number) => {
+  if (!gridGraphic || !borderGraphic) {
+    log("Scene base graphics are not initialized in redrawScaleDependentSceneBase", "error");
+    return;
+  }
 
-  registerPixiCamera(app, container);
+  if (!Number.isFinite(cameraScale) || cameraScale <= 0) {
+    log(`Invalid camera scale ${cameraScale} in redrawScaleDependentSceneBase`, "error");
+    return;
+  }
+
+  const gridLineThicknessInLocalCoordinates = gridLineThicknessInScreenPixels / cameraScale;
+  const borderLineThicknessInLocalCoordinates = borderLineThicknessInScreenPixels / cameraScale;
+
+  gridGraphic.clear();
+  buildGridGraphic(grid, gridGraphic, gridLineThicknessInLocalCoordinates);
+  gridGraphic.fill(0x404040);
+
+  borderGraphic.clear();
+  borderGraphic.rect(0, 0, containerWidth, containerHeight);
+  borderGraphic.stroke({ width: borderLineThicknessInLocalCoordinates, color: 0x737373 });
 };

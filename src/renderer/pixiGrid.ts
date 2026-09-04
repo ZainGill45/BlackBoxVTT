@@ -1,19 +1,19 @@
 import { Container, Graphics } from "pixi.js";
 import { Grid, grid } from "./dataStore";
 
-export const buildGridGraphic = (gridToBuild: Grid): Graphics => {
-  const grid = new Graphics();
-
-  grid.setSize(gridToBuild.columns * gridToBuild.cellSize, gridToBuild.rows * gridToBuild.cellSize);
+export const buildGridGraphic = (gridToBuild: Grid, graphic: Graphics, localLineThickness: number): Graphics => {
+  const gridWidth = gridToBuild.columns * gridToBuild.cellSize;
+  const gridHeight = gridToBuild.rows * gridToBuild.cellSize;
+  const lineOffset = localLineThickness / 2;
 
   for (let i = 1; i < gridToBuild.columns; i++) {
-    grid.moveTo(i * gridToBuild.cellSize, 0).lineTo(i * gridToBuild.cellSize, gridToBuild.rows * gridToBuild.cellSize);
+    graphic.rect((i * gridToBuild.cellSize) - lineOffset, 0, localLineThickness, gridHeight);
   }
   for (let i = 1; i < gridToBuild.rows; i++) {
-    grid.moveTo(0, i * gridToBuild.cellSize).lineTo(gridToBuild.columns * gridToBuild.cellSize, i * gridToBuild.cellSize);
+    graphic.rect(0, (i * gridToBuild.cellSize) - lineOffset, gridWidth, localLineThickness);
   }
 
-  return grid;
+  return graphic;
 };
 export const getGridCordinate = (globalPositionX: number, globalPositionY: number, container: Container): { x: number | undefined; y: number | undefined; } => {
   const cordinate: { x: number | undefined; y: number | undefined; } = { x: undefined, y: undefined };

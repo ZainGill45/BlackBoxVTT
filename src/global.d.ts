@@ -8,7 +8,7 @@ declare global {
 
       requestEnsureFileSystemStructure: () => Promise<void>;
       requestApplicationExit: () => Promise<void>;
-      
+
       requestCreateGame: (game: Game) => Promise<void>;
       requestDeleteGame: (game: Game) => Promise<void>;
 

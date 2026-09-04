@@ -6,3 +6,5 @@
 - Recommend or make a code change only when it solves a concrete problem in the current code. State the problem and its observable impact before proposing the change. Theoretical purity, generalized best practices, personal preference, and the possibility that another design could be narrower or cleaner are not sufficient reasons to change working code.
 - Add, remove, or replace dependencies only with explicit user approval. When approval is given, update `allowed-dependencies.json` with `package.json`; the dependency gate requires them to match.
 - Run `npm run lint` after every code change. This command is the complete project gate. A code change is complete only when the command passes.
+- Before changing an existing feature, run `rg --files docs` and read every document whose filename names that feature or an interacting feature.
+- Feature documentation records only current, settled behavior. When a change alters documented behavior, invariants, reasoning, gotchas, or verification, update the matching files in `docs` in the same change.

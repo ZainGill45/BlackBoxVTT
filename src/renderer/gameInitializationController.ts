@@ -16,7 +16,7 @@ export const initializeStartUp = async () => {
   } catch (error) {
     log(`Error during start up initialization: ${error}`);
   }
-}
+};
 
 export const loadGame = (game: Game) => {
   log(`Loading game: ${game.name} (${game.uuid})`);

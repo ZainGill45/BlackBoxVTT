@@ -27,7 +27,7 @@ export const log = (content: unknown, type: LogType = "info"): void => {
     type: type,
     timestamp: new Date().toLocaleTimeString(undefined, options),
   };
-  
+
   logs.value.push(newLog);
 
   if (logs.value.length > logRetentionCount) {

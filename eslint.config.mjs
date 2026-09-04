@@ -13,6 +13,8 @@ const restrictPromiseMethod = (methodName) => ({
 export default tseslint.config(
   {
     ignores: ["node_modules/**", ".vite/**", "out/**", "src/assets/**", "eslint.config.mjs"],
+  },
+  {
     linterOptions: { noInlineConfig: true, reportUnusedDisableDirectives: "error" },
   },
   pluginVue.configs["flat/base"],

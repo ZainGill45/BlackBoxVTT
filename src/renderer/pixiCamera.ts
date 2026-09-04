@@ -4,7 +4,7 @@ let panningActive = false;
 let previousPointerX = 0;
 let previousPointerY = 0;
 
-export const registerPixiCamera = (app: Application, container: Container) => {
+export const registerPixiCamera = (app: Application, container: Container, handleScaleChanged: (scale: number) => void) => {
   app.stage.on("mousedown", (event) => {
     if (event.button === 1) {
       panningActive = true;
@@ -39,37 +39,23 @@ export const registerPixiCamera = (app: Application, container: Container) => {
     event.preventDefault();
 
     const mouseLocalPos = container.toLocal(event.global);
-    const currentScaleX = container.scale.x;
-    const currentScaleY = container.scale.y;
-
     const zoomFactor = 0.1;
     const minScale = 0.2;
     const maxScale = 2.5;
 
-    let zoomDelta = 0;
-
-    if (event.deltaY > 0) {
-      zoomDelta = 1 - zoomFactor;
-    } else if (event.deltaY < 0) {
-      zoomDelta = 1 + zoomFactor;
+    if (event.deltaY === 0) {
+      return;
     }
 
-    let newScaleX = currentScaleX * zoomDelta;
-    let newScaleY = currentScaleY * zoomDelta;
+    const zoomMultiplier = event.deltaY > 0 ? 1 / (1 + zoomFactor) : 1 + zoomFactor;
+    const newScale = Math.min(maxScale, Math.max(minScale, container.scale.x * zoomMultiplier));
 
-    if (newScaleX < minScale) {
-      newScaleX = minScale;
-      newScaleY = minScale;
-    }
-    if (newScaleX > maxScale) {
-      newScaleX = maxScale;
-      newScaleY = maxScale;
-    }
-
-    container.scale.set(newScaleX, newScaleY);
+    container.scale.set(newScale);
 
     const newMouseGlobalPos = container.toGlobal(mouseLocalPos);
     container.x += event.global.x - newMouseGlobalPos.x;
     container.y += event.global.y - newMouseGlobalPos.y;
+
+    handleScaleChanged(newScale);
   });
-}
+};
