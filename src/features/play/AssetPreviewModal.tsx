@@ -92,7 +92,7 @@ function AudioPreview({ preview }: { preview: AssetPreview }) {
         }
       />
       <div className={styles.audioHeading}>
-        <Button variant="ghost"
+        <Button variant="primary"
           type="button"
           className={styles.playButton}
           aria-label={playing ? 'Pause audio' : 'Play audio'}
