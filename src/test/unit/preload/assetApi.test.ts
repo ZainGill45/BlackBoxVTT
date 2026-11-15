@@ -1,16 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { assetIpcChannels } from '../../../shared/assets';
 import { createAssetApi } from '../../../preload/assetApi';
 
-let invoke: ReturnType<typeof vi.fn>;
-let on: ReturnType<typeof vi.fn>;
-let removeListener: ReturnType<typeof vi.fn>;
+let invoke: Mock<Parameters<typeof createAssetApi>[0]['invoke']>;
+let on: Mock<Parameters<typeof createAssetApi>[0]['on']>;
+let removeListener: Mock<Parameters<typeof createAssetApi>[0]['removeListener']>;
 let api: ReturnType<typeof createAssetApi>;
 
 beforeEach(() => {
   invoke = vi.fn(async () => ({ ok: true, value: [] }));
-  on = vi.fn();
-  removeListener = vi.fn();
+  on = vi.fn<Parameters<typeof createAssetApi>[0]['on']>();
+  removeListener = vi.fn<Parameters<typeof createAssetApi>[0]['removeListener']>();
   api = createAssetApi({ invoke, on, removeListener });
 });
 

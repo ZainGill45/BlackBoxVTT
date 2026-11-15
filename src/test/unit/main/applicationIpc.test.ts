@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { applicationIpcChannels } from '../../../shared/application';
 import {
   registerApplicationIpcHandlers,
@@ -12,10 +12,10 @@ type OpenExternalHandler = (
 
 let listeners: Map<string, () => void>;
 let handlers: Map<string, OpenExternalHandler>;
-let quit: ReturnType<typeof vi.fn>;
-let ready: ReturnType<typeof vi.fn>;
-let openExternal: ReturnType<typeof vi.fn>;
-let retryRenderer: ReturnType<typeof vi.fn>;
+let quit: Mock<() => void>;
+let ready: Mock<() => void>;
+let openExternal: Mock<(url: string) => Promise<void>>;
+let retryRenderer: Mock<() => void>;
 let unregister: () => void;
 
 beforeEach(() => {
@@ -37,10 +37,10 @@ beforeEach(() => {
       }
     }),
   };
-  quit = vi.fn();
-  ready = vi.fn();
+  quit = vi.fn<() => void>();
+  ready = vi.fn<() => void>();
   openExternal = vi.fn(async () => undefined);
-  retryRenderer = vi.fn();
+  retryRenderer = vi.fn<() => void>();
   unregister = registerApplicationIpcHandlers(
     ipc,
     quit,

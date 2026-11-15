@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useCallback, useMemo, useState } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, type Mock } from 'vitest';
 import type { SystemJournalEntry } from '../../../shared/journal';
 import type { CharacterSheetJournalApi } from '../../../shared/journalWindows';
 import type { ChatRollDefinition } from '../../../shared/chatRoll';
@@ -61,7 +61,7 @@ interface RenderPanelOptions {
   canEdit?: boolean;
   className?: string;
   entries: SystemJournalEntry[];
-  onSendRoll?: ReturnType<typeof vi.fn>;
+  onSendRoll?: Mock<(key: string, definition: ChatRollDefinition) => Promise<boolean>>;
   preparedMaximumOffset?: number;
   references: Dnd5eCharacterSpellReference[];
   slots?: Partial<Record<Dnd5eSpellSlotLevel, number>>;

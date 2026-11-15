@@ -1,14 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { Collapsible } from '../../../../components/ui/Collapsible';
 
-let onExpandedChange: ReturnType<typeof vi.fn>;
+let onExpandedChange: Mock<(expanded: boolean) => void>;
 let trigger: HTMLElement;
 let region: HTMLElement;
 
 beforeEach(() => {
-  onExpandedChange = vi.fn();
+  onExpandedChange = vi.fn<(expanded: boolean) => void>();
   render(
     <Collapsible label="Advanced details" onExpandedChange={onExpandedChange}>
       Diagnostic content

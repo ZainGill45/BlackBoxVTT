@@ -1,16 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { createJournalApi } from '../../../preload/journalApi';
 import { journalIpcChannels } from '../../../shared/journal';
 
-let invoke: ReturnType<typeof vi.fn>;
-let on: ReturnType<typeof vi.fn>;
-let removeListener: ReturnType<typeof vi.fn>;
+let invoke: Mock<Parameters<typeof createJournalApi>[0]['invoke']>;
+let on: Mock<Parameters<typeof createJournalApi>[0]['on']>;
+let removeListener: Mock<Parameters<typeof createJournalApi>[0]['removeListener']>;
 let api: ReturnType<typeof createJournalApi>;
 
 beforeEach(() => {
   invoke = vi.fn(async () => ({ ok: true, value: null }));
-  on = vi.fn();
-  removeListener = vi.fn();
+  on = vi.fn<Parameters<typeof createJournalApi>[0]['on']>();
+  removeListener = vi.fn<Parameters<typeof createJournalApi>[0]['removeListener']>();
   api = createJournalApi({ invoke, on, removeListener });
 });
 

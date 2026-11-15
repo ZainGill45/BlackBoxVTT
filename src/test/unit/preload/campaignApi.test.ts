@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
   campaignIpcChannels,
   type CampaignResult,
@@ -8,7 +8,7 @@ import { createCampaignApi } from '../../../preload/campaignApi';
 
 const campaignId = '8ef0e899-f66d-4a0b-9bd6-03c0f90c3325';
 
-let invoke: ReturnType<typeof vi.fn>;
+let invoke: Mock<Parameters<typeof createCampaignApi>[0]>;
 let api: ReturnType<typeof createCampaignApi>;
 
 beforeEach(() => {

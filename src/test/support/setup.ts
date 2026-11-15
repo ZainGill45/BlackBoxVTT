@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
+import type {} from 'vitest/jsdom';
 import { installBlackBoxStub } from './blackBox';
 
 if (!('ResizeObserver' in globalThis)) {
@@ -45,6 +46,10 @@ HTMLCanvasElement.prototype.getContext = (() => null) as never;
 // Electron guarantees the preload bridge exists before the renderer runs. jsdom
 // has no preload, so it is stubbed here to keep that guarantee true in tests.
 beforeEach(() => {
+  // Node also exposes Web Storage globals. Renderer tests must use the
+  // isolated browser storage from this test file's jsdom environment.
+  vi.stubGlobal('localStorage', jsdom.window.localStorage);
+  vi.stubGlobal('sessionStorage', jsdom.window.sessionStorage);
   installBlackBoxStub();
 });
 
